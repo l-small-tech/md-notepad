@@ -134,6 +134,25 @@ describe('keyEventToAction — the M6 table', () => {
   });
 });
 
+describe('keyEventToAction — reader full screen', () => {
+  test('bare F11 toggles fullscreen on any platform', () => {
+    expect(keyEventToAction(key({ key: 'F11' }), 'other')).toEqual({ type: 'toggle-fullscreen' });
+    expect(keyEventToAction(key({ key: 'F11' }), 'mac')).toEqual({ type: 'toggle-fullscreen' });
+  });
+
+  test('modified F11 is not the shortcut', () => {
+    expect(keyEventToAction(key({ key: 'F11', ctrlKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'F11', shiftKey: true }), 'other')).toBeNull();
+  });
+
+  test('Ctrl+Cmd+F toggles fullscreen on mac only', () => {
+    expect(keyEventToAction(key({ key: 'f', ctrlKey: true, metaKey: true }), 'mac')).toEqual({
+      type: 'toggle-fullscreen',
+    });
+    expect(keyEventToAction(key({ key: 'f', ctrlKey: true, metaKey: true }), 'other')).toBeNull();
+  });
+});
+
 describe('keyEventToAction — non-interception', () => {
   test('mod+F is NOT intercepted (CM6 search owns it)', () => {
     expect(keyEventToAction(key({ key: 'f', ctrlKey: true }), 'other')).toBeNull();

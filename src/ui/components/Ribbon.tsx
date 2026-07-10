@@ -22,10 +22,15 @@ import { appendMentions } from '../../core/link-mentions';
 import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
+import { detectPlatform } from '../keymap';
+import { cycleReaderView } from '../reader-fullscreen';
 import { insertFileLink } from '../session';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
+
+/** Platform-correct shortcut hint for the fullscreen tooltips. */
+const FULLSCREEN_KEY = detectPlatform(navigator.platform) === 'mac' ? '⌃⌘F' : 'F11';
 
 function applyFormat(action: FormatAction): void {
   const state = tabsStore.getState();
@@ -232,6 +237,17 @@ export function Ribbon() {
         >
           ⧉
         </button>
+        {mode === 'read' && (
+          <button
+            className="ribbon-btn"
+            aria-label="Full screen"
+            title={`Full screen — fills the window first, the screen second (${FULLSCREEN_KEY}; Esc steps back)`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={cycleReaderView}
+          >
+            ⛶
+          </button>
+        )}
       </div>
     </div>
   );

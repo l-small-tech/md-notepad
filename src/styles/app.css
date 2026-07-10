@@ -252,6 +252,55 @@
   user-select: none;
 }
 
+/* ---- Reader full screen -------------------------------------------------- */
+
+/* Both reader view stages ('window' and 'screen') hide every piece of chrome
+   so the reading pane is the only thing left; the 'screen' stage additionally
+   makes the OS window fullscreen (see ui/reader-fullscreen). */
+.app-fullscreen .tabbar,
+.app-fullscreen .ribbon,
+.app-fullscreen .statusbar,
+.app-fullscreen .file-explorer {
+  display: none;
+}
+
+/* Floating stage controls in the top-right corner (expand ⛶ / step back) —
+   faint until hovered so they never compete with the text. */
+.reader-view-controls {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  z-index: 40;
+  display: flex;
+  gap: 6px;
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.reader-view-controls:hover,
+.reader-view-controls:focus-within {
+  opacity: 1;
+}
+
+.reader-view-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reader-view-btn:hover,
+.reader-view-btn:focus-visible {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
 /* ---- File explorer ------------------------------------------------------ */
 
 .editor-area {

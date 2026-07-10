@@ -30,6 +30,12 @@ const MODES: { value: EditorMode; label: string }[] = [
   { value: 'read', label: 'Read' },
 ];
 
+const READER_MARGINS: { value: Settings['readerMargins']; label: string }[] = [
+  { value: 'narrow', label: 'Narrow' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'wide', label: 'Wide' },
+];
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
@@ -133,6 +139,23 @@ export function SettingsDialog() {
                 }
               }}
             />
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Read mode margins</span>
+            <select
+              className="settings-control"
+              value={settings.readerMargins}
+              onChange={(e) =>
+                update({ readerMargins: e.target.value as Settings['readerMargins'] })
+              }
+            >
+              {READER_MARGINS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="settings-row settings-row-inline">

@@ -17,6 +17,7 @@ describe('normalizeSettings', () => {
       defaultMode: 'split',
       wordWrap: false,
       ligatures: false,
+      readerMargins: 'wide',
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
@@ -25,6 +26,7 @@ describe('normalizeSettings', () => {
       defaultMode: 'split',
       wordWrap: false,
       ligatures: false,
+      readerMargins: 'wide',
     });
   });
 
@@ -36,6 +38,7 @@ describe('normalizeSettings', () => {
       defaultMode: 'zen',
       wordWrap: 'yes',
       ligatures: 1,
+      readerMargins: 'huge',
     });
     expect(settings).toEqual(DEFAULT_SETTINGS);
   });
@@ -55,6 +58,12 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ fontSize: 2 }).fontSize).toBe(8);
     expect(normalizeSettings({ fontSize: 400 }).fontSize).toBe(40);
     expect(normalizeSettings({ fontSize: Number.NaN }).fontSize).toBe(DEFAULT_SETTINGS.fontSize);
+  });
+
+  test('every reader-margins mode is accepted', () => {
+    for (const margins of ['narrow', 'normal', 'wide'] as const) {
+      expect(normalizeSettings({ readerMargins: margins }).readerMargins).toBe(margins);
+    }
   });
 
   test('unknown extra fields are dropped', () => {

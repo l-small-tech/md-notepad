@@ -19,6 +19,9 @@ export interface CursorReadout {
   col: number;
 }
 
+/** Read-mode view stage — see `readerView` below. */
+export type ReaderViewStage = 'normal' | 'window' | 'screen';
+
 export interface UiState {
   notice: string | null;
   cursor: CursorReadout | null;
@@ -26,6 +29,13 @@ export interface UiState {
   settingsOpen: boolean;
   /** The left-side file explorer drawer is open. Transient, never persisted. */
   explorerOpen: boolean;
+  /**
+   * Read-mode full screen, in two stages: 'window' hides all app chrome but
+   * keeps the window as-is; 'screen' additionally makes the OS window
+   * fullscreen. Only the value lives here — the window-API side effect is
+   * owned by `../reader-fullscreen`, which is the only writer.
+   */
+  readerView: ReaderViewStage;
   /** Show a status-bar notice that auto-clears after `ms` (default 6s). */
   showNotice: (message: string, ms?: number) => void;
   clearNotice: () => void;
@@ -34,6 +44,7 @@ export interface UiState {
   openSettings: () => void;
   closeSettings: () => void;
   toggleExplorer: () => void;
+  setReaderView: (stage: ReaderViewStage) => void;
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -43,6 +54,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   cursor: null,
   settingsOpen: false,
   explorerOpen: false,
+  readerView: 'normal',
 
   showNotice(message, ms = 6000) {
     if (noticeTimer !== null) {
@@ -80,6 +92,10 @@ export const uiStore = createStore<UiState>()((set) => ({
 
   toggleExplorer() {
     set((s) => ({ explorerOpen: !s.explorerOpen }));
+  },
+
+  setReaderView(stage) {
+    set({ readerView: stage });
   },
 }));
 

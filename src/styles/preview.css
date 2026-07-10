@@ -27,11 +27,22 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  /* A comfortable centered reading column; the side gutters grow with the
-     window so lines never sprawl edge-to-edge. Overrides .preview's padding
-     and line-height (this rule comes later in the same file). */
-  padding: 2.5rem clamp(1.25rem, calc((100% - 72ch) / 2), 12rem);
+  /* A centered reading column; the side gutters grow with the window so lines
+     never sprawl edge-to-edge. Overrides .preview's padding and line-height
+     (this rule comes later in the same file). The gutter width follows the
+     "Read mode margins" setting, mirrored onto <html data-reader-margins> by
+     main.tsx — each mode caps the text column (ch) and the gutters (rem).
+     This is the 'normal' value; narrow/wide override below. */
+  padding: 2.5rem clamp(1.25rem, calc((100% - 88ch) / 2), 7rem);
   line-height: 1.75;
+}
+
+:root[data-reader-margins='narrow'] .reader-preview {
+  padding: 2.5rem clamp(1rem, calc((100% - 110ch) / 2), 3rem);
+}
+
+:root[data-reader-margins='wide'] .reader-preview {
+  padding: 2.5rem clamp(1.5rem, calc((100% - 70ch) / 2), 14rem);
 }
 
 /* Focusable only to receive keyboard scroll — no focus ring for a reading view. */

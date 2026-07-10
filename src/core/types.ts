@@ -43,6 +43,13 @@ export interface TabState {
   savedMtimeMs: number | null;
 }
 
+/**
+ * Read-mode side margins. Named modes instead of pixels — each maps to a
+ * responsive gutter in preview.css (narrow ≈ near-full-width text, wide ≈ a
+ * book-like centered column).
+ */
+export type ReaderMargins = 'narrow' | 'normal' | 'wide';
+
 export interface Settings {
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
@@ -52,4 +59,5 @@ export interface Settings {
   wordWrap: boolean;
   /** Fira Code ligatures (-> as a single glyph). Default on. */
   ligatures: boolean;
+  readerMargins: ReaderMargins;
 }

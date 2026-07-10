@@ -30,7 +30,8 @@ export type ShortcutAction =
   | { type: 'open-settings' }
   | { type: 'font-inc' }
   | { type: 'font-dec' }
-  | { type: 'font-reset' };
+  | { type: 'font-reset' }
+  | { type: 'toggle-fullscreen' };
 
 /** The subset of KeyboardEvent this function reads (so tests need no DOM). */
 export interface KeyDescriptor {
@@ -54,6 +55,24 @@ export function keyEventToAction(e: KeyDescriptor, platform: Platform): Shortcut
   // F2 rename is unmodified and platform-independent.
   if (e.key === 'F2' && !mod && !e.altKey) {
     return { type: 'rename-tab' };
+  }
+
+  // Full screen: F11 is the unmodified convention on Windows/Linux (and works
+  // on external mac keyboards too); Ctrl+Cmd+F is the macOS-native chord. Both
+  // must be matched before the mod/wrongMod guard — on mac the chord holds
+  // Ctrl AND Cmd, which that guard would reject as a "wrong modifier".
+  if (e.key === 'F11' && !mod && !e.altKey && !e.shiftKey) {
+    return { type: 'toggle-fullscreen' };
+  }
+  if (
+    platform === 'mac' &&
+    e.metaKey &&
+    e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey &&
+    e.key.toLowerCase() === 'f'
+  ) {
+    return { type: 'toggle-fullscreen' };
   }
 
   if (!mod || wrongMod || e.altKey) {

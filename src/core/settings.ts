@@ -5,7 +5,7 @@
  * hands back `unknown` JSON. `normalizeSettings` is the single choke point
  * that turns anything — missing file, older schema, hand-edited garbage —
  * into a valid `Settings`, field by field. There is deliberately no zod/
- * schema library: six fields don't justify a dependency.
+ * schema library: a handful of fields doesn't justify a dependency.
  */
 
 import type { Settings } from './types';
@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultMode: 'raw',
   wordWrap: true,
   ligatures: true,
+  readerMargins: 'normal',
 };
 
 export const MIN_FONT_SIZE = 8;
@@ -46,5 +47,9 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.defaultMode,
     wordWrap: typeof r.wordWrap === 'boolean' ? r.wordWrap : d.wordWrap,
     ligatures: typeof r.ligatures === 'boolean' ? r.ligatures : d.ligatures,
+    readerMargins:
+      r.readerMargins === 'narrow' || r.readerMargins === 'normal' || r.readerMargins === 'wide'
+        ? r.readerMargins
+        : d.readerMargins,
   };
 }

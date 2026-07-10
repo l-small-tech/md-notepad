@@ -30,6 +30,11 @@ import { uiStore } from './ui/stores/ui';
 import { ipc } from './ipc/commands';
 import { resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
+import {
+  cycleReaderView,
+  initReaderFullscreen,
+  stepBackReaderView,
+} from './ui/reader-fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
@@ -45,11 +50,13 @@ const IMAGE_FILTERS = [
 /* ---- Settings → DOM (theme, ligatures, editor font size) ---------------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize } = settingsStore.getState().settings;
+  const { ligatures, fontSize, readerMargins } = settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
+  // Read-mode margins — preview.css maps each value to a responsive gutter.
+  root.dataset.readerMargins = readerMargins;
 }
 
 applyDomSettings();
@@ -217,6 +224,11 @@ function dispatchShortcut(action: ShortcutAction): void {
     case 'font-reset':
       settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
       break;
+    case 'toggle-fullscreen':
+      // Advances the read-mode view one stage (window → screen → normal).
+      // Only READ mode enters; the cycle no-ops in edit modes.
+      cycleReaderView();
+      break;
   }
 }
 
@@ -226,6 +238,14 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && uiStore.getState().settingsOpen) {
     event.preventDefault();
     uiStore.getState().closeSettings();
+    return;
+  }
+  // Escape steps the reader view back one stage (screen → window → normal;
+  // checked after the settings modal so a dialog opened while fullscreen
+  // closes first).
+  if (event.key === 'Escape' && uiStore.getState().readerView !== 'normal') {
+    event.preventDefault();
+    stepBackReaderView();
     return;
   }
   const action = keyEventToAction(event, platform);
@@ -271,6 +291,8 @@ async function boot(): Promise<void> {
 
   applyWindowTitle();
   tabsStore.subscribe(applyWindowTitle);
+  // Auto-exit reader full screen when the active tab leaves read mode.
+  initReaderFullscreen();
 
   createRoot(document.getElementById('root')!).render(<App />);
 
