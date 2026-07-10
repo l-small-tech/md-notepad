@@ -9,6 +9,9 @@
 
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { DocModel } from '../core/doc-model';
+import { imageMimeType, localImageToInline } from '../core/images';
+import { dirName } from '../core/session/plan-flush';
+import { ipc } from '../ipc/commands';
 import { renderMermaidBlocks } from './mermaid';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
@@ -16,6 +19,13 @@ const RENDER_DEBOUNCE_MS = 200;
 
 export interface PreviewPaneOptions {
   dark: boolean;
+  /**
+   * Path of the document being previewed. Relative image references are
+   * resolved against its directory and inlined as data URLs (local files can't
+   * load by path under the app CSP). Omit for an unsaved doc — images with a
+   * relative path are then left as-is.
+   */
+  docPath?: string | null;
 }
 
 export interface PreviewPane {
@@ -37,11 +47,47 @@ export function attachPreviewPane(
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const sequence = createRenderSequence();
+  const docDir = options.docPath ? dirName(options.docPath) : null;
+  // Absolute image path → data URL, cached for the pane's lifetime so typing
+  // (which re-renders on every keystroke) re-reads each image at most once.
+  const imageCache = new Map<string, string>();
 
   function clearTimer(): void {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
+    }
+  }
+
+  /**
+   * Swap every relative/local `<img>` src for a data URL read off disk. Runs
+   * after each render; bails the moment a newer render supersedes this one so
+   * it never mutates stale DOM. External (http/https) and already-inlined
+   * (data:) images are left untouched.
+   */
+  async function inlineLocalImages(token: number): Promise<void> {
+    if (!docDir) {
+      return;
+    }
+    for (const img of [...host.querySelectorAll('img')]) {
+      const raw = img.getAttribute('src') ?? '';
+      const abs = localImageToInline(docDir, raw);
+      if (!abs) {
+        continue;
+      }
+      let dataUrl = imageCache.get(abs);
+      if (dataUrl === undefined) {
+        try {
+          dataUrl = `data:${imageMimeType(abs)};base64,${await ipc.readFileBase64(abs)}`;
+          imageCache.set(abs, dataUrl);
+        } catch {
+          continue; // missing/unreadable — leave the broken img as the signal
+        }
+        if (disposed || !sequence.isCurrent(token)) {
+          return; // a newer render replaced the DOM while we were reading
+        }
+      }
+      img.setAttribute('src', dataUrl);
     }
   }
 
@@ -53,6 +99,7 @@ export function attachPreviewPane(
     }
     host.innerHTML = html;
     await renderMermaidBlocks(host, { dark });
+    await inlineLocalImages(token);
   }
 
   function scheduleRender(): void {

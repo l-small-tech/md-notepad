@@ -21,8 +21,11 @@ describe('normalizeSettings', () => {
       readerMargins: 'wide',
       confirmFileMove: false,
       liveSave: true,
+      previewTabs: false,
       workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
       defaultWorkspaceColor: 'blue',
+      imagePasteLocation: 'workspaceRoot',
+      imageFolderName: 'assets',
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
@@ -34,8 +37,11 @@ describe('normalizeSettings', () => {
       readerMargins: 'wide',
       confirmFileMove: false,
       liveSave: true,
+      previewTabs: false,
       workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
       defaultWorkspaceColor: 'blue',
+      imagePasteLocation: 'workspaceRoot',
+      imageFolderName: 'assets',
     });
   });
 
@@ -50,8 +56,11 @@ describe('normalizeSettings', () => {
       readerMargins: 'huge',
       confirmFileMove: 'sure',
       liveSave: 'always',
+      previewTabs: 'maybe',
       workspaces: 'not-a-list',
       defaultWorkspaceColor: 'mauve',
+      imagePasteLocation: 'wherever',
+      imageFolderName: 42,
     });
     expect(settings).toEqual(DEFAULT_SETTINGS);
   });
@@ -98,6 +107,19 @@ describe('normalizeSettings', () => {
 
   test('empty notesDir string means "use platform default"', () => {
     expect(normalizeSettings({ notesDir: '' }).notesDir).toBeNull();
+  });
+
+  test('image paste location accepts the three modes and rejects others', () => {
+    for (const loc of ['subfolder', 'sameFolder', 'workspaceRoot'] as const) {
+      expect(normalizeSettings({ imagePasteLocation: loc }).imagePasteLocation).toBe(loc);
+    }
+    expect(normalizeSettings({ imagePasteLocation: 'nope' }).imagePasteLocation).toBe('subfolder');
+  });
+
+  test('image folder name trims, and blank/non-string falls back to default', () => {
+    expect(normalizeSettings({ imageFolderName: '  assets  ' }).imageFolderName).toBe('assets');
+    expect(normalizeSettings({ imageFolderName: '   ' }).imageFolderName).toBe('images');
+    expect(normalizeSettings({ imageFolderName: 5 }).imageFolderName).toBe('images');
   });
 
   test('every editor mode is accepted as a default, including read', () => {

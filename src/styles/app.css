@@ -67,6 +67,11 @@
   flex: 1 1 auto;
 }
 
+/* Preview tab (VSCode-style): italic label until the tab is made permanent. */
+.tab-preview .tab-title {
+  font-style: italic;
+}
+
 .tab-dirty-dot {
   color: var(--accent);
   font-weight: 700;
@@ -115,6 +120,22 @@
 }
 
 .tab-new:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* "Close all tabs" — sits beside the new-tab button; same footprint. */
+.tab-close-all {
+  flex: 0 0 auto;
+  width: 30px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.tab-close-all:hover {
   background: var(--bg-hover);
   color: var(--fg);
 }
@@ -544,6 +565,10 @@
 
 .context-menu-item:hover {
   background: var(--bg-hover);
+}
+
+.context-menu-item.is-danger {
+  color: var(--danger);
 }
 
 .context-menu-swatches {

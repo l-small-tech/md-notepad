@@ -53,6 +53,16 @@ export interface TabState {
 export type ReaderMargins = 'narrow' | 'normal' | 'wide';
 
 /**
+ * Where a pasted/dropped image is saved, relative to the markdown file it is
+ * embedded into:
+ * - 'subfolder'     — a folder (named by `imageFolderName`) beside the .md file.
+ * - 'sameFolder'    — right next to the .md file, no subfolder.
+ * - 'workspaceRoot' — one shared folder (named by `imageFolderName`) at the
+ *                     root of the workspace the file belongs to.
+ */
+export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
+
+/**
  * Workspace accent colors — named tokens, not hex, so the palette can be
  * tuned per theme in CSS without touching persisted settings.
  */
@@ -104,8 +114,23 @@ export interface Settings {
    * Note tabs always autosave regardless. Default off.
    */
   liveSave: boolean;
+  /**
+   * Preview tabs (VSCode-style): single-clicking a file in the explorer opens
+   * it in a shared, italic "preview" tab; selecting another file reuses that
+   * tab instead of piling up new ones. The preview becomes a permanent tab as
+   * soon as you edit it, double-click it in the explorer, or pick "Keep open".
+   * Default on; off makes every click open its own persistent tab.
+   */
+  previewTabs: boolean;
   /** Extra explorer workspaces beyond the default notes dir. */
   workspaces: WorkspaceEntry[];
   /** Accent color of the default (notes dir) workspace, which has no entry above. */
   defaultWorkspaceColor: WorkspaceColor | null;
+  /** Where pasted/dropped images land relative to their markdown file. Default 'subfolder'. */
+  imagePasteLocation: ImagePasteLocation;
+  /**
+   * Folder name used by the 'subfolder' and 'workspaceRoot' storage modes
+   * (ignored by 'sameFolder'). Default 'images'.
+   */
+  imageFolderName: string;
 }

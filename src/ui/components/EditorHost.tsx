@@ -19,7 +19,7 @@ import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
-import { getCursor, noteCursor } from '../session';
+import { getCursor, noteCursor, savePastedImageForTab } from '../session';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -90,6 +90,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               uiStore.getState().reportCursor(tabId, { line: pos.line, col: pos.col });
               noteCursor(tabId, { anchor: pos.anchor, head: pos.head });
             },
+            saveImage: (data) => savePastedImageForTab(tabId, data),
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
@@ -101,6 +102,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           const { createMilkdownAdapter } = await import('../../editors/milkdown');
           return createMilkdownAdapter({
             onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
+            saveImage: (data) => savePastedImageForTab(tabId, data),
+            getDocPath: () => {
+              const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
+              return t ? (t.filePath ?? t.notePath) : null;
+            },
           });
         },
       },
@@ -149,7 +155,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     if (mode === 'split') {
       editorPane.style.flex = `0 0 ${splitRatio * 100}%`;
     }
-    const pane = attachPreviewPane(host, tab.model, { dark: isDark() });
+    const pane = attachPreviewPane(host, tab.model, {
+      dark: isDark(),
+      docPath: tab.filePath ?? tab.notePath,
+    });
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
     // Read mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.

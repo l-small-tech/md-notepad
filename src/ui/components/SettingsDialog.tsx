@@ -36,6 +36,12 @@ const READER_MARGINS: { value: Settings['readerMargins']; label: string }[] = [
   { value: 'wide', label: 'Wide' },
 ];
 
+const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[] = [
+  { value: 'subfolder', label: 'Subfolder next to the file' },
+  { value: 'sameFolder', label: 'Same folder as the file' },
+  { value: 'workspaceRoot', label: 'Shared folder at workspace root' },
+];
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
@@ -193,6 +199,55 @@ export function SettingsDialog() {
             />
             <span className="settings-label">Confirm before moving files between folders</span>
           </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.previewTabs}
+              onChange={(e) => update({ previewTabs: e.target.checked })}
+            />
+            <span className="settings-label">
+              Preview tabs (single-click opens in a reused, italic tab)
+            </span>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Pasted / dropped images</span>
+            <select
+              className="settings-control"
+              value={settings.imagePasteLocation}
+              onChange={(e) =>
+                update({ imagePasteLocation: e.target.value as Settings['imagePasteLocation'] })
+              }
+            >
+              {IMAGE_LOCATIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {settings.imagePasteLocation !== 'sameFolder' && (
+            <label className="settings-row">
+              <span className="settings-label">Image folder name</span>
+              <input
+                className="settings-control"
+                type="text"
+                value={settings.imageFolderName}
+                spellCheck={false}
+                placeholder="images"
+                // Persist the raw text; normalizeSettings trims and defaults a
+                // blank name on the next load, so an in-progress empty field is fine.
+                onChange={(e) => update({ imageFolderName: e.target.value })}
+                onBlur={(e) => {
+                  if (e.target.value.trim().length === 0) {
+                    update({ imageFolderName: 'images' });
+                  }
+                }}
+              />
+            </label>
+          )}
 
           <div className="settings-row settings-row-notes">
             <span className="settings-label">Notes folder</span>

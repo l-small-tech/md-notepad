@@ -724,14 +724,70 @@ describe('importFilesInto / savePastedFileInto', () => {
 });
 
 describe('appendImagesToMd (drop an image onto an md file)', () => {
-  test('copies the image beside the note and appends a reference at the end', async () => {
+  async function useSameFolder() {
+    const settings = await import('../stores/settings');
+    settings.settingsStore.getState().update({ imagePasteLocation: 'sameFolder' });
+  }
+
+  test('copies the image into the images subfolder and appends a reference (default)', async () => {
     const fs = makeFakeFs({ '/ws/note.md': '# Title', '/src/pic.png': 'PNG' });
     makeController(fs);
 
     await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
 
-    expect(fs.files.get('/ws/pic.png')).toBe('PNG'); // copied in
-    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](pic.png)\n');
+    expect(fs.files.get('/ws/images/pic.png')).toBe('PNG'); // default = images subfolder
+    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](./images/pic.png)\n');
+  });
+
+  test("'sameFolder' setting places the image beside the note", async () => {
+    const fs = makeFakeFs({ '/ws/note.md': '# Title', '/src/pic.png': 'PNG' });
+    makeController(fs);
+    await useSameFolder();
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
+
+    expect(fs.files.get('/ws/pic.png')).toBe('PNG');
+    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](./pic.png)\n');
+  });
+
+  test('an image from elsewhere in the same workspace is referenced in place, not copied', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/ws/pics/a.png': 'PNG' });
+    makeController(fs);
+    const settings = await import('../stores/settings');
+    settings.settingsStore.getState().update({
+      workspaces: [{ name: 'W', path: '/ws', color: null }],
+    });
+
+    // Default subfolder mode would otherwise copy into /ws/images.
+    await session.appendImagesToMd('/ws/note.md', ['/ws/pics/a.png']);
+
+    expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
+    expect(fs.files.has('/ws/images/a.png')).toBe(false);
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](./pics/a.png)\n');
+  });
+
+  test('an image from outside the workspace is copied into the images folder', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/outside/a.png': 'PNG' });
+    makeController(fs);
+    const settings = await import('../stores/settings');
+    settings.settingsStore.getState().update({
+      workspaces: [{ name: 'W', path: '/ws', color: null }],
+    });
+
+    await session.appendImagesToMd('/ws/note.md', ['/outside/a.png']);
+
+    expect(fs.files.get('/ws/images/a.png')).toBe('PNG'); // copied in
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](./images/a.png)\n');
+  });
+
+  test('a declined confirmation inserts nothing', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/src/pic.png': 'PNG' });
+    makeController(fs, undefined, { confirm: async () => false });
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
+
+    expect(fs.files.get('/ws/note.md')).toBe('body'); // untouched
+    expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
   });
 
   test('ignores non-image paths', async () => {
@@ -744,36 +800,75 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
     expect(fs.files.has('/ws/data.csv')).toBe(false);
   });
 
-  test('an image already beside the note is referenced in place, not re-copied', async () => {
+  test('an image already in the target dir is referenced in place, not re-copied', async () => {
     const fs = makeFakeFs({ '/ws/note.md': 'body', '/ws/pic.png': 'PNG' });
     makeController(fs);
+    await useSameFolder();
 
     await session.appendImagesToMd('/ws/note.md', ['/ws/pic.png']);
 
     expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![pic](pic.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![pic](./pic.png)\n');
   });
 
   test('an image name with spaces wraps the destination in angle brackets', async () => {
     const fs = makeFakeFs({ '/ws/note.md': 'body', '/src/my shot.png': 'PNG' });
     makeController(fs);
+    await useSameFolder();
 
     await session.appendImagesToMd('/ws/note.md', ['/src/my shot.png']);
 
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![my shot](<my shot.png>)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![my shot](<./my shot.png>)\n');
   });
 
   test('appends to the live model (not disk) when a tab already owns the file', async () => {
     const fs = makeFakeFs({ '/ws/note.md': 'on disk', '/src/pic.png': 'PNG' });
     const controller = makeController(fs);
+    await useSameFolder();
     await controller.openPaths(['/ws/note.md']);
     const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/ws/note.md')!;
 
     await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
 
-    expect(tab.model.getText()).toBe('on disk\n\n![pic](pic.png)\n');
+    expect(tab.model.getText()).toBe('on disk\n\n![pic](./pic.png)\n');
     expect(fs.files.get('/ws/note.md')).toBe('on disk'); // disk not clobbered under the open tab
     expect(fs.files.get('/ws/pic.png')).toBe('PNG'); // image still copied in
+  });
+});
+
+describe('savePastedImageForTab (editor paste)', () => {
+  test('writes the image into the images subfolder and returns a relative ref', async () => {
+    const fs = makeFakeFs();
+    makeController(fs);
+    const tabId = tabs.tabsStore.getState().tabs[0]!.id;
+    // Make it a file tab with a known directory so paths are deterministic.
+    tabs.tabsStore.getState().saveToPath(tabId, { filePath: '/ws/note.md', mtimeMs: 1 });
+
+    const ref = await session.savePastedImageForTab(tabId, {
+      base64: btoa('PNG'),
+      ext: '.png',
+      name: null,
+    });
+
+    expect(ref).not.toBeNull();
+    expect(ref!.src).toMatch(/^\.\/images\/pasted-\d{8}-\d{6}\.png$/);
+    expect(fs.files.get(`/ws/images/${ref!.alt}.png`)).toBe('PNG');
+  });
+
+  test('a named paste keeps its name', async () => {
+    const fs = makeFakeFs();
+    makeController(fs);
+    const tabId = tabs.tabsStore.getState().tabs[0]!.id;
+    tabs.tabsStore.getState().saveToPath(tabId, { filePath: '/ws/note.md', mtimeMs: 1 });
+
+    const ref = await session.savePastedImageForTab(tabId, {
+      base64: btoa('PNG'),
+      ext: '.png',
+      name: 'diagram',
+    });
+
+    expect(ref!.src).toBe('./images/diagram.png');
+    expect(fs.files.get('/ws/images/diagram.png')).toBe('PNG');
   });
 });
 
@@ -837,6 +932,27 @@ describe('renameExplorerEntry (explorer context menu)', () => {
     expect(fs.files.get('/ws/b.md')).toBe('B');
   });
 
+  test('does not double the extension when the user types it (no .md.md)', async () => {
+    const fs = makeFakeFs({ '/ws/old.md': 'body' });
+    makeController(fs);
+
+    await session.renameExplorerEntry('/ws/old.md', 'new.md', false);
+
+    expect(fs.files.has('/ws/new.md.md')).toBe(false);
+    expect(fs.files.get('/ws/new.md')).toBe('body');
+  });
+
+  test('typing the exact current name-with-extension is a no-op, not a double', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'body' });
+    makeController(fs);
+
+    await session.renameExplorerEntry('/ws/doc.md', 'doc.md', false);
+
+    expect(fs.files.get('/ws/doc.md')).toBe('body');
+    expect(fs.files.has('/ws/doc.md.md')).toBe(false);
+    expect(fs.ops.some((op) => op.startsWith('rename:'))).toBe(false);
+  });
+
   test('a file some tab has open goes through the tab-rename flow (tab retargeted)', async () => {
     const fs = makeFakeFs({ '/ws/doc.md': 'text' });
     const controller = makeController(fs);
@@ -882,6 +998,54 @@ describe('renameExplorerEntry (explorer context menu)', () => {
     expect(fs.files.get('/ws/archive/doc.md')).toBe('text');
     const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
     expect(tab.filePath).toBe('/ws/archive/doc.md');
+  });
+
+  test('an open file renamed with a typed extension keeps a single .md', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.renameExplorerEntry('/ws/doc.md', 'renamed.md', false);
+
+    expect(fs.files.get('/ws/renamed.md')).toBe('text');
+    expect(fs.files.has('/ws/renamed.md.md')).toBe(false);
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
+    expect(tab.filePath).toBe('/ws/renamed.md');
+  });
+});
+
+describe('deleteExplorerEntry (explorer context menu)', () => {
+  test('deletes a file after confirming', async () => {
+    const fs = makeFakeFs({ '/ws/junk.md': 'x' });
+    makeController(fs); // default confirm resolves true
+
+    await session.deleteExplorerEntry('/ws/junk.md');
+
+    expect(fs.files.has('/ws/junk.md')).toBe(false);
+    expect(fs.ops).toContain('delete:/ws/junk.md');
+  });
+
+  test('does nothing when the user cancels the confirm', async () => {
+    const fs = makeFakeFs({ '/ws/keep.md': 'x' });
+    makeController(fs, () => 111, { confirm: async () => false });
+
+    await session.deleteExplorerEntry('/ws/keep.md');
+
+    expect(fs.files.get('/ws/keep.md')).toBe('x');
+    expect(fs.ops.some((op) => op.startsWith('delete:'))).toBe(false);
+  });
+
+  test('closes the tab that owns the file so it cannot be recreated', async () => {
+    const fs = makeFakeFs({ '/ws/open.md': 'text' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/open.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.deleteExplorerEntry('/ws/open.md');
+
+    expect(fs.files.has('/ws/open.md')).toBe(false);
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === tabId)).toBe(false);
   });
 });
 
@@ -1297,5 +1461,85 @@ describe('insertFileLink (file/image links)', () => {
     await Promise.resolve();
 
     expect(calls).toEqual([]);
+  });
+});
+
+describe('preview tabs (openPaths)', () => {
+  test('a preview open replaces the current preview tab in place', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A', '/ws/b.md': 'B' });
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/ws/a.md'], { preview: true });
+    const previewA = tabs.tabsStore.getState().activeTab()!;
+    expect(previewA.preview).toBe(true);
+    const count = tabs.tabsStore.getState().tabs.length;
+
+    await controller.openPaths(['/ws/b.md'], { preview: true });
+
+    // Same count (slot reused); the first preview tab is gone; b is preview.
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(count);
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === previewA.id)).toBe(false);
+    const active = tabs.tabsStore.getState().activeTab()!;
+    expect(active.filePath).toBe('/ws/b.md');
+    expect(active.preview).toBe(true);
+  });
+
+  test('an edited preview tab is promoted, so the next preview opens a new tab', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A', '/ws/b.md': 'B' });
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/ws/a.md'], { preview: true });
+    const previewA = tabs.tabsStore.getState().activeTab()!;
+    previewA.model.pushText('A edited', 'cm6'); // promotes it to permanent
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === previewA.id)!.preview).toBe(false);
+    const count = tabs.tabsStore.getState().tabs.length;
+
+    await controller.openPaths(['/ws/b.md'], { preview: true });
+
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === previewA.id)).toBe(true);
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(count + 1);
+  });
+
+  test('a non-preview re-open of the preview tab promotes it (explorer double-click)', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A' });
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/ws/a.md'], { preview: true });
+    const id = tabs.tabsStore.getState().activeTabId;
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.preview).toBe(true);
+
+    await controller.openPaths(['/ws/a.md']); // pinned re-open
+
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.preview).toBe(false);
+  });
+});
+
+describe('closeAllTabsInteractive', () => {
+  test('closes every tab, leaving one fresh Untitled', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A', '/ws/b.md': 'B' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/a.md']);
+    await controller.openPaths(['/ws/b.md']);
+    expect(tabs.tabsStore.getState().tabs.length).toBeGreaterThan(1);
+
+    await controller.closeAllTabsInteractive();
+
+    const remaining = tabs.tabsStore.getState().tabs;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.kind).toBe('note');
+    expect(remaining[0]!.model.getText()).toBe('');
+  });
+
+  test('a cancel on a dirty file tab stops the sweep', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A' });
+    // The default saveDiscardCancel stub returns 'cancel'.
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/a.md']);
+    const fileTab = tabs.tabsStore.getState().activeTab()!;
+    fileTab.model.pushText('A edited', 'cm6'); // now dirty
+
+    await controller.closeAllTabsInteractive();
+
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === fileTab.id)).toBe(true);
   });
 });

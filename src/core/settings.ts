@@ -21,8 +21,11 @@ export const DEFAULT_SETTINGS: Settings = {
   readerMargins: 'normal',
   confirmFileMove: true,
   liveSave: false,
+  previewTabs: true,
   workspaces: [],
   defaultWorkspaceColor: null,
+  imagePasteLocation: 'subfolder',
+  imageFolderName: 'images',
 };
 
 export const MIN_FONT_SIZE = 8;
@@ -103,7 +106,20 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.readerMargins,
     confirmFileMove: typeof r.confirmFileMove === 'boolean' ? r.confirmFileMove : d.confirmFileMove,
     liveSave: typeof r.liveSave === 'boolean' ? r.liveSave : d.liveSave,
+    previewTabs: typeof r.previewTabs === 'boolean' ? r.previewTabs : d.previewTabs,
     workspaces: normalizeWorkspaces(r.workspaces),
     defaultWorkspaceColor: normalizeColor(r.defaultWorkspaceColor),
+    imagePasteLocation:
+      r.imagePasteLocation === 'subfolder' ||
+      r.imagePasteLocation === 'sameFolder' ||
+      r.imagePasteLocation === 'workspaceRoot'
+        ? r.imagePasteLocation
+        : d.imagePasteLocation,
+    // A blank or non-string folder name degrades to the default rather than
+    // producing a nameless subfolder.
+    imageFolderName:
+      typeof r.imageFolderName === 'string' && r.imageFolderName.trim().length > 0
+        ? r.imageFolderName.trim()
+        : d.imageFolderName,
   };
 }

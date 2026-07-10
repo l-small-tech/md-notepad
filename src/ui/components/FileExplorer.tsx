@@ -19,11 +19,15 @@
  * - OS drag-drop: main.tsx hit-tests Tauri's drag-drop events against the
  *   `data-drop-dir` attributes rendered here and copies the dropped md/image
  *   files into the hovered dir (`uiStore.dropTargetDir` drives the highlight).
+ *   Dropping image(s) onto an md file row (`data-drop-file`) instead embeds
+ *   them into that file (`appendImagesToMd`, which confirms first).
  *
  * Moving files WITHIN the workspace: drag a file/image row onto a folder row
  * or workspace header to MOVE it there via `moveExplorerEntryInto` (the
  * controller confirms first, VSCode-style, unless the user suppressed that in
- * settings). Implemented with raw pointer events, NOT HTML5 drag-and-drop:
+ * settings). Dragging an IMAGE row onto an md file row embeds it into that file
+ * instead of moving it (`appendImagesToMd`). Implemented with raw pointer
+ * events, NOT HTML5 drag-and-drop:
  * Tauri's OS drag-drop interception (which the Explorer-to-app drop feature
  * needs) swallows webview-internal HTML5 drags on Windows — `dragstart` never
  * fires and the OS shows a forbidden cursor. Pointer events are untouched by
@@ -39,17 +43,20 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { isImagePath } from '../../core/images';
+import { bytesToBase64, isImagePath } from '../../core/images';
 import { stripExtension } from '../../core/title';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
 import {
   addWorkspace,
+  appendImagesToMd,
   createNewFileIn,
   createNewFolderIn,
+  deleteExplorerEntry,
   getDefaultWorkspacePath,
   listNoteFiles,
   moveExplorerEntryInto,
   openNotePath,
+  openNotePathPinned,
   removeWorkspace,
   renameExplorerEntry,
   savePastedFileInto,
@@ -86,17 +93,6 @@ const MAX_EXPLORER_WIDTH = 480;
 
 function clampExplorerWidth(px: number): number {
   return Math.min(MAX_EXPLORER_WIDTH, Math.max(MIN_EXPLORER_WIDTH, px));
-}
-
-/** Chunked base64 (btoa chokes on large spreads; screenshots are megabytes). */
-function bytesToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
 }
 
 /**
@@ -313,6 +309,15 @@ export function FileExplorer() {
       const el = document.elementFromPoint(x, y)?.closest('[data-drop-dir]');
       return el?.getAttribute('data-drop-dir') ?? null;
     }
+    // An md file row under the pointer, but only relevant when dragging an
+    // image — that combination embeds the image instead of moving the file.
+    function targetMdFileAt(x: number, y: number): string | null {
+      if (!isImagePath(sourcePath)) {
+        return null;
+      }
+      const el = document.elementFromPoint(x, y)?.closest('[data-drop-file]');
+      return el?.getAttribute('data-drop-file') ?? null;
+    }
     function cleanup(): void {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -328,7 +333,10 @@ export function FileExplorer() {
         dragging = true;
         document.body.classList.add('explorer-dragging');
       }
-      uiStore.getState().setDropTarget(targetDirAt(e.clientX, e.clientY));
+      // Prefer the md-file target (image embed) over its containing folder.
+      uiStore
+        .getState()
+        .setDropTarget(targetMdFileAt(e.clientX, e.clientY) ?? targetDirAt(e.clientX, e.clientY));
     }
     function onUp(e: PointerEvent): void {
       const wasDrag = dragging;
@@ -343,6 +351,13 @@ export function FileExplorer() {
       setTimeout(() => {
         dragConsumedClick.current = false;
       }, 0);
+      // Dropping an image onto an md file embeds it (with confirmation);
+      // anything else is an in-workspace move into the hovered folder.
+      const mdFile = targetMdFileAt(e.clientX, e.clientY);
+      if (mdFile) {
+        void appendImagesToMd(mdFile, [sourcePath]);
+        return;
+      }
       const dir = targetDirAt(e.clientX, e.clientY);
       if (dir) {
         void moveExplorerEntryInto(sourcePath, dir);
@@ -402,6 +417,22 @@ export function FileExplorer() {
         }}
       >
         Rename
+      </button>
+    );
+  }
+
+  /** "Delete" menu item — removes a file (the controller confirms first). */
+  function renderDeleteItem(entry: ExplorerEntry): ReactNode {
+    return (
+      <button
+        className="context-menu-item is-danger"
+        role="menuitem"
+        onClick={() => {
+          setMenuFor(null);
+          void deleteExplorerEntry(entry.path);
+        }}
+      >
+        Delete
       </button>
     );
   }
@@ -545,8 +576,8 @@ export function FileExplorer() {
               style={indent}
               title={
                 isImagePath(entry.path)
-                  ? `${entry.path}\nDrag into a folder to move · Right-click: rename`
-                  : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename`
+                  ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
+                  : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
               }
               data-drop-dir={dirPath}
               // md files double as an image-drop target (embed at end of file);
@@ -559,7 +590,13 @@ export function FileExplorer() {
                   return;
                 }
                 setSelectedDir(dirPath);
+                // Single-click opens (as a preview tab when that setting is on);
+                // a double-click below promotes it to a permanent tab.
                 openNotePath(entry.path);
+              }}
+              onDoubleClick={() => {
+                setSelectedDir(dirPath);
+                openNotePathPinned(entry.path);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -569,7 +606,13 @@ export function FileExplorer() {
               {entry.name}
             </button>
           )}
-          {menuFor === entry.path && menuShell(renderRenameItem(entry))}
+          {menuFor === entry.path &&
+            menuShell(
+              <>
+                {renderRenameItem(entry)}
+                {renderDeleteItem(entry)}
+              </>,
+            )}
         </div>
       ),
     );

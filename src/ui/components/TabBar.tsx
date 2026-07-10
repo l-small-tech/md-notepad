@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { closeTab, renameTab } from '../session';
+import { closeAllTabs, closeTab, renameTab } from '../session';
 import { detectPlatform } from '../keymap';
 import { computeTabWindow } from '../tab-overflow';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
@@ -95,7 +95,7 @@ function Tab({
 
   return (
     <div
-      className={`tab${active ? ' tab-active' : ''}`}
+      className={`tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}`}
       role="tab"
       aria-selected={active}
       title={tab.filePath ?? label}
@@ -179,6 +179,8 @@ function Tab({
 }
 
 function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
+  // Transient menu — a one-shot store read is fine (it closes on any change).
+  const isPreview = tabsStore.getState().tabs.find((t) => t.id === menu.tabId)?.preview ?? false;
   useEffect(() => {
     const close = () => onClose();
     // Any outside interaction, Escape, or scroll dismisses the menu.
@@ -207,6 +209,18 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       // Don't let the menu's own pointerdown reach the window dismiss handler.
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {isPreview && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            tabsStore.getState().promoteTab(menu.tabId);
+            onClose();
+          }}
+        >
+          Keep open
+        </button>
+      )}
       <button
         className="tab-menu-item"
         role="menuitem"
@@ -226,6 +240,16 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
         }}
       >
         Close
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => {
+          closeAllTabs();
+          onClose();
+        }}
+      >
+        Close all
       </button>
     </div>
   );
@@ -375,6 +399,14 @@ export function TabBar() {
       >
         +
       </button>
+      <button
+        className="tab-close-all"
+        aria-label="Close all tabs"
+        title="Close all tabs"
+        onClick={() => closeAllTabs()}
+      >
+        ⊗
+      </button>
       {hidden.length > 0 && (
         <button
           className="tab-overflow"
@@ -394,7 +426,11 @@ export function TabBar() {
       {!IS_MAC && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {overflowAnchor && hidden.length > 0 && (
-        <OverflowMenu tabs={hidden} anchor={overflowAnchor} onClose={() => setOverflowAnchor(null)} />
+        <OverflowMenu
+          tabs={hidden}
+          anchor={overflowAnchor}
+          onClose={() => setOverflowAnchor(null)}
+        />
       )}
     </div>
   );

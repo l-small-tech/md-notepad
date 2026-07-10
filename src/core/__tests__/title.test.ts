@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { deriveTitle, sanitizeFileBaseName, slugifyTitle, stripExtension } from '../title';
+import {
+  deriveTitle,
+  dropTrailingExtension,
+  sanitizeFileBaseName,
+  slugifyTitle,
+  stripExtension,
+} from '../title';
 
 describe('deriveTitle', () => {
   test('uses the first non-blank line', () => {
@@ -92,6 +98,36 @@ describe('stripExtension', () => {
 
   test('keeps a leading-dot name (no basename to strip)', () => {
     expect(stripExtension('.gitignore')).toBe('.gitignore');
+  });
+});
+
+describe('dropTrailingExtension', () => {
+  test('drops the extension when it duplicates the one to be re-appended', () => {
+    expect(dropTrailingExtension('notes.md', '.md')).toBe('notes');
+  });
+
+  test('is case-insensitive on the extension', () => {
+    expect(dropTrailingExtension('notes.MD', '.md')).toBe('notes');
+    expect(dropTrailingExtension('notes.md', '.MD')).toBe('notes');
+  });
+
+  test('leaves a non-matching extension as part of the base', () => {
+    // Renaming a .txt file: "cheatsheet.md" keeps the ".md".
+    expect(dropTrailingExtension('cheatsheet.md', '.txt')).toBe('cheatsheet.md');
+  });
+
+  test('leaves a bare name (no extension typed) alone', () => {
+    expect(dropTrailingExtension('notes', '.md')).toBe('notes');
+    // "md" typed as a name, not an extension, is kept.
+    expect(dropTrailingExtension('md', '.md')).toBe('md');
+  });
+
+  test('an empty extension (folder) is a no-op', () => {
+    expect(dropTrailingExtension('archive.md', '')).toBe('archive.md');
+  });
+
+  test('only removes one extension (the matching one)', () => {
+    expect(dropTrailingExtension('archive.tar.md', '.md')).toBe('archive.tar');
   });
 });
 

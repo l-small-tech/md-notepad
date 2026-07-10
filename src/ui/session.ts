@@ -37,8 +37,14 @@ import {
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { imageMimeType, isImagePath } from '../core/images';
+import { imageTargetDir } from '../core/image-insert';
 import { pickUnusedColor } from '../core/settings';
-import { sanitizeFileBaseName, slugifyTitle, stripExtension } from '../core/title';
+import {
+  dropTrailingExtension,
+  sanitizeFileBaseName,
+  slugifyTitle,
+  stripExtension,
+} from '../core/title';
 import { planNoteMoves } from '../core/notes-move';
 import { getSourceAdapter } from './editor-registry';
 import type { CursorPos, WorkspaceColor } from '../core/types';
@@ -106,10 +112,15 @@ export interface SessionController {
   dispose(): Promise<void>;
   /** Close a tab, confirming first when that would discard user content. */
   closeTabInteractive(id: string): Promise<void>;
+  /** Close every tab, confirming per-tab where that discards content. */
+  closeAllTabsInteractive(): Promise<void>;
   /** Ctrl+O: native open dialog, then {@link openPaths}. */
   openFileDialog(): Promise<void>;
-  /** Open each path as a file tab; focuses the existing tab if already open. */
-  openPaths(paths: string[]): Promise<void>;
+  /**
+   * Open each path as a file tab; focuses the existing tab if already open.
+   * `preview` opens a reusable italic preview tab (explorer single-click).
+   */
+  openPaths(paths: string[], opts?: { preview?: boolean }): Promise<void>;
   /** Ctrl+S: save the active tab (Save As if it's a note tab). */
   saveActive(): Promise<void>;
   /** Ctrl+Shift+S: native save dialog, then write + retarget the active tab. */
@@ -168,6 +179,12 @@ export function closeTab(id: string): void {
   interactiveCloser(id);
 }
 
+/** TabBar "Close all" → controller: close every tab (confirming per-tab). */
+let closeAllTabsDispatch: () => void = () => {};
+export function closeAllTabs(): void {
+  closeAllTabsDispatch();
+}
+
 /**
  * Same indirection pattern as {@link closeTab} for the M3 file actions the
  * keyboard dispatcher (mod+O/S/Shift+S) and ConflictBanner need, before any
@@ -195,6 +212,10 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
 let appendImagesDispatch: (mdPath: string, paths: string[]) => Promise<void> = async () => {};
+let savePastedImageDispatch: (
+  tabId: string,
+  file: { base64: string; ext: string; name: string | null },
+) => Promise<ImageRef | null> = async () => null;
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
 let createNewFileDispatch: (dir: string) => Promise<void> = async () => {};
 let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
@@ -204,6 +225,14 @@ let renameEntryDispatch: (
   isDir: boolean,
 ) => Promise<void> = async () => {};
 let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
+let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
+
+/** A saved image, ready for the editor to reference: markdown alt text + a
+ *  destination path relative to (or absolute from) the document. */
+export interface ImageRef {
+  alt: string;
+  src: string;
+}
 
 /** A file lifted off the clipboard: content plus how to name it on disk. */
 export interface PastedFile {
@@ -214,6 +243,7 @@ export interface PastedFile {
   name: string | null;
 }
 let openNotePathDispatch: (path: string) => void = () => {};
+let openNotePathPinnedDispatch: (path: string) => void = () => {};
 // The resolved notes dir (the default workspace). Null until the controller
 // registers — the explorer just shows no default section pre-boot.
 let defaultWorkspaceDispatch: () => string | null = () => null;
@@ -265,6 +295,18 @@ export function importFilesInto(dir: string, paths: string[]): Promise<void> {
 export function appendImagesToMd(mdPath: string, paths: string[]): Promise<void> {
   return appendImagesDispatch(mdPath, paths);
 }
+/**
+ * Editor paste → controller: save one clipboard image into the configured
+ * images location for `tabId`'s document and return how to reference it (alt +
+ * relative src), or null on failure. The editor adapter does the actual
+ * caret insertion — this only touches disk.
+ */
+export function savePastedImageForTab(
+  tabId: string,
+  file: { base64: string; ext: string; name: string | null },
+): Promise<ImageRef | null> {
+  return savePastedImageDispatch(tabId, file);
+}
 /** FileExplorer paste → controller: write one clipboard file into `dir`. */
 export function savePastedFileInto(dir: string, file: PastedFile): Promise<void> {
   return savePastedFileDispatch(dir, file);
@@ -290,6 +332,13 @@ export function renameExplorerEntry(path: string, newName: string, isDir: boolea
  */
 export function moveExplorerEntryInto(sourcePath: string, destDir: string): Promise<void> {
   return moveEntryDispatch(sourcePath, destDir);
+}
+/**
+ * FileExplorer context menu → controller: delete a file/image, confirming
+ * first. Any tab that owns it is closed so it can't write the bytes back.
+ */
+export function deleteExplorerEntry(path: string): Promise<void> {
+  return deleteEntryDispatch(path);
 }
 /** FileExplorer → controller: the resolved notes dir (the default workspace). */
 export function getDefaultWorkspacePath(): string | null {
@@ -324,9 +373,19 @@ export function setWorkspaceColor(path: string, color: WorkspaceColor | null): v
     ),
   });
 }
-/** FileExplorer → controller: open a note file (activates it if already open). */
+/**
+ * FileExplorer single-click → controller: open a note file (activates it if
+ * already open). Opens as a reusable preview tab when the setting is on.
+ */
 export function openNotePath(path: string): void {
   openNotePathDispatch(path);
+}
+/**
+ * FileExplorer double-click → controller: open a note file as a PERMANENT tab,
+ * promoting it if it is currently the preview tab.
+ */
+export function openNotePathPinned(path: string): void {
+  openNotePathPinnedDispatch(path);
 }
 /**
  * TabBar → controller: commit a tab rename. For a file tab this renames the
@@ -390,6 +449,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   /** Lowercased paths currently being opened — dedupes concurrent open requests
    *  (e.g. a double-click in the file explorer) so no two tabs race onto one file. */
   const openingPaths = new Set<string>();
+  /** Lowercased paths a pinned open requested while a preview open was still in
+   *  flight — the creator promotes the tab once it exists (explorer dbl-click). */
+  const pinOnOpen = new Set<string>();
   /** `from` path → consecutive rename-failure count (3-strikes suppression). */
   const renameFailures = new Map<string, number>();
 
@@ -748,20 +810,38 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       );
   }
 
-  async function openPaths(paths: string[]): Promise<void> {
+  /**
+   * Open each path as a tab (focusing an existing one). `preview` (explorer
+   * single-click) opens a reusable italic preview tab; a non-preview open of an
+   * already-preview tab PROMOTES it to permanent (explorer double-click / Ctrl+O).
+   */
+  async function openPaths(paths: string[], opts: { preview?: boolean } = {}): Promise<void> {
+    const preview = opts.preview ?? false;
     for (const path of paths) {
       const lower = pathKey(path);
-      // Already open (as a file OR a note tab) → just focus it.
+      // Focus the created/existing tab, and pin it when this open wasn't a
+      // preview (or a concurrent pinned request asked for it while it opened).
+      const settle = (id: string): void => {
+        tabsStore.getState().activateTab(id);
+        if (!preview || pinOnOpen.delete(lower)) {
+          tabsStore.getState().promoteTab(id);
+        }
+      };
+      // Already open (as a file OR a note tab) → just focus (and maybe pin) it.
       const existing = tabOwning(lower);
       if (existing) {
-        tabsStore.getState().activateTab(existing.id);
+        settle(existing.id);
         continue;
       }
       // A concurrent request is already opening this exact path — a rapid
       // double-click in the file browser fires two opens before the first has
       // created its tab, so the pre-await check above misses. Let the in-flight
-      // open win rather than reading the file and creating a second tab.
+      // open win rather than reading the file and creating a second tab; if THIS
+      // is the pinning (double-click) open, leave a note so the creator pins it.
       if (openingPaths.has(lower)) {
+        if (!preview) {
+          pinOnOpen.add(lower);
+        }
         continue;
       }
       openingPaths.add(lower);
@@ -775,9 +855,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
           }
           const owner = tabOwning(lower);
           if (owner) {
-            tabsStore.getState().activateTab(owner.id);
+            settle(owner.id);
           } else {
-            tabsStore.getState().openImageTab({ filePath: path, savedMtimeMs: stat.mtimeMs });
+            settle(
+              tabsStore
+                .getState()
+                .openImageTab({ filePath: path, savedMtimeMs: stat.mtimeMs, preview }),
+            );
           }
           continue;
         }
@@ -786,18 +870,20 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
         // we were reading (e.g. a note tab the flusher just assigned a path).
         const now = tabOwning(lower);
         if (now) {
-          tabsStore.getState().activateTab(now.id);
+          settle(now.id);
         } else {
-          const id = tabsStore
-            .getState()
-            .openFileTab({ filePath: path, text, savedMtimeMs: mtimeMs });
-          tabsStore.getState().activateTab(id);
+          settle(
+            tabsStore
+              .getState()
+              .openFileTab({ filePath: path, text, savedMtimeMs: mtimeMs, preview }),
+          );
         }
       } catch (error) {
         uiStore.getState().showNotice(`Could not open "${baseName(path)}".`);
         deps.onError?.(error);
       } finally {
         openingPaths.delete(lower);
+        pinOnOpen.delete(lower);
       }
     }
   }
@@ -821,21 +907,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       return;
     }
     const oldPath = tab.filePath;
-    const safeBase = sanitizeFileBaseName(newName);
+    const ext = extName(oldPath);
+    // If the user typed the extension too ("notes.md"), don't double it.
+    const safeBase = sanitizeFileBaseName(dropTrailingExtension(newName.trim(), ext));
     if (!safeBase) {
       uiStore.getState().showNotice('That name can’t be used for a file.');
       return;
     }
-    const newPath = joinPath(dirName(oldPath), `${safeBase}${extName(oldPath)}`);
+    const newPath = joinPath(dirName(oldPath), `${safeBase}${ext}`);
     if (pathKey(newPath) === pathKey(oldPath)) {
       return; // no change (or case-only on a case-insensitive FS)
     }
     try {
       const existing = await ipc.statPath(newPath);
       if (existing.exists) {
-        uiStore
-          .getState()
-          .showNotice(`A file named "${safeBase}${extName(oldPath)}" already exists.`);
+        uiStore.getState().showNotice(`A file named "${safeBase}${ext}" already exists.`);
         return;
       }
     } catch {
@@ -1112,11 +1198,103 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
   }
 
+  /** The workspace root containing `path` (longest matching root), or its own
+   *  directory when it lies outside every known workspace. */
+  function workspaceRootFor(path: string): string {
+    const roots = [notesDir, ...settingsStore.getState().settings.workspaces.map((w) => w.path)];
+    const key = pathKey(path);
+    let best: string | null = null;
+    for (const root of roots) {
+      const rootKey = pathKey(root);
+      if (key === rootKey || key.startsWith(`${rootKey}/`)) {
+        if (best === null || rootKey.length > pathKey(best).length) {
+          best = root;
+        }
+      }
+    }
+    return best ?? dirName(path);
+  }
+
+  /** The directory a `mdPath`'s images go in, per the user's image settings. */
+  function imagesDirFor(mdPath: string): string {
+    const mdDir = mdPath ? dirName(mdPath) : notesDir;
+    const { imagePasteLocation, imageFolderName } = settingsStore.getState().settings;
+    return imageTargetDir({
+      mdDir,
+      workspaceRoot: workspaceRootFor(mdPath || mdDir),
+      location: imagePasteLocation,
+      // Sanitize so a hand-edited setting can't escape the folder or add separators.
+      folderName: sanitizeFileBaseName(imageFolderName),
+      join: joinPath,
+    });
+  }
+
+  /** A markdown destination — angle-wrapped when it contains whitespace, the
+   *  same convention the editor's link insertion uses (cm6.ts). */
+  function markdownDest(src: string): string {
+    return /\s/.test(src) ? `<${src}>` : src;
+  }
+
+  /** `pasted-YYYYMMDD-HHMMSS` from the injected clock; the fallback image name. */
+  function timestampBase(): string {
+    const stamp = new Date(now());
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return (
+      `pasted-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
+      `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
+    );
+  }
+
   /**
-   * Drag-drop onto an md file row: embed each dropped image at the END of that
-   * markdown file. Images already sitting beside the note are referenced in
-   * place; the rest are COPIED in next to it first (collisions suffixed). When
-   * a tab already owns the file the append goes through its live model — so the
+   * Save/relocate one image for `mdPath` and return how to reference it (alt +
+   * a path relative to the document, or an absolute forward-slashed path when
+   * no relative one exists). `source` is either an existing file to place
+   * (drag) or raw bytes to write (paste). Returns null on failure.
+   *
+   * A dragged file that ALREADY lives in the markdown file's workspace is left
+   * exactly where it is and referenced in place — only images coming from
+   * outside that workspace (or already in the target images dir) are copied
+   * into the configured images location. Pasted bytes always go there.
+   */
+  async function placeImage(
+    mdPath: string,
+    source: { copyFrom: string } | { base64: string; ext: string; name: string | null },
+  ): Promise<ImageRef | null> {
+    const mdDir = mdPath ? dirName(mdPath) : notesDir;
+    const targetDir = imagesDirFor(mdPath);
+    try {
+      let savedPath: string;
+      if ('copyFrom' in source) {
+        const from = source.copyFrom;
+        const sameWorkspace =
+          pathKey(workspaceRootFor(from)) === pathKey(workspaceRootFor(mdPath || mdDir));
+        if (sameWorkspace || pathKey(dirName(from)) === pathKey(targetDir)) {
+          // In the same workspace (or already in the images dir) — reference it
+          // where it lives, don't duplicate it into the images folder.
+          savedPath = from;
+        } else {
+          savedPath = await uniquePathIn(targetDir, stripExtension(baseName(from)), extName(from));
+          await ipc.copyPath(from, savedPath);
+        }
+      } else {
+        const base = (source.name ? sanitizeFileBaseName(source.name) : '') || timestampBase();
+        savedPath = await uniquePathIn(targetDir, base, source.ext);
+        await ipc.writeFileBase64(savedPath, source.base64);
+      }
+      const rel = relativePath(mdDir, savedPath);
+      const src = rel ?? savedPath.replace(/\\/g, '/');
+      return { alt: stripExtension(baseName(savedPath)), src };
+    } catch (error) {
+      deps.onError?.(error);
+      return null;
+    }
+  }
+
+  /**
+   * Drag-drop onto an md file row: embed the dropped image(s) at the END of that
+   * markdown file, after a confirmation prompt. Each image is saved into the
+   * configured images location (referenced in place if already there). When a
+   * tab already owns the file the append goes through its live model — so the
    * user sees it immediately and the flusher/live-save persists it — rather than
    * writing under the open editor and provoking a conflict.
    */
@@ -1125,26 +1303,23 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (images.length === 0) {
       return;
     }
-    const dir = dirName(mdPath);
+    const ok = await confirm(
+      images.length === 1
+        ? `Insert this image into "${baseName(mdPath)}"?`
+        : `Insert ${images.length} images into "${baseName(mdPath)}"?`,
+      'Insert image',
+    );
+    if (!ok) {
+      return;
+    }
     const refs: string[] = [];
     let failed = 0;
     for (const img of images) {
-      try {
-        let name: string;
-        if (pathKey(dirName(img)) === pathKey(dir)) {
-          name = baseName(img); // already beside the note — reference in place
-        } else {
-          const target = await uniquePathIn(dir, stripExtension(baseName(img)), extName(img));
-          await ipc.copyPath(img, target);
-          name = baseName(target);
-        }
-        // Same whitespace convention as the editor's link insertion (cm6.ts):
-        // a destination with spaces is wrapped in <> so the markdown stays valid.
-        const dest = /\s/.test(name) ? `<${name}>` : name;
-        refs.push(`![${stripExtension(name)}](${dest})`);
-      } catch (error) {
+      const ref = await placeImage(mdPath, { copyFrom: img });
+      if (ref) {
+        refs.push(`![${ref.alt}](${markdownDest(ref.src)})`);
+      } else {
         failed += 1;
-        deps.onError?.(error);
       }
     }
     if (refs.length === 0) {
@@ -1181,14 +1356,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       .showNotice(`Added ${refs.length} image(s) to "${baseName(mdPath)}"${suffix}.`);
   }
 
+  /**
+   * Editor paste: save one clipboard image into the configured images location
+   * for `tabId`'s document and return its reference for the editor to insert at
+   * the caret. Note tabs with no file yet resolve against the notes dir.
+   */
+  async function savePastedImage(
+    tabId: string,
+    file: { base64: string; ext: string; name: string | null },
+  ): Promise<ImageRef | null> {
+    const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+    if (!tab || tab.kind === 'image') {
+      return null;
+    }
+    const ref = await placeImage(tab.notePath ?? tab.filePath ?? '', file);
+    if (ref) {
+      uiStore.getState().refreshExplorer();
+    } else {
+      uiStore.getState().showNotice('Could not save the pasted image.');
+    }
+    return ref;
+  }
+
   /** Clipboard paste: write one file's bytes into `dir` under a safe name. */
   async function savePastedFile(dir: string, file: PastedFile): Promise<void> {
-    const stamp = new Date(now());
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const fallback =
-      `pasted-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
-      `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
-    const base = (file.name !== null ? sanitizeFileBaseName(file.name) : '') || fallback;
+    const base = (file.name !== null ? sanitizeFileBaseName(file.name) : '') || timestampBase();
     try {
       const target = await uniquePathIn(dir, base, file.ext);
       await ipc.writeFileBase64(target, file.base64);
@@ -1253,12 +1445,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       tabsStore.getState().renameTab(owner.id, newName);
       return;
     }
-    const safeBase = sanitizeFileBaseName(newName);
+    const ext = isDir ? '' : extName(path);
+    // If the user typed the extension too ("notes.md"), don't double it.
+    const safeBase = sanitizeFileBaseName(dropTrailingExtension(newName.trim(), ext));
     if (!safeBase) {
       uiStore.getState().showNotice('That name can’t be used.');
       return;
     }
-    const newPath = joinPath(dirName(path), `${safeBase}${isDir ? '' : extName(path)}`);
+    const newPath = joinPath(dirName(path), `${safeBase}${ext}`);
     if (pathKey(newPath) === pathKey(path)) {
       return; // no change (or case-only on a case-insensitive FS)
     }
@@ -1368,6 +1562,33 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     uiStore.getState().refreshExplorer();
   }
 
+  /**
+   * Context-menu "Delete" for a file/image entry. Deletion is unrecoverable
+   * (there is no trash), so it confirms first. A tab that owns the file is
+   * closed BEFORE the delete so neither Ctrl+S nor the flusher can recreate the
+   * file from the still-open editor. Folders aren't deletable here — delete_path
+   * removes files only.
+   */
+  async function deleteEntry(path: string): Promise<void> {
+    const ok = await confirm(`Delete "${baseName(path)}"? This can’t be undone.`, 'Delete file');
+    if (!ok) {
+      return;
+    }
+    const owner = tabOwning(pathKey(path));
+    if (owner) {
+      tabsStore.getState().closeTab(owner.id);
+    }
+    try {
+      await ipc.deletePath(path);
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not delete "${baseName(path)}".`);
+      deps.onError?.(error);
+      return;
+    }
+    uiStore.getState().showNotice(`Deleted "${baseName(path)}".`);
+    uiStore.getState().refreshExplorer();
+  }
+
   async function closeTabInteractive(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (!tab) {
@@ -1397,7 +1618,23 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     tabsStore.getState().closeTab(id);
   }
 
+  /**
+   * Close every open tab, oldest-first, each through {@link closeTabInteractive}
+   * so unsaved file edits and non-empty notes still prompt. A cancel on any tab
+   * stops the sweep (VSCode-style) rather than silently skipping it. The last
+   * close leaves one fresh Untitled tab (the store's Notepad invariant).
+   */
+  async function closeAllTabsInteractive(): Promise<void> {
+    for (const id of tabsStore.getState().tabs.map((t) => t.id)) {
+      await closeTabInteractive(id);
+      if (tabsStore.getState().tabs.some((t) => t.id === id)) {
+        return; // the user cancelled this tab's close — stop here
+      }
+    }
+  }
+
   interactiveCloser = (id) => void closeTabInteractive(id);
+  closeAllTabsDispatch = () => void closeAllTabsInteractive();
   openFileDispatch = () => void openFileDialog();
   saveDispatch = () => void saveActive();
   saveAsDispatch = () => void saveAsActive();
@@ -1419,11 +1656,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   addWorkspaceDispatch = () => void addWorkspaceFromDialog();
   importFilesDispatch = importFiles;
   appendImagesDispatch = appendImagesToMarkdown;
+  savePastedImageDispatch = savePastedImage;
   savePastedFileDispatch = savePastedFile;
   createNewFileDispatch = createNewFile;
   createNewFolderDispatch = createNewFolder;
   renameEntryDispatch = renameEntry;
   moveEntryDispatch = moveEntry;
+  deleteEntryDispatch = deleteEntry;
   renameTabDispatch = (id, newName) => {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (tab && (tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
@@ -1438,10 +1677,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   openNotePathDispatch = (path) => {
     // Never open a second editor over a file some tab already owns (would let
     // two tabs write the same path) — focus the existing one instead. New
-    // files reuse the tested file-tab open path.
+    // files reuse the tested file-tab open path. Preview-tab behavior is opt-in
+    // via settings; openPaths handles the reuse/replace of the preview slot.
     const existing = tabOwning(pathKey(path));
     if (existing) {
       tabsStore.getState().activateTab(existing.id);
+      return;
+    }
+    void openPaths([path], { preview: settingsStore.getState().settings.previewTabs });
+  };
+  openNotePathPinnedDispatch = (path) => {
+    // Explorer double-click: open (or promote) the file as a PERMANENT tab.
+    const existing = tabOwning(pathKey(path));
+    if (existing) {
+      tabsStore.getState().activateTab(existing.id);
+      tabsStore.getState().promoteTab(existing.id);
       return;
     }
     void openPaths([path]);
@@ -1453,6 +1703,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     flushNow: () => flusher.flushNow(),
     dispose: () => flusher.dispose(),
     closeTabInteractive,
+    closeAllTabsInteractive,
     openFileDialog,
     openPaths,
     saveActive,
