@@ -1,0 +1,15 @@
+# Node
+node_modules/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Local-only files
+*.local
+*.log
+
+# OS cruft
+.DS_Store
+Thumbs.db

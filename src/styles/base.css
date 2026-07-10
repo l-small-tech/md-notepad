@@ -1,0 +1,82 @@
+/*
+ * Base stylesheet: font setup, theme variables, minimal reset.
+ *
+ * Fira Code woff2 files are imported in main.tsx via @fontsource/fira-code
+ * (SIL OFL 1.1 — GPL-compatible). Ligatures live in the font's `calt` table;
+ * `font-variant-ligatures: contextual` turns them on, so `->` renders as a
+ * solid arrow glyph. The user-facing "ligatures" setting toggles the
+ * `no-ligatures` class on <html>.
+ *
+ * Theming: `data-theme` on <html> is "light" or "dark", set by the settings
+ * store (following the OS when the setting is "system"). Every component
+ * styles itself exclusively through these variables.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --font-mono:
+    'Fira Code', ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, 'DejaVu Sans Mono', monospace;
+
+  /* Editor font size (px). main.tsx keeps this in sync with the setting;
+     the default here means the editor is styled correctly before JS runs. */
+  --editor-font-size: 14px;
+
+  /* Light palette (default) */
+  --bg: #ffffff;
+  /* The writing surface — a hair off the chrome (--bg) so the editor reads as
+     its own recessed panel below the ribbon/active tab. */
+  --editor-bg: #f7f7f5;
+  --bg-alt: #f5f5f5;
+  --bg-hover: #ececec;
+  --fg: #1f1f1f;
+  --fg-muted: #6e6e6e;
+  --accent: #3574f0;
+  --border: #e1e1e1;
+  --danger: #c42b1c;
+  --selection: #b5d1ff;
+}
+
+:root[data-theme='dark'] {
+  --bg: #1e1e1e;
+  --editor-bg: #1a1a1a;
+  --bg-alt: #252526;
+  --bg-hover: #2e2e30;
+  --fg: #e8e8e8;
+  --fg-muted: #9a9a9a;
+  --accent: #6ea1ff;
+  --border: #3c3c3c;
+  --danger: #ff6b5e;
+  --selection: #2a4a78;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-mono);
+  font-variant-ligatures: contextual;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* the app owns its own scroll regions */
+}
+
+html.no-ligatures body,
+html.no-ligatures .cm-content {
+  font-variant-ligatures: none;
+}
+
+::selection {
+  background: var(--selection);
+}

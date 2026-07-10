@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- MD Notepad app icon: flat accent-blue rounded square + the Markdown Mark
+       (Dustin Curtis, dedicated to the public domain / CC0). Regenerate the
+       platform icon set with: npm run tauri icon assets/icon.svg -->
+  <rect width="1024" height="1024" rx="200" fill="#3574f0"/>
+  <g transform="translate(75.2 243.2) scale(4.2)" fill="#ffffff">
+    <path d="M30.6 84V44.2h13l13 16.3 13-16.3h13V84h-13V61.2l-13 16.3-13-16.3V84z"/>
+    <path d="M147.6 84l-19.5-21.5h13V44.2h13v18.3h13z"/>
+  </g>
+</svg>

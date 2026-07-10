@@ -1,0 +1,8 @@
+# Instruction docs are hand-formatted; prettier must not rewrite them.
+*.md
+
+# Rust side is rustfmt territory (and tauri.conf.json is machine-edited by the CLI).
+src-tauri/
+
+# Generated
+package-lock.json

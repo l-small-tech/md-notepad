@@ -1,0 +1,54 @@
+/*
+ * Crepe/Milkdown theming (M5). Imported by src/editors/milkdown.ts so it rides
+ * the lazy WYSIWYG chunk (invariant I8), never the entry bundle.
+ *
+ * Crepe's structural stylesheet (@milkdown/crepe/theme/common/style.css) draws
+ * everything from `--crepe-*` custom properties. Rather than ship one of its
+ * bundled color themes, we map those properties onto OUR variables (base.css).
+ * Because `--bg`/`--fg`/`--accent`/… already flip with `data-theme` on <html>,
+ * a light⇄dark toggle restyles the rich editor for free — same trick as CM6's
+ * CSS-variable-driven theme (no per-theme import, no reconfiguration).
+ *
+ * Content stays monospace even in rich mode — that's the product's look
+ * (plan.md §1, src/editors/README.md).
+ */
+
+.milkdown {
+  --crepe-color-background: var(--bg);
+  --crepe-color-on-background: var(--fg);
+  --crepe-color-surface: var(--bg);
+  --crepe-color-surface-low: var(--bg-alt);
+  --crepe-color-on-surface: var(--fg);
+  --crepe-color-on-surface-variant: var(--fg-muted);
+  --crepe-color-outline: var(--border);
+  --crepe-color-primary: var(--accent);
+  --crepe-color-secondary: var(--bg-hover);
+  --crepe-color-on-secondary: var(--fg);
+  --crepe-color-inverse: var(--fg);
+  --crepe-color-on-inverse: var(--bg);
+  --crepe-color-inline-code: var(--danger);
+  --crepe-color-error: var(--danger);
+  --crepe-color-hover: var(--bg-hover);
+  --crepe-color-selected: var(--selection);
+  --crepe-color-inline-area: var(--bg-alt);
+
+  /* Monospace across the board — titles, body, and code alike. */
+  --crepe-font-title: var(--font-mono);
+  --crepe-font-default: var(--font-mono);
+  --crepe-font-code: var(--font-mono);
+
+  --crepe-shadow-1: 0 1px 3px 1px rgb(0 0 0 / 12%);
+  --crepe-shadow-2: 0 2px 6px 2px rgb(0 0 0 / 14%);
+
+  /* Fill the editor pane and scroll internally, matching the CM6 adapter. */
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.milkdown .ProseMirror {
+  padding: 10px 12px;
+  min-height: 100%;
+  outline: none;
+  font-size: var(--editor-font-size, 14px);
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MD Notepad",
+  "version": "0.1.0",
+  "identifier": "tech.l-small.mdnotepad",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MD Notepad",
+        "width": 1000,
+        "height": 700,
+        "minWidth": 400,
+        "minHeight": 300
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
+    "category": "Productivity",
+    "shortDescription": "Minimal markdown notepad",
+    "longDescription": "A minimal, fast, cross-platform markdown notepad with Notepad-style ephemeral tabs, GitHub-Flavored Markdown preview, Mermaid diagrams, and a WYSIWYG mode.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true,
+    "licenseFile": "../LICENSE",
+    "resources": {
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    },
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "Markdown",
+        "description": "Markdown document",
+        "mimeType": "text/markdown",
+        "role": "Editor"
+      }
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2MDc3NDU2MEZDOENCODYKUldTR3k4Z1BWblFIeGhVUDRDbm8yVGRIZ0xPVVVsOUdkQ25vRitJbERicnhoYkZGNkI1QmQwR1kK",
+      "endpoints": [
+        "https://github.com/l-small-tech/md-notepad/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

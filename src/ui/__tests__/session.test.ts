@@ -1,0 +1,832 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * Exercises the session controller's flush + restore orchestration against an
+ * in-memory fake `ipc` injected through the factory. The pure planning/exec
+ * logic is covered in core/__tests__/plan-flush.test.ts; here we test the
+ * glue: view assembly from the live stores, applying results back, dirty
+ * clearing, tombstone sweeping, and restore/self-heal.
+ *
+ * The tabs store is a module singleton that self-creates its first tab at
+ * import time, so we reset the module registry before each test and re-import
+ * session + stores together (shared registry → shared singleton).
+ */
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const NOTES = '/notes';
+const SESSION = '/session';
+
+interface FakeFs {
+  files: Map<string, string>;
+  /** path → mtime; bumped on every write, independent of the `files` content. */
+  mtimes: Map<string, number>;
+  ops: string[];
+  ipc: {
+    atomicWriteText: (path: string, text: string) => Promise<void>;
+    readTextFile: (path: string) => Promise<{ text: string; mtimeMs: number }>;
+    renamePath: (from: string, to: string) => Promise<void>;
+    deletePath: (path: string) => Promise<void>;
+    listNotes: (dir: string) => Promise<{ path: string; mtimeMs: number; size: number }[]>;
+    statPath: (path: string) => Promise<{ exists: boolean; mtimeMs: number | null }>;
+  };
+}
+
+let IpcError: typeof import('../../ipc/commands').IpcError;
+
+function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
+  const files = new Map<string, string>(Object.entries(seed));
+  const mtimes = new Map<string, number>([...files.keys()].map((p) => [p, 1]));
+  const ops: string[] = [];
+  let clock = 1;
+  const dirname = (p: string) => p.slice(0, p.lastIndexOf('/'));
+  return {
+    files,
+    mtimes,
+    ops,
+    ipc: {
+      async atomicWriteText(path, text) {
+        ops.push(`write:${path}`);
+        files.set(path, text);
+        mtimes.set(path, ++clock);
+      },
+      async readTextFile(path) {
+        if (!files.has(path)) {
+          throw new IpcError('NOT_FOUND', path);
+        }
+        return { text: files.get(path)!, mtimeMs: mtimes.get(path) ?? 1 };
+      },
+      async renamePath(from, to) {
+        ops.push(`rename:${from}->${to}`);
+        if (!files.has(from)) {
+          throw new IpcError('NOT_FOUND', from);
+        }
+        if (files.has(to)) {
+          throw new IpcError('EXISTS', to);
+        }
+        files.set(to, files.get(from)!);
+        mtimes.set(to, mtimes.get(from) ?? 1);
+        files.delete(from);
+        mtimes.delete(from);
+      },
+      async deletePath(path) {
+        ops.push(`delete:${path}`);
+        files.delete(path);
+        mtimes.delete(path);
+      },
+      async listNotes(dir) {
+        return [...files.keys()]
+          .filter((p) => dirname(p) === dir && p.endsWith('.md'))
+          .map((p) => ({ path: p, mtimeMs: mtimes.get(p) ?? 1, size: files.get(p)!.length }));
+      },
+      async statPath(path) {
+        return files.has(path)
+          ? { exists: true, mtimeMs: mtimes.get(path) ?? 1 }
+          : { exists: false, mtimeMs: null };
+      },
+    },
+  };
+}
+
+type SessionModule = typeof import('../session');
+type TabsModule = typeof import('../stores/tabs');
+
+let session: SessionModule;
+let tabs: TabsModule;
+
+beforeEach(async () => {
+  // Fake timers so the debounced flusher's trailing/maxWait timers never fire
+  // on their own — every test drives persistence explicitly via flushNow().
+  vi.useFakeTimers();
+  vi.resetModules();
+  IpcError = (await import('../../ipc/commands')).IpcError;
+  session = await import('../session');
+  tabs = await import('../stores/tabs');
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function makeController(
+  fs: FakeFs,
+  now = () => 111,
+  extra: Partial<Parameters<typeof session.createSessionController>[0]> = {},
+) {
+  return session.createSessionController({
+    paths: { notesDir: NOTES, sessionDir: SESSION },
+    ipc: fs.ipc,
+    now,
+    ...extra,
+  });
+}
+
+describe('flushSession — writing', () => {
+  test('a new note becomes a slugged file and the manifest is written LAST', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Buy milk', 'cm6');
+
+    await controller.flushNow();
+
+    expect(fs.files.get(`${NOTES}/buy-milk.md`)).toBe('# Buy milk');
+    // Manifest last (invariant I4): the note file is written before session.json.
+    const noteIdx = fs.ops.indexOf(`write:${NOTES}/buy-milk.md`);
+    const manifestIdx = fs.ops.indexOf(`write:${SESSION}/session.json`);
+    expect(noteIdx).toBeGreaterThanOrEqual(0);
+    expect(manifestIdx).toBeGreaterThan(noteIdx);
+  });
+
+  test('the assigned note path lands back on the tab and the model goes clean', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('shopping', 'cm6');
+
+    await controller.flushNow();
+
+    const after = tabs.tabsStore.getState().tabs[0]!;
+    expect(after.notePath).toBe(`${NOTES}/shopping.md`);
+    expect(after.model.isDirty('session')).toBe(false);
+  });
+
+  test('an empty new note creates no file', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    tabs.tabsStore.getState().newTab(); // second empty tab
+    await controller.flushNow();
+    expect([...fs.files.keys()].filter((p) => p.startsWith(NOTES))).toEqual([]);
+  });
+
+  test('a title change renames the note on the next flush; the old file is gone', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Buy milk', 'cm6');
+    await controller.flushNow();
+    expect(fs.files.has(`${NOTES}/buy-milk.md`)).toBe(true);
+
+    t.model.pushText('# Weekend plan', 'cm6');
+    await controller.flushNow();
+
+    expect(fs.files.has(`${NOTES}/buy-milk.md`)).toBe(false);
+    expect(fs.files.get(`${NOTES}/weekend-plan.md`)).toBe('# Weekend plan');
+    expect(tabs.tabsStore.getState().tabs[0]!.notePath).toBe(`${NOTES}/weekend-plan.md`);
+  });
+
+  test('two notes with the same title get collision suffixes', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const first = tabs.tabsStore.getState().tabs[0]!;
+    first.model.pushText('Idea', 'cm6');
+    tabs.tabsStore.getState().newTab();
+    const second = tabs.tabsStore.getState().tabs[1]!;
+    second.model.pushText('Idea', 'cm6');
+
+    await controller.flushNow();
+
+    expect(fs.files.has(`${NOTES}/idea.md`)).toBe(true);
+    expect(fs.files.has(`${NOTES}/idea-2.md`)).toBe(true);
+  });
+});
+
+describe('flushSession — discarding a note tab', () => {
+  test('closing a note tab deletes its file on the next flush', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('to delete', 'cm6');
+    await controller.flushNow();
+    const notePath = tabs.tabsStore.getState().tabs[0]!.notePath!;
+    expect(fs.files.has(notePath)).toBe(true);
+
+    tabs.tabsStore.getState().closeTab(t.id);
+    await controller.flushNow();
+
+    expect(fs.files.has(notePath)).toBe(false);
+    // Tombstone consumed.
+    expect(tabs.tabsStore.getState().closedNotePaths).toEqual([]);
+  });
+});
+
+describe('restore', () => {
+  test('rebuilds tabs, active tab, and caret from a valid manifest', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          kind: 'note',
+          notePath: `${NOTES}/hi.md`,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          hasBuffer: false,
+          cursor: { anchor: 3, head: 5 },
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      [`${NOTES}/hi.md`]: '# Hi there',
+    });
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    const state = tabs.tabsStore.getState();
+    expect(state.tabs).toHaveLength(1);
+    const tab = state.tabs[0]!;
+    expect(tab.id).toBe('t1');
+    expect(tab.notePath).toBe(`${NOTES}/hi.md`);
+    expect(tab.title).toBe('Hi there');
+    expect(tab.model.getText()).toBe('# Hi there');
+    expect(state.activeTabId).toBe('t1');
+    expect(session.getCursor('t1')).toEqual({ anchor: 3, head: 5 });
+    // Restored from disk → not session-dirty (no needless rewrite next flush).
+    expect(tab.model.isDirty('session')).toBe(false);
+  });
+
+  test('a missing note file is skipped, not fatal', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 't2',
+      tabs: [
+        {
+          id: 't1',
+          kind: 'note',
+          notePath: `${NOTES}/present.md`,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          hasBuffer: false,
+          cursor: null,
+        },
+        {
+          id: 't2',
+          kind: 'note',
+          notePath: `${NOTES}/gone.md`,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          hasBuffer: false,
+          cursor: null,
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      [`${NOTES}/present.md`]: 'here',
+    });
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    const state = tabs.tabsStore.getState();
+    expect(state.tabs.map((t) => t.id)).toEqual(['t1']);
+    // Active fell back to a surviving tab.
+    expect(state.activeTabId).toBe('t1');
+  });
+
+  test('a corrupt manifest is quarantined and recent notes reopen (self-heal)', async () => {
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: 'garbage{{{ not json',
+      [`${NOTES}/a.md`]: 'alpha',
+      [`${NOTES}/b.md`]: 'beta',
+    });
+    const controller = makeController(fs, () => 999);
+
+    await controller.restore();
+
+    // The bad manifest was moved aside, not deleted.
+    expect(fs.files.has(`${SESSION}/session.json`)).toBe(false);
+    expect(fs.files.has(`${SESSION}/session.json.bad-999`)).toBe(true);
+    // Both notes reopened as tabs.
+    const texts = tabs.tabsStore
+      .getState()
+      .tabs.map((t) => t.model.getText())
+      .sort();
+    expect(texts).toEqual(['alpha', 'beta']);
+  });
+
+  test('first launch (no manifest, no notes) opens a single empty tab, no crash', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    const state = tabs.tabsStore.getState();
+    expect(state.tabs).toHaveLength(1);
+    expect(state.tabs[0]!.model.getText()).toBe('');
+    // No note file conjured for an empty tab.
+    expect(fs.files.has(`${NOTES}/untitled.md`)).toBe(false);
+  });
+
+  test('a restored file tab with a buffer shows dirty; the manifest wording covers files generically', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          kind: 'file',
+          notePath: null,
+          filePath: '/docs/report.md',
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: 5,
+          hasBuffer: true,
+          cursor: null,
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      [`${SESSION}/buffers/t1.md`]: 'unsaved edits',
+      [`/docs/report.md`]: 'saved content',
+    });
+    // The on-disk file's mtime is exactly the manifest baseline: no conflict.
+    fs.mtimes.set('/docs/report.md', 5);
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    const tab = tabs.tabsStore.getState().tabs[0]!;
+    expect(tab.model.getText()).toBe('unsaved edits');
+    expect(tab.dirty).toBe(true);
+    expect(tab.conflict).toBe(false);
+  });
+
+  test('a restored file tab whose on-disk file changed while closed is flagged as a conflict', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          kind: 'file',
+          notePath: null,
+          filePath: '/docs/report.md',
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: 5,
+          hasBuffer: false,
+          cursor: null,
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      [`/docs/report.md`]: 'changed while we were closed',
+    });
+    fs.mtimes.set('/docs/report.md', 999); // differs from the manifest's savedMtimeMs (5)
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    expect(tabs.tabsStore.getState().tabs[0]!.conflict).toBe(true);
+  });
+});
+
+describe('openPaths (M3)', () => {
+  test('opens a new file tab with the read content, mtime, and activates it', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'hello' });
+    fs.mtimes.set('/docs/report.md', 7);
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/docs/report.md']);
+
+    const state = tabs.tabsStore.getState();
+    const opened = state.tabs.find((t) => t.filePath === '/docs/report.md')!;
+    expect(opened.kind).toBe('file');
+    expect(opened.model.getText()).toBe('hello');
+    expect(opened.savedMtimeMs).toBe(7);
+    expect(opened.dirty).toBe(false);
+    expect(state.activeTabId).toBe(opened.id);
+  });
+
+  test('opening an already-open path focuses the existing tab instead of duplicating', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'hello' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/report.md']);
+    const firstOpenCount = tabs.tabsStore.getState().tabs.length;
+    tabs.tabsStore.getState().newTab(); // move focus elsewhere
+
+    await controller.openPaths(['/docs/report.md']);
+
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(firstOpenCount + 1);
+    const opened = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/docs/report.md')!;
+    expect(tabs.tabsStore.getState().activeTabId).toBe(opened.id);
+  });
+
+  test('dedupe is separator- and case-insensitive (Windows: `\\` vs `/` paths)', async () => {
+    const fs = makeFakeFs({ 'C:\\docs\\Report.md': 'hello' });
+    const controller = makeController(fs);
+    await controller.openPaths(['C:\\docs\\Report.md']);
+    const firstOpenCount = tabs.tabsStore.getState().tabs.length;
+
+    // Same file, as the explorer/core layers would spell it (joinPath uses `/`).
+    await controller.openPaths(['C:/docs/report.md']);
+
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(firstOpenCount);
+    const opened = tabs.tabsStore
+      .getState()
+      .tabs.find((t) => t.filePath === 'C:\\docs\\Report.md')!;
+    expect(tabs.tabsStore.getState().activeTabId).toBe(opened.id);
+  });
+
+  test('a missing file surfaces a notice and opens no tab', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const before = tabs.tabsStore.getState().tabs.length;
+
+    await controller.openPaths(['/docs/gone.md']);
+
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(before);
+  });
+
+  test('two concurrent opens of one path create a single tab (double-click dedupe)', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'hello' });
+    const controller = makeController(fs);
+    const before = tabs.tabsStore.getState().tabs.length;
+
+    // Fire both WITHOUT awaiting the first — the second lands before the first
+    // has created its tab, exactly like a rapid double-click in the explorer.
+    await Promise.all([
+      controller.openPaths(['/docs/report.md']),
+      controller.openPaths(['/docs/report.md']),
+    ]);
+
+    const opened = tabs.tabsStore.getState().tabs.filter((t) => t.filePath === '/docs/report.md');
+    expect(opened).toHaveLength(1);
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(before + 1);
+  });
+});
+
+describe('saveActive / saveAsActive (M3)', () => {
+  test('Save on a file tab writes the model text and clears the dirty dot', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    tabs.tabsStore.getState().activeTab()!.model.pushText('edited', 'cm6');
+    expect(tabs.tabsStore.getState().activeTab()!.dirty).toBe(true);
+
+    await controller.saveActive();
+
+    expect(fs.files.get('/docs/a.md')).toBe('edited');
+    const tab = tabs.tabsStore.getState().activeTab()!;
+    expect(tab.dirty).toBe(false);
+    expect(tab.savedMtimeMs).toBe(fs.mtimes.get('/docs/a.md'));
+  });
+
+  test('Save refuses to overwrite when the file changed on disk, and flags the conflict instead', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('my edit', 'cm6');
+    // Someone else changes the file on disk.
+    fs.files.set('/docs/a.md', 'external edit');
+    fs.mtimes.set('/docs/a.md', 999);
+
+    await controller.saveActive();
+
+    expect(fs.files.get('/docs/a.md')).toBe('external edit'); // NOT overwritten
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+  });
+
+  test('Save on a note tab behaves as Save As: converts it to a file tab and deletes the old note', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, { saveDialog: async () => '/docs/idea.md' });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Idea', 'cm6');
+    await controller.flushNow(); // gives the note tab a notePath
+    const notePath = tabs.tabsStore.getState().tabs[0]!.notePath!;
+    expect(fs.files.has(notePath)).toBe(true);
+
+    await controller.saveActive();
+
+    const tab = tabs.tabsStore.getState().tabs[0]!;
+    expect(tab.kind).toBe('file');
+    expect(tab.filePath).toBe('/docs/idea.md');
+    expect(fs.files.get('/docs/idea.md')).toBe('# Idea');
+
+    await controller.flushNow(); // sweeps the closedNotePaths tombstone
+    expect(fs.files.has(notePath)).toBe(false);
+  });
+
+  test('Save As cancelled at the dialog changes nothing', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    const controller = makeController(fs, () => 111, { saveDialog: async () => null });
+    await controller.openPaths(['/docs/a.md']);
+
+    await controller.saveAsActive();
+
+    expect(tabs.tabsStore.getState().activeTab()!.filePath).toBe('/docs/a.md');
+  });
+});
+
+describe('conflict detection, reload, and keep-mine (M3)', () => {
+  test('checkConflict flags a file tab whose on-disk mtime moved past savedMtimeMs', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    fs.mtimes.set('/docs/a.md', 2);
+
+    await controller.checkConflict(id);
+
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+  });
+
+  test('checkAllFileConflicts leaves an untouched file clean', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+
+    await controller.checkAllFileConflicts();
+
+    expect(tabs.tabsStore.getState().activeTab()!.conflict).toBe(false);
+  });
+
+  test('reloadFromDisk replaces the model text and clears dirty + conflict', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('my local edit', 'cm6');
+    fs.files.set('/docs/a.md', 'external content');
+    fs.mtimes.set('/docs/a.md', 2);
+    await controller.checkConflict(id);
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+
+    await controller.reloadFromDisk(id);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.model.getText()).toBe('external content');
+    expect(tab.dirty).toBe(false);
+    expect(tab.conflict).toBe(false);
+    expect(tab.savedMtimeMs).toBe(2);
+  });
+
+  test('keepMine dismisses the banner without touching local edits, and unblocks the next save', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('my local edit', 'cm6');
+    fs.files.set('/docs/a.md', 'external content');
+    fs.mtimes.set('/docs/a.md', 2);
+    await controller.checkConflict(id);
+
+    await controller.keepMine(id);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(false);
+    expect(tab.dirty).toBe(true); // still unsaved on purpose
+    expect(tab.model.getText()).toBe('my local edit');
+
+    // The updated baseline (mtime 2) means the next save is no longer blocked.
+    await controller.saveActive();
+    expect(fs.files.get('/docs/a.md')).toBe('my local edit');
+  });
+});
+
+describe('closeTabInteractive — dirty file tabs (M3)', () => {
+  test('Cancel leaves the tab open', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    const controller = makeController(fs, () => 111, { saveDiscardCancel: async () => 'cancel' });
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('edit', 'cm6');
+
+    await controller.closeTabInteractive(id);
+
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === id)).toBe(true);
+  });
+
+  test('Discard closes the tab without writing the file', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    const controller = makeController(fs, () => 111, { saveDiscardCancel: async () => 'discard' });
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('edit', 'cm6');
+
+    await controller.closeTabInteractive(id);
+
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === id)).toBe(false);
+    expect(fs.files.get('/docs/a.md')).toBe('x');
+  });
+
+  test('Save writes the file, then closes the tab', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    const controller = makeController(fs, () => 111, { saveDiscardCancel: async () => 'save' });
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('edit', 'cm6');
+
+    await controller.closeTabInteractive(id);
+
+    expect(fs.files.get('/docs/a.md')).toBe('edit');
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === id)).toBe(false);
+  });
+
+  test('a save blocked by a conflict keeps the tab open', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs, () => 111, { saveDiscardCancel: async () => 'save' });
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('edit', 'cm6');
+    fs.files.set('/docs/a.md', 'external edit');
+    fs.mtimes.set('/docs/a.md', 999);
+
+    await controller.closeTabInteractive(id);
+
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === id)).toBe(true);
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+  });
+});
+
+describe('changeNotesDir (M6)', () => {
+  test('moves existing notes, updates the setting, retargets tabs, and writes to the new dir', async () => {
+    const fs = makeFakeFs();
+    const settings = await import('../stores/settings');
+    const controller = makeController(fs, () => 111, {
+      pickDirectory: async () => '/new-notes',
+      confirm: async () => true,
+    });
+    // Create a note and flush so it exists on disk and the listing is seeded.
+    tabs.tabsStore.getState().tabs[0]!.model.pushText('Note one', 'cm6');
+    await controller.flushNow();
+    expect(fs.files.has(`${NOTES}/note-one.md`)).toBe(true);
+
+    await controller.changeNotesDir();
+
+    // File physically moved; the setting and the tab's notePath both followed.
+    expect(fs.files.has(`${NOTES}/note-one.md`)).toBe(false);
+    expect(fs.files.get('/new-notes/note-one.md')).toBe('Note one');
+    expect(settings.settingsStore.getState().settings.notesDir).toBe('/new-notes');
+    expect(tabs.tabsStore.getState().tabs[0]!.notePath).toBe('/new-notes/note-one.md');
+
+    // The next flush writes into the new directory (edit a later line so the
+    // title-derived slug — and thus the filename — stays 'note-one').
+    tabs.tabsStore.getState().tabs[0]!.model.pushText('Note one\nmore text', 'cm6');
+    await controller.flushNow();
+    expect(fs.files.get('/new-notes/note-one.md')).toBe('Note one\nmore text');
+  });
+
+  test('a file that cannot be moved is left behind; the switch still happens', async () => {
+    const fs = makeFakeFs();
+    const settings = await import('../stores/settings');
+    const controller = makeController(fs, () => 111, {
+      pickDirectory: async () => '/new-notes',
+      confirm: async () => true,
+    });
+    tabs.tabsStore.getState().tabs[0]!.model.pushText('Note one', 'cm6');
+    await controller.flushNow();
+    // A name collision at the destination makes renamePath throw EXISTS.
+    fs.files.set('/new-notes/note-one.md', 'pre-existing');
+
+    await controller.changeNotesDir();
+
+    // Left behind in the old dir; destination untouched; setting still switched.
+    expect(fs.files.get(`${NOTES}/note-one.md`)).toBe('Note one');
+    expect(fs.files.get('/new-notes/note-one.md')).toBe('pre-existing');
+    expect(settings.settingsStore.getState().settings.notesDir).toBe('/new-notes');
+    // The tab keeps its old notePath since the move failed.
+    expect(tabs.tabsStore.getState().tabs[0]!.notePath).toBe(`${NOTES}/note-one.md`);
+  });
+
+  test('declining the move switches the dir without touching files', async () => {
+    const fs = makeFakeFs();
+    const settings = await import('../stores/settings');
+    const controller = makeController(fs, () => 111, {
+      pickDirectory: async () => '/new-notes',
+      confirm: async () => false,
+    });
+    tabs.tabsStore.getState().tabs[0]!.model.pushText('Note one', 'cm6');
+    await controller.flushNow();
+
+    await controller.changeNotesDir();
+
+    expect(fs.files.has(`${NOTES}/note-one.md`)).toBe(true);
+    expect(fs.ops.some((o) => o.startsWith('rename:'))).toBe(false);
+    expect(settings.settingsStore.getState().settings.notesDir).toBe('/new-notes');
+  });
+
+  test('cancelling the folder picker is a no-op', async () => {
+    const fs = makeFakeFs();
+    const settings = await import('../stores/settings');
+    const before = settings.settingsStore.getState().settings.notesDir;
+    const controller = makeController(fs, () => 111, { pickDirectory: async () => null });
+
+    await controller.changeNotesDir();
+
+    expect(settings.settingsStore.getState().settings.notesDir).toBe(before);
+  });
+});
+
+describe('insertFileLink (file/image links)', () => {
+  /** Register a stub source adapter for `tabId` that records insertLinkTo calls. */
+  async function stubAdapter(tabId: string) {
+    const registry = await import('../editor-registry');
+    const calls: Array<{ label: string; url: string; image: boolean }> = [];
+    registry.registerSourceAdapter(tabId, {
+      attach() {},
+      detach() {},
+      focus() {},
+      getSelection: () => ({ anchor: 0, head: 0 }),
+      setSelection() {},
+      setWordWrap() {},
+      setFontSize() {},
+      format() {},
+      insertLinkTo: (label, url, image) => calls.push({ label, url, image }),
+    });
+    return calls;
+  }
+
+  test('inserts a path relative to the current document by default', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, {
+      pickFile: async () => `${NOTES}/pics/a.png`,
+    });
+    // Flush so the note tab gets a notePath under NOTES to be relative to.
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Trip', 'cm6');
+    await controller.flushNow();
+    const calls = await stubAdapter(t.id);
+
+    session.insertFileLink({ image: true, absolute: false });
+    await Promise.resolve(); // let the async dispatch settle
+
+    expect(calls).toEqual([{ label: 'a', url: './pics/a.png', image: true }]);
+  });
+
+  test('Alt-click (absolute) inserts the forward-slashed absolute path', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, {
+      pickFile: async () => 'C:\\media\\a.png',
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Trip', 'cm6');
+    await controller.flushNow();
+    const calls = await stubAdapter(t.id);
+
+    session.insertFileLink({ image: false, absolute: true });
+    await Promise.resolve();
+
+    expect(calls).toEqual([{ label: 'a', url: 'C:/media/a.png', image: false }]);
+  });
+
+  test('an unsaved note with no directory falls back to an absolute path', async () => {
+    const fs = makeFakeFs();
+    // Created only for its dispatch registration side effect.
+    makeController(fs, () => 111, { pickFile: async () => '/media/a.png' });
+    const t = tabs.tabsStore.getState().tabs[0]!; // never flushed → notePath null
+    const calls = await stubAdapter(t.id);
+
+    session.insertFileLink({ image: false, absolute: false });
+    await Promise.resolve();
+
+    expect(calls).toEqual([{ label: 'a', url: '/media/a.png', image: false }]);
+  });
+
+  test('does nothing in WYSIWYG mode (no source editor to target)', async () => {
+    const fs = makeFakeFs();
+    makeController(fs, () => 111, { pickFile: async () => '/media/a.png' });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    tabs.tabsStore.setState({
+      tabs: tabs.tabsStore
+        .getState()
+        .tabs.map((x) => (x.id === t.id ? { ...x, mode: 'wysiwyg' } : x)),
+    });
+    const calls = await stubAdapter(t.id);
+
+    session.insertFileLink({ image: false, absolute: false });
+    await Promise.resolve();
+
+    expect(calls).toEqual([]);
+  });
+
+  test('cancelling the picker inserts nothing', async () => {
+    const fs = makeFakeFs();
+    makeController(fs, () => 111, { pickFile: async () => null });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    const calls = await stubAdapter(t.id);
+
+    session.insertFileLink({ image: false, absolute: false });
+    await Promise.resolve();
+
+    expect(calls).toEqual([]);
+  });
+});

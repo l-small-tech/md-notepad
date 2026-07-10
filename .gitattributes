@@ -1,0 +1,10 @@
+# LF everywhere, on every platform — .editorconfig and prettier both assume
+# it, and CRLF working copies would fail `prettier --check` on Windows.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary

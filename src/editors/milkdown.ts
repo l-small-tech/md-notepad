@@ -1,0 +1,186 @@
+/**
+ * milkdown.ts — the Milkdown/Crepe WYSIWYG adapter (recipe in ./README.md).
+ *
+ * Loaded ONLY via a dynamic import from EditorHost's wysiwyg AdapterFactory
+ * (invariant I8): importing this module pulls the whole @milkdown/crepe chunk
+ * plus its theme CSS, so startup must never touch it. The two CSS imports below
+ * therefore ride along in this lazy chunk — never in the entry bundle.
+ *
+ * Like CM6 this is a projection of the DocModel (I1), but WYSIWYG editors
+ * NORMALIZE markdown, so the write-back rule is stricter (I2): serialization is
+ * pushed into the model ONLY after a genuine user edit since attach. Merely
+ * opening a note in rich mode and switching back must be byte-identical. That
+ * guarantee is enforced by the write-back guard (core/mode-sync.ts) fed at the
+ * ProseMirror transaction level — see "the transaction-tagging pattern" below.
+ */
+
+import { Crepe } from '@milkdown/crepe';
+import { editorViewCtx, editorViewOptionsCtx, parserCtx, serializerCtx } from '@milkdown/kit/core';
+import { Slice } from '@milkdown/kit/prose/model';
+import type { EditorView } from '@milkdown/kit/prose/view';
+import type { Transaction } from '@milkdown/kit/prose/state';
+import type { DocModel } from '../core/doc-model';
+import { createWritebackGuard, type EditorAdapter, type WritebackGuard } from '../core/mode-sync';
+import { markdownNormalizes, shouldShowNormalizationHint } from './wysiwyg-normalize';
+import '@milkdown/crepe/theme/common/style.css';
+import '../styles/wysiwyg.css';
+
+/**
+ * Transaction meta flag marking content WE set (initial load, model→editor
+ * sync). Such transactions change the doc but are not user edits, so the guard
+ * must ignore them — otherwise opening a doc in rich mode would immediately
+ * normalize it.
+ */
+const PROGRAMMATIC_META = 'md-notepad-programmatic';
+
+export interface MilkdownOptions {
+  /**
+   * Called once per tab when entering rich mode WOULD reformat the current
+   * markdown (content preserved). EditorHost surfaces the status-bar hint.
+   */
+  onNormalizationHint?: () => void;
+}
+
+export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdapter {
+  let crepe: Crepe | null = null;
+  let view: EditorView | null = null;
+  let guard: WritebackGuard | null = null;
+  let unsubscribe: (() => void) | null = null;
+  /** One-time-per-tab hint gate; the adapter instance lives for the tab. */
+  let hintShown = false;
+  /**
+   * Reentrancy flag guarding the model→editor path against our own write-back
+   * echo (the guard pushes with source 'milkdown', which re-enters the model
+   * subscription synchronously — the doc-model.ts echo-suppression pattern).
+   */
+  let pushingSelf = false;
+
+  /** Current editor markdown. Empty before create / after destroy. */
+  function serialize(): string {
+    return crepe ? crepe.getMarkdown() : '';
+  }
+
+  /**
+   * Replace the whole document from markdown, tagged programmatic so the guard
+   * never counts it as a user edit. Used for external model changes (e.g. a
+   * file-reload while the tab sits in rich mode).
+   */
+  function setContentProgrammatic(text: string): void {
+    crepe?.editor.action((ctx) => {
+      const v = ctx.get(editorViewCtx);
+      const doc = ctx.get(parserCtx)(text);
+      if (!doc) {
+        return;
+      }
+      const tr = v.state.tr.replace(0, v.state.doc.content.size, new Slice(doc.content, 0, 0));
+      tr.setMeta(PROGRAMMATIC_META, true);
+      v.dispatch(tr);
+    });
+  }
+
+  async function attach(host: HTMLElement, model: DocModel): Promise<void> {
+    const initialText = model.getText();
+
+    guard = createWritebackGuard({
+      serialize,
+      push: (text) => {
+        pushingSelf = true;
+        try {
+          model.pushText(text, 'milkdown');
+        } finally {
+          pushingSelf = false;
+        }
+      },
+    });
+    const boundGuard = guard;
+
+    crepe = new Crepe({
+      root: host,
+      defaultValue: initialText,
+      // Trim features that fight the minimal look or are non-goals for v1:
+      // no image upload UI, no LaTeX math, no AI, no document top bar. The
+      // slash menu / selection toolbar / table UI stay — they're the point.
+      features: {
+        [Crepe.Feature.ImageBlock]: false,
+        [Crepe.Feature.Latex]: false,
+        [Crepe.Feature.AI]: false,
+        [Crepe.Feature.TopBar]: false,
+      },
+    });
+
+    // The transaction-tagging pattern (README "#1 pitfall"): route EVERY
+    // ProseMirror transaction through the guard. Milkdown does not set its own
+    // dispatchTransaction (it spreads editorViewOptionsCtx into the view), so
+    // we own it — which means we must apply the new state ourselves, exactly
+    // as ProseMirror's default dispatch would, then report to the guard.
+    crepe.editor.config((ctx) => {
+      ctx.update(editorViewOptionsCtx, (prev) => ({
+        ...prev,
+        dispatchTransaction(tr: Transaction) {
+          if (!view) {
+            return;
+          }
+          view.updateState(view.state.apply(tr));
+          boundGuard.noteTransaction({
+            docChanged: tr.docChanged,
+            programmatic: tr.getMeta(PROGRAMMATIC_META) === true,
+          });
+        },
+      }));
+    });
+
+    await crepe.create();
+    view = crepe.editor.action((ctx) => ctx.get(editorViewCtx));
+
+    // Normalization hint: if parse→serialize of the current text differs, rich
+    // mode will reformat syntax on the first edit. Warn once per tab.
+    if (!hintShown) {
+      const roundTripped = crepe.editor.action((ctx) => {
+        const parse = ctx.get(parserCtx);
+        const stringify = ctx.get(serializerCtx);
+        const doc = parse(initialText);
+        return doc ? stringify(doc) : initialText;
+      });
+      if (shouldShowNormalizationHint(markdownNormalizes(initialText, roundTripped), hintShown)) {
+        hintShown = true;
+        options.onNormalizationHint?.();
+      }
+    }
+
+    // Model → editor: apply external changes (not our own write-back echo).
+    // Re-parse programmatically so the guard never sees them as user edits.
+    unsubscribe = model.subscribe((change) => {
+      if (pushingSelf) {
+        return;
+      }
+      if (change.text === serialize()) {
+        return;
+      }
+      setContentProgrammatic(change.text);
+    });
+  }
+
+  function detach(): void {
+    // MUST flush pending write-back BEFORE tearing down (EditorAdapter contract
+    // — this is what makes fast mode-toggling lossless). flushSync serializes
+    // the current editor state and pushes it while the editor still exists.
+    guard?.flushSync();
+    guard?.dispose();
+    guard = null;
+    unsubscribe?.();
+    unsubscribe = null;
+    view = null;
+    // Crepe.destroy is async; we don't await it (detach is sync by contract).
+    // The host element is owned by mode-sync/EditorHost, which clears it.
+    void crepe?.destroy();
+    crepe = null;
+  }
+
+  return {
+    attach,
+    detach,
+    focus() {
+      view?.focus();
+    },
+  };
+}

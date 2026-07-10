@@ -1,0 +1,104 @@
+# Release pipeline — plan.md §7. Trigger: push a v* tag.
+#
+# Produces a DRAFT GitHub release containing:
+#   Windows NSIS .exe · macOS universal .dmg · Linux .deb/.rpm/.AppImage
+#   latest.json (updater manifest) + per-asset .sig  (once M7 enables
+#   createUpdaterArtifacts + the signing secrets)
+#   SHA256SUMS + Sigstore build-provenance attestations
+# The maintainer reviews the draft and publishes manually — publishing is
+# what makes latest.json visible to auto-updaters.
+#
+# Secrets (created during M7's key ceremony, see plan.md §5-M7):
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: ubuntu-22.04 # oldest glibc for AppImage compatibility
+            args: ''
+            rust-targets: ''
+          - os: windows-latest
+            args: ''
+            rust-targets: ''
+    runs-on: ${{ matrix.os }}
+    # Actions are pinned to commit SHAs: this workflow holds the updater
+    # signing key, so a retargeted upstream tag must not be able to run new
+    # code here. Bump the SHAs deliberately, alongside the version comment.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux webview dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__ # tauri-action substitutes the app version
+          releaseName: 'MD Notepad v__VERSION__'
+          releaseDraft: true
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  # Attestations + checksums run over the assembled draft release so every
+  # asset is covered in one place, regardless of which runner built it.
+  finalize:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Via env, not inline interpolation, so a hostile ref name can't inject
+      # into the shell.
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Download all release assets
+        run: gh release download "$TAG" --repo '${{ github.repository }}' --dir assets
+
+      - name: Attest build provenance (Sigstore)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: assets/*
+
+      - name: Generate and upload SHA256SUMS
+        run: |
+          (cd assets && sha256sum *) > SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo '${{ github.repository }}' --clobber
