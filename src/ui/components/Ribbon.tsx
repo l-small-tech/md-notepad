@@ -173,7 +173,7 @@ function ReaderControls() {
         A−
       </button>
       <span className="ribbon-zoom" aria-live="polite" title="Text size">
-        {fontSize}px
+        {fontSize}
       </span>
       <button
         className="ribbon-btn"

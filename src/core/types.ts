@@ -19,8 +19,10 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read';
  *           notes dir that the session flusher owns entirely.
  * 'file'  — a user-opened file anywhere on disk; explicit save semantics,
  *           unsaved edits are session-buffered (see core/session).
+ * 'image' — a read-only image viewer over `filePath`. Never written, never
+ *           buffered; the flusher only records it in the manifest.
  */
-export type TabKind = 'note' | 'file';
+export type TabKind = 'note' | 'file' | 'image';
 
 export interface CursorPos {
   anchor: number;
@@ -50,6 +52,37 @@ export interface TabState {
  */
 export type ReaderMargins = 'narrow' | 'normal' | 'wide';
 
+/**
+ * Workspace accent colors — named tokens, not hex, so the palette can be
+ * tuned per theme in CSS without touching persisted settings.
+ */
+export const WORKSPACE_COLORS = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'teal',
+  'blue',
+  'purple',
+  'pink',
+] as const;
+
+export type WorkspaceColor = (typeof WORKSPACE_COLORS)[number];
+
+/**
+ * A workspace is just a folder the file explorer lists. The notes dir is the
+ * implicit default workspace and is NOT stored here — this array holds only
+ * the extra folders the user added (removing one never touches its files).
+ */
+export interface WorkspaceEntry {
+  /** Display name; defaults to the folder's basename when added. */
+  name: string;
+  /** Absolute path to the folder. */
+  path: string;
+  /** Accent color, or null for none. */
+  color: WorkspaceColor | null;
+}
+
 export interface Settings {
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
@@ -60,4 +93,19 @@ export interface Settings {
   /** Fira Code ligatures (-> as a single glyph). Default on. */
   ligatures: boolean;
   readerMargins: ReaderMargins;
+  /**
+   * Ask for confirmation before an in-explorer drag moves a file into another
+   * folder (VSCode-style). Default on; unchecking it suppresses the prompt.
+   */
+  confirmFileMove: boolean;
+  /**
+   * Live save: automatically write dirty FILE tabs to their own path at the
+   * session-flush cadence, instead of only buffering edits until Ctrl+S.
+   * Note tabs always autosave regardless. Default off.
+   */
+  liveSave: boolean;
+  /** Extra explorer workspaces beyond the default notes dir. */
+  workspaces: WorkspaceEntry[];
+  /** Accent color of the default (notes dir) workspace, which has no entry above. */
+  defaultWorkspaceColor: WorkspaceColor | null;
 }

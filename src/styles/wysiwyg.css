@@ -47,8 +47,103 @@
 }
 
 .milkdown .ProseMirror {
-  padding: 10px 12px;
+  /* Same centered reading column as Read mode (follows the "Read mode
+     margins" setting via --reading-padding, defined in preview.css). */
+  padding: var(--reading-padding);
   min-height: 100%;
   outline: none;
   font-size: var(--editor-font-size, 14px);
+  line-height: 1.75;
+}
+
+/* ---- Content parity with Read mode --------------------------------------
+ * Read and Rich render the same document, so they should read the same.
+ * Crepe ships its own content typography (fixed 16px text, 42px
+ * regular-weight headings, red inline code, grey pill blockquotes); the
+ * rules below restate the Read-mode look. Crepe's reset also zeroes every
+ * margin, so `revert` is used to restore the browser defaults that Read
+ * mode (plain rendered HTML) gets for free. Keep in sync with preview.css.
+ */
+
+.milkdown .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.milkdown .ProseMirror p {
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0;
+  margin: revert;
+}
+
+/* Tight lists — Read mode's renderer puts bare text in <li>, not <p>. */
+.milkdown .ProseMirror li p {
+  margin: 0;
+}
+
+.milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--fg);
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.3;
+  font-size: revert;
+  margin: revert;
+  padding: 0;
+}
+
+.milkdown .ProseMirror h1 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.milkdown .ProseMirror :is(ul, ol) {
+  margin: revert;
+}
+
+.milkdown .ProseMirror code {
+  color: inherit;
+  background: var(--bg-alt);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  font-size: inherit;
+  display: inline;
+  line-height: inherit;
+}
+
+.milkdown .ProseMirror a {
+  color: var(--accent);
+}
+
+.milkdown .ProseMirror blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 1em;
+  border-left: 3px solid var(--accent);
+  color: var(--fg-muted);
+}
+
+/* Crepe's grey pill marker; Read mode uses the accent border above. */
+.milkdown .ProseMirror blockquote::before {
+  content: none;
+}
+
+/* Code blocks: Crepe's CodeMirror widget on the Read-mode <pre> surface. */
+.milkdown .milkdown-code-block,
+.milkdown .milkdown-code-block .cm-editor,
+.milkdown .milkdown-code-block .cm-gutters {
+  background: var(--bg-alt);
+}
+
+.milkdown .milkdown-code-block {
+  border-radius: 4px;
+}
+
+.milkdown .ProseMirror th,
+.milkdown .ProseMirror td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+}
+
+.milkdown .ProseMirror th {
+  background: var(--bg-alt);
+  font-weight: 700;
 }

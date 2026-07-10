@@ -124,7 +124,10 @@ export function parseManifest(raw: string): SessionManifest | null {
       return null;
     }
     const t = tab as Record<string, unknown>;
-    if (typeof t.id !== 'string' || (t.kind !== 'note' && t.kind !== 'file')) {
+    if (
+      typeof t.id !== 'string' ||
+      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image')
+    ) {
       return null;
     }
   }

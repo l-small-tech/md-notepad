@@ -260,7 +260,8 @@
 .app-fullscreen .tabbar,
 .app-fullscreen .ribbon,
 .app-fullscreen .statusbar,
-.app-fullscreen .file-explorer {
+.app-fullscreen .file-explorer,
+.app-fullscreen .explorer-resize {
   display: none;
 }
 
@@ -313,11 +314,28 @@
   display: flex;
   flex-direction: column;
   flex: 0 0 auto;
-  width: 220px;
+  width: 220px; /* overridden inline; resized by dragging .explorer-resize */
   min-width: 0;
   background: var(--bg-alt);
-  border-right: 1px solid var(--border);
   overflow: hidden;
+}
+
+/* Drag handle on the drawer's right edge; doubles as its border. */
+.explorer-resize {
+  flex: 0 0 5px;
+  margin-left: -2px; /* widen the hit area without widening the visual line */
+  border-left: 1px solid var(--border);
+  cursor: col-resize;
+  /* .workspace-header is position:relative, so a selected/active row's
+     highlight paints in the positioned layer — above this non-positioned
+     handle. Promote the handle so its border always sits on top. */
+  position: relative;
+  z-index: 1;
+}
+
+.explorer-resize:hover,
+.explorer-resize:active {
+  border-left-color: var(--fg-muted);
 }
 
 .file-explorer-header {
@@ -338,7 +356,13 @@
   color: var(--fg-muted);
 }
 
-.file-explorer-close {
+.file-explorer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-explorer-action {
   border: none;
   background: transparent;
   color: var(--fg-muted);
@@ -348,7 +372,7 @@
   padding: 0 4px;
 }
 
-.file-explorer-close:hover {
+.file-explorer-action:hover {
   color: var(--fg);
 }
 
@@ -356,6 +380,186 @@
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 4px 0;
+}
+
+/* ---- Workspace sections -------------------------------------------------- */
+
+/* Accent palette — named tokens (core/types WORKSPACE_COLORS). Mid-tone hues
+   picked to read on both themes; anything carrying data-color resolves its
+   own --ws-accent from these. */
+[data-color='red'] {
+  --ws-accent: #e5484d;
+}
+[data-color='orange'] {
+  --ws-accent: #f76b15;
+}
+[data-color='yellow'] {
+  --ws-accent: #d9a520;
+}
+[data-color='green'] {
+  --ws-accent: #46a758;
+}
+[data-color='teal'] {
+  --ws-accent: #12a594;
+}
+[data-color='blue'] {
+  --ws-accent: #0091ff;
+}
+[data-color='purple'] {
+  --ws-accent: #8e4ec6;
+}
+[data-color='pink'] {
+  --ws-accent: #d6409f;
+}
+
+.workspace-section + .workspace-section {
+  margin-top: 6px;
+}
+
+/* A colored workspace gets a quiet accent stripe down its whole section. */
+.workspace-section {
+  border-left: 2px solid transparent;
+}
+
+.workspace-section[data-color] {
+  border-left-color: var(--ws-accent);
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  position: relative; /* anchors the color-swatch popover */
+}
+
+.context-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
+/* Right-click menu on a workspace header or folder row: "New file" plus, at
+   workspace level, the color swatch row. Anchored to the row it opened from. */
+.context-menu {
+  position: absolute;
+  top: 100%;
+  left: 8px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.context-menu-swatches {
+  display: flex;
+  gap: 5px;
+  padding: 7px 8px 5px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.color-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: var(--ws-accent);
+  padding: 0;
+  cursor: pointer;
+}
+
+.color-swatch[data-color='none'] {
+  background: transparent;
+  border-color: var(--fg-muted);
+}
+
+.color-swatch:hover {
+  transform: scale(1.2);
+}
+
+/* The workspace's current color gets a quiet ring. */
+.color-swatch[data-active] {
+  outline: 1px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+/* Remove button only materializes on hover so resting state stays quiet. */
+.workspace-remove {
+  visibility: hidden;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 8px 0 4px;
+}
+
+.workspace-header:hover .workspace-remove,
+.workspace-remove:focus-visible {
+  visibility: visible;
+}
+
+.workspace-remove:hover {
+  color: var(--fg);
+}
+
+.workspace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 4px 3px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-toggle:hover {
+  color: var(--fg);
+}
+
+.workspace-caret {
+  flex: 0 0 auto;
+  width: 10px;
+  font-size: 9px;
+}
+
+.workspace-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .file-explorer-item {
@@ -367,19 +571,100 @@
   color: var(--fg);
   font: inherit;
   font-size: 12px;
-  padding: 4px 10px;
+  padding: 4px 10px 4px 22px; /* left is overridden per tree depth inline */
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Anchors a folder row's context menu. */
+.file-explorer-dir-row {
+  position: relative;
+}
+
+/* Folder rows: same hit target as files, muted like the workspace headers. */
+.file-explorer-dir {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px 4px 8px; /* left is overridden per tree depth inline */
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.file-explorer-dir:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.file-explorer-dir-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline rename field, shown in place of a folder/file row's label. */
+.explorer-rename-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 0 2px;
+  outline: none;
+}
+
+/* Active pointer-drag of a file row (internal move) — the grabbing cursor
+   must win over per-element cursors for the whole gesture. */
+body.explorer-dragging,
+body.explorer-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* The selected paste destination (a workspace header or folder row). */
+.workspace-toggle.is-selected,
+.file-explorer-dir.is-selected {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+/* Live OS-drag hover target — must read at a glance mid-drag. */
+.workspace-toggle.is-drop-target,
+.file-explorer-dir.is-drop-target {
+  color: var(--fg);
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--fg-muted);
+}
+
 .file-explorer-item:hover {
   background: var(--bg-hover);
 }
 
+/* A file that is open in some tab — subtly distinct in the listing. */
+.file-explorer-item.is-open {
+  font-weight: 600;
+}
+
+/* ...and the active tab's file, one step stronger (still subtle). */
+.file-explorer-item.is-active {
+  background: var(--bg-hover);
+}
+
 .file-explorer-empty {
-  padding: 8px 10px;
+  padding: 4px 10px 4px 22px;
   font-size: 12px;
   color: var(--fg-muted);
 }
@@ -442,6 +727,32 @@
    full-width reader preview shows, so no editing is possible. */
 .editor-host[data-mode='read'] .editor-pane {
   display: none;
+}
+
+/* ---- Image tabs ---------------------------------------------------------- */
+
+/* A read-mode-like viewing surface: the image sits centered on the page
+   background, scaled down to fit, scrollable if the pane gets very small. */
+.image-view {
+  flex: 1 1 auto;
+  display: flex;
+  overflow: auto;
+  padding: 24px;
+  outline: none;
+}
+
+.image-view-img {
+  margin: auto; /* true centering that still scrolls correctly when clipped */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.image-view-status {
+  margin: auto;
+  color: var(--fg-muted);
+  font-size: 13px;
 }
 
 /* ---- Conflict banner (M3) ------------------------------------------------ */

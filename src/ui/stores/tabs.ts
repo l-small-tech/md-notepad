@@ -117,6 +117,8 @@ export interface TabsState {
 
   /** M3 — Ctrl+O: append a new file tab from already-read disk content. Returns its id. */
   openFileTab: (input: { filePath: string; text: string; savedMtimeMs: number }) => string;
+  /** Image viewer tab — read-only, never flushed beyond the manifest. Returns its id. */
+  openImageTab: (input: { filePath: string; savedMtimeMs: number | null }) => string;
   /**
    * M3 — Save (existing file tab, same path): the model text was just written
    * to `filePath` at `mtimeMs`. Clears the dirty dot and any conflict banner,
@@ -162,7 +164,7 @@ export function tabDisplayTitle(tab: {
   title: string;
   charCount: number;
 }): string {
-  if (tab.kind === 'file' && tab.filePath) {
+  if ((tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
     return stripExtension(baseName(tab.filePath));
   }
   if (!tab.customTitle && tab.charCount === 0) {
@@ -438,6 +440,23 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       return tab.id;
     },
 
+    openImageTab({ filePath, savedMtimeMs }) {
+      const tab = makeTab({
+        id: nanoid(),
+        kind: 'image',
+        notePath: null,
+        filePath,
+        customTitle: null,
+        // Semantically closest mode (read-only viewer); no editor is created.
+        mode: 'read',
+        savedMtimeMs,
+        text: '',
+      });
+      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+      requestFlush();
+      return tab.id;
+    },
+
     markSaved(id, mtimeMs) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
@@ -500,7 +519,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     retargetFilePath(id, { filePath, mtimeMs }) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || tab.kind !== 'file') {
+      if (!tab || (tab.kind !== 'file' && tab.kind !== 'image')) {
         return;
       }
       set({

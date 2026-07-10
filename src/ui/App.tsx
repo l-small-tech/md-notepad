@@ -12,6 +12,7 @@ import { TabBar } from './components/TabBar';
 import { Ribbon } from './components/Ribbon';
 import { FileExplorer } from './components/FileExplorer';
 import { EditorHost } from './components/EditorHost';
+import { ImageView } from './components/ImageView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { cycleReaderView, stepBackReaderView } from './reader-fullscreen';
@@ -46,9 +47,15 @@ export function App() {
       <div className="editor-area">
         <FileExplorer />
         <div className="editor-stack">
-          {tabs.map((tab) => (
-            <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
-          ))}
+          {tabs.map((tab) =>
+            // A tab's kind never changes to/from 'image', so this branch is
+            // stable per key and never remounts an editor (I7 holds).
+            tab.kind === 'image' ? (
+              <ImageView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ) : (
+              <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ),
+          )}
         </div>
       </div>
       <StatusBar />

@@ -30,6 +30,14 @@ export interface UiState {
   /** The left-side file explorer drawer is open. Transient, never persisted. */
   explorerOpen: boolean;
   /**
+   * Directory currently hovered by an OS file drag (main.tsx hit-tests the
+   * Tauri drag-drop events), or null. Drives the explorer's drop highlight.
+   */
+  dropTargetDir: string | null;
+  /** Bumped whenever files were written into a workspace outside the tab flow
+   *  (paste/drop) so the explorer re-lists. */
+  explorerRefresh: number;
+  /**
    * Read-mode full screen, in two stages: 'window' hides all app chrome but
    * keeps the window as-is; 'screen' additionally makes the OS window
    * fullscreen. Only the value lives here — the window-API side effect is
@@ -44,6 +52,8 @@ export interface UiState {
   openSettings: () => void;
   closeSettings: () => void;
   toggleExplorer: () => void;
+  setDropTarget: (dir: string | null) => void;
+  refreshExplorer: () => void;
   setReaderView: (stage: ReaderViewStage) => void;
 }
 
@@ -54,6 +64,8 @@ export const uiStore = createStore<UiState>()((set) => ({
   cursor: null,
   settingsOpen: false,
   explorerOpen: false,
+  dropTargetDir: null,
+  explorerRefresh: 0,
   readerView: 'normal',
 
   showNotice(message, ms = 6000) {
@@ -92,6 +104,15 @@ export const uiStore = createStore<UiState>()((set) => ({
 
   toggleExplorer() {
     set((s) => ({ explorerOpen: !s.explorerOpen }));
+  },
+
+  setDropTarget(dir) {
+    // Drag-over events fire continuously; only re-render on actual change.
+    set((s) => (s.dropTargetDir === dir ? s : { dropTargetDir: dir }));
+  },
+
+  refreshExplorer() {
+    set((s) => ({ explorerRefresh: s.explorerRefresh + 1 }));
   },
 
   setReaderView(stage) {

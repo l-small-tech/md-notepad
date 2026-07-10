@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, normalizeSettings } from '../settings';
+import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
+import { WORKSPACE_COLORS } from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -18,6 +19,10 @@ describe('normalizeSettings', () => {
       wordWrap: false,
       ligatures: false,
       readerMargins: 'wide',
+      confirmFileMove: false,
+      liveSave: true,
+      workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
+      defaultWorkspaceColor: 'blue',
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
@@ -27,6 +32,10 @@ describe('normalizeSettings', () => {
       wordWrap: false,
       ligatures: false,
       readerMargins: 'wide',
+      confirmFileMove: false,
+      liveSave: true,
+      workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
+      defaultWorkspaceColor: 'blue',
     });
   });
 
@@ -39,8 +48,52 @@ describe('normalizeSettings', () => {
       wordWrap: 'yes',
       ligatures: 1,
       readerMargins: 'huge',
+      confirmFileMove: 'sure',
+      liveSave: 'always',
+      workspaces: 'not-a-list',
+      defaultWorkspaceColor: 'mauve',
     });
     expect(settings).toEqual(DEFAULT_SETTINGS);
+  });
+
+  test('workspaces keeps well-formed entries and drops malformed ones', () => {
+    const settings = normalizeSettings({
+      workspaces: [
+        { name: 'Work', path: 'D:/work', color: 'red' },
+        { name: '   ', path: 'D:/unnamed' }, // blank name falls back to path
+        { name: 'no path' },
+        { path: '' },
+        'garbage',
+        null,
+      ],
+    });
+    expect(settings.workspaces).toEqual([
+      { name: 'Work', path: 'D:/work', color: 'red' },
+      { name: 'D:/unnamed', path: 'D:/unnamed', color: null },
+    ]);
+  });
+
+  test('pickUnusedColor prefers the first unused palette color', () => {
+    expect(pickUnusedColor([])).toBe(WORKSPACE_COLORS[0]);
+    expect(pickUnusedColor(['red', null])).toBe('orange');
+    expect(pickUnusedColor(['orange', 'red'])).toBe('yellow');
+  });
+
+  test('pickUnusedColor cycles fairly once the palette is exhausted', () => {
+    // Every color used once, 'red' used twice → the next least-used in
+    // palette order is 'orange'.
+    expect(pickUnusedColor([...WORKSPACE_COLORS, 'red'])).toBe('orange');
+    // All used equally → back to the first palette color.
+    expect(pickUnusedColor([...WORKSPACE_COLORS])).toBe('red');
+  });
+
+  test('an unknown workspace color falls back to null', () => {
+    const settings = normalizeSettings({
+      workspaces: [{ name: 'W', path: 'D:/w', color: '#ff0000' }],
+      defaultWorkspaceColor: 42,
+    });
+    expect(settings.workspaces[0]!.color).toBeNull();
+    expect(settings.defaultWorkspaceColor).toBeNull();
   });
 
   test('empty notesDir string means "use platform default"', () => {

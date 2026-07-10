@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { normalizeSettings, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_SETTINGS } from './core/settings';
@@ -16,6 +17,7 @@ import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
   closeTab,
   createSessionController,
+  importFilesInto,
   openFile,
   saveActiveTab,
   saveActiveTabAs,
@@ -30,11 +32,7 @@ import { uiStore } from './ui/stores/ui';
 import { ipc } from './ipc/commands';
 import { resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
-import {
-  cycleReaderView,
-  initReaderFullscreen,
-  stepBackReaderView,
-} from './ui/reader-fullscreen';
+import { cycleReaderView, initReaderFullscreen, stepBackReaderView } from './ui/reader-fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
@@ -308,6 +306,35 @@ async function boot(): Promise<void> {
   void listen<string[]>('open-files', (event) => {
     void controller.openPaths(event.payload);
   }).catch(() => {});
+
+  // OS drag-drop into the explorer. Tauri intercepts file drags (HTML5 drop
+  // never fires), so hit-test its physical cursor position against the
+  // explorer's data-drop-dir attributes: hovering highlights the target
+  // workspace/folder, dropping copies the md/image files into it.
+  const dropDirAt = (position: { x: number; y: number }): string | null => {
+    const scale = window.devicePixelRatio || 1;
+    const el = document.elementFromPoint(position.x / scale, position.y / scale);
+    return el?.closest('[data-drop-dir]')?.getAttribute('data-drop-dir') ?? null;
+  };
+  void getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === 'over') {
+        uiStore.getState().setDropTarget(dropDirAt(payload.position));
+      } else if (payload.type === 'drop') {
+        const dir = dropDirAt(payload.position);
+        uiStore.getState().setDropTarget(null);
+        if (dir) {
+          void importFilesInto(dir, payload.paths);
+        } else {
+          // Not over the explorer (e.g. the editor area): open as tabs.
+          void controller.openPaths(payload.paths);
+        }
+      } else {
+        uiStore.getState().setDropTarget(null);
+      }
+    })
+    .catch(() => {});
 
   // Flush on blur so a crash after tabbing away still keeps the latest text;
   // re-check open file tabs for external changes when the window regains

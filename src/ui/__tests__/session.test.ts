@@ -27,8 +27,16 @@ interface FakeFs {
     renamePath: (from: string, to: string) => Promise<void>;
     deletePath: (path: string) => Promise<void>;
     listNotes: (dir: string) => Promise<{ path: string; mtimeMs: number; size: number }[]>;
+    listDir: (
+      dir: string,
+    ) => Promise<{ path: string; isDir: boolean; mtimeMs: number; size: number }[]>;
+    readFileBase64: (path: string) => Promise<string>;
+    writeFileBase64: (path: string, data: string) => Promise<void>;
+    copyPath: (from: string, to: string) => Promise<void>;
+    createDir: (path: string) => Promise<void>;
     statPath: (path: string) => Promise<{ exists: boolean; mtimeMs: number | null }>;
   };
+  dirs: Set<string>;
 }
 
 let IpcError: typeof import('../../ipc/commands').IpcError;
@@ -37,12 +45,14 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
   const files = new Map<string, string>(Object.entries(seed));
   const mtimes = new Map<string, number>([...files.keys()].map((p) => [p, 1]));
   const ops: string[] = [];
+  const dirs = new Set<string>();
   let clock = 1;
   const dirname = (p: string) => p.slice(0, p.lastIndexOf('/'));
   return {
     files,
     mtimes,
     ops,
+    dirs,
     ipc: {
       async atomicWriteText(path, text) {
         ops.push(`write:${path}`);
@@ -57,6 +67,24 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
       },
       async renamePath(from, to) {
         ops.push(`rename:${from}->${to}`);
+        if (dirs.has(from)) {
+          // Directory rename: move the dir entry and every file under it.
+          if (dirs.has(to) || files.has(to)) {
+            throw new IpcError('EXISTS', to);
+          }
+          dirs.delete(from);
+          dirs.add(to);
+          for (const p of [...files.keys()]) {
+            if (p.startsWith(`${from}/`)) {
+              const moved = to + p.slice(from.length);
+              files.set(moved, files.get(p)!);
+              mtimes.set(moved, mtimes.get(p) ?? 1);
+              files.delete(p);
+              mtimes.delete(p);
+            }
+          }
+          return;
+        }
         if (!files.has(from)) {
           throw new IpcError('NOT_FOUND', from);
         }
@@ -78,8 +106,48 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
           .filter((p) => dirname(p) === dir && p.endsWith('.md'))
           .map((p) => ({ path: p, mtimeMs: mtimes.get(p) ?? 1, size: files.get(p)!.length }));
       },
+      async listDir(dir) {
+        // The fake fs has no real directories; explorer entries are files only.
+        return [...files.keys()]
+          .filter((p) => dirname(p) === dir)
+          .map((p) => ({
+            path: p,
+            isDir: false,
+            mtimeMs: mtimes.get(p) ?? 1,
+            size: files.get(p)!.length,
+          }));
+      },
+      async readFileBase64(path) {
+        if (!files.has(path)) {
+          throw new IpcError('NOT_FOUND', path);
+        }
+        return btoa(files.get(path)!);
+      },
+      async writeFileBase64(path, data) {
+        ops.push(`writeb64:${path}`);
+        files.set(path, atob(data));
+        mtimes.set(path, ++clock);
+      },
+      async copyPath(from, to) {
+        ops.push(`copy:${from}->${to}`);
+        if (!files.has(from)) {
+          throw new IpcError('NOT_FOUND', from);
+        }
+        if (files.has(to)) {
+          throw new IpcError('EXISTS', to);
+        }
+        files.set(to, files.get(from)!);
+        mtimes.set(to, ++clock);
+      },
+      async createDir(path) {
+        ops.push(`mkdir:${path}`);
+        if (dirs.has(path) || files.has(path)) {
+          throw new IpcError('EXISTS', path);
+        }
+        dirs.add(path);
+      },
       async statPath(path) {
-        return files.has(path)
+        return files.has(path) || dirs.has(path)
           ? { exists: true, mtimeMs: mtimes.get(path) ?? 1 }
           : { exists: false, mtimeMs: null };
       },
@@ -206,6 +274,70 @@ describe('flushSession — discarding a note tab', () => {
     expect(fs.files.has(notePath)).toBe(false);
     // Tombstone consumed.
     expect(tabs.tabsStore.getState().closedNotePaths).toEqual([]);
+  });
+});
+
+describe('flushSession — live save', () => {
+  async function openDirtyFileTab(text: string) {
+    const id = tabs.tabsStore
+      .getState()
+      .openFileTab({ filePath: '/docs/report.md', text: 'saved', savedMtimeMs: 1 });
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    tab.model.pushText(text, 'cm6');
+    return id;
+  }
+
+  test('off (default): the flush buffers the edits, the file itself is untouched', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'saved' });
+    const controller = makeController(fs);
+    const id = await openDirtyFileTab('edited');
+
+    await controller.flushNow();
+
+    expect(fs.files.get('/docs/report.md')).toBe('saved');
+    expect(fs.files.get(`${SESSION}/buffers/${id}.md`)).toBe('edited');
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.dirty).toBe(true);
+  });
+
+  test('on: a dirty file tab is written to its own path and comes out clean, no buffer', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'saved' });
+    const controller = makeController(fs);
+    const settings = await import('../stores/settings');
+    settings.settingsStore.getState().update({ liveSave: true });
+    const id = await openDirtyFileTab('edited');
+
+    await controller.flushNow();
+
+    expect(fs.files.get('/docs/report.md')).toBe('edited');
+    expect(fs.files.has(`${SESSION}/buffers/${id}.md`)).toBe(false);
+    const after = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(after.dirty).toBe(false);
+    // The mtime baseline advanced to the new write, so no false conflict later.
+    expect(after.savedMtimeMs).toBe(fs.mtimes.get('/docs/report.md'));
+  });
+
+  test('on: a file changed on disk is NOT clobbered — conflict flagged, edits buffered', async () => {
+    const fs = makeFakeFs({ '/docs/report.md': 'theirs' });
+    fs.mtimes.set('/docs/report.md', 5); // external change vs the tab's baseline of 1
+    const controller = makeController(fs);
+    const settings = await import('../stores/settings');
+    settings.settingsStore.getState().update({ liveSave: true });
+    const id = await openDirtyFileTab('mine');
+
+    await controller.flushNow();
+
+    expect(fs.files.get('/docs/report.md')).toBe('theirs');
+    const after = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(after.conflict).toBe(true);
+    expect(after.dirty).toBe(true);
+    // The edits stayed crash-safe in the session buffer.
+    expect(fs.files.get(`${SESSION}/buffers/${id}.md`)).toBe('mine');
+
+    // A later flush skips the conflicted tab instead of retrying (and spamming).
+    const writesBefore = fs.ops.filter((op) => op === 'write:/docs/report.md').length;
+    await controller.flushNow();
+    expect(fs.files.get('/docs/report.md')).toBe('theirs');
+    expect(fs.ops.filter((op) => op === 'write:/docs/report.md').length).toBe(writesBefore);
   });
 });
 
@@ -464,6 +596,289 @@ describe('openPaths (M3)', () => {
     const opened = tabs.tabsStore.getState().tabs.filter((t) => t.filePath === '/docs/report.md');
     expect(opened).toHaveLength(1);
     expect(tabs.tabsStore.getState().tabs).toHaveLength(before + 1);
+  });
+});
+
+describe('image tabs', () => {
+  test('opening an image path creates a read-only image tab without reading text', async () => {
+    const fs = makeFakeFs({ '/pics/cat.png': 'PNGBYTES' });
+    fs.mtimes.set('/pics/cat.png', 9);
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/pics/cat.png']);
+
+    const state = tabs.tabsStore.getState();
+    const opened = state.tabs.find((t) => t.filePath === '/pics/cat.png')!;
+    expect(opened.kind).toBe('image');
+    expect(opened.savedMtimeMs).toBe(9);
+    expect(opened.model.getText()).toBe('');
+    expect(state.activeTabId).toBe(opened.id);
+  });
+
+  test('a missing image opens no tab', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const before = tabs.tabsStore.getState().tabs.length;
+
+    await controller.openPaths(['/pics/gone.png']);
+
+    expect(tabs.tabsStore.getState().tabs).toHaveLength(before);
+  });
+
+  test('flush persists an image tab to the manifest without writing any content', async () => {
+    const fs = makeFakeFs({ '/pics/cat.png': 'PNGBYTES' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/pics/cat.png']);
+    fs.ops.length = 0;
+
+    await controller.flushNow();
+
+    // The only write is the manifest itself — never the image, never a buffer.
+    expect(fs.ops.filter((op) => op.startsWith('write:'))).toEqual([
+      `write:${SESSION}/session.json`,
+    ]);
+    const manifest = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      tabs: { kind: string; filePath: string | null }[];
+    };
+    const persisted = manifest.tabs.find((t) => t.filePath === '/pics/cat.png')!;
+    expect(persisted.kind).toBe('image');
+  });
+
+  test('restore rebuilds an image tab, and drops one whose file is gone', async () => {
+    const fs = makeFakeFs({ '/pics/cat.png': 'PNGBYTES', '/pics/dog.png': 'PNGBYTES' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/pics/cat.png', '/pics/dog.png']);
+    await controller.flushNow();
+    fs.files.delete('/pics/dog.png');
+
+    const fresh = makeController(fs);
+    await fresh.restore();
+
+    const restored = tabs.tabsStore.getState().tabs;
+    expect(restored.some((t) => t.kind === 'image' && t.filePath === '/pics/cat.png')).toBe(true);
+    expect(restored.some((t) => t.filePath === '/pics/dog.png')).toBe(false);
+  });
+
+  test('Save and Save As are no-ops on an image tab', async () => {
+    const fs = makeFakeFs({ '/pics/cat.png': 'PNGBYTES' });
+    const controller = makeController(fs, undefined, {
+      saveDialog: async () => '/docs/out.md',
+    });
+    await controller.openPaths(['/pics/cat.png']);
+    fs.ops.length = 0;
+
+    await controller.saveActive();
+    await controller.saveAsActive();
+
+    expect(fs.ops.filter((op) => op.startsWith('write:'))).toEqual([]);
+  });
+});
+
+describe('importFilesInto / savePastedFileInto', () => {
+  test('copies md and image files, skips other types, and suffixes collisions', async () => {
+    const fs = makeFakeFs({
+      '/src/todo.md': 'todo',
+      '/src/pic.png': 'PNG',
+      '/src/data.csv': 'nope',
+      '/ws/todo.md': 'already there',
+    });
+    makeController(fs);
+
+    await session.importFilesInto('/ws', ['/src/todo.md', '/src/pic.png', '/src/data.csv']);
+
+    expect(fs.files.get('/ws/todo-2.md')).toBe('todo'); // collision → -2
+    expect(fs.files.get('/ws/pic.png')).toBe('PNG');
+    expect(fs.files.has('/ws/data.csv')).toBe(false); // unsupported type skipped
+    expect(fs.files.get('/src/todo.md')).toBe('todo'); // copy, not move
+  });
+
+  test('a file dropped onto the folder it already lives in is left alone', async () => {
+    const fs = makeFakeFs({ '/ws/todo.md': 'todo' });
+    makeController(fs);
+
+    await session.importFilesInto('/ws', ['/ws/todo.md']);
+
+    expect(fs.files.has('/ws/todo-2.md')).toBe(false);
+  });
+
+  test('a pasted screenshot gets a timestamped name; a named file keeps its name', async () => {
+    const fs = makeFakeFs();
+    makeController(fs); // now() = 111 → epoch-ish stamp, exact value not asserted
+    await session.savePastedFileInto('/ws', { base64: btoa('PNG'), ext: '.png', name: null });
+    await session.savePastedFileInto('/ws', { base64: btoa('PNG'), ext: '.png', name: 'shot' });
+
+    const names = [...fs.files.keys()];
+    expect(names.some((n) => /^\/ws\/pasted-\d{8}-\d{6}\.png$/.test(n))).toBe(true);
+    expect(fs.files.get('/ws/shot.png')).toBe('PNG');
+  });
+
+  test('pasting the same named image twice suffixes the second', async () => {
+    const fs = makeFakeFs();
+    makeController(fs);
+    await session.savePastedFileInto('/ws', { base64: btoa('A'), ext: '.png', name: 'shot' });
+    await session.savePastedFileInto('/ws', { base64: btoa('B'), ext: '.png', name: 'shot' });
+
+    expect(fs.files.get('/ws/shot.png')).toBe('A');
+    expect(fs.files.get('/ws/shot-2.png')).toBe('B');
+  });
+});
+
+describe('createNewFileIn (explorer context menu)', () => {
+  test('creates an empty untitled.md, opens it, and starts the tab rename', async () => {
+    const fs = makeFakeFs();
+    makeController(fs);
+
+    await session.createNewFileIn('/ws');
+
+    expect(fs.files.get('/ws/untitled.md')).toBe('');
+    const state = tabs.tabsStore.getState();
+    const opened = state.tabs.find((t) => t.filePath === '/ws/untitled.md')!;
+    expect(opened.kind).toBe('file');
+    expect(state.activeTabId).toBe(opened.id);
+    expect(state.renamingTabId).toBe(opened.id);
+  });
+
+  test('a second new file in the same folder gets a collision suffix', async () => {
+    const fs = makeFakeFs({ '/ws/untitled.md': 'existing' });
+    makeController(fs);
+
+    await session.createNewFileIn('/ws');
+
+    expect(fs.files.get('/ws/untitled.md')).toBe('existing');
+    expect(fs.files.get('/ws/untitled-2.md')).toBe('');
+  });
+});
+
+describe('createNewFolderIn (explorer context menu)', () => {
+  test('creates a uniquely-named folder', async () => {
+    const fs = makeFakeFs();
+    makeController(fs);
+
+    await session.createNewFolderIn('/ws');
+    await session.createNewFolderIn('/ws');
+
+    expect(fs.dirs.has('/ws/new-folder')).toBe(true);
+    expect(fs.dirs.has('/ws/new-folder-2')).toBe(true);
+  });
+});
+
+describe('renameExplorerEntry (explorer context menu)', () => {
+  test('renames an unopened file on disk, preserving the extension', async () => {
+    const fs = makeFakeFs({ '/ws/old.md': 'body' });
+    makeController(fs);
+
+    await session.renameExplorerEntry('/ws/old.md', 'new name', false);
+
+    expect(fs.files.has('/ws/old.md')).toBe(false);
+    expect(fs.files.get('/ws/new name.md')).toBe('body');
+  });
+
+  test('refuses to clobber an existing sibling', async () => {
+    const fs = makeFakeFs({ '/ws/a.md': 'A', '/ws/b.md': 'B' });
+    makeController(fs);
+
+    await session.renameExplorerEntry('/ws/a.md', 'b', false);
+
+    expect(fs.files.get('/ws/a.md')).toBe('A');
+    expect(fs.files.get('/ws/b.md')).toBe('B');
+  });
+
+  test('a file some tab has open goes through the tab-rename flow (tab retargeted)', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.renameExplorerEntry('/ws/doc.md', 'renamed', false);
+
+    expect(fs.files.get('/ws/renamed.md')).toBe('text');
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
+    expect(tab.filePath).toBe('/ws/renamed.md');
+  });
+
+  test('a note-owned file is renamed via the tab title, not a raw disk rename', async () => {
+    const fs = makeFakeFs({ '/notes/buy-milk.md': '# Buy milk' });
+    const controller = makeController(fs);
+    await controller.restore();
+    await controller.flushNow();
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.notePath === '/notes/buy-milk.md')!;
+
+    await session.renameExplorerEntry('/notes/buy-milk.md', 'Groceries', false);
+
+    // No immediate disk rename — the title changed and the next flush slugs it.
+    expect(fs.files.has('/notes/buy-milk.md')).toBe(true);
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === tab.id)!.customTitle).toBe(
+      'Groceries',
+    );
+    await controller.flushNow();
+    expect(fs.files.has('/notes/groceries.md')).toBe(true);
+    expect(fs.files.has('/notes/buy-milk.md')).toBe(false);
+  });
+
+  test('renaming a folder retargets open file tabs beneath it', async () => {
+    const fs = makeFakeFs({ '/ws/sub/doc.md': 'text' });
+    fs.dirs.add('/ws/sub');
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/sub/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.renameExplorerEntry('/ws/sub', 'archive', true);
+
+    expect(fs.dirs.has('/ws/archive')).toBe(true);
+    expect(fs.files.get('/ws/archive/doc.md')).toBe('text');
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
+    expect(tab.filePath).toBe('/ws/archive/doc.md');
+  });
+});
+
+describe('moveExplorerEntryInto (explorer row drag)', () => {
+  test('moves a file into another folder', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    fs.dirs.add('/ws/sub');
+    makeController(fs);
+
+    await session.moveExplorerEntryInto('/ws/doc.md', '/ws/sub');
+
+    expect(fs.files.has('/ws/doc.md')).toBe(false);
+    expect(fs.files.get('/ws/sub/doc.md')).toBe('text');
+  });
+
+  test('same-dir drop is a no-op and a name collision is refused', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'A', '/ws/sub/doc.md': 'B' });
+    fs.dirs.add('/ws/sub');
+    makeController(fs);
+
+    await session.moveExplorerEntryInto('/ws/doc.md', '/ws');
+    await session.moveExplorerEntryInto('/ws/doc.md', '/ws/sub');
+
+    expect(fs.files.get('/ws/doc.md')).toBe('A');
+    expect(fs.files.get('/ws/sub/doc.md')).toBe('B');
+    expect(fs.ops.filter((op) => op.startsWith('rename:'))).toEqual([]);
+  });
+
+  test('a declined confirm leaves the file where it is', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    fs.dirs.add('/ws/sub');
+    makeController(fs, undefined, { confirm: async () => false });
+
+    await session.moveExplorerEntryInto('/ws/doc.md', '/ws/sub');
+
+    expect(fs.files.get('/ws/doc.md')).toBe('text');
+    expect(fs.files.has('/ws/sub/doc.md')).toBe(false);
+  });
+
+  test('an open file tab is retargeted to the moved path', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    fs.dirs.add('/ws/sub');
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.moveExplorerEntryInto('/ws/doc.md', '/ws/sub');
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
+    expect(tab.filePath).toBe('/ws/sub/doc.md');
+    expect(fs.files.get('/ws/sub/doc.md')).toBe('text');
   });
 });
 

@@ -36,10 +36,12 @@ import {
   type SessionManifest,
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
+import { imageMimeType, isImagePath } from '../core/images';
+import { pickUnusedColor } from '../core/settings';
 import { sanitizeFileBaseName, slugifyTitle, stripExtension } from '../core/title';
 import { planNoteMoves } from '../core/notes-move';
 import { getSourceAdapter } from './editor-registry';
-import type { CursorPos } from '../core/types';
+import type { CursorPos, WorkspaceColor } from '../core/types';
 import { ipc as realIpc, type Ipc } from '../ipc/commands';
 import type { SessionPaths } from '../ipc/paths';
 import { setFlushRequester } from './stores/flush-signal';
@@ -50,7 +52,17 @@ import { uiStore } from './stores/ui';
 /** The slice of `ipc` the controller uses — narrowed so tests fake less. */
 type SessionIpc = Pick<
   Ipc,
-  'atomicWriteText' | 'renamePath' | 'deletePath' | 'listNotes' | 'readTextFile' | 'statPath'
+  | 'atomicWriteText'
+  | 'renamePath'
+  | 'deletePath'
+  | 'listNotes'
+  | 'readTextFile'
+  | 'statPath'
+  | 'listDir'
+  | 'readFileBase64'
+  | 'writeFileBase64'
+  | 'copyPath'
+  | 'createDir'
 >;
 
 /** Native confirm dialog (plugin-dialog in the app; a stub in tests). */
@@ -169,15 +181,42 @@ let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
 let changeNotesDirDispatch: () => void = () => {};
 
-/** One entry in the file-explorer listing (a markdown file in the notes dir). */
+/** One entry in the file-explorer listing: a subfolder, .md file, or image. */
 export interface ExplorerEntry {
   path: string;
   name: string;
+  isDir: boolean;
   mtimeMs: number;
 }
 
-let listNotesDispatch: () => Promise<ExplorerEntry[]> = async () => [];
+let listNotesDispatch: (dir?: string) => Promise<ExplorerEntry[]> = async () => [];
+let readImageDispatch: (path: string) => Promise<string> = async () => {
+  throw new Error('not booted');
+};
+let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
+let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
+let createNewFileDispatch: (dir: string) => Promise<void> = async () => {};
+let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
+let renameEntryDispatch: (
+  path: string,
+  newName: string,
+  isDir: boolean,
+) => Promise<void> = async () => {};
+let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
+
+/** A file lifted off the clipboard: content plus how to name it on disk. */
+export interface PastedFile {
+  base64: string;
+  /** Extension including the dot (`.png`). */
+  ext: string;
+  /** Basename to use (no extension), or null for a timestamped default. */
+  name: string | null;
+}
 let openNotePathDispatch: (path: string) => void = () => {};
+// The resolved notes dir (the default workspace). Null until the controller
+// registers — the explorer just shows no default section pre-boot.
+let defaultWorkspaceDispatch: () => string | null = () => null;
+let addWorkspaceDispatch: () => void = () => {};
 let insertFileLinkDispatch: (opts: { image: boolean; absolute: boolean }) => void = () => {};
 // Default (pre-boot / tests): a plain label change. The controller swaps in
 // the file-aware variant that also renames a file tab's file on disk.
@@ -203,9 +242,78 @@ export function keepMineTab(id: string): void {
 export function requestChangeNotesDir(): void {
   changeNotesDirDispatch();
 }
-/** FileExplorer → controller: current markdown files in the notes directory. */
-export function listNoteFiles(): Promise<ExplorerEntry[]> {
-  return listNotesDispatch();
+/** FileExplorer → controller: one level of `dir` (default: notes dir) —
+ *  subfolders plus markdown/image files. */
+export function listNoteFiles(dir?: string): Promise<ExplorerEntry[]> {
+  return listNotesDispatch(dir);
+}
+/** ImageView → controller: an image file as a ready-to-use data: URL. */
+export function loadImageDataUrl(path: string): Promise<string> {
+  return readImageDispatch(path);
+}
+/** Drag-drop (main.tsx) → controller: copy dropped files into a workspace dir
+ *  (non-md/image paths are skipped). */
+export function importFilesInto(dir: string, paths: string[]): Promise<void> {
+  return importFilesDispatch(dir, paths);
+}
+/** FileExplorer paste → controller: write one clipboard file into `dir`. */
+export function savePastedFileInto(dir: string, file: PastedFile): Promise<void> {
+  return savePastedFileDispatch(dir, file);
+}
+/** FileExplorer context menu → controller: create a new .md file in `dir`,
+ *  open it, and start the tab rename so it can be named immediately. */
+export function createNewFileIn(dir: string): Promise<void> {
+  return createNewFileDispatch(dir);
+}
+/** FileExplorer context menu → controller: create a new subfolder in `dir`. */
+export function createNewFolderIn(dir: string): Promise<void> {
+  return createNewFolderDispatch(dir);
+}
+/** FileExplorer context menu → controller: rename a file or folder on disk
+ *  (extension preserved for files; open tabs are retargeted). */
+export function renameExplorerEntry(path: string, newName: string, isDir: boolean): Promise<void> {
+  return renameEntryDispatch(path, newName, isDir);
+}
+/**
+ * FileExplorer drag-drop → controller: move a file/image into `destDir`,
+ * confirming first (VSCode-style) unless the user has suppressed that prompt.
+ * Open tabs owning the file are retargeted; collisions and no-ops are refused.
+ */
+export function moveExplorerEntryInto(sourcePath: string, destDir: string): Promise<void> {
+  return moveEntryDispatch(sourcePath, destDir);
+}
+/** FileExplorer → controller: the resolved notes dir (the default workspace). */
+export function getDefaultWorkspacePath(): string | null {
+  return defaultWorkspaceDispatch();
+}
+/** FileExplorer → controller: pick a folder and add it as a workspace. */
+export function addWorkspace(): void {
+  addWorkspaceDispatch();
+}
+/**
+ * FileExplorer → settings: forget a workspace. Pure settings surgery (the
+ * folder and its files are untouched), so no controller round trip is needed.
+ */
+export function removeWorkspace(path: string): void {
+  const { settings, update } = settingsStore.getState();
+  update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
+}
+/**
+ * FileExplorer → settings: set a workspace's accent color. The default
+ * workspace has no WorkspaceEntry, so its color lives in its own setting.
+ */
+export function setWorkspaceColor(path: string, color: WorkspaceColor | null): void {
+  const { settings, update } = settingsStore.getState();
+  const defaultPath = defaultWorkspaceDispatch();
+  if (defaultPath !== null && pathKey(path) === pathKey(defaultPath)) {
+    update({ defaultWorkspaceColor: color });
+    return;
+  }
+  update({
+    workspaces: settings.workspaces.map((w) =>
+      pathKey(w.path) === pathKey(path) ? { ...w, color } : w,
+    ),
+  });
 }
 /** FileExplorer → controller: open a note file (activates it if already open). */
 export function openNotePath(path: string): void {
@@ -287,6 +395,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   }
 
   async function flushSession(): Promise<void> {
+    // Live save (settings.liveSave): write dirty FILE tabs straight to their
+    // own path at the flush cadence, so no explicit Ctrl+S is needed. Runs
+    // before view assembly so a saved tab is no longer fileDirty and gets no
+    // session buffer (markSaved also queues any stale buffer for deletion by
+    // THIS flush). Conflicted tabs are skipped — the banner must be resolved
+    // first — and a save that fails or newly detects an on-disk change falls
+    // back to the buffer path below, keeping the edits crash-safe either way.
+    if (settingsStore.getState().settings.liveSave) {
+      for (const t of tabsStore.getState().tabs) {
+        if (t.kind === 'file' && t.filePath && !t.conflict && t.model.isDirty('file')) {
+          await saveFileTab(t.id);
+        }
+      }
+    }
+
     const { tabs, activeTabId, closedNotePaths, obsoleteBufferTabIds } = tabsStore.getState();
 
     // Snapshot the text we are about to write per tab, so we only advance the
@@ -383,6 +506,25 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const restored: RestoredTabInit[] = [];
     const missing: string[] = [];
     for (const pt of persisted) {
+      if (pt.kind === 'image') {
+        // Image tabs hold no text; just confirm the file still exists.
+        if (!pt.filePath) {
+          continue;
+        }
+        try {
+          const stat = await ipc.statPath(pt.filePath);
+          if (stat.exists) {
+            restored.push(persistedToInit(pt, ''));
+          } else {
+            missing.push(baseName(pt.filePath));
+          }
+        } catch {
+          // A transient stat failure shouldn't drop the tab; restore it and
+          // let the viewer surface a load error if the file is really gone.
+          restored.push(persistedToInit(pt, ''));
+        }
+        continue;
+      }
       if (pt.kind === 'note') {
         if (pt.notePath === null) {
           // A never-flushed empty note: no file, restore it empty.
@@ -567,8 +709,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   async function saveAsActive(): Promise<void> {
     const tab = tabsStore.getState().activeTab();
-    if (!tab) {
-      return;
+    if (!tab || tab.kind === 'image') {
+      return; // an image viewer has no text to save
     }
     const suggested =
       tab.kind === 'file' ? (tab.filePath ?? undefined) : `${slugifyTitle(tab.title)}.md`;
@@ -615,6 +757,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       }
       openingPaths.add(lower);
       try {
+        if (isImagePath(path)) {
+          // Images open as a read-only viewer tab; existence check up front so
+          // a bad path errors here (like a failed read) instead of in the view.
+          const stat = await ipc.statPath(path);
+          if (!stat.exists) {
+            throw new Error(`not found: ${path}`);
+          }
+          const owner = tabOwning(lower);
+          if (owner) {
+            tabsStore.getState().activateTab(owner.id);
+          } else {
+            tabsStore.getState().openImageTab({ filePath: path, savedMtimeMs: stat.mtimeMs });
+          }
+          continue;
+        }
         const { text, mtimeMs } = await ipc.readTextFile(path);
         // Re-check after the await: a tab for this path may have appeared while
         // we were reading (e.g. a note tab the flusher just assigned a path).
@@ -651,7 +808,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    */
   async function renameFileTab(id: string, newName: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || tab.kind !== 'file' || !tab.filePath) {
+    if (!tab || (tab.kind !== 'file' && tab.kind !== 'image') || !tab.filePath) {
       return;
     }
     const oldPath = tab.filePath;
@@ -858,6 +1015,281 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     flusher.request();
   }
 
+  /**
+   * Add-workspace flow: pick a folder (the native picker doubles as "create a
+   * new folder"), reject duplicates of the default workspace or an existing
+   * entry, then persist it to settings. Removal never deletes files, so the
+   * whole feature is non-destructive.
+   */
+  async function addWorkspaceFromDialog(): Promise<void> {
+    const picked = await pickDirectory();
+    if (!picked) {
+      return;
+    }
+    const key = pathKey(picked);
+    const { settings, update } = settingsStore.getState();
+    if (key === pathKey(notesDir) || settings.workspaces.some((w) => pathKey(w.path) === key)) {
+      uiStore.getState().showNotice('That folder is already a workspace.');
+      return;
+    }
+    const name = baseName(picked) || picked;
+    // Auto-assign a color not already in use (the default workspace's color
+    // counts as used too); the user can change or clear it afterwards.
+    const color = pickUnusedColor([
+      settings.defaultWorkspaceColor,
+      ...settings.workspaces.map((w) => w.color),
+    ]);
+    update({ workspaces: [...settings.workspaces, { name, path: picked, color }] });
+  }
+
+  /** First free `base.ext`, `base-2.ext`, … inside `dir` (case handled by FS). */
+  async function uniquePathIn(dir: string, base: string, ext: string): Promise<string> {
+    let candidate = joinPath(dir, `${base}${ext}`);
+    for (let i = 2; ; i++) {
+      try {
+        if (!(await ipc.statPath(candidate)).exists) {
+          return candidate;
+        }
+      } catch {
+        // Can't stat → let the write/copy itself report the real problem.
+        return candidate;
+      }
+      candidate = joinPath(dir, `${base}-${i}${ext}`);
+    }
+  }
+
+  /**
+   * Drag-drop import: COPY (never move) each markdown/image file into `dir`,
+   * suffixing collisions. Other file types are skipped, mirroring what the
+   * explorer lists. One summary notice at the end.
+   */
+  async function importFiles(dir: string, paths: string[]): Promise<void> {
+    let copied = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const path of paths) {
+      const ext = extName(path);
+      if (ext.toLowerCase() !== '.md' && !isImagePath(path)) {
+        skipped += 1;
+        continue;
+      }
+      if (pathKey(dirName(path)) === pathKey(dir)) {
+        continue; // already exactly there; a copy would only make "x-2.md"
+      }
+      try {
+        const target = await uniquePathIn(dir, stripExtension(baseName(path)), ext);
+        await ipc.copyPath(path, target);
+        copied += 1;
+      } catch (error) {
+        failed += 1;
+        deps.onError?.(error);
+      }
+    }
+    const parts: string[] = [];
+    if (copied > 0) {
+      parts.push(`Added ${copied} file(s)`);
+    }
+    if (skipped > 0) {
+      parts.push(`skipped ${skipped} unsupported`);
+    }
+    if (failed > 0) {
+      parts.push(`${failed} failed`);
+    }
+    if (parts.length > 0) {
+      uiStore.getState().showNotice(`${parts.join(', ')}.`);
+    }
+    if (copied > 0) {
+      uiStore.getState().refreshExplorer();
+    }
+  }
+
+  /** Clipboard paste: write one file's bytes into `dir` under a safe name. */
+  async function savePastedFile(dir: string, file: PastedFile): Promise<void> {
+    const stamp = new Date(now());
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fallback =
+      `pasted-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}` +
+      `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
+    const base = (file.name !== null ? sanitizeFileBaseName(file.name) : '') || fallback;
+    try {
+      const target = await uniquePathIn(dir, base, file.ext);
+      await ipc.writeFileBase64(target, file.base64);
+      uiStore.getState().showNotice(`Saved "${baseName(target)}".`);
+      uiStore.getState().refreshExplorer();
+    } catch (error) {
+      uiStore.getState().showNotice('Could not save the pasted image.');
+      deps.onError?.(error);
+    }
+  }
+
+  /**
+   * Context-menu "New file": create an empty, uniquely-named .md file in
+   * `dir`, open it as a file tab, and begin the inline tab rename so the user
+   * can name it in one motion (the rename also renames the file on disk).
+   */
+  async function createNewFile(dir: string): Promise<void> {
+    try {
+      const target = await uniquePathIn(dir, 'untitled', '.md');
+      await ipc.atomicWriteText(target, '');
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      const tab = tabOwning(pathKey(target));
+      if (tab) {
+        tabsStore.getState().beginRename(tab.id);
+      }
+    } catch (error) {
+      uiStore.getState().showNotice('Could not create a new file there.');
+      deps.onError?.(error);
+    }
+  }
+
+  /** Context-menu "New folder": create a uniquely-named subfolder in `dir`. */
+  async function createNewFolder(dir: string): Promise<void> {
+    try {
+      const target = await uniquePathIn(dir, 'new-folder', '');
+      await ipc.createDir(target);
+      uiStore.getState().refreshExplorer();
+    } catch (error) {
+      uiStore.getState().showNotice('Could not create a folder there.');
+      deps.onError?.(error);
+    }
+  }
+
+  /**
+   * Context-menu "Rename" for an explorer entry. A file some tab already owns
+   * goes through the tab-rename flow instead of a raw disk rename — one code
+   * path for the clobber guard and tab retarget (file/image tabs) or the
+   * title-drives-the-filename flush machinery (note tabs). Renaming a folder
+   * retargets every open tab whose file lives under it.
+   */
+  async function renameEntry(path: string, newName: string, isDir: boolean): Promise<void> {
+    const owner = isDir ? undefined : tabOwning(pathKey(path));
+    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+      await renameFileTab(owner.id, newName);
+      uiStore.getState().refreshExplorer();
+      return;
+    }
+    if (owner) {
+      // A note tab: its filename follows the tab title (slugged) at the next
+      // flush — renaming the file out from under the flusher would fight it.
+      tabsStore.getState().renameTab(owner.id, newName);
+      return;
+    }
+    const safeBase = sanitizeFileBaseName(newName);
+    if (!safeBase) {
+      uiStore.getState().showNotice('That name can’t be used.');
+      return;
+    }
+    const newPath = joinPath(dirName(path), `${safeBase}${isDir ? '' : extName(path)}`);
+    if (pathKey(newPath) === pathKey(path)) {
+      return; // no change (or case-only on a case-insensitive FS)
+    }
+    try {
+      if ((await ipc.statPath(newPath)).exists) {
+        uiStore.getState().showNotice(`"${baseName(newPath)}" already exists.`);
+        return;
+      }
+    } catch {
+      // A transient stat failure must not block the rename; renamePath below
+      // will surface a real problem.
+    }
+    try {
+      await ipc.renamePath(path, newPath);
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not rename "${baseName(path)}".`);
+      deps.onError?.(error);
+      return;
+    }
+    if (isDir) {
+      // Retarget open tabs whose files lived under the renamed folder. Key
+      // comparison for the prefix match, raw-path surgery for the new value
+      // (pathKey preserves length, so slicing by `path.length` is safe).
+      const oldPrefix = `${pathKey(path)}/`;
+      const renamedNotePaths: Record<string, string> = {};
+      for (const t of tabsStore.getState().tabs) {
+        if (t.filePath && pathKey(t.filePath).startsWith(oldPrefix)) {
+          tabsStore.getState().retargetFilePath(t.id, {
+            filePath: newPath + t.filePath.slice(path.length),
+            mtimeMs: t.savedMtimeMs ?? now(),
+          });
+        } else if (t.notePath && pathKey(t.notePath).startsWith(oldPrefix)) {
+          renamedNotePaths[t.notePath] = newPath + t.notePath.slice(path.length);
+        }
+      }
+      if (Object.keys(renamedNotePaths).length > 0) {
+        tabsStore.getState().applyFlushResult({
+          assignedNotePaths: {},
+          renamedPaths: renamedNotePaths,
+          consumedClosedNotePaths: [],
+          consumedObsoleteBufferTabIds: [],
+        });
+      }
+    }
+    uiStore.getState().refreshExplorer();
+  }
+
+  /**
+   * Drag-drop move: relocate a single file/image from the explorer into
+   * `destDir`, keeping its basename. Confirms first (VSCode-style) unless the
+   * user turned that prompt off in settings. No-ops when it's already there;
+   * refuses a name collision. A tab that owns the file is retargeted so the
+   * flusher and restore stay consistent — file/image tabs via retargetFilePath,
+   * note tabs via applyFlushResult (same remap changeNotesDir uses).
+   */
+  async function moveEntry(sourcePath: string, destDir: string): Promise<void> {
+    if (pathKey(dirName(sourcePath)) === pathKey(destDir)) {
+      return; // already in this folder
+    }
+    const newPath = joinPath(destDir, baseName(sourcePath));
+    if (pathKey(newPath) === pathKey(sourcePath)) {
+      return;
+    }
+    try {
+      if ((await ipc.statPath(newPath)).exists) {
+        uiStore.getState().showNotice(`"${baseName(newPath)}" already exists in that folder.`);
+        return;
+      }
+    } catch {
+      // A transient stat failure must not block the move; renamePath surfaces
+      // any real problem below.
+    }
+    if (settingsStore.getState().settings.confirmFileMove) {
+      const ok = await confirm(
+        `Move "${baseName(sourcePath)}" to "${baseName(destDir)}"?`,
+        'Move file',
+      );
+      if (!ok) {
+        return;
+      }
+    }
+    const owner = tabOwning(pathKey(sourcePath));
+    try {
+      await ipc.renamePath(sourcePath, newPath);
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not move "${baseName(sourcePath)}".`);
+      deps.onError?.(error);
+      return;
+    }
+    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+      let mtimeMs = owner.savedMtimeMs ?? now();
+      try {
+        const after = await ipc.statPath(newPath);
+        mtimeMs = after.mtimeMs ?? mtimeMs;
+      } catch {
+        // Keep the prior baseline; the next save re-stats anyway.
+      }
+      tabsStore.getState().retargetFilePath(owner.id, { filePath: newPath, mtimeMs });
+    } else if (owner && owner.kind === 'note') {
+      tabsStore.getState().applyFlushResult({
+        assignedNotePaths: {},
+        renamedPaths: { [sourcePath]: newPath },
+        consumedClosedNotePaths: [],
+        consumedObsoleteBufferTabIds: [],
+      });
+    }
+    uiStore.getState().refreshExplorer();
+  }
+
   async function closeTabInteractive(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (!tab) {
@@ -894,13 +1326,28 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   reloadDispatch = (id) => void reloadFromDisk(id);
   keepMineDispatch = (id) => void keepMine(id);
   changeNotesDirDispatch = () => void changeNotesDir();
-  listNotesDispatch = async () => {
-    const notes = await ipc.listNotes(notesDir);
-    return notes.map((n) => ({ path: n.path, name: baseName(n.path), mtimeMs: n.mtimeMs }));
+  listNotesDispatch = async (dir?: string) => {
+    const entries = await ipc.listDir(dir ?? notesDir);
+    return entries.map((e) => ({
+      path: e.path,
+      name: baseName(e.path),
+      isDir: e.isDir,
+      mtimeMs: e.mtimeMs,
+    }));
   };
+  readImageDispatch = async (path: string) =>
+    `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;
+  defaultWorkspaceDispatch = () => notesDir;
+  addWorkspaceDispatch = () => void addWorkspaceFromDialog();
+  importFilesDispatch = importFiles;
+  savePastedFileDispatch = savePastedFile;
+  createNewFileDispatch = createNewFile;
+  createNewFolderDispatch = createNewFolder;
+  renameEntryDispatch = renameEntry;
+  moveEntryDispatch = moveEntry;
   renameTabDispatch = (id, newName) => {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (tab && tab.kind === 'file' && tab.filePath) {
+    if (tab && (tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
       void renameFileTab(id, newName);
     } else {
       // Note tab: set the title; the flush renames the note file to the new

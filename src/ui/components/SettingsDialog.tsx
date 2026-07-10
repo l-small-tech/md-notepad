@@ -176,6 +176,24 @@ export function SettingsDialog() {
             <span className="settings-label">Font ligatures (→ as one glyph)</span>
           </label>
 
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.liveSave}
+              onChange={(e) => update({ liveSave: e.target.checked })}
+            />
+            <span className="settings-label">Live save (opened files save automatically)</span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.confirmFileMove}
+              onChange={(e) => update({ confirmFileMove: e.target.checked })}
+            />
+            <span className="settings-label">Confirm before moving files between folders</span>
+          </label>
+
           <div className="settings-row settings-row-notes">
             <span className="settings-label">Notes folder</span>
             <div className="settings-notes-value">
