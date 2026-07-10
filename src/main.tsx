@@ -15,6 +15,7 @@ import { App } from './ui/App';
 import { settingsStore } from './ui/stores/settings';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
+  appendImagesToMd,
   closeTab,
   createSessionController,
   importFilesInto,
@@ -29,6 +30,7 @@ import {
   type SaveFileDialog,
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
+import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
@@ -311,20 +313,33 @@ async function boot(): Promise<void> {
   // never fires), so hit-test its physical cursor position against the
   // explorer's data-drop-dir attributes: hovering highlights the target
   // workspace/folder, dropping copies the md/image files into it.
-  const dropDirAt = (position: { x: number; y: number }): string | null => {
+  const elementAt = (position: { x: number; y: number }): Element | null => {
     const scale = window.devicePixelRatio || 1;
-    const el = document.elementFromPoint(position.x / scale, position.y / scale);
-    return el?.closest('[data-drop-dir]')?.getAttribute('data-drop-dir') ?? null;
+    return document.elementFromPoint(position.x / scale, position.y / scale);
   };
+  const dropDirAt = (position: { x: number; y: number }): string | null =>
+    elementAt(position)?.closest('[data-drop-dir]')?.getAttribute('data-drop-dir') ?? null;
+  // An md file row also advertises itself as a drop target (data-drop-file):
+  // dropping images onto it embeds them at the end of that file instead of
+  // copying them into the folder.
+  const dropFileAt = (position: { x: number; y: number }): string | null =>
+    elementAt(position)?.closest('[data-drop-file]')?.getAttribute('data-drop-file') ?? null;
   void getCurrentWebview()
     .onDragDropEvent((event) => {
       const payload = event.payload;
       if (payload.type === 'over') {
-        uiStore.getState().setDropTarget(dropDirAt(payload.position));
+        // Highlight the md file under the cursor when there is one, else the
+        // workspace/folder — same single dropTargetDir drives both highlights.
+        uiStore
+          .getState()
+          .setDropTarget(dropFileAt(payload.position) ?? dropDirAt(payload.position));
       } else if (payload.type === 'drop') {
+        const file = dropFileAt(payload.position);
         const dir = dropDirAt(payload.position);
         uiStore.getState().setDropTarget(null);
-        if (dir) {
+        if (file && payload.paths.some(isImagePath)) {
+          void appendImagesToMd(file, payload.paths);
+        } else if (dir) {
           void importFilesInto(dir, payload.paths);
         } else {
           // Not over the explorer (e.g. the editor area): open as tabs.

@@ -194,6 +194,7 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
   throw new Error('not booted');
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
+let appendImagesDispatch: (mdPath: string, paths: string[]) => Promise<void> = async () => {};
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
 let createNewFileDispatch: (dir: string) => Promise<void> = async () => {};
 let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
@@ -255,6 +256,14 @@ export function loadImageDataUrl(path: string): Promise<string> {
  *  (non-md/image paths are skipped). */
 export function importFilesInto(dir: string, paths: string[]): Promise<void> {
   return importFilesDispatch(dir, paths);
+}
+/**
+ * Drag-drop (main.tsx) → controller: embed dropped image files into an existing
+ * markdown file, appended to its end. Non-image paths are ignored; images not
+ * already beside the note are copied in first.
+ */
+export function appendImagesToMd(mdPath: string, paths: string[]): Promise<void> {
+  return appendImagesDispatch(mdPath, paths);
 }
 /** FileExplorer paste → controller: write one clipboard file into `dir`. */
 export function savePastedFileInto(dir: string, file: PastedFile): Promise<void> {
@@ -1103,6 +1112,75 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
   }
 
+  /**
+   * Drag-drop onto an md file row: embed each dropped image at the END of that
+   * markdown file. Images already sitting beside the note are referenced in
+   * place; the rest are COPIED in next to it first (collisions suffixed). When
+   * a tab already owns the file the append goes through its live model — so the
+   * user sees it immediately and the flusher/live-save persists it — rather than
+   * writing under the open editor and provoking a conflict.
+   */
+  async function appendImagesToMarkdown(mdPath: string, paths: string[]): Promise<void> {
+    const images = paths.filter((p) => isImagePath(p));
+    if (images.length === 0) {
+      return;
+    }
+    const dir = dirName(mdPath);
+    const refs: string[] = [];
+    let failed = 0;
+    for (const img of images) {
+      try {
+        let name: string;
+        if (pathKey(dirName(img)) === pathKey(dir)) {
+          name = baseName(img); // already beside the note — reference in place
+        } else {
+          const target = await uniquePathIn(dir, stripExtension(baseName(img)), extName(img));
+          await ipc.copyPath(img, target);
+          name = baseName(target);
+        }
+        // Same whitespace convention as the editor's link insertion (cm6.ts):
+        // a destination with spaces is wrapped in <> so the markdown stays valid.
+        const dest = /\s/.test(name) ? `<${name}>` : name;
+        refs.push(`![${stripExtension(name)}](${dest})`);
+      } catch (error) {
+        failed += 1;
+        deps.onError?.(error);
+      }
+    }
+    if (refs.length === 0) {
+      uiStore.getState().showNotice('Could not add the image(s).');
+      return;
+    }
+    const block = refs.join('\n\n');
+    const appended = (text: string): string =>
+      text.trim().length === 0 ? `${block}\n` : `${text.replace(/\s*$/, '')}\n\n${block}\n`;
+
+    const owner = tabOwning(pathKey(mdPath));
+    if (owner && owner.kind !== 'image') {
+      owner.model.pushText(appended(owner.model.getText()), 'programmatic');
+      flusher.request();
+    } else {
+      let existing = '';
+      try {
+        existing = (await ipc.readTextFile(mdPath)).text;
+      } catch {
+        // Unreadable/missing — start fresh; atomicWriteText recreates the file.
+      }
+      try {
+        await ipc.atomicWriteText(mdPath, appended(existing));
+      } catch (error) {
+        uiStore.getState().showNotice(`Could not update "${baseName(mdPath)}".`);
+        deps.onError?.(error);
+        return;
+      }
+    }
+    uiStore.getState().refreshExplorer();
+    const suffix = failed > 0 ? ` (${failed} failed)` : '';
+    uiStore
+      .getState()
+      .showNotice(`Added ${refs.length} image(s) to "${baseName(mdPath)}"${suffix}.`);
+  }
+
   /** Clipboard paste: write one file's bytes into `dir` under a safe name. */
   async function savePastedFile(dir: string, file: PastedFile): Promise<void> {
     const stamp = new Date(now());
@@ -1340,6 +1418,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   defaultWorkspaceDispatch = () => notesDir;
   addWorkspaceDispatch = () => void addWorkspaceFromDialog();
   importFilesDispatch = importFiles;
+  appendImagesDispatch = appendImagesToMarkdown;
   savePastedFileDispatch = savePastedFile;
   createNewFileDispatch = createNewFile;
   createNewFolderDispatch = createNewFolder;

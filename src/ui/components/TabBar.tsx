@@ -10,9 +10,20 @@
  * actions; the component itself stays declarative.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { closeTab, renameTab } from '../session';
+import { detectPlatform } from '../keymap';
+import { computeTabWindow } from '../tab-overflow';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
+import { WindowControls } from './WindowControls';
+
+/**
+ * The TabBar doubles as the window titlebar (no native decorations, so tabs
+ * sit level with the window buttons). On macOS the native traffic lights
+ * overlay the top-left (titleBarStyle Overlay) — inset the tabs past them and
+ * render no custom controls; on Windows/Linux render our own on the right.
+ */
+const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 
 /** Where a context menu is open, and for which tab. */
 interface TabMenu {
@@ -220,23 +231,134 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
   );
 }
 
+/**
+ * Dropdown listing the tabs the bar has no room for. Selecting one activates
+ * it — the windowing math then slides the visible row to include it.
+ */
+function OverflowMenu({
+  tabs,
+  anchor,
+  onClose,
+}: {
+  tabs: TabEntry[];
+  anchor: DOMRect;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="tab-menu tab-overflow-menu"
+      role="menu"
+      // Right-aligned under the ⋯ button so it never runs off the window edge.
+      style={{ right: window.innerWidth - anchor.right, top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className="tab-menu-item"
+          role="menuitem"
+          title={tab.filePath ?? undefined}
+          onClick={() => {
+            tabsStore.getState().activateTab(tab.id);
+            onClose();
+          }}
+        >
+          {tabDisplayTitle(tab)}
+          {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Width budget for the visible-tab window. A tab can flex-shrink down to its
+ * 96px min-width (+1px border), so as long as we show no more tabs than
+ * `available / 97` the row always fits with no tab cut off; below that count
+ * tabs simply take their natural width. The constants mirror app.css — the
+ * spacer's min-width and the ⋯ button reserve are budgeted even when those
+ * elements are absent so the capacity can't oscillate as they come and go.
+ */
+const TAB_MIN_TOTAL = 97;
+const SPACER_MIN = 32;
+const OVERFLOW_BTN_RESERVE = 34;
+const MAC_INSET = 78; // .tabbar-mac padding-left
+
 export function TabBar() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<TabMenu | null>(null);
+  const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
+  const [capacity, setCapacity] = useState(Number.MAX_SAFE_INTEGER);
+  const windowStartRef = useRef(0);
 
-  // Keep the active tab in view when switching with the keyboard.
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    const el = scroller?.querySelector<HTMLElement>('.tab-active');
-    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [activeTabId, tabs.length]);
+  // How many whole tabs fit: bar width minus everything that isn't a tab
+  // (new-tab button, window controls, spacer minimum, ⋯ reserve, mac inset).
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) {
+      return;
+    }
+    const measure = () => {
+      let reserved = SPACER_MIN + OVERFLOW_BTN_RESERVE + (IS_MAC ? MAC_INSET : 0);
+      for (const child of bar.children) {
+        const el = child as HTMLElement;
+        if (
+          el.classList.contains('tabbar-scroller') ||
+          el.classList.contains('tabbar-spacer') ||
+          el.classList.contains('tab-overflow') ||
+          el.classList.contains('tab-menu')
+        ) {
+          continue;
+        }
+        reserved += el.offsetWidth;
+      }
+      setCapacity(Math.max(1, Math.floor((bar.clientWidth - reserved) / TAB_MIN_TOTAL)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
+
+  const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
+  const start = computeTabWindow(tabs.length, capacity, activeIndex, windowStartRef.current);
+  windowStartRef.current = start;
+  const visible = tabs.slice(start, start + Math.max(1, capacity));
+  const hidden = [...tabs.slice(0, start), ...tabs.slice(start + Math.max(1, capacity))];
 
   return (
-    <div className="tabbar" role="tablist">
-      <div className="tabbar-scroller" ref={scrollerRef}>
-        {tabs.map((tab) => (
+    // data-tauri-drag-region only fires on the element itself, never its
+    // children — so empty bar space drags/double-click-maximizes the window
+    // while tabs and buttons keep their own interactions.
+    <div
+      ref={barRef}
+      className={IS_MAC ? 'tabbar tabbar-mac' : 'tabbar'}
+      role="tablist"
+      data-tauri-drag-region=""
+    >
+      <div className="tabbar-scroller">
+        {visible.map((tab) => (
           <Tab
             key={tab.id}
             tab={tab}
@@ -253,7 +375,27 @@ export function TabBar() {
       >
         +
       </button>
+      {hidden.length > 0 && (
+        <button
+          className="tab-overflow"
+          aria-label={`Show ${hidden.length} more tab(s)`}
+          title={`${hidden.length} more tab(s)`}
+          onClick={(e) =>
+            setOverflowAnchor(overflowAnchor ? null : e.currentTarget.getBoundingClientRect())
+          }
+          // Keep the window pointerdown dismiss handler from instantly
+          // re-closing the menu this click opens.
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          ⋯
+        </button>
+      )}
+      <div className="tabbar-spacer" data-tauri-drag-region="" />
+      {!IS_MAC && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {overflowAnchor && hidden.length > 0 && (
+        <OverflowMenu tabs={hidden} anchor={overflowAnchor} onClose={() => setOverflowAnchor(null)} />
+      )}
     </div>
   );
 }

@@ -723,6 +723,60 @@ describe('importFilesInto / savePastedFileInto', () => {
   });
 });
 
+describe('appendImagesToMd (drop an image onto an md file)', () => {
+  test('copies the image beside the note and appends a reference at the end', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': '# Title', '/src/pic.png': 'PNG' });
+    makeController(fs);
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
+
+    expect(fs.files.get('/ws/pic.png')).toBe('PNG'); // copied in
+    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](pic.png)\n');
+  });
+
+  test('ignores non-image paths', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/src/data.csv': 'nope' });
+    makeController(fs);
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/data.csv']);
+
+    expect(fs.files.get('/ws/note.md')).toBe('body'); // untouched
+    expect(fs.files.has('/ws/data.csv')).toBe(false);
+  });
+
+  test('an image already beside the note is referenced in place, not re-copied', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/ws/pic.png': 'PNG' });
+    makeController(fs);
+
+    await session.appendImagesToMd('/ws/note.md', ['/ws/pic.png']);
+
+    expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![pic](pic.png)\n');
+  });
+
+  test('an image name with spaces wraps the destination in angle brackets', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'body', '/src/my shot.png': 'PNG' });
+    makeController(fs);
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/my shot.png']);
+
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![my shot](<my shot.png>)\n');
+  });
+
+  test('appends to the live model (not disk) when a tab already owns the file', async () => {
+    const fs = makeFakeFs({ '/ws/note.md': 'on disk', '/src/pic.png': 'PNG' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/note.md']);
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/ws/note.md')!;
+
+    await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
+
+    expect(tab.model.getText()).toBe('on disk\n\n![pic](pic.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('on disk'); // disk not clobbered under the open tab
+    expect(fs.files.get('/ws/pic.png')).toBe('PNG'); // image still copied in
+  });
+});
+
 describe('createNewFileIn (explorer context menu)', () => {
   test('creates an empty untitled.md, opens it, and starts the tab rename', async () => {
     const fs = makeFakeFs();

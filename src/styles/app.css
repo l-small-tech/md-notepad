@@ -21,16 +21,15 @@
   flex: 0 0 auto;
 }
 
+/* No scrolling: the TabBar only renders as many whole tabs as fit (the rest
+   live in the ⋯ menu), so this row just needs to let its tabs flex-shrink
+   toward their min-width. overflow:hidden is a safety net, never visible. */
 .tabbar-scroller {
   display: flex;
   align-items: stretch;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.tabbar-scroller::-webkit-scrollbar {
-  display: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tab {
@@ -118,6 +117,78 @@
 .tab-new:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+/* The ⋯ overflow button, shown only when tabs don't all fit. Width must stay
+   ≤ the OVERFLOW_BTN_RESERVE budgeted in TabBar.tsx. */
+.tab-overflow {
+  flex: 0 0 auto;
+  width: 30px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.tab-overflow:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.tab-overflow-menu {
+  max-width: 280px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tab-overflow-menu .tab-menu-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Titlebar integration ------------------------------------------------
+   The tab bar IS the titlebar (no native decorations on Windows/Linux; overlay
+   traffic lights on macOS). The spacer keeps a guaranteed grab area for
+   dragging the window even when tabs fill the row. */
+
+.tabbar-spacer {
+  flex: 1 1 auto;
+  min-width: 32px;
+}
+
+/* macOS: native traffic lights overlay the top-left corner — clear them. */
+.tabbar-mac {
+  padding-left: 78px;
+}
+
+.window-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.wc-btn {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.wc-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* Windows convention: the close button alone goes red on hover. */
+.wc-close:hover {
+  background: #e81123;
+  color: #fff;
 }
 
 /* ---- Tab context menu --------------------------------------------------- */
@@ -412,8 +483,11 @@
   --ws-accent: #d6409f;
 }
 
+/* A very subtle horizontal divider separates adjacent workspaces. */
 .workspace-section + .workspace-section {
   margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
 
 /* A colored workspace gets a quiet accent stripe down its whole section. */
@@ -641,9 +715,11 @@ body.explorer-dragging * {
   background: var(--bg-hover);
 }
 
-/* Live OS-drag hover target — must read at a glance mid-drag. */
+/* Live OS-drag hover target — must read at a glance mid-drag. On an md file
+   row it signals "drop an image to embed it at the end of this file". */
 .workspace-toggle.is-drop-target,
-.file-explorer-dir.is-drop-target {
+.file-explorer-dir.is-drop-target,
+.file-explorer-item.is-drop-target {
   color: var(--fg);
   background: var(--bg-hover);
   box-shadow: inset 0 0 0 1px var(--fg-muted);

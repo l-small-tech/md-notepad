@@ -46,7 +46,19 @@ pub fn run() {
                 let _ = app.emit("open-files", files);
             }
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Restore only geometry. The default flags also restore DECORATIONS /
+        // FULLSCREEN / VISIBLE, and a state file saved by an older (decorated)
+        // build resurrects the native titlebar over the config's
+        // decorations: false (the TabBar is the titlebar now).
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())

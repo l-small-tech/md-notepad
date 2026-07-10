@@ -539,11 +539,19 @@ export function FileExplorer() {
               className={
                 'file-explorer-item' +
                 (openFileKeys.has(fileKey(entry.path)) ? ' is-open' : '') +
-                (fileKey(entry.path) === activeFileKey ? ' is-active' : '')
+                (fileKey(entry.path) === activeFileKey ? ' is-active' : '') +
+                (entry.path === dropTargetDir ? ' is-drop-target' : '')
               }
               style={indent}
-              title={`${entry.path}\nDrag into a folder to move · Right-click: rename`}
+              title={
+                isImagePath(entry.path)
+                  ? `${entry.path}\nDrag into a folder to move · Right-click: rename`
+                  : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename`
+              }
               data-drop-dir={dirPath}
+              // md files double as an image-drop target (embed at end of file);
+              // main.tsx hit-tests this against OS drags. Images aren't targets.
+              data-drop-file={isImagePath(entry.path) ? undefined : entry.path}
               onPointerDown={(e) => startFileDrag(e, entry.path)}
               onClick={() => {
                 if (dragConsumedClick.current) {
