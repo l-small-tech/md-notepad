@@ -150,3 +150,33 @@ sibling `session/` folder).
 - [ ] Updater drill: install rc.N, publish rc.N+1 → app offers update,
       installs, relaunches into N+1.
 - [ ] Full M1–M6 checklist re-run on the release build of the primary OS.
+
+## M8 — Multi-window tab tear-off
+
+- [ ] Drag a tab out of the window and release → a new window opens at the
+      drop point containing that tab (text, mode, cursor intact); the source
+      window no longer has it.
+- [ ] Right-click a tab → "Move to new window" does the same (OS-placed).
+- [ ] Tear off a DIRTY file tab → the new window shows the unsaved edits,
+      dirty dot intact; Ctrl+S there writes the file once.
+- [ ] Tear off an unflushed note ("Buy milk", immediately drag out) → the
+      note file exists and the new window owns it; no duplicate in source.
+- [ ] Type in both windows simultaneously → each window's notes flush;
+      `sessionDir` shows `session.json` plus one `session-w-*.json`.
+- [ ] Quit via the MAIN window's X with a torn-off window open → both close;
+      relaunch restores BOTH windows (tabs, active tab, geometry).
+- [ ] **Kill drill with two windows**: type in both, kill, relaunch → both
+      windows return with ≤ ~5s text loss each.
+- [ ] Close a torn-off window with its X → its tabs slide back into the main
+      window (dirty state preserved); its `session-w-*.json` is gone;
+      relaunch does NOT resurrect the window.
+- [ ] Tear a tab off, then in the torn-off window close its last real tab →
+      window shows a fresh Untitled (Notepad invariant holds per window).
+- [ ] Settings change in one window (theme, editor font) → the other window
+      follows within ~a second.
+- [ ] Update check / notes-folder change attempted from a torn-off window →
+      notes-folder change is refused with a pointer to the main window.
+- [ ] Double-click a `.md` in the file manager while both windows are open →
+      it opens in the MAIN window.
+- [ ] Linux: drag-out gesture does nothing; the context-menu item still
+      opens a new window.

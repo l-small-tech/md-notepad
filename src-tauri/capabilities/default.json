@@ -1,10 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window. Custom commands in src/commands/ need no entries here — only core/plugin permissions do.",
-  "windows": ["main"],
+  "description": "Capabilities for every app window — 'main' plus torn-off tab windows (label 'w-*'). Custom commands in src/commands/ need no entries here — only core/plugin permissions do.",
+  "windows": ["main", "w-*"],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-focus",
     "core:window:allow-set-title",
     "core:window:allow-set-fullscreen",
     "core:window:allow-close",

@@ -65,5 +65,17 @@ you have it open, a banner appears at the top of that tab:
   Rename. Renaming also renames the file on disk, so tab and file always
   match. Rename a note to a blank name to go back to automatic naming.
 
+## Multiple windows
+
+Want two documents side by side? Drag a tab out of the window and release
+it — the tab opens in its own window right where you dropped it. You can
+also right-click a tab and pick **Move to new window** (on Linux this menu
+item is the way to do it).
+
+Extra windows are full editors: everything above about notes, files, and
+saving applies in each one. They're part of your session too — quit the app
+and they come back, tabs and all. Closing an extra window with its × doesn't
+lose anything: its tabs slide back into the main window.
+
 Your notes are ordinary markdown files in your notes folder — you can back
 them up, sync them, or open them in any other app whenever you like.

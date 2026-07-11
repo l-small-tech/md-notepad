@@ -385,6 +385,115 @@ describe('preview tabs', () => {
   });
 });
 
+describe('detachTab / adoptTabs (M8 multi-window)', () => {
+  test('detachTab removes the tab WITHOUT close-tab tombstones', () => {
+    const id = tabAt(0).id;
+    tabAt(0).model.pushText('# Torn off', 'cm6');
+    state().applyFlushResult({
+      assignedNotePaths: { [id]: '/notes/torn-off.md' },
+      renamedPaths: {},
+      consumedClosedNotePaths: [],
+      consumedObsoleteBufferTabIds: [],
+    });
+    state().newTab();
+
+    state().detachTab(id);
+
+    expect(state().tabs.some((t) => t.id === id)).toBe(false);
+    // Nothing queued for deletion — another window is adopting the files.
+    expect(state().closedNotePaths).toEqual([]);
+    expect(state().obsoleteBufferTabIds).toEqual([]);
+  });
+
+  test('detaching a file tab leaves its session buffer unqueued (closeTab queues it)', () => {
+    const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
+    state().detachTab(id);
+    expect(state().obsoleteBufferTabIds).toEqual([]);
+  });
+
+  test('detaching the last tab leaves one fresh Untitled', () => {
+    state().detachTab(tabAt(0).id);
+    expect(state().tabs).toHaveLength(1);
+    expect(tabAt(0).title).toBe('Untitled');
+    expect(state().activeTabId).toBe(tabAt(0).id);
+  });
+
+  test('detaching the active tab activates a neighbor', () => {
+    const first = tabAt(0).id;
+    state().newTab();
+    state().activateTab(first);
+    state().detachTab(first);
+    expect(state().tabs).toHaveLength(1);
+    expect(state().activeTabId).toBe(tabAt(0).id);
+  });
+
+  test('adoptTabs appends with ids preserved and activates the last adopted tab', () => {
+    tabAt(0).model.pushText('existing content', 'cm6');
+    state().adoptTabs([
+      {
+        id: 'adopted-1',
+        kind: 'note',
+        notePath: '/notes/one.md',
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        text: '# One',
+      },
+      {
+        id: 'adopted-2',
+        kind: 'file',
+        notePath: null,
+        filePath: '/docs/two.md',
+        customTitle: null,
+        mode: 'split',
+        savedMtimeMs: 3,
+        text: 'two',
+      },
+    ]);
+    expect(state().tabs.map((t) => t.id)).toContain('adopted-1');
+    expect(state().tabs).toHaveLength(3);
+    expect(state().activeTabId).toBe('adopted-2');
+    const file = state().tabs.find((t) => t.id === 'adopted-2')!;
+    expect(file.kind).toBe('file');
+    expect(file.mode).toBe('split');
+  });
+
+  test('adopting into a pristine window replaces the placeholder Untitled', () => {
+    state().adoptTabs([
+      {
+        id: 'adopted-1',
+        kind: 'note',
+        notePath: '/notes/one.md',
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        text: '# One',
+      },
+    ]);
+    expect(state().tabs).toHaveLength(1);
+    expect(tabAt(0).id).toBe('adopted-1');
+  });
+
+  test('a non-pristine Untitled survives adoption', () => {
+    tabAt(0).model.pushText('draft', 'cm6');
+    state().adoptTabs([
+      {
+        id: 'adopted-1',
+        kind: 'note',
+        notePath: '/notes/one.md',
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        text: '# One',
+      },
+    ]);
+    expect(state().tabs).toHaveLength(2);
+  });
+});
+
 describe('conflict flags (M3)', () => {
   test('setConflict toggles the per-tab ConflictBanner flag', () => {
     const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });

@@ -268,6 +268,29 @@ pub fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
     Ok(dirs)
 }
 
+/// List secondary-window session manifests (`session-<label>.json`) inside
+/// `dir`. `list_dir` deliberately filters to md/images for the explorer, so
+/// the multi-window boot path (respawning torn-off windows) needs its own
+/// listing. Missing dir = empty list, like the other listings.
+#[tauri::command]
+pub fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut manifests = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("session-") && name.ends_with(".json") && entry.metadata()?.is_file() {
+            manifests.push(entry.path().to_string_lossy().into_owned());
+        }
+    }
+    manifests.sort();
+    Ok(manifests)
+}
+
 /// Read a binary file as base64 (image tabs). The frontend builds a data URL;
 /// this avoids widening the asset-protocol scope to arbitrary workspace dirs.
 #[tauri::command]
@@ -497,6 +520,37 @@ mod tests {
     fn list_dir_missing_dir_is_empty() {
         let dir = tmpdir();
         assert!(list_dir(dir.path().join("nope")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_session_manifests_matches_only_session_json() {
+        let dir = tmpdir();
+        fs::write(dir.path().join("session-w-abc123.json"), "{}").unwrap();
+        fs::write(dir.path().join("session.json"), "{}").unwrap(); // main's — no "session-" prefix
+        fs::write(dir.path().join("note.md"), "x").unwrap();
+        fs::write(dir.path().join("session-old.txt"), "x").unwrap();
+        fs::create_dir(dir.path().join("session-dir.json")).unwrap();
+
+        let found = list_session_manifests(dir.path().to_path_buf()).unwrap();
+        let names: Vec<_> = found
+            .iter()
+            .map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, vec!["session-w-abc123.json"]);
+    }
+
+    #[test]
+    fn list_session_manifests_missing_dir_is_empty() {
+        let dir = tmpdir();
+        assert!(list_session_manifests(dir.path().join("nope"))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

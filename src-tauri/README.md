@@ -13,10 +13,12 @@ session concepts in Rust, stop and move it to `src/core`.
   "why not emit from setup" note matters.
 - `src/commands/fs.rs` — the entire custom IPC surface (reference
   implementation, tested): `read_text_file`, `atomic_write_text`,
-  `list_notes`, `list_dir`, `read_file_base64`, `write_file_base64`,
-  `copy_path`, `create_dir`, `rename_path`, `delete_path`, `stat_path`.
-- `capabilities/default.json` — plugin/core permissions for the main
-  window. Custom commands need NO capability entries.
+  `list_notes`, `list_dir`, `list_session_manifests`, `read_file_base64`,
+  `write_file_base64`, `copy_path`, `create_dir`, `rename_path`,
+  `delete_path`, `stat_path`.
+- `capabilities/default.json` — plugin/core permissions for every app
+  window: `main` plus torn-off tab windows (`w-*`, M8). Custom commands
+  need NO capability entries.
 - `tauri.conf.json` — app config. `createUpdaterArtifacts` stays `false`
   until M7's key ceremony.
 

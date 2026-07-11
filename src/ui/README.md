@@ -8,7 +8,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | Component | Milestone | Notes |
 | --- | --- | --- |
 | `App` | M1 | layout shell: TabBar / EditorHost / StatusBar stack |
-| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3) |
+| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8) |
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
@@ -63,6 +63,40 @@ Rules:
   `style.flex`, bypassing React state so dragging never re-renders. The
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
+
+## Multi-window (M8 tab tear-off)
+
+Releasing a tab drag outside the window (or right-click → "Move to new
+window") moves the tab into its own OS window. The model:
+
+- **Every window is the full app** — same `main.tsx` boot, own JS context,
+  own stores, own session controller. The window label decides the role:
+  `main` vs `w-<nanoid>` (torn-off).
+- **One manifest per window, in the one session dir**: `session.json` for
+  main, `session-<label>.json` for secondaries. `buffers/` is shared (tab
+  ids are global nanoids). Note-slug collisions across windows are guarded
+  by re-listing the notes dir at the start of every flush.
+- **Handoff is disk-first**: the source window flushes the tab, detaches it
+  (`detachTab` — no delete tombstones), flushes its manifest again, and only
+  THEN spawns the window, passing a one-tab manifest in the `?adopt=` URL
+  param. A crash mid-handoff can therefore never restore the tab in two
+  windows; worst case it's in neither manifest but its files are on disk.
+- **Session restore covers windows**: at boot, main lists
+  `session-*.json` (a dedicated Rust command) and re-spawns each window;
+  the window-state plugin restores per-label geometry.
+- **Closing a torn-off window hands its tabs back to main** over the
+  `adopt-tabs`/`adopt-ack-<label>` event pair (its manifest is deleted only
+  after main acks; no ack → the manifest stays and the window returns next
+  boot). Closing MAIN quits the app: it broadcasts `main-closing`, waits for
+  the secondaries to flush + close, then sweeps stragglers.
+- **Cross-window invariants**: the controller's `adoptTabs` skips files a
+  local tab already owns (one owner per file, applied across windows);
+  file-open entry points (argv, `open-files`) target main only; the
+  notes-dir change flow is main-only; settings changes broadcast via a
+  `settings-changed` event so theme/fonts stay uniform.
+- **Platform gating**: the drag-out gesture is disabled on Linux (Wayland
+  offers no reliable global cursor position); the context-menu item works
+  everywhere.
 
 ## Keyboard shortcuts (single registry)
 

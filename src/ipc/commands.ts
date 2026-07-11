@@ -87,6 +87,8 @@ export const ipc = {
   listNotes: (dir: string) => call<NoteMeta[]>('list_notes', { dir }),
   /** One explorer level: subdirs + .md/image files (dirs A→Z, files newest first). */
   listDir: (dir: string) => call<DirEntryMeta[]>('list_dir', { dir }),
+  /** Secondary-window manifests (`session-<label>.json`) in the session dir. */
+  listSessionManifests: (dir: string) => call<string[]>('list_session_manifests', { dir }),
   /** Binary file → base64 (image tabs build a data: URL from it). */
   readFileBase64: (path: string) => call<string>('read_file_base64', { path }),
   /** base64 → atomic binary write (pasted clipboard images). */

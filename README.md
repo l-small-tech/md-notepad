@@ -60,6 +60,10 @@ It's also quietly built for the age of AI pair-programming — see
   JetBrains Mono, Cascadia Code, Source Code Pro, IBM Plex Mono,
   Inconsolata, and Victor Mono for your notes; optional Inter for the UI
   chrome. Ligatures on by default.
+- 🪟 **Multiple windows** — drag a tab out of the window to open it in its
+  own window at the drop point (or right-click → *Move to new window*).
+  Extra windows are part of your session and come back on restart; closing
+  one returns its tabs to the main window.
 - 🌗 **Light / dark / system themes.** Small, quiet, fast.
 - 🔄 **Safe auto-updates** — signed with minisign and verified before
   install; open tabs are flushed to disk first, so updating never costs

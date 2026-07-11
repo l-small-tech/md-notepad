@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { closeAllTabs, closeTab, renameTab } from '../session';
+import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../session';
 import { detectPlatform } from '../keymap';
 import { computeTabWindow } from '../tab-overflow';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
@@ -24,6 +24,14 @@ import { WindowControls } from './WindowControls';
  * render no custom controls; on Windows/Linux render our own on the right.
  */
 const IS_MAC = detectPlatform(navigator.platform) === 'mac';
+
+/**
+ * Tear-off gesture (M8): releasing a tab drag outside the window spawns a new
+ * window there. Gated off on Linux — Wayland gives apps no reliable global
+ * cursor position or window placement, so only the context-menu fallback
+ * ("Move to new window") is offered there.
+ */
+const CAN_TEAR_OFF = !/linux/i.test(navigator.platform);
 
 /** Where a context menu is open, and for which tab. */
 interface TabMenu {
@@ -130,6 +138,26 @@ function Tab({
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/tab-id', tab.id);
       }}
+      onDragEnd={(e) => {
+        // Released outside the window → tear the tab off into its own window
+        // at the drop point. In-window releases are the reorder drop handler's
+        // business (or a no-op); a cancelled drag (Esc) reports 0,0.
+        if (!CAN_TEAR_OFF || (e.screenX === 0 && e.screenY === 0)) {
+          return;
+        }
+        const outside =
+          e.screenX < window.screenX ||
+          e.screenX > window.screenX + window.outerWidth ||
+          e.screenY < window.screenY ||
+          e.screenY > window.screenY + window.outerHeight;
+        if (outside) {
+          // Offset so the new window's tab sits under the cursor, not at it.
+          moveTabToNewWindow(tab.id, {
+            x: Math.round(e.screenX - 80),
+            y: Math.round(e.screenY - 20),
+          });
+        }
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('text/tab-id')) {
           e.preventDefault();
@@ -230,6 +258,16 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
         }}
       >
         Rename
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => {
+          moveTabToNewWindow(menu.tabId, null);
+          onClose();
+        }}
+      >
+        Move to new window
       </button>
       <button
         className="tab-menu-item"

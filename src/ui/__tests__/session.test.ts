@@ -1514,6 +1514,200 @@ describe('preview tabs (openPaths)', () => {
   });
 });
 
+describe('multi-window tear-off (M8)', () => {
+  test('moveTabToNewWindow flushes, detaches, and hands the descriptor to the spawner', async () => {
+    const fs = makeFakeFs();
+    const spawned: Array<{ manifest: unknown; pos: { x: number; y: number } | null }> = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async (manifest, pos) => {
+        spawned.push({ manifest, pos });
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Torn off', 'cm6');
+
+    await controller.moveTabToNewWindow(t.id, { x: 10, y: 20 });
+
+    // The note was flushed to disk BEFORE the handoff and was NOT deleted.
+    expect(fs.files.get(`${NOTES}/torn-off.md`)).toBe('# Torn off');
+    // The descriptor references it, and the drop position travelled along.
+    expect(spawned).toHaveLength(1);
+    const manifest = spawned[0]!.manifest as {
+      schema: number;
+      activeTabId: string;
+      tabs: Array<{ id: string; notePath: string | null }>;
+    };
+    expect(manifest.schema).toBe(1);
+    expect(manifest.activeTabId).toBe(t.id);
+    expect(manifest.tabs[0]!.notePath).toBe(`${NOTES}/torn-off.md`);
+    expect(spawned[0]!.pos).toEqual({ x: 10, y: 20 });
+    // Detached here (a fresh Untitled took its place) …
+    expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
+    // … and this window's manifest no longer claims it (written before spawn).
+    const written = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      tabs: Array<{ id: string }>;
+    };
+    expect(written.tabs.some((x) => x.id === t.id)).toBe(false);
+  });
+
+  test('a dirty file tab travels with hasBuffer, its buffer intact on disk', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    const spawned: Array<{ tabs: Array<{ id: string; hasBuffer: boolean }> }> = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async (manifest) => {
+        spawned.push(manifest as never);
+      },
+    });
+    await controller.openPaths(['/docs/a.md']);
+    const t = tabs.tabsStore.getState().activeTab()!;
+    t.model.pushText('unsaved edit', 'cm6');
+
+    await controller.moveTabToNewWindow(t.id, null);
+
+    expect(spawned[0]!.tabs[0]!.hasBuffer).toBe(true);
+    // The session buffer survives the detach for the new window to read.
+    expect(fs.files.get(`${SESSION}/buffers/${t.id}.md`)).toBe('unsaved edit');
+    expect(fs.files.get('/docs/a.md')).toBe('original'); // never force-saved
+  });
+
+  test('a failed window spawn adopts the tab right back', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async () => {
+        throw new Error('boom');
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Keep me', 'cm6');
+
+    await controller.moveTabToNewWindow(t.id, null);
+
+    const back = tabs.tabsStore.getState().tabs.find((x) => x.id === t.id);
+    expect(back).toBeDefined();
+    expect(back!.model.getText()).toBe('# Keep me');
+    expect(back!.notePath).toBe(`${NOTES}/keep-me.md`);
+  });
+
+  test('a torn-off window restores from its handed-over manifest and writes its own file', async () => {
+    const fs = makeFakeFs({ [`${NOTES}/torn.md`]: '# Torn' });
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+      initialManifest: {
+        schema: 1,
+        activeTabId: 'tab1',
+        tabs: [
+          {
+            id: 'tab1',
+            kind: 'note',
+            notePath: `${NOTES}/torn.md`,
+            filePath: null,
+            customTitle: null,
+            mode: 'raw',
+            savedMtimeMs: null,
+            hasBuffer: false,
+            cursor: { anchor: 3, head: 3 },
+          },
+        ],
+      },
+    });
+
+    await controller.restore();
+
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    expect(t.id).toBe('tab1');
+    expect(t.model.getText()).toBe('# Torn');
+    expect(session.getCursor('tab1')).toEqual({ anchor: 3, head: 3 });
+
+    await controller.flushNow();
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(true);
+    expect(fs.files.has(`${SESSION}/session.json`)).toBe(false);
+  });
+
+  test('a secondary window with no manifest starts fresh — never reopens recent notes', async () => {
+    const fs = makeFakeFs({ [`${NOTES}/mains-note.md`]: 'owned by the main window' });
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+    });
+
+    await controller.restore();
+
+    const s = tabs.tabsStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.tabs[0]!.notePath).toBeNull();
+    expect(s.tabs[0]!.model.getText()).toBe('');
+  });
+
+  test('adoptTabs skips a file some tab here already owns', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'A', [`${NOTES}/other.md`]: 'other' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const count = tabs.tabsStore.getState().tabs.length;
+
+    await controller.adoptTabs([
+      {
+        id: 'dup',
+        kind: 'file',
+        notePath: null,
+        filePath: '/docs/a.md',
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: 1,
+        hasBuffer: false,
+        cursor: null,
+      },
+      {
+        id: 'fresh',
+        kind: 'note',
+        notePath: `${NOTES}/other.md`,
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        hasBuffer: false,
+        cursor: null,
+      },
+    ]);
+
+    const s = tabs.tabsStore.getState();
+    expect(s.tabs.some((t) => t.id === 'dup')).toBe(false);
+    expect(s.tabs.some((t) => t.id === 'fresh')).toBe(true);
+    expect(s.tabs).toHaveLength(count + 1);
+  });
+
+  test('exportTabsForHandoff flushes, drops the pristine Untitled, and reports buffers', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const fileTab = tabs.tabsStore.getState().activeTab()!;
+    fileTab.model.pushText('unsaved edit', 'cm6');
+
+    const out = await controller.exportTabsForHandoff();
+
+    // The initial empty Untitled was dropped; only the file tab travels.
+    expect(out).toHaveLength(1);
+    expect(out[0]!.id).toBe(fileTab.id);
+    expect(out[0]!.hasBuffer).toBe(true);
+    expect(fs.files.get(`${SESSION}/buffers/${fileTab.id}.md`)).toBe('unsaved edit');
+  });
+
+  test('discardManifest deletes this window’s manifest file', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+    });
+    await controller.restore();
+    await controller.flushNow();
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(true);
+
+    await controller.discardManifest();
+
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(false);
+  });
+});
+
 describe('closeAllTabsInteractive', () => {
   test('closes every tab, leaving one fresh Untitled', async () => {
     const fs = makeFakeFs({ '/ws/a.md': 'A', '/ws/b.md': 'B' });

@@ -63,6 +63,12 @@ export interface AppSessionView {
   notesDir: string;
   /** Machine-local session dir; manifest and buffers live under it. */
   sessionDir: string;
+  /**
+   * This window's manifest filename inside sessionDir (M8 multi-window:
+   * 'session.json' for the main window, 'session-<label>.json' for torn-off
+   * tab windows). Absent = 'session.json'.
+   */
+  manifestName?: string;
   activeTabId: string | null;
   tabs: SessionTabView[];
   /**
@@ -376,7 +382,7 @@ export function planFlush(view: AppSessionView): FlushPlan {
     noteRenames,
     writes,
     deletes: [...view.closedNotePaths, ...view.obsoleteBufferPaths],
-    manifestPath: joinPath(view.sessionDir, 'session.json'),
+    manifestPath: joinPath(view.sessionDir, view.manifestName ?? 'session.json'),
     manifest,
     assignedNotePaths,
   };

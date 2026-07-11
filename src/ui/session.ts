@@ -53,7 +53,7 @@ import { ipc as realIpc, type Ipc } from '../ipc/commands';
 import type { SessionPaths } from '../ipc/paths';
 import { setFlushRequester } from './stores/flush-signal';
 import { settingsStore } from './stores/settings';
-import { tabsStore, type RestoredTabInit } from './stores/tabs';
+import { tabsStore, type RestoredTabInit, type TabEntry } from './stores/tabs';
 import { uiStore } from './stores/ui';
 
 /** The slice of `ipc` the controller uses — narrowed so tests fake less. */
@@ -92,6 +92,34 @@ export interface SessionControllerDeps {
   paths: SessionPaths;
   /** The bundled documentation folder (a Tauri resource), or null if unresolvable. */
   docsDir?: string | null;
+  /**
+   * Multi-window (M8): each window owns its own manifest file inside the one
+   * sessionDir — 'session.json' (the default) for the main window,
+   * 'session-<label>.json' for torn-off tab windows. Buffers stay shared
+   * (they're keyed by tab id, which is globally unique).
+   */
+  manifestName?: string;
+  /**
+   * A manifest handed over by the window that spawned this one (tab tear-off).
+   * When set, restore() builds the tab set from it instead of reading the
+   * manifest file, then persists it as this window's own manifest.
+   */
+  initialManifest?: SessionManifest | null;
+  /**
+   * False in torn-off windows. Secondaries never self-heal by reopening recent
+   * notes (that would duplicate the main window's tabs) and refuse the
+   * notes-dir change flow (the other windows' flushers can't be repointed).
+   */
+  isMain?: boolean;
+  /**
+   * Opens a new OS window that adopts `manifest` (one torn-off tab), at `pos`
+   * (screen CSS px) or OS-placed when null. Injected by main.tsx (Tauri
+   * WebviewWindow) so this module stays Tauri-import-free.
+   */
+  spawnTabWindow?: (
+    manifest: SessionManifest,
+    pos: { x: number; y: number } | null,
+  ) => Promise<void>;
   ipc?: SessionIpc;
   confirm?: ConfirmDialog;
   openDialog?: OpenFilesDialog;
@@ -138,6 +166,14 @@ export interface SessionController {
   keepMine(tabId: string): Promise<void>;
   /** M6 settings: pick a new notes folder, optionally moving existing notes. */
   changeNotesDir(): Promise<void>;
+  /** M8: flush, detach the tab, and hand it to a freshly spawned window. */
+  moveTabToNewWindow(id: string, pos: { x: number; y: number } | null): Promise<void>;
+  /** M8: adopt tabs handed over by another window (skips already-owned files). */
+  adoptTabs(persisted: PersistedTab[]): Promise<void>;
+  /** M8: flush, then describe every meaningful tab for a window-close handoff. */
+  exportTabsForHandoff(): Promise<PersistedTab[]>;
+  /** M8: delete this window's manifest file (after a successful handoff). */
+  discardManifest(): Promise<void>;
 }
 
 /**
@@ -204,6 +240,20 @@ export function closeTab(id: string): void {
 let closeAllTabsDispatch: () => void = () => {};
 export function closeAllTabs(): void {
   closeAllTabsDispatch();
+}
+
+/**
+ * TabBar → controller: move a tab into its own window (M8 tear-off), at `pos`
+ * (screen CSS px, from the drag release) or OS-placed when null (the
+ * context-menu fallback). No-ops until the controller registers (and outside
+ * the desktop app, where no window spawner exists).
+ */
+let moveTabToNewWindowDispatch: (
+  id: string,
+  pos: { x: number; y: number } | null,
+) => void = () => {};
+export function moveTabToNewWindow(id: string, pos: { x: number; y: number } | null): void {
+  moveTabToNewWindowDispatch(id, pos);
 }
 
 /**
@@ -487,7 +537,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   // there"). sessionDir is fixed (never user-configurable).
   let notesDir = deps.paths.notesDir;
   const { sessionDir } = deps.paths;
-  const manifestPath = joinPath(sessionDir, 'session.json');
+  const isMain = deps.isMain ?? true;
+  const manifestPath = joinPath(sessionDir, deps.manifestName ?? 'session.json');
 
   const io: FlushIo = {
     atomicWriteText: (path, text) => ipc.atomicWriteText(path, text),
@@ -517,6 +568,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   }
 
   async function flushSession(): Promise<void> {
+    // Multi-window: another window's flusher may have created note files since
+    // our last flush; re-list so planFlush's clobber guard sees them. (Cheap —
+    // one readdir — and it also keeps the single-window cache honest.)
+    await refreshNoteListing();
+
     // Live save (settings.liveSave): write dirty FILE tabs straight to their
     // own path at the flush cadence, so no explicit Ctrl+S is needed. Runs
     // before view assembly so a saved tab is no longer fileDirty and gets no
@@ -554,6 +610,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const view: AppSessionView = {
       notesDir,
       sessionDir,
+      manifestName: deps.manifestName,
       activeTabId,
       tabs: tabs.map((t) => ({
         id: t.id,
@@ -790,15 +847,20 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   async function restore(): Promise<void> {
     await refreshNoteListing();
 
-    let raw: string | null;
-    try {
-      raw = (await ipc.readTextFile(manifestPath)).text;
-    } catch {
-      // NOT_FOUND (first launch) or unreadable — either way, no manifest.
-      raw = null;
+    // A tear-off window receives its manifest from the spawning window (via
+    // deps) instead of reading it from disk; the flush at the end of restore
+    // then persists it as this window's own manifest file.
+    let raw: string | null = null;
+    let manifest: SessionManifest | null = deps.initialManifest ?? null;
+    if (manifest === null) {
+      try {
+        raw = (await ipc.readTextFile(manifestPath)).text;
+      } catch {
+        // NOT_FOUND (first launch) or unreadable — either way, no manifest.
+        raw = null;
+      }
+      manifest = raw !== null ? parseManifest(raw) : null;
     }
-
-    const manifest: SessionManifest | null = raw !== null ? parseManifest(raw) : null;
 
     const staleDocsRoots = reconcileDocsWorkspaces();
     if (manifest !== null && staleDocsRoots.length > 0) {
@@ -808,8 +870,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
 
     if (manifest === null) {
-      // A file that existed but wouldn't parse is corrupt → quarantine it.
-      await selfHeal(raw !== null);
+      if (!isMain) {
+        // A secondary window never reopens recent notes — that would duplicate
+        // tabs the main window owns. It just starts fresh (one Untitled).
+        tabsStore.getState().restoreSession({ tabs: [], activeTabId: null });
+      } else {
+        // A file that existed but wouldn't parse is corrupt → quarantine it.
+        await selfHeal(raw !== null);
+      }
     } else {
       const { tabs, missing } = await readNoteTabs(manifest.tabs);
       for (const t of tabs) {
@@ -1179,6 +1247,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * and the next flush stay consistent.
    */
   async function changeNotesDir(): Promise<void> {
+    if (!isMain) {
+      // Other windows' flushers hold the old dir in a closure and would keep
+      // writing notes there — the flow is main-window-only until that's wired.
+      uiStore.getState().showNotice('Change the notes folder from the main window.');
+      return;
+    }
     const picked = await pickDirectory();
     if (!picked || picked === notesDir) {
       return;
@@ -1846,8 +1920,115 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
   }
 
+  /* ---- M8: multi-window tab tear-off ---------------------------------- */
+
+  /** Serializable manifest entry for `tab`, exactly as a flush would write it.
+   *  Only meaningful AFTER a flushNow(): the note file / session buffer it
+   *  references must already exist on disk. */
+  function persistedDescriptor(tab: TabEntry): PersistedTab {
+    return {
+      id: tab.id,
+      kind: tab.kind,
+      notePath: tab.notePath,
+      filePath: tab.filePath,
+      customTitle: tab.customTitle,
+      mode: tab.mode,
+      savedMtimeMs: tab.savedMtimeMs,
+      hasBuffer: tab.kind === 'file' && tab.model.isDirty('file'),
+      cursor: cursorByTab.get(tab.id) ?? null,
+    };
+  }
+
+  /**
+   * Adopt tabs handed over by another window (a tear-off landing here at boot
+   * goes through restore() instead; this serves a closing secondary window
+   * returning its tabs to main). Files some tab here already owns are skipped —
+   * the one-owner-per-file invariant, applied across windows.
+   */
+  async function adoptPersistedTabs(persisted: PersistedTab[]): Promise<void> {
+    const fresh = persisted.filter((pt) => {
+      const path = pt.filePath ?? pt.notePath;
+      return path === null || !tabOwning(pathKey(path));
+    });
+    if (fresh.length === 0) {
+      return;
+    }
+    const { tabs, missing } = await readNoteTabs(fresh);
+    for (const t of tabs) {
+      const cursor = fresh.find((pt) => pt.id === t.id)?.cursor;
+      if (cursor) {
+        cursorByTab.set(t.id, cursor);
+      }
+    }
+    tabsStore.getState().adoptTabs(tabs);
+    if (missing.length > 0) {
+      uiStore
+        .getState()
+        .showNotice(`${missing.length} file(s) could not be found — those tabs were skipped.`);
+    }
+    flusher.request();
+  }
+
+  /**
+   * Tear a tab off into its own OS window. Ownership handoff order is the
+   * whole trick:
+   *   1. flush — the note file / session buffer the descriptor references
+   *      must exist before anything else happens;
+   *   2. detach + flush — THIS window's manifest stops claiming the tab
+   *      before the new window ever writes its own, so a crash in between
+   *      can't restore the tab in two windows at once (worst case it's in
+   *      neither manifest, but its files are safely on disk);
+   *   3. spawn the window with the descriptor. If that fails, adopt the tab
+   *      right back rather than losing it.
+   */
+  async function moveTabOut(id: string, pos: { x: number; y: number } | null): Promise<void> {
+    const spawn = deps.spawnTabWindow;
+    if (!spawn) {
+      return;
+    }
+    await flusher.flushNow();
+    const tab = tabsStore.getState().tabs.find((t) => t.id === id);
+    if (!tab) {
+      return;
+    }
+    const descriptor = persistedDescriptor(tab);
+    tabsStore.getState().detachTab(id);
+    await flusher.flushNow();
+    try {
+      await spawn({ schema: 1, activeTabId: descriptor.id, tabs: [descriptor] }, pos);
+    } catch (error) {
+      await adoptPersistedTabs([descriptor]);
+      uiStore.getState().showNotice('Could not open a new window.');
+      deps.onError?.(error);
+    }
+  }
+
+  /**
+   * Window-close handoff (secondary windows): flush everything, then describe
+   * each tab worth keeping. A pristine never-flushed Untitled is dropped —
+   * handing an empty placeholder back to main would just add noise.
+   */
+  async function exportTabsForHandoff(): Promise<PersistedTab[]> {
+    await flusher.flushNow();
+    return tabsStore
+      .getState()
+      .tabs.filter(
+        (t) =>
+          !(
+            t.kind === 'note' &&
+            t.notePath === null &&
+            t.customTitle === null &&
+            t.model.getText().length === 0
+          ),
+      )
+      .map(persistedDescriptor);
+  }
+
   interactiveCloser = (id) => void closeTabInteractive(id);
   closeAllTabsDispatch = () => void closeAllTabsInteractive();
+  if (deps.spawnTabWindow) {
+    moveTabToNewWindowDispatch = (id, pos) => void moveTabOut(id, pos);
+  }
   openFileDispatch = () => void openFileDialog();
   saveDispatch = () => void saveActive();
   saveAsDispatch = () => void saveAsActive();
@@ -1927,5 +2108,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     reloadFromDisk,
     keepMine,
     changeNotesDir,
+    moveTabToNewWindow: moveTabOut,
+    adoptTabs: adoptPersistedTabs,
+    exportTabsForHandoff,
+    discardManifest: () => ipc.deletePath(manifestPath),
   };
 }

@@ -126,6 +126,20 @@ export interface TabsState {
   setMode: (id: string, mode: EditorMode) => void;
   registerModeSync: (id: string, sync: ModeSync) => void;
   activeTab: () => TabEntry | undefined;
+  /**
+   * Remove a tab WITHOUT the close-tab tombstones — its note file and session
+   * buffer stay on disk because another window is adopting them (tab tear-off,
+   * M8). Behaves like closeTab otherwise: neighbor activation, and the last
+   * tab leaves one fresh Untitled.
+   */
+  detachTab: (id: string) => void;
+  /**
+   * Append already-read tabs from another window (tear-off adoption / a
+   * closing secondary window handing its tabs back). Ids are preserved so
+   * session buffers and caret bookkeeping keyed by id line up; the last
+   * adopted tab is activated.
+   */
+  adoptTabs: (tabs: RestoredTabInit[]) => void;
   /** Replace all tabs from a restored session (boot only). */
   restoreSession: (payload: { tabs: RestoredTabInit[]; activeTabId: string | null }) => void;
   /** Apply the outcome of a completed flush. Never re-requests a flush. */
@@ -378,6 +392,56 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         renamingTabId: s.renamingTabId === id ? null : s.renamingTabId,
         closedNotePaths,
         obsoleteBufferTabIds,
+      });
+      requestFlush();
+    },
+
+    detachTab(id) {
+      const s = get();
+      const idx = s.tabs.findIndex((t) => t.id === id);
+      if (idx < 0) {
+        return;
+      }
+      // No closedNotePaths / obsoleteBufferTabIds entries: the tab's files are
+      // being handed to another window, not discarded.
+      const remaining = s.tabs.filter((t) => t.id !== id);
+      if (remaining.length === 0) {
+        const fresh = makeTab();
+        set({ tabs: [fresh], activeTabId: fresh.id, renamingTabId: null });
+        requestFlush();
+        return;
+      }
+      let activeTabId = s.activeTabId;
+      if (activeTabId === id) {
+        activeTabId = remaining[Math.min(idx, remaining.length - 1)]!.id;
+      }
+      set({
+        tabs: remaining,
+        activeTabId,
+        renamingTabId: s.renamingTabId === id ? null : s.renamingTabId,
+      });
+      requestFlush();
+    },
+
+    adoptTabs(inits) {
+      if (inits.length === 0) {
+        return;
+      }
+      const entries = inits.map((t) => makeTab(t));
+      set((s) => {
+        // A pristine window (exactly one never-flushed empty Untitled) yields
+        // its placeholder to the adopted tabs instead of keeping a stray note.
+        const only = s.tabs.length === 1 ? s.tabs[0]! : null;
+        const pristine =
+          only !== null &&
+          only.kind === 'note' &&
+          only.notePath === null &&
+          only.charCount === 0 &&
+          !only.customTitle;
+        return {
+          tabs: [...(pristine ? [] : s.tabs), ...entries],
+          activeTabId: entries[entries.length - 1]!.id,
+        };
       });
       requestFlush();
     },
