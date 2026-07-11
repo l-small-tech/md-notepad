@@ -442,7 +442,7 @@
 }
 
 .file-explorer-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -615,7 +615,7 @@
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -631,7 +631,7 @@
 .workspace-caret {
   flex: 0 0 auto;
   width: 10px;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .workspace-name {
@@ -648,7 +648,7 @@
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   padding: 4px 10px 4px 22px; /* left is overridden per tree depth inline */
   cursor: pointer;
   white-space: nowrap;
@@ -672,7 +672,7 @@
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   padding: 4px 10px 4px 8px; /* left is overridden per tree depth inline */
   cursor: pointer;
   white-space: nowrap;
@@ -695,7 +695,7 @@
   width: 100%;
   min-width: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--accent);
@@ -745,7 +745,7 @@ body.explorer-dragging * {
 
 .file-explorer-empty {
   padding: 4px 10px 4px 22px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg-muted);
 }
 

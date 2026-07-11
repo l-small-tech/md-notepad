@@ -736,7 +736,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
     await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
 
     expect(fs.files.get('/ws/images/pic.png')).toBe('PNG'); // default = images subfolder
-    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](./images/pic.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](/ws/images/pic.png)\n');
   });
 
   test("'sameFolder' setting places the image beside the note", async () => {
@@ -747,7 +747,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
     await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
 
     expect(fs.files.get('/ws/pic.png')).toBe('PNG');
-    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](./pic.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('# Title\n\n![pic](/ws/pic.png)\n');
   });
 
   test('an image from elsewhere in the same workspace is referenced in place, not copied', async () => {
@@ -763,7 +763,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
 
     expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
     expect(fs.files.has('/ws/images/a.png')).toBe(false);
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](./pics/a.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](/ws/pics/a.png)\n');
   });
 
   test('an image from outside the workspace is copied into the images folder', async () => {
@@ -777,7 +777,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
     await session.appendImagesToMd('/ws/note.md', ['/outside/a.png']);
 
     expect(fs.files.get('/ws/images/a.png')).toBe('PNG'); // copied in
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](./images/a.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![a](/ws/images/a.png)\n');
   });
 
   test('a declined confirmation inserts nothing', async () => {
@@ -808,7 +808,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
     await session.appendImagesToMd('/ws/note.md', ['/ws/pic.png']);
 
     expect(fs.ops.some((o) => o.startsWith('copy:'))).toBe(false);
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![pic](./pic.png)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![pic](/ws/pic.png)\n');
   });
 
   test('an image name with spaces wraps the destination in angle brackets', async () => {
@@ -818,7 +818,7 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
 
     await session.appendImagesToMd('/ws/note.md', ['/src/my shot.png']);
 
-    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![my shot](<./my shot.png>)\n');
+    expect(fs.files.get('/ws/note.md')).toBe('body\n\n![my shot](</ws/my shot.png>)\n');
   });
 
   test('appends to the live model (not disk) when a tab already owns the file', async () => {
@@ -830,14 +830,14 @@ describe('appendImagesToMd (drop an image onto an md file)', () => {
 
     await session.appendImagesToMd('/ws/note.md', ['/src/pic.png']);
 
-    expect(tab.model.getText()).toBe('on disk\n\n![pic](./pic.png)\n');
+    expect(tab.model.getText()).toBe('on disk\n\n![pic](/ws/pic.png)\n');
     expect(fs.files.get('/ws/note.md')).toBe('on disk'); // disk not clobbered under the open tab
     expect(fs.files.get('/ws/pic.png')).toBe('PNG'); // image still copied in
   });
 });
 
 describe('savePastedImageForTab (editor paste)', () => {
-  test('writes the image into the images subfolder and returns a relative ref', async () => {
+  test('writes the image into the images subfolder and returns an absolute ref', async () => {
     const fs = makeFakeFs();
     makeController(fs);
     const tabId = tabs.tabsStore.getState().tabs[0]!.id;
@@ -851,7 +851,7 @@ describe('savePastedImageForTab (editor paste)', () => {
     });
 
     expect(ref).not.toBeNull();
-    expect(ref!.src).toMatch(/^\.\/images\/pasted-\d{8}-\d{6}\.png$/);
+    expect(ref!.src).toMatch(/^\/ws\/images\/pasted-\d{8}-\d{6}\.png$/);
     expect(fs.files.get(`/ws/images/${ref!.alt}.png`)).toBe('PNG');
   });
 
@@ -867,7 +867,7 @@ describe('savePastedImageForTab (editor paste)', () => {
       name: 'diagram',
     });
 
-    expect(ref!.src).toBe('./images/diagram.png');
+    expect(ref!.src).toBe('/ws/images/diagram.png');
     expect(fs.files.get('/ws/images/diagram.png')).toBe('PNG');
   });
 });

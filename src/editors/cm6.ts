@@ -49,6 +49,13 @@ export interface Cm6Options {
     ext: string;
     name: string | null;
   }) => Promise<{ alt: string; src: string } | null>;
+  /**
+   * Transform text on its way to the clipboard (Ctrl/Cmd+C with a selection).
+   * Used to append `@path` mentions for linked files/images — the same
+   * enrichment the ribbon's copy-raw-text button applies. Returning the input
+   * unchanged falls through to the editor's native copy.
+   */
+  enrichCopy?: (text: string) => string;
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -387,6 +394,32 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     },
   });
 
+  // Intercept Ctrl/Cmd+C on a non-empty selection so the copied text can be
+  // enriched (e.g. appended @path mentions for links it contains). An empty
+  // selection, no enricher, or an unchanged result falls through to CM6's
+  // native copy (which copies the current line when nothing is selected).
+  const copyEnrichHandler = EditorView.domEventHandlers({
+    copy(event, view) {
+      if (!options.enrichCopy || !event.clipboardData) {
+        return false;
+      }
+      const text = view.state.selection.ranges
+        .filter((range) => !range.empty)
+        .map((range) => view.state.sliceDoc(range.from, range.to))
+        .join(view.state.lineBreak);
+      if (!text) {
+        return false;
+      }
+      const enriched = options.enrichCopy(text);
+      if (enriched === text) {
+        return false;
+      }
+      event.preventDefault();
+      event.clipboardData.setData('text/plain', enriched);
+      return true;
+    },
+  });
+
   function attach(host: HTMLElement, model: DocModel): void {
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged && !applyingExternal) {
@@ -422,6 +455,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         markdown({ base: markdownLanguage }),
         search({ top: true }),
         imagePasteHandler,
+        copyEnrichHandler,
         themeCompartment.of([baseTheme, syntaxHighlighting(highlightStyle)]),
         // Font size defaults to the CSS variable so M1 needs no wiring; M6's
         // setFontSize reconfigures this compartment to an explicit px value.

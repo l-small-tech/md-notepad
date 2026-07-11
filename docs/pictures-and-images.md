@@ -19,8 +19,12 @@ In Raw and Split modes you'll see what's really stored — a small piece of
 text like:
 
 ```
-![holiday-photo](images/holiday-photo.png)
+![holiday-photo](C:/notes/images/holiday-photo.png)
 ```
+
+The reference uses the image's full (absolute) path, so anything you paste
+your note into — an AI assistant, another app — can find the picture
+without guessing where the note lives.
 
 The picture itself displays in **Split**, **Rich**, and **Read** modes.
 

@@ -98,8 +98,9 @@ You don't have to remember any of this:
   strikethrough, code, headings, quotes, lists, and links. Select some text
   and click.
 - The 📎 button inserts a link to another file on your computer; 🖼 inserts
-  an image. (Hold Alt while clicking to use the file's full path instead of
-  a relative one — useful if you might move the note elsewhere.)
+  an image. Links use the file's full (absolute) path, so AI tools and other
+  apps can always find the file. (Hold Alt while clicking to use a relative
+  path instead — useful if the note and the file move around together.)
 - In **Rich mode**, select text and a mini formatting toolbar appears right
   next to it.
 
@@ -109,3 +110,7 @@ The **⧉** button (top-right) copies the tab's entire raw markdown to the
 clipboard, ready to paste into email, chat, or another app. If the note
 links to local files or images, their locations are appended in a form the
 Claude Code assistant understands (`@file` mentions).
+
+**Ctrl+C** does the same for a selection: copy some text in the editor and
+any files or images it links to are appended as `@file` mentions too — so
+a prompt you copy out of a note arrives with its attachments listed.

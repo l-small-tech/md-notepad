@@ -37,6 +37,7 @@ import {
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { imageMimeType, isImagePath } from '../core/images';
+import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
 import { pickUnusedColor } from '../core/settings';
 import {
@@ -319,7 +320,7 @@ export function appendImagesToMd(mdPath: string, paths: string[]): Promise<void>
 /**
  * Editor paste → controller: save one clipboard image into the configured
  * images location for `tabId`'s document and return how to reference it (alt +
- * relative src), or null on failure. The editor adapter does the actual
+ * absolute src), or null on failure. The editor adapter does the actual
  * caret insertion — this only touches disk.
  */
 export function savePastedImageForTab(
@@ -331,6 +332,28 @@ export function savePastedImageForTab(
 /** FileExplorer paste → controller: write one clipboard file into `dir`. */
 export function savePastedFileInto(dir: string, file: PastedFile): Promise<void> {
   return savePastedFileDispatch(dir, file);
+}
+/**
+ * Editor Ctrl/Cmd+C → clipboard enrichment: append Claude-Code-CLI `@path`
+ * mentions for every local file/image the copied selection links to — the
+ * same treatment the ribbon's copy-raw-text button gives the whole document.
+ * Relative destinations resolve against the tab's own directory. A selection
+ * with no local links is returned unchanged (and the editor's native copy
+ * proceeds silently).
+ */
+export function enrichCopiedText(tabId: string, selection: string): string {
+  const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+  if (!tab) {
+    return selection;
+  }
+  const baseDir = dirName(tab.filePath ?? tab.notePath ?? '');
+  const { text, count } = appendMentions(selection, baseDir);
+  if (count > 0) {
+    uiStore
+      .getState()
+      .showNotice(`Copied + ${count} file ${count === 1 ? 'mention' : 'mentions'} (@paths).`);
+  }
+  return text;
 }
 /** FileExplorer context menu → controller: create a new .md file in `dir`,
  *  open it, and start the tab rename so it can be named immediately. */
@@ -422,9 +445,10 @@ export function renameTab(id: string, newName: string): void {
 }
 /**
  * Ribbon → controller: browse for a file (or image) and insert a markdown link
- * to it into the active tab's source editor. The path is relative to the
- * current document by default; `absolute` (the ribbon's Alt-click) forces an
- * absolute path, as does an unsaved document with no directory to be relative to.
+ * to it into the active tab's source editor. The path is absolute by default
+ * (so agent CLIs and other tools can resolve it from anywhere); passing
+ * `absolute: false` (the ribbon's Alt-click) asks for a path relative to the
+ * current document instead, when one exists.
  */
 export function insertFileLink(opts: { image: boolean; absolute: boolean }): void {
   insertFileLinkDispatch(opts);
@@ -1050,9 +1074,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   /**
    * Browse for a file/image and insert a markdown reference to it at the caret
-   * of the active tab's source editor. Prefers a path relative to the current
-   * document; falls back to (or is forced to, via `absolute`) an absolute path
-   * when the document is unsaved or the target lives on another drive/root.
+   * of the active tab's source editor. Inserts an absolute path by default;
+   * `absolute: false` (Alt-click) prefers a path relative to the current
+   * document, falling back to absolute when the document is unsaved or the
+   * target lives on another drive/root.
    */
   async function insertLinkFromDialog({
     image,
@@ -1415,9 +1440,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   /**
    * Save/relocate one image for `mdPath` and return how to reference it (alt +
-   * a path relative to the document, or an absolute forward-slashed path when
-   * no relative one exists). `source` is either an existing file to place
-   * (drag) or raw bytes to write (paste). Returns null on failure.
+   * an absolute forward-slashed path — absolute refs are the app default so
+   * agent CLIs can resolve them from anywhere). `source` is either an existing
+   * file to place (drag) or raw bytes to write (paste). Returns null on failure.
    *
    * A dragged file that ALREADY lives in the markdown file's workspace is left
    * exactly where it is and referenced in place — only images coming from
@@ -1449,8 +1474,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
         savedPath = await uniquePathIn(targetDir, base, source.ext);
         await ipc.writeFileBase64(savedPath, source.base64);
       }
-      const rel = relativePath(mdDir, savedPath);
-      const src = rel ?? savedPath.replace(/\\/g, '/');
+      const src = savedPath.replace(/\\/g, '/');
       return { alt: stripExtension(baseName(savedPath)), src };
     } catch (error) {
       deps.onError?.(error);

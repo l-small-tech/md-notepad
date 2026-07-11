@@ -134,18 +134,18 @@ function FormatControls() {
       <button
         className="ribbon-btn"
         aria-label="Link to a file"
-        title="Link to a file — click for a relative path, Alt+click for absolute"
+        title="Link to a file — click for an absolute path, Alt+click for relative"
         onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => insertFileLink({ image: false, absolute: e.altKey })}
+        onClick={(e) => insertFileLink({ image: false, absolute: !e.altKey })}
       >
         📎
       </button>
       <button
         className="ribbon-btn"
         aria-label="Insert an image"
-        title="Insert an image — click for a relative path, Alt+click for absolute"
+        title="Insert an image — click for an absolute path, Alt+click for relative"
         onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => insertFileLink({ image: true, absolute: e.altKey })}
+        onClick={(e) => insertFileLink({ image: true, absolute: !e.altKey })}
       >
         🖼
       </button>

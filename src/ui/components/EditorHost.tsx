@@ -19,7 +19,7 @@ import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
-import { getCursor, noteCursor, savePastedImageForTab } from '../session';
+import { enrichCopiedText, getCursor, noteCursor, savePastedImageForTab } from '../session';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -91,6 +91,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               noteCursor(tabId, { anchor: pos.anchor, head: pos.head });
             },
             saveImage: (data) => savePastedImageForTab(tabId, data),
+            enrichCopy: (text) => enrichCopiedText(tabId, text),
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
