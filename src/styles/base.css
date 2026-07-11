@@ -80,6 +80,28 @@ html.no-ligatures .cm-content {
   font-variant-ligatures: none;
 }
 
+/*
+ * Editor caret styles. --caret-width feeds the CM6 `.cm-cursor` border-left
+ * (see editors/cm6.ts); 'underscore' zeroes that and draws a bottom border
+ * instead, giving an underline caret under the character.
+ */
+html[data-cursor='thin'] {
+  --caret-width: 1px;
+}
+html[data-cursor='bar'] {
+  --caret-width: 2px;
+}
+html[data-cursor='thick'] {
+  --caret-width: 3.5px;
+}
+html[data-cursor='underscore'] {
+  --caret-width: 0;
+}
+html[data-cursor='underscore'] .cm-cursor {
+  width: 0.55em;
+  border-bottom: 2px solid var(--fg);
+}
+
 ::selection {
   background: var(--selection);
 }

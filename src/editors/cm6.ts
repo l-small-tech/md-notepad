@@ -63,7 +63,7 @@ export type FormatAction =
   | 'bold'
   | 'italic'
   | 'strikethrough'
-  | 'code'
+  | 'codeBlock'
   | 'heading'
   | 'quote'
   | 'bulletList'
@@ -114,7 +114,10 @@ const baseTheme = EditorView.theme({
     padding: '10px 12px',
   },
   '&.cm-focused': { outline: 'none' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--fg)' },
+  // Caret width (and underscore geometry) is settings-driven via --caret-width,
+  // set per data-cursor in base.css; the fallback matches the 'bar' default.
+  '.cm-cursor': { borderLeftColor: 'var(--fg)', borderLeftWidth: 'var(--caret-width, 2px)' },
+  '.cm-dropCursor': { borderLeftColor: 'var(--fg)' },
   '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--selection)' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
     backgroundColor: 'var(--selection)',
@@ -194,6 +197,63 @@ function toggleInlineWrap(view: EditorView, marker: string): void {
       { from: range.to, insert: marker },
     ],
     selection: { anchor: range.from + len, head: range.to + len },
+  });
+}
+
+/**
+ * Toggle a fenced code block (```` ``` ````) around the lines the selection
+ * spans. If those lines are already fenced — a ``` line directly above the
+ * first and directly below the last — the fences are stripped; otherwise they
+ * are added. A collapsed caret drops an empty fenced block and parks the caret
+ * on the blank line inside it.
+ */
+function toggleCodeBlock(view: EditorView): void {
+  const { state } = view;
+  const range = state.selection.main;
+  const doc = state.doc;
+  const startLine = doc.lineAt(range.from);
+  const endLine = doc.lineAt(range.to);
+
+  // Already fenced? Strip the ``` lines hugging the selected block.
+  const above = startLine.number > 1 ? doc.line(startLine.number - 1) : null;
+  const below = endLine.number < doc.lines ? doc.line(endLine.number + 1) : null;
+  if (
+    above &&
+    below &&
+    above.text.trim().startsWith('```') &&
+    below.text.trim().startsWith('```')
+  ) {
+    // Remove "```\n" above the block and "\n```" below it; map the selection
+    // through the deletions so the same content stays selected.
+    const changes = state.changes([
+      { from: above.from, to: startLine.from },
+      { from: endLine.to, to: below.to },
+    ]);
+    view.dispatch({ changes, selection: state.selection.map(changes) });
+    return;
+  }
+
+  // Collapsed caret: insert an empty block on its own lines, caret in the middle.
+  if (range.empty) {
+    const prefix = range.from === startLine.from ? '' : '\n';
+    const suffix = range.from === startLine.to ? '' : '\n';
+    const insert = `${prefix}\`\`\`\n\n\`\`\`${suffix}`;
+    view.dispatch({
+      changes: { from: range.from, insert },
+      selection: { anchor: range.from + prefix.length + 4 }, // just past "```\n"
+    });
+    return;
+  }
+
+  // Wrap the selected lines: fence above and below, content untouched.
+  const changes = state.changes([
+    { from: startLine.from, insert: '```\n' },
+    { from: endLine.to, insert: '\n```' },
+  ]);
+  view.dispatch({
+    changes,
+    // Both selection ends sit past the 4-char opening fence; keep them on the text.
+    selection: { anchor: range.from + 4, head: range.to + 4 },
   });
 }
 
@@ -315,8 +375,8 @@ function applyFormat(view: EditorView, action: FormatAction): void {
     case 'strikethrough':
       toggleInlineWrap(view, '~~');
       break;
-    case 'code':
-      toggleInlineWrap(view, '`');
+    case 'codeBlock':
+      toggleCodeBlock(view);
       break;
     case 'heading':
       cycleHeading(view);

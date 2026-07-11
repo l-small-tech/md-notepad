@@ -113,6 +113,13 @@ export interface TabsState {
   closedNotePaths: string[];
   /** File tabs closed since the last flush; their session buffers are stale. */
   obsoleteBufferTabIds: string[];
+  /**
+   * The mode the user most recently switched to, seeded from
+   * settings.defaultMode. Newly opened file tabs adopt it instead of always
+   * reverting to the default — so reading in 'read' mode and flipping through
+   * files keeps each new preview in read mode. Session-only (not persisted).
+   */
+  lastFileMode: EditorMode;
 
   newTab: () => void;
   closeTab: (id: string) => void;
@@ -341,6 +348,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     renamingTabId: null,
     closedNotePaths: [],
     obsoleteBufferTabIds: [],
+    lastFileMode: settingsStore.getState().settings.defaultMode,
 
     newTab() {
       const tab = makeTab();
@@ -517,7 +525,8 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
-      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)) });
+      // Remember this choice so the next file opened adopts it (see lastFileMode).
+      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)), lastFileMode: mode });
       void tab.modeSync?.setMode(mode);
       requestFlush();
     },
@@ -537,12 +546,19 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const entries = tabs.length > 0 ? tabs.map((t) => makeTab(t)) : [makeTab()];
       const active =
         activeTabId && entries.some((e) => e.id === activeTabId) ? activeTabId : entries[0]!.id;
+      // Continue flipping in whatever mode the restored active tab was in, so a
+      // read-mode session stays read-mode across a restart. Read-only tabs are
+      // pinned to 'read' regardless, so fall back to the default for those.
+      const activeEntry = entries.find((e) => e.id === active)!;
       set({
         tabs: entries,
         activeTabId: active,
         renamingTabId: null,
         closedNotePaths: [],
         obsoleteBufferTabIds: [],
+        lastFileMode: activeEntry.readOnly
+          ? settingsStore.getState().settings.defaultMode
+          : activeEntry.mode,
       });
     },
 
@@ -573,7 +589,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           notePath: null,
           filePath,
           customTitle: null,
-          mode: settingsStore.getState().settings.defaultMode,
+          // Adopt the last mode the user switched to, not the static default,
+          // so flipping through files preserves e.g. read mode.
+          mode: get().lastFileMode,
           savedMtimeMs,
           text,
           readOnly,

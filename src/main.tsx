@@ -80,7 +80,7 @@ const IMAGE_FILTERS = [
 /* ---- Settings → DOM (theme, ligatures, fonts, editor font size) --------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize, editorFont, uiFont, readerMargins } =
+  const { ligatures, fontSize, editorFont, uiFont, readerMargins, cursorStyle } =
     settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
@@ -97,6 +97,8 @@ function applyDomSettings(): void {
   }
   // Read-mode margins — preview.css maps each value to a responsive gutter.
   root.dataset.readerMargins = readerMargins;
+  // Editor caret style — base.css maps each value to --caret-width (+ underscore geometry).
+  root.dataset.cursor = cursorStyle;
 }
 
 applyDomSettings();

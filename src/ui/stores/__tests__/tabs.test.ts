@@ -224,6 +224,36 @@ describe('openFileTab (M3)', () => {
     expect(tab.dirty).toBe(false);
     expect(tab.model.isDirty('file')).toBe(false);
   });
+
+  test('a newly opened file adopts the last mode the user switched to', () => {
+    // Default is 'raw' — the first file opens in it.
+    const first = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === first)!.mode).toBe('raw');
+
+    // Switch this file to read mode, then open another — it inherits read mode.
+    state().setMode(first, 'read');
+    const second = state().openFileTab({ filePath: '/docs/b.md', text: 'b', savedMtimeMs: 2 });
+    expect(state().tabs.find((t) => t.id === second)!.mode).toBe('read');
+  });
+
+  test('a preview tab reused for another file keeps the last-used mode', () => {
+    const first = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    state().setMode(first, 'read');
+    const second = state().openFileTab({
+      filePath: '/docs/b.md',
+      text: 'b',
+      savedMtimeMs: 2,
+      preview: true,
+    });
+    // Single preview slot reused, opened in read mode.
+    expect(state().tabs.filter((t) => t.kind === 'file')).toHaveLength(1);
+    expect(state().tabs.find((t) => t.id === second)!.mode).toBe('read');
+  });
 });
 
 describe('dirty dot (M3)', () => {

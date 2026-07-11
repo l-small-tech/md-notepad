@@ -53,6 +53,19 @@ export interface TabState {
 export type ReaderMargins = 'narrow' | 'normal' | 'wide';
 
 /**
+ * Editor caret (text cursor) styles. Each maps to a `--caret-width` (and, for
+ * 'underscore', a bottom-border geometry) in base.css, keyed off the
+ * `data-cursor` attribute on <html>:
+ * - 'bar'        — the default vertical bar, a hair thicker than CM's native 1.2px.
+ * - 'thin'       — a 1px hairline bar.
+ * - 'thick'      — a bold vertical bar.
+ * - 'underscore' — an underline caret under the character.
+ */
+export const CURSOR_STYLES = ['bar', 'thin', 'thick', 'underscore'] as const;
+
+export type CursorStyle = (typeof CURSOR_STYLES)[number];
+
+/**
  * Where a pasted/dropped image is saved, relative to the markdown file it is
  * embedded into:
  * - 'subfolder'     — a folder (named by `imageFolderName`) beside the .md file.
@@ -141,6 +154,8 @@ export interface Settings {
    */
   ligatures: boolean;
   readerMargins: ReaderMargins;
+  /** Editor caret shape/weight. Default 'bar'. */
+  cursorStyle: CursorStyle;
   /**
    * Ask for confirmation before an in-explorer drag moves a file into another
    * folder (VSCode-style). Default on; unchecking it suppresses the prompt.

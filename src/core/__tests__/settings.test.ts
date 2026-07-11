@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
-import { EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
+import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -21,6 +21,7 @@ describe('normalizeSettings', () => {
       wordWrap: false,
       ligatures: false,
       readerMargins: 'wide',
+      cursorStyle: 'underscore',
       confirmFileMove: false,
       liveSave: true,
       previewTabs: false,
@@ -39,6 +40,7 @@ describe('normalizeSettings', () => {
       wordWrap: false,
       ligatures: false,
       readerMargins: 'wide',
+      cursorStyle: 'underscore',
       confirmFileMove: false,
       liveSave: true,
       previewTabs: false,
@@ -60,6 +62,7 @@ describe('normalizeSettings', () => {
       wordWrap: 'yes',
       ligatures: 1,
       readerMargins: 'huge',
+      cursorStyle: 'beam',
       confirmFileMove: 'sure',
       liveSave: 'always',
       previewTabs: 'maybe',
@@ -157,6 +160,13 @@ describe('normalizeSettings', () => {
     for (const margins of ['narrow', 'normal', 'wide'] as const) {
       expect(normalizeSettings({ readerMargins: margins }).readerMargins).toBe(margins);
     }
+  });
+
+  test('every cursor style is accepted; anything else defaults to bar', () => {
+    for (const style of CURSOR_STYLES) {
+      expect(normalizeSettings({ cursorStyle: style }).cursorStyle).toBe(style);
+    }
+    expect(normalizeSettings({ cursorStyle: 'beam' }).cursorStyle).toBe('bar');
   });
 
   test('unknown extra fields are dropped', () => {

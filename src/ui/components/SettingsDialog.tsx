@@ -37,6 +37,13 @@ const READER_MARGINS: { value: Settings['readerMargins']; label: string }[] = [
   { value: 'wide', label: 'Wide' },
 ];
 
+const CURSOR_STYLE_OPTIONS: { value: Settings['cursorStyle']; label: string }[] = [
+  { value: 'bar', label: 'Bar (default)' },
+  { value: 'thin', label: 'Thin' },
+  { value: 'thick', label: 'Thick' },
+  { value: 'underscore', label: 'Underscore' },
+];
+
 const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[] = [
   { value: 'subfolder', label: 'Subfolder next to the file' },
   { value: 'sameFolder', label: 'Same folder as the file' },
@@ -199,6 +206,21 @@ export function SettingsDialog() {
               {READER_MARGINS.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Cursor style</span>
+            <select
+              className="settings-control"
+              value={settings.cursorStyle}
+              onChange={(e) => update({ cursorStyle: e.target.value as Settings['cursorStyle'] })}
+            >
+              {CURSOR_STYLE_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </select>

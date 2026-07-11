@@ -8,8 +8,15 @@
  * schema library: a handful of fields doesn't justify a dependency.
  */
 
-import { EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from './types';
-import type { EditorFontId, Settings, UiFontId, WorkspaceColor, WorkspaceEntry } from './types';
+import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from './types';
+import type {
+  CursorStyle,
+  EditorFontId,
+  Settings,
+  UiFontId,
+  WorkspaceColor,
+  WorkspaceEntry,
+} from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
@@ -21,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wordWrap: true,
   ligatures: true,
   readerMargins: 'normal',
+  cursorStyle: 'bar',
   confirmFileMove: true,
   liveSave: false,
   previewTabs: true,
@@ -117,6 +125,9 @@ export function normalizeSettings(raw: unknown): Settings {
       r.readerMargins === 'narrow' || r.readerMargins === 'normal' || r.readerMargins === 'wide'
         ? r.readerMargins
         : d.readerMargins,
+    cursorStyle: (CURSOR_STYLES as readonly unknown[]).includes(r.cursorStyle)
+      ? (r.cursorStyle as CursorStyle)
+      : d.cursorStyle,
     confirmFileMove: typeof r.confirmFileMove === 'boolean' ? r.confirmFileMove : d.confirmFileMove,
     liveSave: typeof r.liveSave === 'boolean' ? r.liveSave : d.liveSave,
     previewTabs: typeof r.previewTabs === 'boolean' ? r.previewTabs : d.previewTabs,

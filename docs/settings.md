@@ -25,6 +25,9 @@ remembered. Press Esc or click outside the panel to close it.
   Cascadia Code, Victor Mono) can join character pairs like `->` into a
   single arrow glyph. Purely cosmetic; turn it off if you prefer to see
   the characters as typed.
+- **Cursor style** — the shape of the editing caret: **Bar** (the default, a
+  slim vertical line), **Thin** (a hairline bar), **Thick** (a bold bar), or
+  **Underscore** (an underline beneath the character).
 - **Word wrap** — when on (the default), long lines wrap to fit the window.
   When off, long lines run sideways and you scroll horizontally.
 - **Read mode margins** — how wide the text column is in Read mode:

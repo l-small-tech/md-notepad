@@ -119,7 +119,7 @@ function FormatControls() {
         title="Strikethrough"
         label={<span className="ribbon-strike">S</span>}
       />
-      <RibbonButton action="code" title="Inline code" label={<code>&lt;/&gt;</code>} />
+      <RibbonButton action="codeBlock" title="Code block" label={<code>&lt;/&gt;</code>} />
 
       <span className="ribbon-divider" role="separator" />
 
