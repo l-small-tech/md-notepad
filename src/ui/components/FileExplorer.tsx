@@ -6,11 +6,12 @@
  * `list_dir` call). Each workspace can carry an accent color (a named token
  * from WORKSPACE_COLORS, rendered as a stripe down its section; new
  * workspaces auto-pick an unused color). Right-clicking a workspace header
- * opens its context menu (new file/folder + color swatches); folder rows add
- * "Rename" to that menu, file rows get a "Rename"-only menu (inline input in
- * the row; extension preserved). Workspace roots aren't renamable — their
- * path anchors the settings entry. Removing a workspace only forgets it —
- * files are never touched.
+ * opens its context menu (new file/folder + color swatches, plus "Remove
+ * workspace" for added workspaces); folder rows add "Rename" to that menu,
+ * file rows get a "Rename"-only menu (inline input in the row; extension
+ * preserved). Workspace roots aren't renamable — their path anchors the
+ * settings entry. Removing a workspace only forgets it — files are never
+ * touched.
  *
  * Getting files IN:
  * - Paste (Ctrl+V with focus in the drawer): clipboard images/files are
@@ -440,13 +441,15 @@ export function FileExplorer() {
   /**
    * The right-click menu for a directory: "New file"/"New folder" always;
    * "Rename" for subfolders (`renameTarget` given); the workspace color
-   * swatches only at workspace level (`wsColor` given = a workspace).
+   * swatches only at workspace level (`wsColor` given = a workspace); a
+   * "Remove workspace" item for removable workspaces (`removableWs`).
    * Workspace roots aren't renamable here — their path anchors settings.
    */
   function renderContextMenu(
     dir: string,
     wsColor?: WorkspaceColor | null,
     renameTarget?: ExplorerEntry,
+    removableWs?: boolean,
   ): ReactNode {
     return menuShell(
       <>
@@ -501,6 +504,18 @@ export function FileExplorer() {
               />
             ))}
           </div>
+        )}
+        {removableWs && (
+          <button
+            className="context-menu-item is-danger"
+            role="menuitem"
+            onClick={() => {
+              setMenuFor(null);
+              removeWorkspace(dir);
+            }}
+          >
+            Remove workspace
+          </button>
         )}
       </>,
     );
@@ -661,7 +676,7 @@ export function FileExplorer() {
                 <div className="workspace-header">
                   <button
                     className={rowClass('workspace-toggle', ws.path)}
-                    title={`${ws.path}\nRight-click: new file, workspace color`}
+                    title={`${ws.path}\nRight-click: new file, workspace color${ws.removable ? ', remove' : ''}`}
                     aria-expanded={!isCollapsed}
                     onClick={(e) => {
                       // Alt+click also opens the context menu; a plain click
@@ -683,17 +698,8 @@ export function FileExplorer() {
                     <span className="workspace-caret">{isCollapsed ? '▸' : '▾'}</span>
                     <span className="workspace-name">{ws.name}</span>
                   </button>
-                  {ws.removable && (
-                    <button
-                      className="workspace-remove"
-                      aria-label={`Remove workspace ${ws.name}`}
-                      title="Remove workspace (files are kept)"
-                      onClick={() => removeWorkspace(ws.path)}
-                    >
-                      ×
-                    </button>
-                  )}
-                  {menuFor === ws.path && renderContextMenu(ws.path, ws.color)}
+                  {menuFor === ws.path &&
+                    renderContextMenu(ws.path, ws.color, undefined, ws.removable)}
                 </div>
                 {!isCollapsed && renderDir(ws.path, 0)}
               </div>

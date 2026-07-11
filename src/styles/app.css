@@ -124,7 +124,8 @@
   color: var(--fg);
 }
 
-/* "Close all tabs" — sits beside the new-tab button; same footprint. */
+/* "Close all tabs" — right-justified past the spacer, before the window
+   controls; same footprint as the new-tab button. */
 .tab-close-all {
   flex: 0 0 auto;
   width: 30px;
@@ -602,28 +603,6 @@
 .color-swatch[data-active] {
   outline: 1px solid var(--fg-muted);
   outline-offset: 2px;
-}
-
-/* Remove button only materializes on hover so resting state stays quiet. */
-.workspace-remove {
-  visibility: hidden;
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 8px 0 4px;
-}
-
-.workspace-header:hover .workspace-remove,
-.workspace-remove:focus-visible {
-  visibility: visible;
-}
-
-.workspace-remove:hover {
-  color: var(--fg);
 }
 
 .workspace-toggle {

@@ -399,14 +399,6 @@ export function TabBar() {
       >
         +
       </button>
-      <button
-        className="tab-close-all"
-        aria-label="Close all tabs"
-        title="Close all tabs"
-        onClick={() => closeAllTabs()}
-      >
-        ⊗
-      </button>
       {hidden.length > 0 && (
         <button
           className="tab-overflow"
@@ -423,6 +415,14 @@ export function TabBar() {
         </button>
       )}
       <div className="tabbar-spacer" data-tauri-drag-region="" />
+      <button
+        className="tab-close-all"
+        aria-label="Close all tabs"
+        title="Close all tabs"
+        onClick={() => closeAllTabs()}
+      >
+        ⊗
+      </button>
       {!IS_MAC && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {overflowAnchor && hidden.length > 0 && (
