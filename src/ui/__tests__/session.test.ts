@@ -1706,6 +1706,117 @@ describe('multi-window tear-off (M8)', () => {
 
     expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(false);
   });
+
+  const tornManifest = {
+    schema: 1 as const,
+    activeTabId: 'tab1',
+    tabs: [
+      {
+        id: 'tab1',
+        kind: 'note' as const,
+        notePath: `${NOTES}/torn.md`,
+        filePath: null,
+        customTitle: null,
+        mode: 'raw' as const,
+        savedMtimeMs: null,
+        hasBuffer: false,
+        cursor: null,
+      },
+    ],
+  };
+
+  const mainsManifest = (notePath: string) => ({
+    schema: 1 as const,
+    activeTabId: 'm1',
+    tabs: [
+      {
+        id: 'm1',
+        kind: 'note' as const,
+        notePath,
+        filePath: null,
+        customTitle: null,
+        mode: 'raw' as const,
+        savedMtimeMs: null,
+        hasBuffer: false,
+        cursor: null,
+      },
+    ],
+  });
+
+  test('bequeathTabsToMain folds a last-standing window’s tabs into session.json', async () => {
+    const fs = makeFakeFs({
+      [`${NOTES}/torn.md`]: '# Torn',
+      [`${NOTES}/mains.md`]: 'main note',
+      [`${SESSION}/session.json`]: JSON.stringify(mainsManifest(`${NOTES}/mains.md`)),
+    });
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+      initialManifest: tornManifest,
+    });
+    await controller.restore();
+    await controller.flushNow();
+
+    const out = await controller.exportTabsForHandoff();
+    await controller.bequeathTabsToMain(out);
+
+    // Our manifest is gone — this window will NOT resurrect next launch …
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(false);
+    // … and session.json now holds main's tabs plus ours, focused on ours.
+    const merged = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      activeTabId: string;
+      tabs: Array<{ id: string }>;
+    };
+    expect(merged.tabs.map((t) => t.id)).toEqual(['m1', 'tab1']);
+    expect(merged.activeTabId).toBe('tab1');
+  });
+
+  test('bequeathTabsToMain with no session.json makes these tabs the whole session', async () => {
+    const fs = makeFakeFs({ [`${NOTES}/torn.md`]: '# Torn' });
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+      initialManifest: tornManifest,
+    });
+    await controller.restore();
+    await controller.flushNow();
+
+    await controller.bequeathTabsToMain(await controller.exportTabsForHandoff());
+
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(false);
+    const merged = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      activeTabId: string;
+      tabs: Array<{ id: string }>;
+    };
+    expect(merged.tabs.map((t) => t.id)).toEqual(['tab1']);
+    expect(merged.activeTabId).toBe('tab1');
+  });
+
+  test('bequeathTabsToMain skips a file session.json already owns', async () => {
+    const fs = makeFakeFs({
+      [`${NOTES}/torn.md`]: '# Torn',
+      // Main's manifest already claims the very note this window holds.
+      [`${SESSION}/session.json`]: JSON.stringify(mainsManifest(`${NOTES}/torn.md`)),
+    });
+    const controller = makeController(fs, () => 111, {
+      isMain: false,
+      manifestName: 'session-w-abc.json',
+      initialManifest: tornManifest,
+    });
+    await controller.restore();
+    await controller.flushNow();
+
+    await controller.bequeathTabsToMain(await controller.exportTabsForHandoff());
+
+    expect(fs.files.has(`${SESSION}/session-w-abc.json`)).toBe(false);
+    const merged = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      activeTabId: string;
+      tabs: Array<{ id: string }>;
+    };
+    // One owner per file: the duplicate was dropped, main's focus preserved.
+    expect(merged.tabs.map((t) => t.id)).toEqual(['m1']);
+    expect(merged.activeTabId).toBe('m1');
+  });
 });
 
 describe('closeAllTabsInteractive', () => {

@@ -174,6 +174,8 @@ export interface SessionController {
   exportTabsForHandoff(): Promise<PersistedTab[]>;
   /** M8: delete this window's manifest file (after a successful handoff). */
   discardManifest(): Promise<void>;
+  /** M8: last window standing — fold `tabs` into main's manifest, drop ours. */
+  bequeathTabsToMain(tabs: PersistedTab[]): Promise<void>;
 }
 
 /**
@@ -2024,6 +2026,50 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       .map(persistedDescriptor);
   }
 
+  /**
+   * Last-window-standing close (secondary windows): fold this window's tabs
+   * into MAIN's manifest and delete our own, so the next launch opens a
+   * single main window holding everything instead of resurrecting this
+   * window alongside it. Manifest-file surgery rather than an adopt event —
+   * there is no window left alive to adopt the tabs.
+   *
+   * Our manifest is deleted BEFORE session.json is written (same order as
+   * moveTabOut): a crash in between leaves the tabs in neither manifest —
+   * their note files / buffers are safely on disk — never in both, which
+   * would restore duplicate owners of the same file.
+   */
+  async function bequeathTabsToMain(tabs: PersistedTab[]): Promise<void> {
+    const mainManifestPath = joinPath(sessionDir, 'session.json');
+    // Missing/corrupt session.json → null: these tabs become the whole session.
+    const main: SessionManifest | null = await ipc
+      .readTextFile(mainManifestPath)
+      .then((r) => parseManifest(r.text))
+      .catch(() => null);
+    // One-owner-per-file across manifests, mirroring adoptTabs.
+    const taken = new Set(
+      (main?.tabs ?? [])
+        .map((t) => t.filePath ?? t.notePath)
+        .filter((p): p is string => p !== null)
+        .map(pathKey),
+    );
+    const fresh = tabs.filter((t) => {
+      const path = t.filePath ?? t.notePath;
+      return path === null || !taken.has(pathKey(path));
+    });
+    const activeTabId = tabsStore.getState().activeTabId;
+    const merged: SessionManifest = {
+      schema: 1,
+      // This window's active tab is what the user last touched; fall back to
+      // main's remembered one when dedupe dropped ours.
+      activeTabId: fresh.some((t) => t.id === activeTabId)
+        ? activeTabId
+        : (main?.activeTabId ?? fresh[0]?.id ?? null),
+      tabs: [...(main?.tabs ?? []), ...fresh],
+    };
+    await ipc.deletePath(manifestPath);
+    await ipc.atomicWriteText(mainManifestPath, JSON.stringify(merged, null, 2));
+  }
+
   interactiveCloser = (id) => void closeTabInteractive(id);
   closeAllTabsDispatch = () => void closeAllTabsInteractive();
   if (deps.spawnTabWindow) {
@@ -2112,5 +2158,6 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     adoptTabs: adoptPersistedTabs,
     exportTabsForHandoff,
     discardManifest: () => ipc.deletePath(manifestPath),
+    bequeathTabsToMain,
   };
 }

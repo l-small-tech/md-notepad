@@ -38,12 +38,19 @@ pub fn run() {
         // single-instance must be the FIRST plugin registered (its docs) so it
         // can bail out before any other plugin does work in a doomed instance.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
+            // Windows close independently, so "main" may be gone while the app
+            // still runs — fall back to any surviving window. Target the event
+            // at that one window only (every window listens on its own label),
+            // so the files open exactly once.
+            let target = app
+                .get_webview_window("main")
+                .or_else(|| app.webview_windows().into_values().next());
+            if let Some(window) = target {
                 let _ = window.set_focus();
-            }
-            let files = file_args(&args);
-            if !files.is_empty() {
-                let _ = app.emit("open-files", files);
+                let files = file_args(&args);
+                if !files.is_empty() {
+                    let _ = app.emit_to(window.label(), "open-files", files);
+                }
             }
         }))
         // Restore only geometry. The default flags also restore DECORATIONS /

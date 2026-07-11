@@ -431,39 +431,42 @@ async function boot(): Promise<void> {
 
   createRoot(document.getElementById('root')!).render(<App />);
 
-  // File-opening entry points target the main window only: first-launch CLI
-  // args sit in managed state (see src-tauri/src/lib.rs), and the
-  // single-instance plugin focuses main and emits second-instance argv to it.
+  // First-launch CLI args sit in managed state until the frontend drains
+  // them; only the main window exists at that point (see src-tauri/src/lib.rs).
   if (IS_MAIN_WINDOW) {
     void ipc
       .drainStartupFiles()
       .then((files) => (files.length > 0 ? controller.openPaths(files) : undefined))
       .catch(() => {});
-
-    void listen<string[]>('open-files', (event) => {
-      void controller.openPaths(event.payload);
-    }).catch(() => {});
-
-    // A closing torn-off window hands its tabs back here (no data loss, no
-    // zombie window at next boot). Ack it so the sender can delete its
-    // manifest; without the ack it keeps the manifest and gets restored.
-    void listen<{ tabs: PersistedTab[]; from: string }>('adopt-tabs', (event) => {
-      void controller.adoptTabs(event.payload.tabs).then(() => {
-        void emit(`adopt-ack-${event.payload.from}`).catch(() => {});
-      });
-      void appWindow.setFocus().catch(() => {});
-    }).catch(() => {});
-  } else {
-    // The main window is quitting the app: flush, then close (the manifest
-    // stays, so this window — tabs, geometry — returns at next launch).
-    void listen('main-closing', () => {
-      void (async () => {
-        await Promise.race([controller.flushNow(), delay(2000)]);
-        await controller.dispose().catch(() => {});
-        void appWindow.destroy();
-      })();
-    }).catch(() => {});
   }
+
+  // Second-instance argv (user opens a .md while the app runs). Windows close
+  // independently, so main may be gone by then — the Rust single-instance
+  // callback targets exactly one surviving window (main preferred); every
+  // window listens, scoped to its own label.
+  void appWindow
+    .listen<string[]>('open-files', (event) => {
+      void controller.openPaths(event.payload);
+    })
+    .catch(() => {});
+
+  // A closing window hands its tabs to a surviving one (no data loss, no
+  // zombie window at next boot). Any window can adopt — the sender picks a
+  // single target (main preferred) and emits to that label only. Flush before
+  // acking so the adopted tabs are on disk before the sender deletes its
+  // manifest; without the ack the sender keeps its manifest and that window
+  // gets restored next launch instead.
+  void appWindow
+    .listen<{ tabs: PersistedTab[]; from: string }>('adopt-tabs', (event) => {
+      void controller
+        .adoptTabs(event.payload.tabs)
+        .then(() => controller.flushNow())
+        .then(() => {
+          void emit(`adopt-ack-${event.payload.from}`).catch(() => {});
+        });
+      void appWindow.setFocus().catch(() => {});
+    })
+    .catch(() => {});
 
   // Any window may ask everyone to flush (update-restart does).
   void listen('flush-all', () => {
@@ -546,36 +549,24 @@ async function boot(): Promise<void> {
   }
 
   /**
-   * Closing the MAIN window quits the app: broadcast so torn-off windows
-   * flush + close themselves (their manifests survive — the whole window
-   * layout returns next launch), give them a moment, then sweep stragglers.
+   * Closing a TORN-OFF window hands its tabs to a surviving window — main
+   * when it's alive, else any other window (nothing is lost, and no surprise
+   * window resurrects next boot). The manifest is deleted only after the
+   * target acknowledges the adoption; if it never answers (quitting, hung),
+   * the manifest stays and the window returns next launch. When this is the
+   * LAST window standing there is no one to hand to: fold the tabs into
+   * main's manifest instead, so relaunch opens one window with everything.
    */
-  async function closeSecondaryWindows(): Promise<void> {
-    let others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
-    if (others.length === 0) {
-      return;
-    }
-    void emit('main-closing').catch(() => {});
-    const deadline = Date.now() + 2000;
-    while (others.length > 0 && Date.now() < deadline) {
-      await delay(100);
-      others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
-    }
-    for (const w of others) {
-      void w.destroy().catch(() => {});
-    }
-  }
-
-  /**
-   * Closing a TORN-OFF window hands its tabs back to the main window (nothing
-   * is lost, and no surprise window resurrects next boot). The manifest is
-   * deleted only after main acknowledges the adoption; if main never answers
-   * (quitting, hung), the manifest stays and the window returns next launch.
-   */
-  async function handTabsBackToMain(): Promise<void> {
+  async function handTabsToSurvivor(): Promise<void> {
     const tabs = await controller.exportTabsForHandoff(); // flushes first
     if (tabs.length === 0) {
       await controller.discardManifest().catch(() => {});
+      return;
+    }
+    const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+    const target = others.find((w) => w.label === 'main') ?? others[0];
+    if (!target) {
+      await controller.bequeathTabsToMain(tabs).catch(() => {});
       return;
     }
     const acked = await new Promise<boolean>((resolve) => {
@@ -591,7 +582,7 @@ async function boot(): Promise<void> {
       })
         .then((un) => {
           unlisten = un;
-          void emitTo('main', 'adopt-tabs', { tabs, from: WINDOW_LABEL }).catch(() => {});
+          void emitTo(target.label, 'adopt-tabs', { tabs, from: WINDOW_LABEL }).catch(() => {});
         })
         .catch(() => {
           clearTimeout(timer);
@@ -603,20 +594,19 @@ async function boot(): Promise<void> {
     }
   }
 
-  // Close path: never prompt. Flush what's pending, then destroy.
+  // Close path: never prompt. Windows close independently — the app exits
+  // when the last one is destroyed. Flush what's pending, then destroy.
   void appWindow
     .onCloseRequested(async (event) => {
       event.preventDefault();
       try {
         if (IS_MAIN_WINDOW) {
-          // Own flush and the secondaries' flushes run in parallel; both are
-          // bounded so a pathological write (disk full) can't hang close.
-          await Promise.race([
-            Promise.all([controller.flushNow(), closeSecondaryWindows()]),
-            delay(4000),
-          ]);
+          // Main keeps its manifest (session.json), so its tabs — and any
+          // still-open secondaries, via theirs — return at next launch.
+          // Bounded so a pathological write (disk full) can't hang close.
+          await Promise.race([controller.flushNow(), delay(4000)]);
         } else {
-          await Promise.race([handTabsBackToMain(), delay(4000)]);
+          await Promise.race([handTabsToSurvivor(), delay(4000)]);
         }
       } finally {
         await controller.dispose().catch(() => {});
