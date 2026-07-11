@@ -1,6 +1,6 @@
 [package]
 name = "md-notepad"
-version = "0.2.0"
+version = "0.3.0"
 description = "A minimal, fast, cross-platform markdown notepad with Notepad-style ephemeral tabs."
 license = "GPL-3.0-only"
 edition = "2021"
