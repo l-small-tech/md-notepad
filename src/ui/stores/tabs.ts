@@ -56,6 +56,20 @@ export interface TabEntry extends TabState {
   dirty: boolean;
   /** kind='file' only: the file changed on disk since savedMtimeMs (M3 ConflictBanner). */
   conflict: boolean;
+  /**
+   * VSCode-style preview tab: opened by a single explorer click, shown in
+   * italic, and reused (replaced) when another file is previewed. Cleared —
+   * promoted to a permanent tab — on the first user edit, an explorer
+   * double-click, or "Keep open". Never persisted (restore yields permanent
+   * tabs); a session-only display flag like `title`/`dirty`.
+   */
+  preview: boolean;
+  /**
+   * The file lives in a read-only workspace (the bundled docs): the mode is
+   * pinned to 'read' and save/rename are refused. Not persisted — recomputed
+   * from the file's path against settings at open/restore time (session.ts).
+   */
+  readOnly: boolean;
 }
 
 /** Everything needed to rebuild one tab at restore time (content already read). */
@@ -74,6 +88,8 @@ export interface RestoredTabInit {
    * this, so the caller (session.ts) says so explicitly. Default false.
    */
   dirty?: boolean;
+  /** The file lies in a read-only workspace (see TabEntry.readOnly). Default false. */
+  readOnly?: boolean;
 }
 
 /** What the session controller applies back after a flush completes. */
@@ -115,8 +131,27 @@ export interface TabsState {
   /** Apply the outcome of a completed flush. Never re-requests a flush. */
   applyFlushResult: (patch: FlushResultPatch) => void;
 
-  /** M3 — Ctrl+O: append a new file tab from already-read disk content. Returns its id. */
-  openFileTab: (input: { filePath: string; text: string; savedMtimeMs: number }) => string;
+  /**
+   * M3 — Ctrl+O: append a new file tab from already-read disk content. Returns
+   * its id. When `preview` is set, it opens as a preview tab (reusing/replacing
+   * any current preview tab) instead of appending a persistent one.
+   */
+  openFileTab: (input: {
+    filePath: string;
+    text: string;
+    savedMtimeMs: number;
+    preview?: boolean;
+    readOnly?: boolean;
+  }) => string;
+  /** Image viewer tab — read-only, never flushed beyond the manifest. Returns its id. */
+  openImageTab: (input: {
+    filePath: string;
+    savedMtimeMs: number | null;
+    preview?: boolean;
+    readOnly?: boolean;
+  }) => string;
+  /** Promote a preview tab to a permanent one (idempotent; no-op otherwise). */
+  promoteTab: (id: string) => void;
   /**
    * M3 — Save (existing file tab, same path): the model text was just written
    * to `filePath` at `mtimeMs`. Clears the dirty dot and any conflict banner,
@@ -162,7 +197,7 @@ export function tabDisplayTitle(tab: {
   title: string;
   charCount: number;
 }): string {
-  if (tab.kind === 'file' && tab.filePath) {
+  if ((tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
     return stripExtension(baseName(tab.filePath));
   }
   if (!tab.customTitle && tab.charCount === 0) {
@@ -199,7 +234,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       notePath: init?.notePath ?? null,
       filePath: init?.filePath ?? null,
       customTitle,
-      mode: init?.mode ?? settingsStore.getState().settings.defaultMode,
+      // A read-only tab is pinned to read mode regardless of what the
+      // manifest recorded (the flag itself is recomputed by the caller).
+      mode: init?.readOnly ? 'read' : (init?.mode ?? settingsStore.getState().settings.defaultMode),
       savedMtimeMs: init?.savedMtimeMs ?? null,
       model,
       modeSync: null,
@@ -208,6 +245,8 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       charCount: text.length,
       dirty: init?.dirty ?? false,
       conflict: false,
+      preview: false,
+      readOnly: init?.readOnly ?? false,
     };
 
     model.subscribe((change) => {
@@ -224,22 +263,60 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const charCount = change.text.length;
       // file tabs only: the TabBar dirty dot. Note tabs have no save concept.
       const dirty = tab.kind === 'file' && tab.model.isDirty('file');
+      // A genuine user edit (from an editor, not a programmatic/file-load push)
+      // promotes a preview tab to a permanent one — VSCode behavior.
+      const preview =
+        tab.preview && (change.source === 'cm6' || change.source === 'milkdown')
+          ? false
+          : tab.preview;
       if (
         title === tab.title &&
         wordCount === tab.wordCount &&
         charCount === tab.charCount &&
-        dirty === tab.dirty
+        dirty === tab.dirty &&
+        preview === tab.preview
       ) {
         return;
       }
       set({
         tabs: state.tabs.map((t) =>
-          t.id === id ? { ...t, title, wordCount, charCount, dirty } : t,
+          t.id === id ? { ...t, title, wordCount, charCount, dirty, preview } : t,
         ),
       });
     });
 
     return entry;
+  }
+
+  /**
+   * Insert a freshly built tab and activate it. A `preview` tab REPLACES the
+   * current preview tab (if any) in place — reusing the single preview slot and
+   * its position, VSCode-style — recording the displaced tab's tombstones the
+   * same way `closeTab` does (a note's file is discarded, a file's buffer goes
+   * stale). Any other open is a plain append.
+   */
+  function addTab(tab: TabEntry, preview: boolean): void {
+    set((s) => {
+      const idx = preview ? s.tabs.findIndex((t) => t.preview) : -1;
+      if (idx < 0) {
+        return { tabs: [...s.tabs, tab], activeTabId: tab.id };
+      }
+      const displaced = s.tabs[idx]!;
+      const tabs = [...s.tabs];
+      tabs[idx] = tab;
+      return {
+        tabs,
+        activeTabId: tab.id,
+        closedNotePaths:
+          displaced.kind === 'note' && displaced.notePath
+            ? [...s.closedNotePaths, displaced.notePath]
+            : s.closedNotePaths,
+        obsoleteBufferTabIds:
+          displaced.kind === 'file'
+            ? [...s.obsoleteBufferTabIds, displaced.id]
+            : s.obsoleteBufferTabIds,
+      };
+    });
   }
 
   const first = makeTab();
@@ -264,7 +341,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       const closing = s.tabs[idx]!;
-      // Deliberate Notepad semantics (plan.md decision log): closing a note
+      // Deliberate Notepad semantics: closing a note
       // tab DISCARDS its file; closing a file tab makes its session buffer
       // stale. Both are recorded here and swept by the next flush.
       const closedNotePaths =
@@ -371,7 +448,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     setMode(id, mode) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || tab.mode === mode) {
+      // Read-only tabs are pinned to read mode (the status bar shows a
+      // "Read-only" badge instead of the mode segments).
+      if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
       set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)) });
@@ -420,22 +499,56 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }));
     },
 
-    openFileTab({ filePath, text, savedMtimeMs }) {
+    openFileTab({ filePath, text, savedMtimeMs, preview = false, readOnly = false }) {
       // Content already came straight from disk (session.ts's openPaths) — the
       // model's clean-by-construction snapshot is exactly right here.
-      const tab = makeTab({
-        id: nanoid(),
-        kind: 'file',
-        notePath: null,
-        filePath,
-        customTitle: null,
-        mode: settingsStore.getState().settings.defaultMode,
-        savedMtimeMs,
-        text,
-      });
-      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+      const tab: TabEntry = {
+        ...makeTab({
+          id: nanoid(),
+          kind: 'file',
+          notePath: null,
+          filePath,
+          customTitle: null,
+          mode: settingsStore.getState().settings.defaultMode,
+          savedMtimeMs,
+          text,
+          readOnly,
+        }),
+        preview,
+      };
+      addTab(tab, preview);
       requestFlush();
       return tab.id;
+    },
+
+    openImageTab({ filePath, savedMtimeMs, preview = false, readOnly = false }) {
+      const tab: TabEntry = {
+        ...makeTab({
+          id: nanoid(),
+          kind: 'image',
+          notePath: null,
+          filePath,
+          customTitle: null,
+          // Semantically closest mode (read-only viewer); no editor is created.
+          mode: 'read',
+          savedMtimeMs,
+          text: '',
+          readOnly,
+        }),
+        preview,
+      };
+      addTab(tab, preview);
+      requestFlush();
+      return tab.id;
+    },
+
+    promoteTab(id) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === id);
+      if (!tab || !tab.preview) {
+        return;
+      }
+      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, preview: false } : t)) });
     },
 
     markSaved(id, mtimeMs) {
@@ -468,7 +581,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }
       // Save-As on a note tab converts it to a file tab; the note file is
       // queued for deletion the same way a closed note tab's file is (the
-      // note graduated — one source of truth per document, plan.md §9).
+      // note graduated — one source of truth per document).
       const closedNotePaths =
         tab.kind === 'note' && tab.notePath
           ? [...s.closedNotePaths, tab.notePath]
@@ -500,7 +613,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     retargetFilePath(id, { filePath, mtimeMs }) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || tab.kind !== 'file') {
+      if (!tab || (tab.kind !== 'file' && tab.kind !== 'image')) {
         return;
       }
       set({

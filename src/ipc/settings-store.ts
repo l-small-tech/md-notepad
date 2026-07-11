@@ -3,7 +3,7 @@
  * commands.ts owning `invoke`): settings persist to `settings.json` in the app
  * data dir via the store plugin. Session data deliberately does NOT use this —
  * it needs the explicit write ordering (I4) the store plugin can't promise
- * (plan.md §9 decision log); this is for user preferences only.
+ * (a deliberate design decision); this is for user preferences only.
  *
  * Reads return raw `unknown`; `normalizeSettings` (core) is the single choke
  * point that turns anything — missing file, hand-edited garbage, older schema —

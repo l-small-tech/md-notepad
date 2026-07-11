@@ -26,6 +26,7 @@ import { tags } from '@lezer/highlight';
 import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
+import { imageFilesFromDataTransfer, readImageFile } from './image-paste';
 
 export interface Cm6Options {
   /**
@@ -38,6 +39,16 @@ export interface Cm6Options {
   wordWrap?: boolean;
   /** Caret to restore on attach (from the persisted session). Clamped to length. */
   initialSelection?: CursorPos;
+  /**
+   * Save a pasted image and return how to reference it (alt + src), or null on
+   * failure. When set, a paste carrying image files is intercepted and the
+   * reference inserted at the caret instead of the raw bytes.
+   */
+  saveImage?: (data: {
+    base64: string;
+    ext: string;
+    name: string | null;
+  }) => Promise<{ alt: string; src: string } | null>;
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -351,6 +362,31 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     });
   }
 
+  // Intercept a paste that carries image files: save each via options.saveImage
+  // and insert the returned reference at the caret. A paste with no image files
+  // (or no saveImage wired) falls through to CM6's normal text paste.
+  const imagePasteHandler = EditorView.domEventHandlers({
+    paste(event, view) {
+      if (!options.saveImage) {
+        return false;
+      }
+      const files = imageFilesFromDataTransfer(event.clipboardData);
+      if (files.length === 0) {
+        return false;
+      }
+      event.preventDefault();
+      void (async () => {
+        for (const file of files) {
+          const ref = await options.saveImage!(await readImageFile(file));
+          if (ref) {
+            insertReference(view, ref.alt, ref.src, true);
+          }
+        }
+      })();
+      return true;
+    },
+  });
+
   function attach(host: HTMLElement, model: DocModel): void {
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged && !applyingExternal) {
@@ -385,6 +421,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         markdown({ base: markdownLanguage }),
         search({ top: true }),
+        imagePasteHandler,
         themeCompartment.of([baseTheme, syntaxHighlighting(highlightStyle)]),
         // Font size defaults to the CSS variable so M1 needs no wiring; M6's
         // setFontSize reconfigures this compartment to an explicit px value.

@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { normalizeSettings, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_SETTINGS } from './core/settings';
@@ -14,8 +15,10 @@ import { App } from './ui/App';
 import { settingsStore } from './ui/stores/settings';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
+  appendImagesToMd,
   closeTab,
   createSessionController,
+  importFilesInto,
   openFile,
   saveActiveTab,
   saveActiveTabAs,
@@ -27,9 +30,11 @@ import {
   type SaveFileDialog,
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
+import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
-import { resolvePaths } from './ipc/paths';
+import { resolveDocsDir, resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
+import { cycleReaderView, initReaderFullscreen, stepBackReaderView } from './ui/reader-fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
@@ -45,11 +50,13 @@ const IMAGE_FILTERS = [
 /* ---- Settings → DOM (theme, ligatures, editor font size) ---------------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize } = settingsStore.getState().settings;
+  const { ligatures, fontSize, readerMargins } = settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
+  // Read-mode margins — preview.css maps each value to a responsive gutter.
+  root.dataset.readerMargins = readerMargins;
 }
 
 applyDomSettings();
@@ -217,6 +224,11 @@ function dispatchShortcut(action: ShortcutAction): void {
     case 'font-reset':
       settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
       break;
+    case 'toggle-fullscreen':
+      // Advances the read-mode view one stage (window → screen → normal).
+      // Only READ mode enters; the cycle no-ops in edit modes.
+      cycleReaderView();
+      break;
   }
 }
 
@@ -226,6 +238,14 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && uiStore.getState().settingsOpen) {
     event.preventDefault();
     uiStore.getState().closeSettings();
+    return;
+  }
+  // Escape steps the reader view back one stage (screen → window → normal;
+  // checked after the settings modal so a dialog opened while fullscreen
+  // closes first).
+  if (event.key === 'Escape' && uiStore.getState().readerView !== 'normal') {
+    event.preventDefault();
+    stepBackReaderView();
     return;
   }
   const action = keyEventToAction(event, platform);
@@ -257,6 +277,7 @@ async function boot(): Promise<void> {
   // close handler (used by the keyboard dispatcher and TabBar via ./ui/session).
   const controller = createSessionController({
     paths,
+    docsDir: await resolveDocsDir(),
     confirm: confirmDialog,
     openDialog: openFilesDialog,
     saveDialog: saveFileDialog,
@@ -271,6 +292,8 @@ async function boot(): Promise<void> {
 
   applyWindowTitle();
   tabsStore.subscribe(applyWindowTitle);
+  // Auto-exit reader full screen when the active tab leaves read mode.
+  initReaderFullscreen();
 
   createRoot(document.getElementById('root')!).render(<App />);
 
@@ -287,9 +310,51 @@ async function boot(): Promise<void> {
     void controller.openPaths(event.payload);
   }).catch(() => {});
 
+  // OS drag-drop into the explorer. Tauri intercepts file drags (HTML5 drop
+  // never fires), so hit-test its physical cursor position against the
+  // explorer's data-drop-dir attributes: hovering highlights the target
+  // workspace/folder, dropping copies the md/image files into it.
+  const elementAt = (position: { x: number; y: number }): Element | null => {
+    const scale = window.devicePixelRatio || 1;
+    return document.elementFromPoint(position.x / scale, position.y / scale);
+  };
+  const dropDirAt = (position: { x: number; y: number }): string | null =>
+    elementAt(position)?.closest('[data-drop-dir]')?.getAttribute('data-drop-dir') ?? null;
+  // An md file row also advertises itself as a drop target (data-drop-file):
+  // dropping images onto it embeds them at the end of that file instead of
+  // copying them into the folder.
+  const dropFileAt = (position: { x: number; y: number }): string | null =>
+    elementAt(position)?.closest('[data-drop-file]')?.getAttribute('data-drop-file') ?? null;
+  void getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === 'over') {
+        // Highlight the md file under the cursor when there is one, else the
+        // workspace/folder — same single dropTargetDir drives both highlights.
+        uiStore
+          .getState()
+          .setDropTarget(dropFileAt(payload.position) ?? dropDirAt(payload.position));
+      } else if (payload.type === 'drop') {
+        const file = dropFileAt(payload.position);
+        const dir = dropDirAt(payload.position);
+        uiStore.getState().setDropTarget(null);
+        if (file && payload.paths.some(isImagePath)) {
+          void appendImagesToMd(file, payload.paths);
+        } else if (dir) {
+          void importFilesInto(dir, payload.paths);
+        } else {
+          // Not over the explorer (e.g. the editor area): open as tabs.
+          void controller.openPaths(payload.paths);
+        }
+      } else {
+        uiStore.getState().setDropTarget(null);
+      }
+    })
+    .catch(() => {});
+
   // Flush on blur so a crash after tabbing away still keeps the latest text;
   // re-check open file tabs for external changes when the window regains
-  // focus (plan.md M3 — "on window focus and before every save").
+  // focus ("on window focus and before every save").
   void appWindow
     .onFocusChanged(({ payload: focused }) => {
       if (focused) {
@@ -306,7 +371,7 @@ async function boot(): Promise<void> {
   setBeforeRestart(() => controller.flushNow());
   setTimeout(() => void checkForUpdate({ manual: false }), 3000);
 
-  // Close path: never prompt (plan.md M2). Flush what's pending, then destroy.
+  // Close path: never prompt. Flush what's pending, then destroy.
   void appWindow
     .onCloseRequested(async (event) => {
       event.preventDefault();

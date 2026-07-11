@@ -1,7 +1,7 @@
 # src/ — Frontend architecture
 
-Read [plan.md](../plan.md) first. This README owns the rules that apply to
-ALL frontend code; each subdirectory README owns its own contracts.
+This README owns the rules that apply to ALL frontend code; each
+subdirectory README owns its own contracts.
 
 ## Layering (invariant I9 — lint-enforced)
 

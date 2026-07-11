@@ -295,6 +295,96 @@ describe('saveToPath (M3)', () => {
   });
 });
 
+describe('preview tabs', () => {
+  test('opens an italic preview tab, active', () => {
+    const id = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    const tab = state().tabs.find((t) => t.id === id)!;
+    expect(tab.preview).toBe(true);
+    expect(state().activeTabId).toBe(id);
+  });
+
+  test('previewing another file REPLACES the preview tab in place', () => {
+    const first = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    const before = state().tabs.length;
+    const second = state().openFileTab({
+      filePath: '/docs/b.md',
+      text: 'b',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    // Same tab count (reused slot); the first preview tab is gone.
+    expect(state().tabs).toHaveLength(before);
+    expect(state().tabs.some((t) => t.id === first)).toBe(false);
+    const tab = state().tabs.find((t) => t.id === second)!;
+    expect(tab.filePath).toBe('/docs/b.md');
+    expect(tab.preview).toBe(true);
+    // The displaced clean file tab's (nonexistent) buffer is queued for cleanup.
+    expect(state().obsoleteBufferTabIds).toContain(first);
+  });
+
+  test('a permanent (non-preview) open leaves an existing preview tab untouched', () => {
+    const preview = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    state().openFileTab({ filePath: '/docs/b.md', text: 'b', savedMtimeMs: 1 });
+    // Both exist; the preview tab is still there and still preview.
+    expect(state().tabs.some((t) => t.id === preview && t.preview)).toBe(true);
+  });
+
+  test('a user edit promotes a preview tab to permanent', () => {
+    const id = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    state()
+      .tabs.find((t) => t.id === id)!
+      .model.pushText('a edited', 'cm6');
+    expect(state().tabs.find((t) => t.id === id)!.preview).toBe(false);
+  });
+
+  test('a programmatic push (file reload) does NOT promote a preview tab', () => {
+    const id = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    state()
+      .tabs.find((t) => t.id === id)!
+      .model.pushText('reloaded', 'file-load');
+    expect(state().tabs.find((t) => t.id === id)!.preview).toBe(true);
+  });
+
+  test('promoteTab pins a preview tab and is a no-op afterwards', () => {
+    const id = state().openFileTab({
+      filePath: '/docs/a.md',
+      text: 'a',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    state().promoteTab(id);
+    expect(state().tabs.find((t) => t.id === id)!.preview).toBe(false);
+    // Idempotent.
+    expect(() => state().promoteTab(id)).not.toThrow();
+    expect(state().tabs.find((t) => t.id === id)!.preview).toBe(false);
+  });
+});
+
 describe('conflict flags (M3)', () => {
   test('setConflict toggles the per-tab ConflictBanner flag', () => {
     const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });

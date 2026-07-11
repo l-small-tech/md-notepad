@@ -1,8 +1,8 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-// Single source of truth for the version shown in Settings (plan.md §7 keeps
-// package.json, tauri.conf.json and Cargo.toml in agreement).
+// Single source of truth for the version shown in Settings (releasing keeps
+// package.json, tauri.conf.json and Cargo.toml in agreement — README §Releasing).
 import { version } from './package.json';
 
 export default defineConfig({

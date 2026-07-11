@@ -3,7 +3,7 @@
  *
  * Pins the TS half of the IPC error contract using the official Tauri mock
  * (`mockIPC`). This is the pattern for testing anything that calls `ipc.*`
- * without a running Tauri app — see plan.md §Testing.
+ * without a running Tauri app.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, describe, expect, test } from 'vitest';

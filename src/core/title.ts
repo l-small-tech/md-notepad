@@ -51,6 +51,21 @@ export function stripExtension(basename: string): string {
   return match ? match[1]! : basename;
 }
 
+/**
+ * Drop a trailing extension from a user-typed name ONLY when it duplicates the
+ * `ext` we're about to re-append — so renaming a file to "notes.md" yields
+ * "notes.md", not "notes.md.md". Case-insensitive; `ext` includes the dot
+ * (".md"), and an empty `ext` (folders) is a no-op. Unlike {@link stripExtension}
+ * this removes just the one matching extension: typing "cheatsheet.md" for a
+ * ".txt" file keeps the ".md" as part of the base.
+ */
+export function dropTrailingExtension(name: string, ext: string): string {
+  if (ext && name.toLowerCase().endsWith(ext.toLowerCase())) {
+    return name.slice(0, name.length - ext.length);
+  }
+  return name;
+}
+
 /** Characters no mainstream filesystem allows in a file basename. */
 const ILLEGAL_FILENAME_CHARS = /[<>:"/\\|?*]/g;
 

@@ -5,10 +5,11 @@
  * hands back `unknown` JSON. `normalizeSettings` is the single choke point
  * that turns anything — missing file, older schema, hand-edited garbage —
  * into a valid `Settings`, field by field. There is deliberately no zod/
- * schema library: six fields don't justify a dependency.
+ * schema library: a handful of fields doesn't justify a dependency.
  */
 
-import type { Settings } from './types';
+import { WORKSPACE_COLORS } from './types';
+import type { Settings, WorkspaceColor, WorkspaceEntry } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
@@ -17,6 +18,14 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultMode: 'raw',
   wordWrap: true,
   ligatures: true,
+  readerMargins: 'normal',
+  confirmFileMove: true,
+  liveSave: false,
+  previewTabs: true,
+  workspaces: [],
+  defaultWorkspaceColor: null,
+  imagePasteLocation: 'subfolder',
+  imageFolderName: 'images',
 };
 
 export const MIN_FONT_SIZE = 8;
@@ -24,6 +33,56 @@ export const MAX_FONT_SIZE = 40;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeColor(raw: unknown): WorkspaceColor | null {
+  return (WORKSPACE_COLORS as readonly unknown[]).includes(raw) ? (raw as WorkspaceColor) : null;
+}
+
+/**
+ * Color for a newly added workspace: the least-used palette color, first-in-
+ * palette-order among ties — so fresh workspaces get distinct colors until
+ * the palette is exhausted, then it cycles fairly. (The user can still set
+ * any color, or none, by hand afterwards.)
+ */
+export function pickUnusedColor(used: readonly (WorkspaceColor | null)[]): WorkspaceColor {
+  const counts = new Map<WorkspaceColor, number>(WORKSPACE_COLORS.map((c) => [c, 0]));
+  for (const color of used) {
+    if (color !== null) {
+      counts.set(color, (counts.get(color) ?? 0) + 1);
+    }
+  }
+  let best: WorkspaceColor = WORKSPACE_COLORS[0];
+  for (const color of WORKSPACE_COLORS) {
+    if (counts.get(color)! < counts.get(best)!) {
+      best = color;
+    }
+  }
+  return best;
+}
+
+/** Keep only well-formed entries; malformed ones are dropped, not defaulted. */
+function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: WorkspaceEntry[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry) || typeof entry.path !== 'string' || entry.path.length === 0) {
+      continue;
+    }
+    const name =
+      typeof entry.name === 'string' && entry.name.trim().length > 0
+        ? entry.name.trim()
+        : entry.path;
+    out.push({
+      name,
+      path: entry.path,
+      color: normalizeColor(entry.color),
+      ...(entry.readOnly === true ? { readOnly: true } : {}),
+    });
+  }
+  return out;
 }
 
 /** Per-field validation; every invalid field falls back to its default. */
@@ -46,5 +105,26 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.defaultMode,
     wordWrap: typeof r.wordWrap === 'boolean' ? r.wordWrap : d.wordWrap,
     ligatures: typeof r.ligatures === 'boolean' ? r.ligatures : d.ligatures,
+    readerMargins:
+      r.readerMargins === 'narrow' || r.readerMargins === 'normal' || r.readerMargins === 'wide'
+        ? r.readerMargins
+        : d.readerMargins,
+    confirmFileMove: typeof r.confirmFileMove === 'boolean' ? r.confirmFileMove : d.confirmFileMove,
+    liveSave: typeof r.liveSave === 'boolean' ? r.liveSave : d.liveSave,
+    previewTabs: typeof r.previewTabs === 'boolean' ? r.previewTabs : d.previewTabs,
+    workspaces: normalizeWorkspaces(r.workspaces),
+    defaultWorkspaceColor: normalizeColor(r.defaultWorkspaceColor),
+    imagePasteLocation:
+      r.imagePasteLocation === 'subfolder' ||
+      r.imagePasteLocation === 'sameFolder' ||
+      r.imagePasteLocation === 'workspaceRoot'
+        ? r.imagePasteLocation
+        : d.imagePasteLocation,
+    // A blank or non-string folder name degrades to the default rather than
+    // producing a nameless subfolder.
+    imageFolderName:
+      typeof r.imageFolderName === 'string' && r.imageFolderName.trim().length > 0
+        ? r.imageFolderName.trim()
+        : d.imageFolderName,
   };
 }

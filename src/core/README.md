@@ -3,7 +3,7 @@
 Everything in this directory is DOM-free, Tauri-free, React-free (invariant
 I9, lint-enforced) and fully covered by Vitest. These files are **normative**:
 their tests define contracts the rest of the app builds on. Extend them;
-do not rewrite them (plan.md §2.4).
+do not rewrite them.
 
 ## What lives here
 
@@ -61,7 +61,7 @@ model change / tab op ──▶ flusher.request()
 - Rename-failure policy: keep old path, retry next flush; after ~3
   consecutive failures for the same rename, stop planning it (track the
   count in the store tombstone) — the file simply keeps its old name.
-- Restore flow and self-heal are specified in plan.md §5-M2. `parseManifest`
+- `parseManifest`
   here is the only manifest reader — never `JSON.parse` a manifest anywhere
   else.
 

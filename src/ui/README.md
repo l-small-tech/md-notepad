@@ -59,7 +59,7 @@ Rules:
   that calls `attachPreviewPane` (src/preview/README.md) on entering split
   and disposes it on the way out; I7 governs the source editor only.
 - Split divider: a ~15-line pointer-drag handler in EditorHost (no
-  dependency, per plan.md) sets the editor pane's `flex-basis` directly via
+  dependency) sets the editor pane's `flex-basis` directly via
   `style.flex`, bypassing React state so dragging never re-renders. The
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).

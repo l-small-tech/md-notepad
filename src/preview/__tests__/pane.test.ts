@@ -10,6 +10,9 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: openUrlMock }));
 const { renderMermaidBlocksMock } = vi.hoisted(() => ({ renderMermaidBlocksMock: vi.fn() }));
 vi.mock('../mermaid', () => ({ renderMermaidBlocks: renderMermaidBlocksMock }));
 
+const { readFileBase64Mock } = vi.hoisted(() => ({ readFileBase64Mock: vi.fn() }));
+vi.mock('../../ipc/commands', () => ({ ipc: { readFileBase64: readFileBase64Mock } }));
+
 import { attachPreviewPane } from '../pane';
 
 function host(): HTMLDivElement {
@@ -22,6 +25,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   openUrlMock.mockReset();
   renderMermaidBlocksMock.mockReset().mockResolvedValue(undefined);
+  readFileBase64Mock.mockReset().mockResolvedValue('QUJD'); // base64 of "ABC"
 });
 
 afterEach(() => {
@@ -123,6 +127,50 @@ describe('attachPreviewPane', () => {
 
     expect(prevented).toBe(true);
     expect(openUrlMock).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
+  test('a relative image is resolved against docPath and inlined as a data URL', async () => {
+    const model = createDocModel('![shot](images/shot.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(readFileBase64Mock).toHaveBeenCalledWith('/ws/images/shot.png');
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,QUJD');
+    pane.dispose();
+  });
+
+  test('an http(s) image is left untouched, not read off disk', async () => {
+    const model = createDocModel('![a](https://x.test/a.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(readFileBase64Mock).not.toHaveBeenCalled();
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('https://x.test/a.png');
+    pane.dispose();
+  });
+
+  test('with no docPath, a relative image is left as-is (unsaved doc)', async () => {
+    const model = createDocModel('![shot](images/shot.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(readFileBase64Mock).not.toHaveBeenCalled();
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('images/shot.png');
+    pane.dispose();
+  });
+
+  test('a missing image is left broken rather than throwing', async () => {
+    readFileBase64Mock.mockRejectedValue(new Error('NOT_FOUND'));
+    const model = createDocModel('![gone](images/gone.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('images/gone.png');
     pane.dispose();
   });
 

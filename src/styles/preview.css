@@ -17,6 +17,25 @@
 
 /* ---- Reader mode: full-width, read-only reading view -------------------- */
 
+/* The centered reading column, shared by Read mode (.reader-preview) and the
+   Rich editor (wysiwyg.css) so both render the document in the same column.
+   Side gutters grow with the window so lines never sprawl edge-to-edge; each
+   "Read mode margins" mode (mirrored onto <html data-reader-margins> by
+   main.tsx) caps the text column (ch) and the gutters (rem). The % and ch
+   units resolve at the element that uses the variable. */
+:root {
+  /* normal */
+  --reading-padding: 2.5rem clamp(1.25rem, calc((100% - 88ch) / 2), 7rem);
+}
+
+:root[data-reader-margins='narrow'] {
+  --reading-padding: 2.5rem clamp(1rem, calc((100% - 110ch) / 2), 3rem);
+}
+
+:root[data-reader-margins='wide'] {
+  --reading-padding: 2.5rem clamp(1.5rem, calc((100% - 70ch) / 2), 14rem);
+}
+
 .reader-preview {
   flex: 1 1 auto;
   min-width: 0;
@@ -27,10 +46,9 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  /* A comfortable centered reading column; the side gutters grow with the
-     window so lines never sprawl edge-to-edge. Overrides .preview's padding
-     and line-height (this rule comes later in the same file). */
-  padding: 2.5rem clamp(1.25rem, calc((100% - 72ch) / 2), 12rem);
+  /* Overrides .preview's padding and line-height (this rule comes later in
+     the same file). */
+  padding: var(--reading-padding);
   line-height: 1.75;
 }
 

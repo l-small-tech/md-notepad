@@ -1,6 +1,6 @@
 /**
  * SettingsDialog (M6) — a minimal custom-DOM modal over the settings store
- * (the one place plan.md allows custom DOM instead of a native dialog, since a
+ * (the one deliberate exception to the native-dialogs rule, since a
  * form doesn't map onto plugin-dialog). Every field writes straight through
  * `settingsStore.update`, so changes take effect immediately (theme/ligatures/
  * font via the DOM subscription in main.tsx, word wrap via EditorHost, default
@@ -12,7 +12,7 @@
 
 import type { EditorMode, Settings } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
-import { requestChangeNotesDir } from '../session';
+import { openDocs, requestChangeNotesDir } from '../session';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { uiStore, useUiStore } from '../stores/ui';
 import { checkForUpdate, useUpdateStore } from '../update';
@@ -30,12 +30,24 @@ const MODES: { value: EditorMode; label: string }[] = [
   { value: 'read', label: 'Read' },
 ];
 
+const READER_MARGINS: { value: Settings['readerMargins']; label: string }[] = [
+  { value: 'narrow', label: 'Narrow' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'wide', label: 'Wide' },
+];
+
+const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[] = [
+  { value: 'subfolder', label: 'Subfolder next to the file' },
+  { value: 'sameFolder', label: 'Same folder as the file' },
+  { value: 'workspaceRoot', label: 'Shared folder at workspace root' },
+];
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
 
 /**
- * Manual update check (the "Help menu item" of plan.md M7 — this app has no
+ * Manual update check (this app has no
  * menu bar, so Settings is its home). Outcome lands in the status bar: either
  * the update chip appears or a "up to date" notice shows.
  */
@@ -80,6 +92,15 @@ export function SettingsDialog() {
       <div className="settings-dialog" role="dialog" aria-modal="true" aria-label="Settings">
         <header className="settings-header">
           <h2 className="settings-title">Settings</h2>
+          <button
+            className="settings-button settings-docs-button"
+            onClick={() => {
+              close();
+              openDocs();
+            }}
+          >
+            Open Docs
+          </button>
           <button className="settings-close" aria-label="Close settings" onClick={close}>
             ×
           </button>
@@ -135,6 +156,23 @@ export function SettingsDialog() {
             />
           </label>
 
+          <label className="settings-row">
+            <span className="settings-label">Read mode margins</span>
+            <select
+              className="settings-control"
+              value={settings.readerMargins}
+              onChange={(e) =>
+                update({ readerMargins: e.target.value as Settings['readerMargins'] })
+              }
+            >
+              {READER_MARGINS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="settings-row settings-row-inline">
             <input
               type="checkbox"
@@ -152,6 +190,73 @@ export function SettingsDialog() {
             />
             <span className="settings-label">Font ligatures (→ as one glyph)</span>
           </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.liveSave}
+              onChange={(e) => update({ liveSave: e.target.checked })}
+            />
+            <span className="settings-label">Live save (opened files save automatically)</span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.confirmFileMove}
+              onChange={(e) => update({ confirmFileMove: e.target.checked })}
+            />
+            <span className="settings-label">Confirm before moving files between folders</span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
+              checked={settings.previewTabs}
+              onChange={(e) => update({ previewTabs: e.target.checked })}
+            />
+            <span className="settings-label">
+              Preview tabs (single-click opens in a reused, italic tab)
+            </span>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Pasted / dropped images</span>
+            <select
+              className="settings-control"
+              value={settings.imagePasteLocation}
+              onChange={(e) =>
+                update({ imagePasteLocation: e.target.value as Settings['imagePasteLocation'] })
+              }
+            >
+              {IMAGE_LOCATIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {settings.imagePasteLocation !== 'sameFolder' && (
+            <label className="settings-row">
+              <span className="settings-label">Image folder name</span>
+              <input
+                className="settings-control"
+                type="text"
+                value={settings.imageFolderName}
+                spellCheck={false}
+                placeholder="images"
+                // Persist the raw text; normalizeSettings trims and defaults a
+                // blank name on the next load, so an in-progress empty field is fine.
+                onChange={(e) => update({ imageFolderName: e.target.value })}
+                onBlur={(e) => {
+                  if (e.target.value.trim().length === 0) {
+                    update({ imageFolderName: 'images' });
+                  }
+                }}
+              />
+            </label>
+          )}
 
           <div className="settings-row settings-row-notes">
             <span className="settings-label">Notes folder</span>

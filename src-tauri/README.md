@@ -13,7 +13,8 @@ session concepts in Rust, stop and move it to `src/core`.
   "why not emit from setup" note matters.
 - `src/commands/fs.rs` — the entire custom IPC surface (reference
   implementation, tested): `read_text_file`, `atomic_write_text`,
-  `list_notes`, `rename_path`, `delete_path`, `stat_path`.
+  `list_notes`, `list_dir`, `read_file_base64`, `write_file_base64`,
+  `copy_path`, `create_dir`, `rename_path`, `delete_path`, `stat_path`.
 - `capabilities/default.json` — plugin/core permissions for the main
   window. Custom commands need NO capability entries.
 - `tauri.conf.json` — app config. `createUpdaterArtifacts` stays `false`
@@ -26,6 +27,7 @@ session concepts in Rust, stop and move it to `src/core`.
 | `NotFound(path)` | `NOT_FOUND` | subject missing; often expected (stat, restore) |
 | `Exists(path)` | `EXISTS` | rename refused to clobber; caller resolves collisions |
 | `InvalidPath(msg)` | `INVALID_PATH` | caller bug — surface loudly in dev |
+| `InvalidData(msg)` | `INVALID_DATA` | malformed payload (e.g. bad base64) — caller bug |
 | `Io(err)` | `IO` | everything else; message is for logs only |
 
 Adding a variant = adding it to `IpcErrorCode` in `src/ipc/commands.ts` and

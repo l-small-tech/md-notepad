@@ -1,4 +1,4 @@
-# CI gate — plan.md §6. A milestone is not done with a red matrix.
+# CI gate. A milestone is not done with a red matrix.
 name: CI
 
 on:
