@@ -7,6 +7,9 @@
 //!   directory → write → fsync → rename over the target.
 //! - Errors cross IPC as `{ code, message }`. The TS mirror of the `code`
 //!   union lives in `src/ipc/commands.ts` — keep both sides in sync.
+//! - Every command is `async`: Tauri runs sync commands on the native
+//!   event-loop thread, so a slow disk (network drive, spun-down HDD) would
+//!   freeze window dragging/resizing. `async` moves them to the thread pool.
 
 use serde::Serialize;
 use std::fs;
@@ -118,7 +121,7 @@ fn not_found_or_io(e: std::io::Error, path: &Path) -> FsError {
 /// Read a UTF-8 text file plus its mtime in one IPC round trip.
 /// The mtime is the baseline for external-change conflict detection (M3).
 #[tauri::command]
-pub fn read_text_file(path: PathBuf) -> FsResult<FileText> {
+pub async fn read_text_file(path: PathBuf) -> FsResult<FileText> {
     let meta = fs::metadata(&path).map_err(|e| not_found_or_io(e, &path))?;
     let text = fs::read_to_string(&path).map_err(|e| not_found_or_io(e, &path))?;
     Ok(FileText {
@@ -137,7 +140,7 @@ pub fn read_text_file(path: PathBuf) -> FsResult<FileText> {
 /// `sync_all` before the rename ensures a crash can't leave a renamed-but-
 /// empty file.
 #[tauri::command]
-pub fn atomic_write_text(path: PathBuf, text: String) -> FsResult<()> {
+pub async fn atomic_write_text(path: PathBuf, text: String) -> FsResult<()> {
     atomic_write_bytes(&path, text.as_bytes())
 }
 
@@ -160,7 +163,7 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> FsResult<()> {
 /// Atomically write base64-decoded bytes (pasted clipboard images). Same
 /// guarantees as `atomic_write_text`; bad base64 is INVALID_DATA.
 #[tauri::command]
-pub fn write_file_base64(path: PathBuf, data: String) -> FsResult<()> {
+pub async fn write_file_base64(path: PathBuf, data: String) -> FsResult<()> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data.as_bytes())
@@ -171,7 +174,7 @@ pub fn write_file_base64(path: PathBuf, data: String) -> FsResult<()> {
 /// Create a directory (explorer "New folder"). Refuses to clobber (EXISTS) —
 /// collision suffixes are frontend logic, mirroring `rename_path`'s contract.
 #[tauri::command]
-pub fn create_dir(path: PathBuf) -> FsResult<()> {
+pub async fn create_dir(path: PathBuf) -> FsResult<()> {
     if path.exists() {
         return Err(FsError::Exists(path));
     }
@@ -182,7 +185,7 @@ pub fn create_dir(path: PathBuf) -> FsResult<()> {
 /// Copy a file. Refuses to clobber (EXISTS) — collision suffixes are frontend
 /// logic, mirroring `rename_path`'s contract.
 #[tauri::command]
-pub fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
+pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if !from.exists() {
         return Err(FsError::NotFound(from));
     }
@@ -199,7 +202,7 @@ pub fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
 /// List `.md` files directly inside `dir` (no recursion), newest first.
 /// A missing dir is an empty list, not an error — first launch has no notes.
 #[tauri::command]
-pub fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
+pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -235,7 +238,7 @@ pub fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
 /// Hidden (dot-prefixed) entries are skipped. Order: directories A→Z, then
 /// files newest first (matching `list_notes`). Missing dir = empty list.
 #[tauri::command]
-pub fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
+pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -273,7 +276,7 @@ pub fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
 /// the multi-window boot path (respawning torn-off windows) needs its own
 /// listing. Missing dir = empty list, like the other listings.
 #[tauri::command]
-pub fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
+pub async fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -294,7 +297,7 @@ pub fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
 /// Read a binary file as base64 (image tabs). The frontend builds a data URL;
 /// this avoids widening the asset-protocol scope to arbitrary workspace dirs.
 #[tauri::command]
-pub fn read_file_base64(path: PathBuf) -> FsResult<String> {
+pub async fn read_file_base64(path: PathBuf) -> FsResult<String> {
     use base64::Engine;
     let bytes = fs::read(&path).map_err(|e| not_found_or_io(e, &path))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -305,7 +308,7 @@ pub fn read_file_base64(path: PathBuf) -> FsResult<String> {
 /// command must never clobber. (There is an inherent check-then-rename race;
 /// acceptable for a notes dir owned by this app.)
 #[tauri::command]
-pub fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
+pub async fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if !from.exists() {
         return Err(FsError::NotFound(from));
     }
@@ -319,7 +322,7 @@ pub fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
 /// Delete a file. Idempotent: deleting a missing file succeeds, because the
 /// session flusher may retry a plan whose delete already happened.
 #[tauri::command]
-pub fn delete_path(path: PathBuf) -> FsResult<()> {
+pub async fn delete_path(path: PathBuf) -> FsResult<()> {
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -329,7 +332,7 @@ pub fn delete_path(path: PathBuf) -> FsResult<()> {
 
 /// Existence + mtime without reading content (conflict checks on focus).
 #[tauri::command]
-pub fn stat_path(path: PathBuf) -> FsResult<PathStat> {
+pub async fn stat_path(path: PathBuf) -> FsResult<PathStat> {
     match fs::metadata(&path) {
         Ok(meta) => Ok(PathStat {
             exists: true,
@@ -351,11 +354,17 @@ mod tests {
         tempfile::tempdir().expect("create temp dir")
     }
 
+    /// The commands are `async` only to get off Tauri's event-loop thread;
+    /// their bodies are plain blocking IO, so tests just block on them.
+    fn block_on<T>(fut: impl std::future::Future<Output = T>) -> T {
+        tauri::async_runtime::block_on(fut)
+    }
+
     #[test]
     fn atomic_write_creates_new_file() {
         let dir = tmpdir();
         let target = dir.path().join("note.md");
-        atomic_write_text(target.clone(), "hello".into()).unwrap();
+        block_on(atomic_write_text(target.clone(), "hello".into())).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "hello");
     }
 
@@ -364,8 +373,8 @@ mod tests {
         // The Windows trap: rename over an existing file must succeed.
         let dir = tmpdir();
         let target = dir.path().join("note.md");
-        atomic_write_text(target.clone(), "first".into()).unwrap();
-        atomic_write_text(target.clone(), "second".into()).unwrap();
+        block_on(atomic_write_text(target.clone(), "first".into())).unwrap();
+        block_on(atomic_write_text(target.clone(), "second".into())).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "second");
     }
 
@@ -373,8 +382,8 @@ mod tests {
     fn atomic_write_leaves_no_temp_files() {
         let dir = tmpdir();
         let target = dir.path().join("note.md");
-        atomic_write_text(target.clone(), "a".into()).unwrap();
-        atomic_write_text(target.clone(), "b".into()).unwrap();
+        block_on(atomic_write_text(target.clone(), "a".into())).unwrap();
+        block_on(atomic_write_text(target.clone(), "b".into())).unwrap();
         let names: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
@@ -386,7 +395,7 @@ mod tests {
     fn atomic_write_creates_parent_dirs() {
         let dir = tmpdir();
         let target = dir.path().join("nested").join("deep").join("note.md");
-        atomic_write_text(target.clone(), "x".into()).unwrap();
+        block_on(atomic_write_text(target.clone(), "x".into())).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "x");
     }
 
@@ -395,7 +404,7 @@ mod tests {
         let dir = tmpdir();
         let target = dir.path().join("note.md");
         fs::write(&target, "content").unwrap();
-        let out = read_text_file(target).unwrap();
+        let out = block_on(read_text_file(target)).unwrap();
         assert_eq!(out.text, "content");
         assert!(out.mtime_ms > 0);
     }
@@ -403,7 +412,7 @@ mod tests {
     #[test]
     fn read_text_file_missing_is_not_found() {
         let dir = tmpdir();
-        let err = read_text_file(dir.path().join("nope.md")).unwrap_err();
+        let err = block_on(read_text_file(dir.path().join("nope.md"))).unwrap_err();
         assert_eq!(err.code(), "NOT_FOUND");
     }
 
@@ -416,7 +425,7 @@ mod tests {
         fs::write(dir.path().join("ignored.txt"), "3").unwrap();
         fs::create_dir(dir.path().join("subdir.md")).unwrap(); // dir with .md name
 
-        let notes = list_notes(dir.path().to_path_buf()).unwrap();
+        let notes = block_on(list_notes(dir.path().to_path_buf())).unwrap();
         let names: Vec<_> = notes
             .iter()
             .map(|n| Path::new(&n.path).file_name().unwrap().to_os_string())
@@ -433,7 +442,7 @@ mod tests {
     #[test]
     fn list_notes_missing_dir_is_empty() {
         let dir = tmpdir();
-        let notes = list_notes(dir.path().join("does-not-exist")).unwrap();
+        let notes = block_on(list_notes(dir.path().join("does-not-exist"))).unwrap();
         assert!(notes.is_empty());
     }
 
@@ -441,15 +450,18 @@ mod tests {
     fn write_file_base64_round_trips_bytes() {
         let dir = tmpdir();
         let target = dir.path().join("img.png");
-        write_file_base64(target.clone(), "iVBORw==".into()).unwrap();
+        block_on(write_file_base64(target.clone(), "iVBORw==".into())).unwrap();
         assert_eq!(fs::read(&target).unwrap(), vec![0x89u8, 0x50, 0x4e, 0x47]);
     }
 
     #[test]
     fn write_file_base64_rejects_bad_data() {
         let dir = tmpdir();
-        let err =
-            write_file_base64(dir.path().join("img.png"), "!!!not base64!!!".into()).unwrap_err();
+        let err = block_on(write_file_base64(
+            dir.path().join("img.png"),
+            "!!!not base64!!!".into(),
+        ))
+        .unwrap_err();
         assert_eq!(err.code(), "INVALID_DATA");
     }
 
@@ -457,9 +469,9 @@ mod tests {
     fn create_dir_creates_and_refuses_to_clobber() {
         let dir = tmpdir();
         let target = dir.path().join("sub");
-        create_dir(target.clone()).unwrap();
+        block_on(create_dir(target.clone())).unwrap();
         assert!(target.is_dir());
-        let err = create_dir(target).unwrap_err();
+        let err = block_on(create_dir(target)).unwrap_err();
         assert_eq!(err.code(), "EXISTS");
     }
 
@@ -469,7 +481,7 @@ mod tests {
         let a = dir.path().join("a.md");
         let b = dir.path().join("sub").join("b.md");
         fs::write(&a, "hello").unwrap();
-        copy_path(a.clone(), b.clone()).unwrap();
+        block_on(copy_path(a.clone(), b.clone())).unwrap();
         assert_eq!(fs::read_to_string(&a).unwrap(), "hello");
         assert_eq!(fs::read_to_string(&b).unwrap(), "hello");
     }
@@ -481,7 +493,7 @@ mod tests {
         let b = dir.path().join("b.md");
         fs::write(&a, "a").unwrap();
         fs::write(&b, "b").unwrap();
-        let err = copy_path(a, b.clone()).unwrap_err();
+        let err = block_on(copy_path(a, b.clone())).unwrap_err();
         assert_eq!(err.code(), "EXISTS");
         assert_eq!(fs::read_to_string(&b).unwrap(), "b");
     }
@@ -497,7 +509,7 @@ mod tests {
         fs::write(dir.path().join("ignored.txt"), "3").unwrap();
         fs::write(dir.path().join(".dotfile.md"), "4").unwrap();
 
-        let entries = list_dir(dir.path().to_path_buf()).unwrap();
+        let entries = block_on(list_dir(dir.path().to_path_buf())).unwrap();
         let names: Vec<_> = entries
             .iter()
             .map(|e| {
@@ -519,7 +531,9 @@ mod tests {
     #[test]
     fn list_dir_missing_dir_is_empty() {
         let dir = tmpdir();
-        assert!(list_dir(dir.path().join("nope")).unwrap().is_empty());
+        assert!(block_on(list_dir(dir.path().join("nope")))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -531,7 +545,7 @@ mod tests {
         fs::write(dir.path().join("session-old.txt"), "x").unwrap();
         fs::create_dir(dir.path().join("session-dir.json")).unwrap();
 
-        let found = list_session_manifests(dir.path().to_path_buf()).unwrap();
+        let found = block_on(list_session_manifests(dir.path().to_path_buf())).unwrap();
         let names: Vec<_> = found
             .iter()
             .map(|p| {
@@ -548,7 +562,7 @@ mod tests {
     #[test]
     fn list_session_manifests_missing_dir_is_empty() {
         let dir = tmpdir();
-        assert!(list_session_manifests(dir.path().join("nope"))
+        assert!(block_on(list_session_manifests(dir.path().join("nope")))
             .unwrap()
             .is_empty());
     }
@@ -558,13 +572,13 @@ mod tests {
         let dir = tmpdir();
         let target = dir.path().join("img.png");
         fs::write(&target, [0x89u8, 0x50, 0x4e, 0x47]).unwrap();
-        assert_eq!(read_file_base64(target).unwrap(), "iVBORw==");
+        assert_eq!(block_on(read_file_base64(target)).unwrap(), "iVBORw==");
     }
 
     #[test]
     fn read_file_base64_missing_is_not_found() {
         let dir = tmpdir();
-        let err = read_file_base64(dir.path().join("nope.png")).unwrap_err();
+        let err = block_on(read_file_base64(dir.path().join("nope.png"))).unwrap_err();
         assert_eq!(err.code(), "NOT_FOUND");
     }
 
@@ -575,7 +589,7 @@ mod tests {
         let b = dir.path().join("b.md");
         fs::write(&a, "a").unwrap();
         fs::write(&b, "b").unwrap();
-        let err = rename_path(a.clone(), b.clone()).unwrap_err();
+        let err = block_on(rename_path(a.clone(), b.clone())).unwrap_err();
         assert_eq!(err.code(), "EXISTS");
         // Neither file was touched.
         assert_eq!(fs::read_to_string(&a).unwrap(), "a");
@@ -588,7 +602,7 @@ mod tests {
         let a = dir.path().join("a.md");
         let b = dir.path().join("b.md");
         fs::write(&a, "a").unwrap();
-        rename_path(a.clone(), b.clone()).unwrap();
+        block_on(rename_path(a.clone(), b.clone())).unwrap();
         assert!(!a.exists());
         assert_eq!(fs::read_to_string(&b).unwrap(), "a");
     }
@@ -598,18 +612,18 @@ mod tests {
         let dir = tmpdir();
         let target = dir.path().join("note.md");
         fs::write(&target, "x").unwrap();
-        delete_path(target.clone()).unwrap();
+        block_on(delete_path(target.clone())).unwrap();
         assert!(!target.exists());
-        delete_path(target).unwrap(); // second delete: still Ok
+        block_on(delete_path(target)).unwrap(); // second delete: still Ok
     }
 
     #[test]
     fn stat_path_reports_existence() {
         let dir = tmpdir();
         let target = dir.path().join("note.md");
-        assert!(!stat_path(target.clone()).unwrap().exists);
+        assert!(!block_on(stat_path(target.clone())).unwrap().exists);
         fs::write(&target, "x").unwrap();
-        let stat = stat_path(target).unwrap();
+        let stat = block_on(stat_path(target)).unwrap();
         assert!(stat.exists);
         assert!(stat.mtime_ms.unwrap() > 0);
     }
