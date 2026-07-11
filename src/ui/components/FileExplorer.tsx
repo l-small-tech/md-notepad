@@ -683,15 +683,15 @@ export function FileExplorer() {
               title="Add workspace (pick a folder)"
               onClick={() => addWorkspace()}
             >
-              +
-            </button>
-            <button
-              className="file-explorer-action"
-              aria-label="Close explorer"
-              title="Close"
-              onClick={() => uiStore.getState().toggleExplorer()}
-            >
-              ×
+              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                <path
+                  d="M6.5 2v9M2 6.5h9"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
             </button>
           </div>
         </div>

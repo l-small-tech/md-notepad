@@ -456,17 +456,23 @@
 }
 
 .file-explorer-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   border: none;
+  border-radius: 5px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 16px;
-  line-height: 1;
+  line-height: 0;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 0;
 }
 
 .file-explorer-action:hover {
   color: var(--fg);
+  background: var(--bg-hover);
 }
 
 .file-explorer-list {
@@ -505,11 +511,10 @@
   --ws-accent: #d6409f;
 }
 
-/* A very subtle horizontal divider separates adjacent workspaces. */
+/* Adjacent workspaces get a little breathing room; the title bands themselves
+   now carry the separation, so no divider line is needed. */
 .workspace-section + .workspace-section {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
+  margin-top: 8px;
 }
 
 /* A colored workspace gets a quiet accent stripe down its whole section. */
@@ -521,10 +526,17 @@
   border-left-color: var(--ws-accent);
 }
 
+/* Each workspace title sits on a quiet band so it reads as a section header,
+   set a hair in from the left so the accent stripe still shows beside it. */
 .workspace-header {
   display: flex;
   align-items: center;
   position: relative; /* anchors the color-swatch popover */
+  margin: 0 4px 2px 3px;
+  border-radius: 5px;
+  /* A translucent tint (not a theme bg — those match the panel and vanish):
+     darkens the band on light, lightens it on dark, so it reads either way. */
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
 .context-menu-overlay {
@@ -619,13 +631,15 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 3px 4px 3px 8px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 5px;
   cursor: pointer;
   text-align: left;
 }
 
 .workspace-toggle:hover {
   color: var(--fg);
+  background: var(--bg-hover);
 }
 
 .workspace-caret {
