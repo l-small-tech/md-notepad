@@ -56,7 +56,10 @@ It's also quietly built for the age of AI pair-programming — see
 - 🖼️ **Painless images** — paste a screenshot and it's saved beside your
   note and referenced at the caret; drag images in from anywhere.
   Configurable storage layout (subfolder / same folder / workspace root).
-- 🔤 **Monospace everywhere** — bundled Fira Code, ligatures on by default.
+- 🔤 **Eight bundled open-source fonts** — Fira Code (default) plus
+  JetBrains Mono, Cascadia Code, Source Code Pro, IBM Plex Mono,
+  Inconsolata, and Victor Mono for your notes; optional Inter for the UI
+  chrome. Ligatures on by default.
 - 🌗 **Light / dark / system themes.** Small, quiet, fast.
 - 🔄 **Safe auto-updates** — signed with minisign and verified before
   install; open tabs are flushed to disk first, so updating never costs
@@ -175,7 +178,7 @@ formatting.
 | Markdown pipeline | [unified](https://unifiedjs.com) (remark-gfm → rehype-sanitize) |
 | Diagrams | [Mermaid](https://mermaid.js.org) |
 | Build / test | [Vite](https://vite.dev) + [Vitest](https://vitest.dev), cargo for the shell |
-| Font | [Fira Code](https://github.com/tonsky/FiraCode) (bundled, OFL-1.1) |
+| Fonts | [Fira Code](https://github.com/tonsky/FiraCode) (default) + 6 more monospace faces and [Inter](https://rsms.me/inter/), all bundled via [@fontsource](https://fontsource.org) (OFL-1.1) |
 
 ## Build from source
 
@@ -222,5 +225,6 @@ other key, and users would have to reinstall manually. Guard it.
 
 [GPL-3.0-only](LICENSE). Bundled third-party components are listed in
 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) (shipped with the app).
-Bundled Fira Code font is © The Fira Code Project Authors,
-SIL Open Font License 1.1.
+All bundled fonts (Fira Code, JetBrains Mono, Cascadia Code, Source Code
+Pro, IBM Plex Mono, Inconsolata, Victor Mono, Inter) are © their respective
+project authors, SIL Open Font License 1.1.

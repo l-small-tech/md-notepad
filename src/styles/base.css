@@ -1,11 +1,14 @@
 /*
  * Base stylesheet: font setup, theme variables, minimal reset.
  *
- * Fira Code woff2 files are imported in main.tsx via @fontsource/fira-code
- * (SIL OFL 1.1 — GPL-compatible). Ligatures live in the font's `calt` table;
- * `font-variant-ligatures: contextual` turns them on, so `->` renders as a
- * solid arrow glyph. The user-facing "ligatures" setting toggles the
- * `no-ligatures` class on <html>.
+ * Bundled font woff2 files are imported in main.tsx via @fontsource (all
+ * SIL OFL 1.1 — GPL-compatible). `--font-mono` is the editor/content
+ * typeface (main.tsx swaps its stack per the "Editor font" setting);
+ * `--font-ui` is the UI-chrome typeface and defaults to following
+ * `--font-mono` ("Match editor font"). Ligatures live in a font's `calt`
+ * table; `font-variant-ligatures: contextual` turns them on, so `->`
+ * renders as a solid arrow glyph in fonts that have it. The user-facing
+ * "ligatures" setting toggles the `no-ligatures` class on <html>.
  *
  * Theming: `data-theme` on <html> is "light" or "dark", set by the settings
  * store (following the OS when the setting is "system"). Every component
@@ -15,8 +18,8 @@
 :root {
   color-scheme: light dark;
 
-  --font-mono:
-    'Fira Code', ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, 'DejaVu Sans Mono', monospace;
+  --font-mono: 'Fira Code', ui-monospace, 'SF Mono', Consolas, 'DejaVu Sans Mono', monospace;
+  --font-ui: var(--font-mono);
 
   /* Editor font size (px). main.tsx keeps this in sync with the setting;
      the default here means the editor is styled correctly before JS runs. */
@@ -62,7 +65,7 @@ body,
 }
 
 body {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-variant-ligatures: contextual;
   font-size: 14px;
   line-height: 1.5;

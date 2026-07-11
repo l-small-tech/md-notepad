@@ -11,9 +11,20 @@ remembered. Press Esc or click outside the panel to close it.
 - **Font size** — the size of text in the editor and previews. You can also
   change it any time with **Ctrl+=** / **Ctrl+-** (and **Ctrl+0** to
   reset), which is especially handy in Read mode.
-- **Font ligatures** — the app's typeface (Fira Code) can join character
-  pairs like `->` into a single arrow glyph. Purely cosmetic; turn it off
-  if you prefer to see the characters as typed.
+- **Editor font** — the typeface for your notes, in the editor and in
+  previews. Seven open-source coding fonts ship with the app: **Fira Code**
+  (the default, and our recommendation), JetBrains Mono, Cascadia Code,
+  Source Code Pro, IBM Plex Mono, Inconsolata, and Victor Mono (known for
+  its cursive italics).
+- **Interface font** — the typeface for the app's own chrome: tabs, the
+  sidebar, dialogs. **Match editor font** (the default) keeps the classic
+  monospace-everywhere look; **Inter** is a clean sans-serif made for user
+  interfaces, worth trying if you'd like the chrome to stay out of the way
+  of your text; **System sans-serif** uses your operating system's UI font.
+- **Font ligatures** — fonts that support it (Fira Code, JetBrains Mono,
+  Cascadia Code, Victor Mono) can join character pairs like `->` into a
+  single arrow glyph. Purely cosmetic; turn it off if you prefer to see
+  the characters as typed.
 - **Word wrap** — when on (the default), long lines wrap to fit the window.
   When off, long lines run sideways and you scroll horizontally.
 - **Read mode margins** — how wide the text column is in Read mode:

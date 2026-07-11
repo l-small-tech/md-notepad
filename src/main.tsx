@@ -4,10 +4,36 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { normalizeSettings, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_SETTINGS } from './core/settings';
+import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
+// Bundled typefaces (all SIL OFL 1.1). Importing a family only registers its
+// @font-face rules — the WebView fetches woff2 data lazily, the first time
+// rendered text actually uses that family — so the unchosen fonts cost
+// nothing at runtime. Stacks/labels live in core/fonts.ts.
 import '@fontsource/fira-code/400.css';
 import '@fontsource/fira-code/500.css';
 import '@fontsource/fira-code/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
+import '@fontsource/jetbrains-mono/700.css';
+import '@fontsource/cascadia-code/400.css';
+import '@fontsource/cascadia-code/500.css';
+import '@fontsource/cascadia-code/700.css';
+import '@fontsource/source-code-pro/400.css';
+import '@fontsource/source-code-pro/500.css';
+import '@fontsource/source-code-pro/700.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-mono/700.css';
+import '@fontsource/inconsolata/400.css';
+import '@fontsource/inconsolata/500.css';
+import '@fontsource/inconsolata/700.css';
+import '@fontsource/victor-mono/400.css';
+import '@fontsource/victor-mono/500.css';
+import '@fontsource/victor-mono/700.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/700.css';
 import './styles/base.css';
 import './styles/app.css';
 import './styles/preview.css';
@@ -47,14 +73,24 @@ const IMAGE_FILTERS = [
 // which fights the "editors are mounted exactly once" architecture (see
 // src/ui/README.md). Core logic is covered by Vitest instead.
 
-/* ---- Settings → DOM (theme, ligatures, editor font size) ---------------- */
+/* ---- Settings → DOM (theme, ligatures, fonts, editor font size) --------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize, readerMargins } = settingsStore.getState().settings;
+  const { ligatures, fontSize, editorFont, uiFont, readerMargins } =
+    settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
+  // Editor/content typeface; the UI chrome either follows it ('match', the
+  // base.css default of --font-ui) or gets its own sans stack.
+  root.style.setProperty('--font-mono', editorFontStack(editorFont));
+  const ui = uiFontStack(uiFont);
+  if (ui === null) {
+    root.style.removeProperty('--font-ui');
+  } else {
+    root.style.setProperty('--font-ui', ui);
+  }
   // Read-mode margins — preview.css maps each value to a responsive gutter.
   root.dataset.readerMargins = readerMargins;
 }

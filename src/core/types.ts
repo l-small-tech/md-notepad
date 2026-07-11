@@ -80,6 +80,32 @@ export const WORKSPACE_COLORS = [
 export type WorkspaceColor = (typeof WORKSPACE_COLORS)[number];
 
 /**
+ * Bundled editor typefaces (all SIL OFL 1.1, shipped via @fontsource; woff2
+ * files are only fetched by the WebView when a family is actually used).
+ * Display labels and CSS stacks live in ./fonts.ts.
+ */
+export const EDITOR_FONT_IDS = [
+  'fira-code',
+  'jetbrains-mono',
+  'cascadia-code',
+  'source-code-pro',
+  'ibm-plex-mono',
+  'inconsolata',
+  'victor-mono',
+] as const;
+
+export type EditorFontId = (typeof EDITOR_FONT_IDS)[number];
+
+/**
+ * Typeface for the UI chrome (tabs, sidebar, dialogs — not the note text).
+ * 'match' follows the editor font (the app's classic monospace-everywhere
+ * look); 'inter' is the bundled Inter sans; 'system' is the OS UI font.
+ */
+export const UI_FONT_IDS = ['match', 'inter', 'system'] as const;
+
+export type UiFontId = (typeof UI_FONT_IDS)[number];
+
+/**
  * A workspace is just a folder the file explorer lists. The notes dir is the
  * implicit default workspace and is NOT stored here — this array holds only
  * the extra folders the user added (removing one never touches its files).
@@ -103,9 +129,16 @@ export interface Settings {
   notesDir: string | null;
   theme: 'system' | 'light' | 'dark';
   fontSize: number;
+  /** Editor/content typeface. Default 'fira-code'. */
+  editorFont: EditorFontId;
+  /** UI-chrome typeface. Default 'match' (follow the editor font). */
+  uiFont: UiFontId;
   defaultMode: EditorMode;
   wordWrap: boolean;
-  /** Fira Code ligatures (-> as a single glyph). Default on. */
+  /**
+   * Code ligatures (-> as a single glyph) in fonts that carry them
+   * (Fira Code, JetBrains Mono, Cascadia Code, Victor Mono). Default on.
+   */
   ligatures: boolean;
   readerMargins: ReaderMargins;
   /**

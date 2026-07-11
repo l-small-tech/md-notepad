@@ -68,8 +68,13 @@ components never add window-level listeners themselves.
   `styles/base.css` only — components never hardcode colors.
 - Both themes are defined as variable sets on `:root`; theme switching is
   `data-theme` on `<html>`, nothing else re-renders.
-- Monospace everywhere (`var(--font-mono)`); UI chrome uses the same face —
-  that IS the aesthetic.
+- Content is always monospace: `var(--font-mono)`, whose stack main.tsx
+  swaps per the "Editor font" setting (bundled OFL faces, core/fonts.ts).
+  UI chrome uses `var(--font-ui)`, which defaults to following
+  `--font-mono` (monospace everywhere IS the aesthetic) but can be pointed
+  at a sans stack by the "Interface font" setting. Editor/preview/wysiwyg
+  surfaces must reference `--font-mono` explicitly, never inherit from
+  body.
 
 ## Testing expectations
 

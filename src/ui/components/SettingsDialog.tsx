@@ -10,8 +10,9 @@
  * flow (folder picker → optional move) via the module-level dispatcher.
  */
 
-import type { EditorMode, Settings } from '../../core/types';
+import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
+import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { uiStore, useUiStore } from '../stores/ui';
@@ -154,6 +155,36 @@ export function SettingsDialog() {
                 }
               }}
             />
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Editor font</span>
+            <select
+              className="settings-control"
+              value={settings.editorFont}
+              onChange={(e) => update({ editorFont: e.target.value as EditorFontId })}
+            >
+              {EDITOR_FONTS.map((f) => (
+                <option key={f.id} value={f.id} style={{ fontFamily: f.stack }}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Interface font (tabs, sidebar)</span>
+            <select
+              className="settings-control"
+              value={settings.uiFont}
+              onChange={(e) => update({ uiFont: e.target.value as UiFontId })}
+            >
+              {UI_FONTS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="settings-row">

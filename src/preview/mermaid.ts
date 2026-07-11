@@ -55,7 +55,9 @@ export async function renderMermaidBlocks(
       startOnLoad: false,
       securityLevel: 'strict',
       theme: options.dark ? 'dark' : 'default',
-      fontFamily: 'Fira Code, monospace',
+      // The SVG lives in the document, so the CSS var resolves — diagrams
+      // follow the "Editor font" setting like the rest of the content.
+      fontFamily: 'var(--font-mono)',
     });
     initializedDark = options.dark;
   }

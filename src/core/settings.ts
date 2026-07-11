@@ -8,13 +8,15 @@
  * schema library: a handful of fields doesn't justify a dependency.
  */
 
-import { WORKSPACE_COLORS } from './types';
-import type { Settings, WorkspaceColor, WorkspaceEntry } from './types';
+import { EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from './types';
+import type { EditorFontId, Settings, UiFontId, WorkspaceColor, WorkspaceEntry } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
   theme: 'system',
   fontSize: 14,
+  editorFont: 'fira-code',
+  uiFont: 'match',
   defaultMode: 'raw',
   wordWrap: true,
   ligatures: true,
@@ -96,6 +98,12 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.fontSize === 'number' && Number.isFinite(r.fontSize)
         ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(r.fontSize)))
         : d.fontSize,
+    editorFont: (EDITOR_FONT_IDS as readonly unknown[]).includes(r.editorFont)
+      ? (r.editorFont as EditorFontId)
+      : d.editorFont,
+    uiFont: (UI_FONT_IDS as readonly unknown[]).includes(r.uiFont)
+      ? (r.uiFont as UiFontId)
+      : d.uiFont,
     defaultMode:
       r.defaultMode === 'raw' ||
       r.defaultMode === 'split' ||

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
-import { WORKSPACE_COLORS } from '../types';
+import { EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -15,6 +15,8 @@ describe('normalizeSettings', () => {
       notesDir: 'D:/notes',
       theme: 'dark',
       fontSize: 16,
+      editorFont: 'jetbrains-mono',
+      uiFont: 'inter',
       defaultMode: 'split',
       wordWrap: false,
       ligatures: false,
@@ -31,6 +33,8 @@ describe('normalizeSettings', () => {
       notesDir: 'D:/notes',
       theme: 'dark',
       fontSize: 16,
+      editorFont: 'jetbrains-mono',
+      uiFont: 'inter',
       defaultMode: 'split',
       wordWrap: false,
       ligatures: false,
@@ -50,6 +54,8 @@ describe('normalizeSettings', () => {
       notesDir: 123,
       theme: 'sepia',
       fontSize: 'big',
+      editorFont: 'comic-sans',
+      uiFont: 'papyrus',
       defaultMode: 'zen',
       wordWrap: 'yes',
       ligatures: 1,
@@ -133,6 +139,18 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ fontSize: 2 }).fontSize).toBe(8);
     expect(normalizeSettings({ fontSize: 400 }).fontSize).toBe(40);
     expect(normalizeSettings({ fontSize: Number.NaN }).fontSize).toBe(DEFAULT_SETTINGS.fontSize);
+  });
+
+  test('every bundled editor font and ui font id is accepted', () => {
+    for (const id of EDITOR_FONT_IDS) {
+      expect(normalizeSettings({ editorFont: id }).editorFont).toBe(id);
+    }
+    for (const id of UI_FONT_IDS) {
+      expect(normalizeSettings({ uiFont: id }).uiFont).toBe(id);
+    }
+    // A font family name (rather than an id) is not accepted — defaults win.
+    expect(normalizeSettings({ editorFont: 'Fira Code' }).editorFont).toBe('fira-code');
+    expect(normalizeSettings({ uiFont: 'Inter' }).uiFont).toBe('match');
   });
 
   test('every reader-margins mode is accepted', () => {
