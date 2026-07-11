@@ -47,7 +47,8 @@ It's also quietly built for the age of AI pair-programming — see
   no lock-in. Open and save regular files anywhere, too.
 - 👁️ **Four modes per tab** — raw source (CodeMirror 6), split
   source+preview, WYSIWYG (Milkdown Crepe), and a distraction-free **Read**
-  mode with zoom and fullscreen.
+  mode with zoom. Any mode can go fullscreen (F11) in two stages — full
+  window, then full screen.
 - 🧜 **Full GFM preview** — tables, task lists, strikethrough, autolinks —
   plus **Mermaid** diagrams rendered in place.
 - 🗄️ **Workspaces** — add any folder as a sidebar section with its own

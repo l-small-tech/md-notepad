@@ -64,7 +64,7 @@ import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { resolveDocsDir, resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
-import { cycleReaderView, initReaderFullscreen, stepBackReaderView } from './ui/reader-fullscreen';
+import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
@@ -315,9 +315,9 @@ function dispatchShortcut(action: ShortcutAction): void {
       settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
       break;
     case 'toggle-fullscreen':
-      // Advances the read-mode view one stage (window → screen → normal).
-      // Only READ mode enters; the cycle no-ops in edit modes.
-      cycleReaderView();
+      // Advances the full-screen view one stage (normal → window → screen →
+      // normal), available in every editor mode.
+      cycleFullscreen();
       break;
   }
 }
@@ -330,12 +330,12 @@ window.addEventListener('keydown', (event) => {
     uiStore.getState().closeSettings();
     return;
   }
-  // Escape steps the reader view back one stage (screen → window → normal;
-  // checked after the settings modal so a dialog opened while fullscreen
-  // closes first).
-  if (event.key === 'Escape' && uiStore.getState().readerView !== 'normal') {
+  // Escape steps the full-screen view back one stage (screen → window →
+  // normal; checked after the settings modal so a dialog opened while
+  // fullscreen closes first).
+  if (event.key === 'Escape' && uiStore.getState().fullscreenView !== 'normal') {
     event.preventDefault();
-    stepBackReaderView();
+    stepBackFullscreen();
     return;
   }
   const action = keyEventToAction(event, platform);
@@ -428,8 +428,6 @@ async function boot(): Promise<void> {
 
   applyWindowTitle();
   tabsStore.subscribe(applyWindowTitle);
-  // Auto-exit reader full screen when the active tab leaves read mode.
-  initReaderFullscreen();
 
   createRoot(document.getElementById('root')!).render(<App />);
 

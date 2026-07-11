@@ -345,11 +345,11 @@
   user-select: none;
 }
 
-/* ---- Reader full screen -------------------------------------------------- */
+/* ---- Full screen -------------------------------------------------------- */
 
-/* Both reader view stages ('window' and 'screen') hide every piece of chrome
-   so the reading pane is the only thing left; the 'screen' stage additionally
-   makes the OS window fullscreen (see ui/reader-fullscreen). */
+/* Both full-screen stages ('window' and 'screen') hide every piece of chrome
+   so the active tab is the only thing left; the 'screen' stage additionally
+   makes the OS window fullscreen (see ui/fullscreen). */
 .app-fullscreen .tabbar,
 .app-fullscreen .ribbon,
 .app-fullscreen .statusbar,
@@ -359,8 +359,8 @@
 }
 
 /* Floating stage controls in the top-right corner (expand ⛶ / step back) —
-   faint until hovered so they never compete with the text. */
-.reader-view-controls {
+   faint until hovered so they never compete with the content. */
+.fullscreen-controls {
   position: fixed;
   top: 10px;
   right: 14px;
@@ -371,12 +371,12 @@
   transition: opacity 120ms ease;
 }
 
-.reader-view-controls:hover,
-.reader-view-controls:focus-within {
+.fullscreen-controls:hover,
+.fullscreen-controls:focus-within {
   opacity: 1;
 }
 
-.reader-view-btn {
+.fullscreen-btn {
   width: 36px;
   height: 36px;
   border: 1px solid var(--border);
@@ -389,8 +389,8 @@
   cursor: pointer;
 }
 
-.reader-view-btn:hover,
-.reader-view-btn:focus-visible {
+.fullscreen-btn:hover,
+.fullscreen-btn:focus-visible {
   background: var(--bg-hover);
   color: var(--fg);
 }

@@ -23,7 +23,7 @@ import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
-import { cycleReaderView } from '../reader-fullscreen';
+import { setFullscreen } from '../fullscreen';
 import { insertFileLink } from '../session';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
@@ -230,6 +230,15 @@ export function Ribbon() {
       <div className="ribbon-right">
         <button
           className="ribbon-btn"
+          aria-label="Full window"
+          title={`Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setFullscreen('window')}
+        >
+          ⤢
+        </button>
+        <button
+          className="ribbon-btn"
           aria-label="Copy all raw text"
           title="Copy raw text (+ @path mentions for linked files, for the Claude Code CLI)"
           onMouseDown={(e) => e.preventDefault()}
@@ -237,17 +246,6 @@ export function Ribbon() {
         >
           ⧉
         </button>
-        {mode === 'read' && (
-          <button
-            className="ribbon-btn"
-            aria-label="Full screen"
-            title={`Full screen — fills the window first, the screen second (${FULLSCREEN_KEY}; Esc steps back)`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={cycleReaderView}
-          >
-            ⛶
-          </button>
-        )}
       </div>
     </div>
   );

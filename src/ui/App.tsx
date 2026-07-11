@@ -15,14 +15,14 @@ import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
-import { cycleReaderView, stepBackReaderView } from './reader-fullscreen';
+import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
 
 export function App() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const readerView = useUiStore((s) => s.readerView);
+  const fullscreenView = useUiStore((s) => s.fullscreenView);
 
   useEffect(() => {
     const sync = tabsStore.getState().tabs.find((t) => t.id === activeTabId)?.modeSync;
@@ -41,7 +41,7 @@ export function App() {
   }, [activeTabId]);
 
   return (
-    <div className={readerView === 'normal' ? 'app' : 'app app-fullscreen'}>
+    <div className={fullscreenView === 'normal' ? 'app' : 'app app-fullscreen'}>
       <TabBar />
       <Ribbon />
       <div className="editor-area">
@@ -60,32 +60,42 @@ export function App() {
       </div>
       <StatusBar />
       <SettingsDialog />
-      {readerView !== 'normal' && (
+      {fullscreenView !== 'normal' && (
         // The chrome (with the ribbon's fullscreen button) is hidden, so leave
-        // quiet always-there mouse controls in the same top-right spot: one
-        // advances to the next stage (hidden once at 'screen' — the cycle's
-        // next step is exit, which is the other button's job), one steps back.
-        // Esc and F11 remain the keyboard paths.
-        <div className="reader-view-controls">
-          {readerView === 'window' && (
+        // quiet always-there mouse controls in the same top-right spot. Each
+        // glyph has one fixed meaning wherever it appears: ⤢ = full window,
+        // ⛶ = full screen, ✕ = exit. We only show the toggle for the stage
+        // you're NOT in, plus exit. F11/Esc remain the keyboard paths.
+        <div className="fullscreen-controls">
+          {fullscreenView === 'screen' ? (
             <button
-              className="reader-view-btn"
-              aria-label="Expand to full screen"
-              title="Expand to full screen (F11)"
+              className="fullscreen-btn"
+              aria-label="Full window"
+              title="Full window (Esc)"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={cycleReaderView}
+              onClick={() => setFullscreen('window')}
+            >
+              ⤢
+            </button>
+          ) : (
+            <button
+              className="fullscreen-btn"
+              aria-label="Full screen"
+              title="Full screen (F11)"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setFullscreen('screen')}
             >
               ⛶
             </button>
           )}
           <button
-            className="reader-view-btn"
-            aria-label={readerView === 'screen' ? 'Back to full window' : 'Exit full window'}
-            title={readerView === 'screen' ? 'Back to full window (Esc)' : 'Exit full window (Esc)'}
+            className="fullscreen-btn"
+            aria-label="Exit full screen"
+            title="Exit full screen"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={stepBackReaderView}
+            onClick={() => setFullscreen('normal')}
           >
-            {readerView === 'screen' ? '⇲' : '✕'}
+            ✕
           </button>
         </div>
       )}

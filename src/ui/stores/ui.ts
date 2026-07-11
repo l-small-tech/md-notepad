@@ -19,8 +19,8 @@ export interface CursorReadout {
   col: number;
 }
 
-/** Read-mode view stage — see `readerView` below. */
-export type ReaderViewStage = 'normal' | 'window' | 'screen';
+/** Full-screen view stage — see `fullscreenView` below. */
+export type FullscreenStage = 'normal' | 'window' | 'screen';
 
 export interface UiState {
   notice: string | null;
@@ -38,12 +38,12 @@ export interface UiState {
    *  (paste/drop) so the explorer re-lists. */
   explorerRefresh: number;
   /**
-   * Read-mode full screen, in two stages: 'window' hides all app chrome but
+   * Full screen (any mode), in two stages: 'window' hides all app chrome but
    * keeps the window as-is; 'screen' additionally makes the OS window
    * fullscreen. Only the value lives here — the window-API side effect is
-   * owned by `../reader-fullscreen`, which is the only writer.
+   * owned by `../fullscreen`, which is the only writer.
    */
-  readerView: ReaderViewStage;
+  fullscreenView: FullscreenStage;
   /** Show a status-bar notice that auto-clears after `ms` (default 6s). */
   showNotice: (message: string, ms?: number) => void;
   clearNotice: () => void;
@@ -54,7 +54,7 @@ export interface UiState {
   toggleExplorer: () => void;
   setDropTarget: (dir: string | null) => void;
   refreshExplorer: () => void;
-  setReaderView: (stage: ReaderViewStage) => void;
+  setFullscreenView: (stage: FullscreenStage) => void;
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,7 +66,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   explorerOpen: false,
   dropTargetDir: null,
   explorerRefresh: 0,
-  readerView: 'normal',
+  fullscreenView: 'normal',
 
   showNotice(message, ms = 6000) {
     if (noticeTimer !== null) {
@@ -115,8 +115,8 @@ export const uiStore = createStore<UiState>()((set) => ({
     set((s) => ({ explorerRefresh: s.explorerRefresh + 1 }));
   },
 
-  setReaderView(stage) {
-    set({ readerView: stage });
+  setFullscreenView(stage) {
+    set({ fullscreenView: stage });
   },
 }));
 
