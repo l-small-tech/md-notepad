@@ -66,8 +66,19 @@ async function exitOsFullscreen(): Promise<void> {
     if (saved.maximized) {
       await win.maximize();
     } else {
-      await win.setPosition(saved.position);
-      await win.setSize(saved.size);
+      // Windows restores the window's pre-snap placement asynchronously after
+      // leaving fullscreen (a snapped window's "normal position" is wherever it
+      // was before Win+Arrow), which stomps a single immediate setPosition.
+      // Re-apply the saved geometry until it actually sticks.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await win.setPosition(saved.position);
+        await win.setSize(saved.size);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const pos = await win.outerPosition();
+        if (pos.x === saved.position.x && pos.y === saved.position.y) {
+          break;
+        }
+      }
     }
   } catch {
     // Not in a Tauri webview — nothing to restore.
