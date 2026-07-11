@@ -106,9 +106,9 @@ Checks: `npm run check && npm test`, and in `src-tauri/`:
 
 ## Contributing / architecture
 
-Start with [plan.md](plan.md) — it is the map of the whole project
-(architecture, invariants, milestones, decision log). Each source directory
-has a README specifying its contracts.
+Start with [src/README.md](src/README.md) — it owns the frontend-wide rules.
+Each source directory has a README specifying its architecture, contracts,
+and invariants.
 
 ## Releasing (maintainers)
 

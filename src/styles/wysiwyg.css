@@ -10,7 +10,7 @@
  * CSS-variable-driven theme (no per-theme import, no reconfiguration).
  *
  * Content stays monospace even in rich mode — that's the product's look
- * (plan.md §1, src/editors/README.md).
+ * (src/editors/README.md).
  */
 
 .milkdown {

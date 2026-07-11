@@ -91,6 +91,11 @@ export interface WorkspaceEntry {
   path: string;
   /** Accent color, or null for none. */
   color: WorkspaceColor | null;
+  /**
+   * Read-only workspace (the bundled documentation): files open pinned to
+   * read mode and the explorer offers no create/rename/move/delete for it.
+   */
+  readOnly?: boolean;
 }
 
 export interface Settings {

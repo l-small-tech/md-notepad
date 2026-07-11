@@ -1,6 +1,6 @@
 /**
  * SettingsDialog (M6) — a minimal custom-DOM modal over the settings store
- * (the one place plan.md allows custom DOM instead of a native dialog, since a
+ * (the one deliberate exception to the native-dialogs rule, since a
  * form doesn't map onto plugin-dialog). Every field writes straight through
  * `settingsStore.update`, so changes take effect immediately (theme/ligatures/
  * font via the DOM subscription in main.tsx, word wrap via EditorHost, default
@@ -12,7 +12,7 @@
 
 import type { EditorMode, Settings } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
-import { requestChangeNotesDir } from '../session';
+import { openDocs, requestChangeNotesDir } from '../session';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { uiStore, useUiStore } from '../stores/ui';
 import { checkForUpdate, useUpdateStore } from '../update';
@@ -47,7 +47,7 @@ function update(partial: Partial<Settings>): void {
 }
 
 /**
- * Manual update check (the "Help menu item" of plan.md M7 — this app has no
+ * Manual update check (this app has no
  * menu bar, so Settings is its home). Outcome lands in the status bar: either
  * the update chip appears or a "up to date" notice shows.
  */
@@ -92,6 +92,15 @@ export function SettingsDialog() {
       <div className="settings-dialog" role="dialog" aria-modal="true" aria-label="Settings">
         <header className="settings-header">
           <h2 className="settings-title">Settings</h2>
+          <button
+            className="settings-button settings-docs-button"
+            onClick={() => {
+              close();
+              openDocs();
+            }}
+          >
+            Open Docs
+          </button>
           <button className="settings-close" aria-label="Close settings" onClick={close}>
             ×
           </button>

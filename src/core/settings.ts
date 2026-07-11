@@ -75,7 +75,12 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
       typeof entry.name === 'string' && entry.name.trim().length > 0
         ? entry.name.trim()
         : entry.path;
-    out.push({ name, path: entry.path, color: normalizeColor(entry.color) });
+    out.push({
+      name,
+      path: entry.path,
+      color: normalizeColor(entry.color),
+      ...(entry.readOnly === true ? { readOnly: true } : {}),
+    });
   }
   return out;
 }

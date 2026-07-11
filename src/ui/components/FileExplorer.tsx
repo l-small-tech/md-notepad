@@ -74,6 +74,8 @@ interface WorkspaceView {
   color: WorkspaceColor | null;
   /** The default (notes dir) workspace can't be removed. */
   removable: boolean;
+  /** Read-only workspace (the docs): no create/rename/move/delete/paste/drop. */
+  readOnly: boolean;
 }
 
 /** Indentation per tree depth; file rows add the caret column's width. */
@@ -185,15 +187,30 @@ export function FileExplorer() {
   const defaultPath = getDefaultWorkspacePath();
   const workspaces: WorkspaceView[] = [
     ...(defaultPath
-      ? [{ path: defaultPath, name: 'Notes', color: defaultColor, removable: false }]
+      ? [
+          {
+            path: defaultPath,
+            name: 'Notes',
+            color: defaultColor,
+            removable: false,
+            readOnly: false,
+          },
+        ]
       : []),
     ...extraWorkspaces.map((w) => ({
       path: w.path,
       name: w.name,
       color: w.color,
       removable: true,
+      readOnly: w.readOnly === true,
     })),
   ];
+  /** Is `dir` the root of (or inside) a read-only workspace? */
+  const readOnlyRoots = workspaces.filter((w) => w.readOnly).map((w) => fileKey(w.path));
+  const isReadOnlyDir = (dir: string): boolean => {
+    const key = fileKey(dir);
+    return readOnlyRoots.some((root) => key === root || key.startsWith(`${root}/`));
+  };
   // JSON, not join(): a path may itself contain the separator character.
   const workspaceSignature = JSON.stringify(workspaces.map((w) => w.path));
   const expandedSignature = JSON.stringify([...expandedDirs].sort());
@@ -249,7 +266,7 @@ export function FileExplorer() {
   }
 
   function handlePaste(event: React.ClipboardEvent<HTMLDivElement>): void {
-    if (!pasteDir) {
+    if (!pasteDir || isReadOnlyDir(pasteDir)) {
       return;
     }
     const files: File[] = [];
@@ -450,32 +467,37 @@ export function FileExplorer() {
     wsColor?: WorkspaceColor | null,
     renameTarget?: ExplorerEntry,
     removableWs?: boolean,
+    readOnly?: boolean,
   ): ReactNode {
     return menuShell(
       <>
-        <button
-          className="context-menu-item"
-          role="menuitem"
-          onClick={() => {
-            setMenuFor(null);
-            setSelectedDir(dir);
-            void createNewFileIn(dir);
-          }}
-        >
-          New file
-        </button>
-        <button
-          className="context-menu-item"
-          role="menuitem"
-          onClick={() => {
-            setMenuFor(null);
-            setSelectedDir(dir);
-            void createNewFolderIn(dir);
-          }}
-        >
-          New folder
-        </button>
-        {renameTarget !== undefined && renderRenameItem(renameTarget)}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              setMenuFor(null);
+              setSelectedDir(dir);
+              void createNewFileIn(dir);
+            }}
+          >
+            New file
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              setMenuFor(null);
+              setSelectedDir(dir);
+              void createNewFolderIn(dir);
+            }}
+          >
+            New folder
+          </button>
+        )}
+        {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
         {wsColor !== undefined && (
           <div className="context-menu-swatches" aria-label="Workspace color">
             <button
@@ -521,7 +543,7 @@ export function FileExplorer() {
     );
   }
 
-  function renderDir(dirPath: string, depth: number): ReactNode {
+  function renderDir(dirPath: string, depth: number, readOnly = false): ReactNode {
     const entries = entriesByDir[dirPath];
     const indent = { paddingLeft: `${dirIndent(depth) + 14}px` };
     if (entries === undefined) {
@@ -551,8 +573,12 @@ export function FileExplorer() {
               <button
                 className={rowClass('file-explorer-dir', entry.path)}
                 style={{ paddingLeft: `${dirIndent(depth)}px` }}
-                title={`${entry.path}\nRight-click: new file, rename`}
-                data-drop-dir={entry.path}
+                title={
+                  readOnly
+                    ? `${entry.path}\nRead-only`
+                    : `${entry.path}\nRight-click: new file, rename`
+                }
+                data-drop-dir={readOnly ? undefined : entry.path}
                 aria-expanded={expandedDirs.has(entry.path)}
                 onClick={() => {
                   setSelectedDir(entry.path);
@@ -560,7 +586,9 @@ export function FileExplorer() {
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setMenuFor(menuFor === entry.path ? null : entry.path);
+                  if (!readOnly) {
+                    setMenuFor(menuFor === entry.path ? null : entry.path);
+                  }
                 }}
               >
                 <span className="workspace-caret">{expandedDirs.has(entry.path) ? '▾' : '▸'}</span>
@@ -569,7 +597,7 @@ export function FileExplorer() {
             )}
             {menuFor === entry.path && renderContextMenu(entry.path, undefined, entry)}
           </div>
-          {expandedDirs.has(entry.path) && renderDir(entry.path, depth + 1)}
+          {expandedDirs.has(entry.path) && renderDir(entry.path, depth + 1, readOnly)}
         </div>
       ) : (
         <div key={entry.path} className="file-explorer-dir-row">
@@ -590,15 +618,17 @@ export function FileExplorer() {
               }
               style={indent}
               title={
-                isImagePath(entry.path)
-                  ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
-                  : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
+                readOnly
+                  ? `${entry.path}\nRead-only`
+                  : isImagePath(entry.path)
+                    ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
+                    : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
               }
-              data-drop-dir={dirPath}
+              data-drop-dir={readOnly ? undefined : dirPath}
               // md files double as an image-drop target (embed at end of file);
               // main.tsx hit-tests this against OS drags. Images aren't targets.
-              data-drop-file={isImagePath(entry.path) ? undefined : entry.path}
-              onPointerDown={(e) => startFileDrag(e, entry.path)}
+              data-drop-file={readOnly || isImagePath(entry.path) ? undefined : entry.path}
+              onPointerDown={readOnly ? undefined : (e) => startFileDrag(e, entry.path)}
               onClick={() => {
                 if (dragConsumedClick.current) {
                   dragConsumedClick.current = false;
@@ -615,7 +645,9 @@ export function FileExplorer() {
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setMenuFor(menuFor === entry.path ? null : entry.path);
+                if (!readOnly) {
+                  setMenuFor(menuFor === entry.path ? null : entry.path);
+                }
               }}
             >
               {entry.name}
@@ -670,13 +702,17 @@ export function FileExplorer() {
               <div
                 className="workspace-section"
                 data-color={ws.color ?? undefined}
-                data-drop-dir={ws.path}
+                data-drop-dir={ws.readOnly ? undefined : ws.path}
                 key={ws.path}
               >
                 <div className="workspace-header">
                   <button
                     className={rowClass('workspace-toggle', ws.path)}
-                    title={`${ws.path}\nRight-click: new file, workspace color${ws.removable ? ', remove' : ''}`}
+                    title={
+                      ws.readOnly
+                        ? `${ws.path}\nRead-only · Right-click: workspace color, remove`
+                        : `${ws.path}\nRight-click: new file, workspace color${ws.removable ? ', remove' : ''}`
+                    }
                     aria-expanded={!isCollapsed}
                     onClick={(e) => {
                       // Alt+click also opens the context menu; a plain click
@@ -699,9 +735,9 @@ export function FileExplorer() {
                     <span className="workspace-name">{ws.name}</span>
                   </button>
                   {menuFor === ws.path &&
-                    renderContextMenu(ws.path, ws.color, undefined, ws.removable)}
+                    renderContextMenu(ws.path, ws.color, undefined, ws.removable, ws.readOnly)}
                 </div>
-                {!isCollapsed && renderDir(ws.path, 0)}
+                {!isCollapsed && renderDir(ws.path, 0, ws.readOnly)}
               </div>
             );
           })}

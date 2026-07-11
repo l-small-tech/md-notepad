@@ -962,6 +962,13 @@ body.explorer-dragging * {
   font-variant-numeric: tabular-nums;
 }
 
+/* Replaces the mode segments on read-only (documentation) tabs. */
+.statusbar-readonly {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
 /* ---- Settings dialog (M6) ----------------------------------------------- */
 
 .settings-backdrop {
@@ -988,11 +995,19 @@ body.explorer-dragging * {
 }
 
 .settings-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Centered in the header regardless of the title/close widths on either side. */
+.settings-docs-button {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .settings-title {

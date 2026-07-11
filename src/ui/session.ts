@@ -89,6 +89,8 @@ export type PickFileDialog = (kind: 'any' | 'image') => Promise<string | null>;
 
 export interface SessionControllerDeps {
   paths: SessionPaths;
+  /** The bundled documentation folder (a Tauri resource), or null if unresolvable. */
+  docsDir?: string | null;
   ipc?: SessionIpc;
   confirm?: ConfirmDialog;
   openDialog?: OpenFilesDialog;
@@ -155,6 +157,24 @@ const cursorByTab = new Map<string, CursorPos>();
  */
 function pathKey(path: string): string {
   return path.replaceAll('\\', '/').toLowerCase();
+}
+
+/**
+ * Whether `path` lies inside a read-only workspace (the bundled docs). Tabs
+ * opened on such files are pinned to read mode and refuse save/rename; the
+ * flag is recomputed from here at every open/restore, never persisted.
+ */
+export function isReadOnlyPath(path: string | null): boolean {
+  if (!path) {
+    return false;
+  }
+  const key = pathKey(path);
+  return settingsStore
+    .getState()
+    .settings.workspaces.some(
+      (w) =>
+        w.readOnly === true && (key === pathKey(w.path) || key.startsWith(`${pathKey(w.path)}/`)),
+    );
 }
 
 /** EditorHost → here: the editor reported a new caret position for this tab. */
@@ -248,6 +268,7 @@ let openNotePathPinnedDispatch: (path: string) => void = () => {};
 // registers — the explorer just shows no default section pre-boot.
 let defaultWorkspaceDispatch: () => string | null = () => null;
 let addWorkspaceDispatch: () => void = () => {};
+let openDocsDispatch: () => void = () => {};
 let insertFileLinkDispatch: (opts: { image: boolean; absolute: boolean }) => void = () => {};
 // Default (pre-boot / tests): a plain label change. The controller swaps in
 // the file-aware variant that also renames a file tab's file on disk.
@@ -348,6 +369,10 @@ export function getDefaultWorkspacePath(): string | null {
 export function addWorkspace(): void {
   addWorkspaceDispatch();
 }
+/** SettingsDialog → controller: open the bundled docs as a read-only workspace. */
+export function openDocs(): void {
+  openDocsDispatch();
+}
 /**
  * FileExplorer → settings: forget a workspace. Pure settings surgery (the
  * folder and its files are untouched), so no controller round trip is needed.
@@ -416,6 +441,8 @@ function persistedToInit(tab: PersistedTab, text: string, dirty = false): Restor
     savedMtimeMs: tab.savedMtimeMs,
     text,
     dirty,
+    // Recomputed (not persisted): settings are loaded before restore runs.
+    readOnly: isReadOnlyPath(tab.filePath),
   };
 }
 
@@ -432,7 +459,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   const pickFile = deps.pickFile ?? (async () => null);
   const now = deps.now ?? (() => Date.now());
   // Mutable: the M6 notes-dir change flow repoints it live; every flush reads
-  // the current value through this closure (plan.md M6 — "next flush writes
+  // the current value through this closure ("next flush writes
   // there"). sessionDir is fixed (never user-configurable).
   let notesDir = deps.paths.notesDir;
   const { sessionDir } = deps.paths;
@@ -685,6 +712,57 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     tabsStore.getState().restoreSession({ tabs: recent, activeTabId: recent[0]?.id ?? null });
   }
 
+  /**
+   * The bundled docs live inside the install location, which can move between
+   * launches (an AppImage mounts at a fresh path every run; installers may
+   * relocate resources on update). Settings persist the docs workspace path,
+   * so before restore, retarget every read-only workspace entry to the current
+   * docs dir (dropping duplicates and, in builds without docs, dead entries).
+   * Returns the stale roots so manifest tab paths can be remapped too.
+   */
+  function reconcileDocsWorkspaces(): string[] {
+    const docsDir = deps.docsDir ?? null;
+    const { settings, update } = settingsStore.getState();
+    const stale = settings.workspaces.filter(
+      (w) => w.readOnly === true && (docsDir === null || pathKey(w.path) !== pathKey(docsDir)),
+    );
+    if (stale.length === 0) {
+      return [];
+    }
+    if (docsDir === null) {
+      update({ workspaces: settings.workspaces.filter((w) => w.readOnly !== true) });
+      return [];
+    }
+    const seen = new Set<string>();
+    const next = [];
+    for (const w of settings.workspaces) {
+      const entry = w.readOnly === true ? { ...w, path: docsDir } : w;
+      const key = pathKey(entry.path);
+      if (!seen.has(key)) {
+        seen.add(key);
+        next.push(entry);
+      }
+    }
+    update({ workspaces: next });
+    return stale.map((w) => w.path);
+  }
+
+  /** Remap a path under one of the stale docs roots onto the current docs dir. */
+  function remapDocsPath(path: string | null, staleRoots: string[]): string | null {
+    const docsDir = deps.docsDir;
+    if (path === null || !docsDir) {
+      return path;
+    }
+    const key = pathKey(path);
+    for (const root of staleRoots) {
+      const rootKey = pathKey(root);
+      if (key.startsWith(`${rootKey}/`)) {
+        return joinPath(docsDir, path.slice(root.length + 1));
+      }
+    }
+    return path;
+  }
+
   async function restore(): Promise<void> {
     await refreshNoteListing();
 
@@ -697,6 +775,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
 
     const manifest: SessionManifest | null = raw !== null ? parseManifest(raw) : null;
+
+    const staleDocsRoots = reconcileDocsWorkspaces();
+    if (manifest !== null && staleDocsRoots.length > 0) {
+      for (const t of manifest.tabs) {
+        t.filePath = remapDocsPath(t.filePath, staleDocsRoots);
+      }
+    }
 
     if (manifest === null) {
       // A file that existed but wouldn't parse is corrupt → quarantine it.
@@ -730,8 +815,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   /**
    * Save an existing FILE tab to its own path (Ctrl+S; also the "save" branch
-   * of the close-tab prompt). Re-stats first — "before every save" (plan.md
-   * M3) — so a real external change is never silently clobbered: the save is
+   * of the close-tab prompt). Re-stats first — "before every save"
+   * — so a real external change is never silently clobbered: the save is
    * refused and the ConflictBanner takes over instead. Returns whether the
    * tab ended up clean (false = failed or blocked by a conflict).
    */
@@ -770,8 +855,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (!tab) {
       return;
     }
+    if (tab.readOnly) {
+      uiStore.getState().showNotice('This document is read-only.');
+      return;
+    }
     if (tab.kind === 'note') {
-      // Save on a note tab behaves as Save As (plan.md M3).
+      // Save on a note tab behaves as Save As.
       await saveAsActive();
       return;
     }
@@ -782,6 +871,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const tab = tabsStore.getState().activeTab();
     if (!tab || tab.kind === 'image') {
       return; // an image viewer has no text to save
+    }
+    if (tab.readOnly) {
+      uiStore.getState().showNotice('This document is read-only.');
+      return;
     }
     const suggested =
       tab.kind === 'file' ? (tab.filePath ?? undefined) : `${slugifyTitle(tab.title)}.md`;
@@ -858,9 +951,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
             settle(owner.id);
           } else {
             settle(
-              tabsStore
-                .getState()
-                .openImageTab({ filePath: path, savedMtimeMs: stat.mtimeMs, preview }),
+              tabsStore.getState().openImageTab({
+                filePath: path,
+                savedMtimeMs: stat.mtimeMs,
+                preview,
+                readOnly: isReadOnlyPath(path),
+              }),
             );
           }
           continue;
@@ -873,9 +969,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
           settle(now.id);
         } else {
           settle(
-            tabsStore
-              .getState()
-              .openFileTab({ filePath: path, text, savedMtimeMs: mtimeMs, preview }),
+            tabsStore.getState().openFileTab({
+              filePath: path,
+              text,
+              savedMtimeMs: mtimeMs,
+              preview,
+              readOnly: isReadOnlyPath(path),
+            }),
           );
         }
       } catch (error) {
@@ -904,6 +1004,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   async function renameFileTab(id: string, newName: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (!tab || (tab.kind !== 'file' && tab.kind !== 'image') || !tab.filePath) {
+      return;
+    }
+    if (tab.readOnly || isReadOnlyPath(tab.filePath)) {
+      uiStore.getState().showNotice('This document is read-only.');
       return;
     }
     const oldPath = tab.filePath;
@@ -1137,6 +1241,58 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     update({ workspaces: [...settings.workspaces, { name, path: picked, color }] });
   }
 
+  /**
+   * Settings "Open docs": register the bundled documentation folder as a
+   * read-only workspace (idempotent — an existing entry for that path is
+   * upgraded to read-only rather than duplicated), reveal it in the explorer,
+   * and open its start page pinned to read mode.
+   */
+  async function openDocsWorkspace(): Promise<void> {
+    const docsDir = deps.docsDir ?? null;
+    if (!docsDir) {
+      uiStore.getState().showNotice('Documentation is not available in this build.');
+      return;
+    }
+    try {
+      if (!(await ipc.statPath(docsDir)).exists) {
+        uiStore.getState().showNotice('The documentation folder could not be found.');
+        return;
+      }
+    } catch {
+      // A transient stat failure shouldn't block the flow; list_dir will
+      // surface a real problem as an empty workspace.
+    }
+    const key = pathKey(docsDir);
+    const { settings, update } = settingsStore.getState();
+    const existing = settings.workspaces.find((w) => pathKey(w.path) === key);
+    if (existing) {
+      if (existing.readOnly !== true) {
+        update({
+          workspaces: settings.workspaces.map((w) =>
+            pathKey(w.path) === key ? { ...w, readOnly: true } : w,
+          ),
+        });
+      }
+    } else {
+      const color = pickUnusedColor([
+        settings.defaultWorkspaceColor,
+        ...settings.workspaces.map((w) => w.color),
+      ]);
+      update({
+        workspaces: [
+          ...settings.workspaces,
+          { name: 'Documentation', path: docsDir, color, readOnly: true },
+        ],
+      });
+    }
+    if (!uiStore.getState().explorerOpen) {
+      uiStore.getState().toggleExplorer();
+    }
+    // The guide's start page; opened AFTER the workspace exists so
+    // isReadOnlyPath pins the tab to read mode.
+    await openPaths([joinPath(docsDir, 'README.md')]);
+  }
+
   /** First free `base.ext`, `base-2.ext`, … inside `dir` (case handled by FS). */
   async function uniquePathIn(dir: string, base: string, ext: string): Promise<string> {
     let candidate = joinPath(dir, `${base}${ext}`);
@@ -1158,7 +1314,19 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * suffixing collisions. Other file types are skipped, mirroring what the
    * explorer lists. One summary notice at the end.
    */
+  /** Shared refusal for writes aimed at a read-only workspace (the docs). */
+  function refuseReadOnly(path: string): boolean {
+    if (isReadOnlyPath(path)) {
+      uiStore.getState().showNotice('The documentation is read-only.');
+      return true;
+    }
+    return false;
+  }
+
   async function importFiles(dir: string, paths: string[]): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
     let copied = 0;
     let skipped = 0;
     let failed = 0;
@@ -1299,6 +1467,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * writing under the open editor and provoking a conflict.
    */
   async function appendImagesToMarkdown(mdPath: string, paths: string[]): Promise<void> {
+    if (refuseReadOnly(mdPath)) {
+      return;
+    }
     const images = paths.filter((p) => isImagePath(p));
     if (images.length === 0) {
       return;
@@ -1380,6 +1551,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   /** Clipboard paste: write one file's bytes into `dir` under a safe name. */
   async function savePastedFile(dir: string, file: PastedFile): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
     const base = (file.name !== null ? sanitizeFileBaseName(file.name) : '') || timestampBase();
     try {
       const target = await uniquePathIn(dir, base, file.ext);
@@ -1398,6 +1572,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * can name it in one motion (the rename also renames the file on disk).
    */
   async function createNewFile(dir: string): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
     try {
       const target = await uniquePathIn(dir, 'untitled', '.md');
       await ipc.atomicWriteText(target, '');
@@ -1415,6 +1592,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
   /** Context-menu "New folder": create a uniquely-named subfolder in `dir`. */
   async function createNewFolder(dir: string): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
     try {
       const target = await uniquePathIn(dir, 'new-folder', '');
       await ipc.createDir(target);
@@ -1433,6 +1613,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * retargets every open tab whose file lives under it.
    */
   async function renameEntry(path: string, newName: string, isDir: boolean): Promise<void> {
+    if (refuseReadOnly(path)) {
+      return;
+    }
     const owner = isDir ? undefined : tabOwning(pathKey(path));
     if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
       await renameFileTab(owner.id, newName);
@@ -1509,6 +1692,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * note tabs via applyFlushResult (same remap changeNotesDir uses).
    */
   async function moveEntry(sourcePath: string, destDir: string): Promise<void> {
+    if (refuseReadOnly(sourcePath) || refuseReadOnly(destDir)) {
+      return;
+    }
     if (pathKey(dirName(sourcePath)) === pathKey(destDir)) {
       return; // already in this folder
     }
@@ -1570,6 +1756,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * removes files only.
    */
   async function deleteEntry(path: string): Promise<void> {
+    if (refuseReadOnly(path)) {
+      return;
+    }
     const ok = await confirm(`Delete "${baseName(path)}"? This can’t be undone.`, 'Delete file');
     if (!ok) {
       return;
@@ -1654,6 +1843,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;
   defaultWorkspaceDispatch = () => notesDir;
   addWorkspaceDispatch = () => void addWorkspaceFromDialog();
+  openDocsDispatch = () => void openDocsWorkspace();
   importFilesDispatch = importFiles;
   appendImagesDispatch = appendImagesToMarkdown;
   savePastedImageDispatch = savePastedImage;

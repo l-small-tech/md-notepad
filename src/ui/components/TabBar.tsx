@@ -334,7 +334,7 @@ export function TabBar() {
   const [menu, setMenu] = useState<TabMenu | null>(null);
   const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
   const [capacity, setCapacity] = useState(Number.MAX_SAFE_INTEGER);
-  const windowStartRef = useRef(0);
+  const [windowStart, setWindowStart] = useState(0);
 
   // How many whole tabs fit: bar width minus everything that isn't a tab
   // (new-tab button, window controls, spacer minimum, ⋯ reserve, mac inset).
@@ -366,8 +366,12 @@ export function TabBar() {
   }, []);
 
   const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
-  const start = computeTabWindow(tabs.length, capacity, activeIndex, windowStartRef.current);
-  windowStartRef.current = start;
+  const start = computeTabWindow(tabs.length, capacity, activeIndex, windowStart);
+  if (start !== windowStart) {
+    // Derived state with history: remember the window so it only slides when
+    // the active tab leaves it (set-state-during-render, per React docs).
+    setWindowStart(start);
+  }
   const visible = tabs.slice(start, start + Math.max(1, capacity));
   const hidden = [...tabs.slice(0, start), ...tabs.slice(start + Math.max(1, capacity))];
 

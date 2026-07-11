@@ -32,7 +32,7 @@ import {
 import { uiStore } from './ui/stores/ui';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
-import { resolvePaths } from './ipc/paths';
+import { resolveDocsDir, resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
 import { cycleReaderView, initReaderFullscreen, stepBackReaderView } from './ui/reader-fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
@@ -277,6 +277,7 @@ async function boot(): Promise<void> {
   // close handler (used by the keyboard dispatcher and TabBar via ./ui/session).
   const controller = createSessionController({
     paths,
+    docsDir: await resolveDocsDir(),
     confirm: confirmDialog,
     openDialog: openFilesDialog,
     saveDialog: saveFileDialog,
@@ -353,7 +354,7 @@ async function boot(): Promise<void> {
 
   // Flush on blur so a crash after tabbing away still keeps the latest text;
   // re-check open file tabs for external changes when the window regains
-  // focus (plan.md M3 — "on window focus and before every save").
+  // focus ("on window focus and before every save").
   void appWindow
     .onFocusChanged(({ payload: focused }) => {
       if (focused) {
@@ -370,7 +371,7 @@ async function boot(): Promise<void> {
   setBeforeRestart(() => controller.flushNow());
   setTimeout(() => void checkForUpdate({ manual: false }), 3000);
 
-  // Close path: never prompt (plan.md M2). Flush what's pending, then destroy.
+  // Close path: never prompt. Flush what's pending, then destroy.
   void appWindow
     .onCloseRequested(async (event) => {
       event.preventDefault();

@@ -119,7 +119,7 @@ re-parse the document into the editor with the programmatic meta set.
 On attach, compute `serialize(parse(text)) !== text` (both available from
 milkdown's ctx once loaded — cheap for note-sized docs). If true and the
 tab hasn't shown it before, ask the UI (callback option on the adapter) to
-show the one-time status-bar hint (plan.md §5-M5 wording).
+show the one-time status-bar hint.
 
 ### Known limitations to verify at M5 (QA has a section)
 

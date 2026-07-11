@@ -64,6 +64,12 @@ export interface TabEntry extends TabState {
    * tabs); a session-only display flag like `title`/`dirty`.
    */
   preview: boolean;
+  /**
+   * The file lives in a read-only workspace (the bundled docs): the mode is
+   * pinned to 'read' and save/rename are refused. Not persisted — recomputed
+   * from the file's path against settings at open/restore time (session.ts).
+   */
+  readOnly: boolean;
 }
 
 /** Everything needed to rebuild one tab at restore time (content already read). */
@@ -82,6 +88,8 @@ export interface RestoredTabInit {
    * this, so the caller (session.ts) says so explicitly. Default false.
    */
   dirty?: boolean;
+  /** The file lies in a read-only workspace (see TabEntry.readOnly). Default false. */
+  readOnly?: boolean;
 }
 
 /** What the session controller applies back after a flush completes. */
@@ -133,12 +141,14 @@ export interface TabsState {
     text: string;
     savedMtimeMs: number;
     preview?: boolean;
+    readOnly?: boolean;
   }) => string;
   /** Image viewer tab — read-only, never flushed beyond the manifest. Returns its id. */
   openImageTab: (input: {
     filePath: string;
     savedMtimeMs: number | null;
     preview?: boolean;
+    readOnly?: boolean;
   }) => string;
   /** Promote a preview tab to a permanent one (idempotent; no-op otherwise). */
   promoteTab: (id: string) => void;
@@ -224,7 +234,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       notePath: init?.notePath ?? null,
       filePath: init?.filePath ?? null,
       customTitle,
-      mode: init?.mode ?? settingsStore.getState().settings.defaultMode,
+      // A read-only tab is pinned to read mode regardless of what the
+      // manifest recorded (the flag itself is recomputed by the caller).
+      mode: init?.readOnly ? 'read' : (init?.mode ?? settingsStore.getState().settings.defaultMode),
       savedMtimeMs: init?.savedMtimeMs ?? null,
       model,
       modeSync: null,
@@ -234,6 +246,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       dirty: init?.dirty ?? false,
       conflict: false,
       preview: false,
+      readOnly: init?.readOnly ?? false,
     };
 
     model.subscribe((change) => {
@@ -328,7 +341,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       const closing = s.tabs[idx]!;
-      // Deliberate Notepad semantics (plan.md decision log): closing a note
+      // Deliberate Notepad semantics: closing a note
       // tab DISCARDS its file; closing a file tab makes its session buffer
       // stale. Both are recorded here and swept by the next flush.
       const closedNotePaths =
@@ -435,7 +448,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     setMode(id, mode) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || tab.mode === mode) {
+      // Read-only tabs are pinned to read mode (the status bar shows a
+      // "Read-only" badge instead of the mode segments).
+      if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
       set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)) });
@@ -484,7 +499,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }));
     },
 
-    openFileTab({ filePath, text, savedMtimeMs, preview = false }) {
+    openFileTab({ filePath, text, savedMtimeMs, preview = false, readOnly = false }) {
       // Content already came straight from disk (session.ts's openPaths) — the
       // model's clean-by-construction snapshot is exactly right here.
       const tab: TabEntry = {
@@ -497,6 +512,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           mode: settingsStore.getState().settings.defaultMode,
           savedMtimeMs,
           text,
+          readOnly,
         }),
         preview,
       };
@@ -505,7 +521,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       return tab.id;
     },
 
-    openImageTab({ filePath, savedMtimeMs, preview = false }) {
+    openImageTab({ filePath, savedMtimeMs, preview = false, readOnly = false }) {
       const tab: TabEntry = {
         ...makeTab({
           id: nanoid(),
@@ -517,6 +533,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           mode: 'read',
           savedMtimeMs,
           text: '',
+          readOnly,
         }),
         preview,
       };
@@ -564,7 +581,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }
       // Save-As on a note tab converts it to a file tab; the note file is
       // queued for deletion the same way a closed note tab's file is (the
-      // note graduated — one source of truth per document, plan.md §9).
+      // note graduated — one source of truth per document).
       const closedNotePaths =
         tab.kind === 'note' && tab.notePath
           ? [...s.closedNotePaths, tab.notePath]

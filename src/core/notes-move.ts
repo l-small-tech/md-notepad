@@ -6,7 +6,7 @@
  * of `{ from, to }` pairs the session controller then feeds to
  * `ipc.renamePath` one at a time (reporting any it can't move). Keeping the
  * decision pure means the move set is unit-testable without touching disk
- * (plan.md M6: "Vitest for the move-notes planning logic").
+ *.
  *
  * Only note basenames are moved; the manifest and session buffers stay put in
  * the session dir (which is never user-configurable — see core/README two-tier

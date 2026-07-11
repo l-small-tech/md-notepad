@@ -60,7 +60,11 @@ export function WindowControls() {
         className="wc-btn"
         aria-label="Minimize"
         tabIndex={-1}
-        onClick={() => void tauriWindow()?.minimize().catch(() => {})}
+        onClick={() =>
+          void tauriWindow()
+            ?.minimize()
+            .catch(() => {})
+        }
       >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 5h10" stroke="currentColor" strokeWidth="1" fill="none" />
@@ -70,16 +74,36 @@ export function WindowControls() {
         className="wc-btn"
         aria-label={maximized ? 'Restore' : 'Maximize'}
         tabIndex={-1}
-        onClick={() => void tauriWindow()?.toggleMaximize().catch(() => {})}
+        onClick={() =>
+          void tauriWindow()
+            ?.toggleMaximize()
+            .catch(() => {})
+        }
       >
         {maximized ? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M2.5 2.5v-2h7v7h-2" stroke="currentColor" strokeWidth="1" fill="none" />
-            <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" strokeWidth="1" fill="none" />
+            <rect
+              x="0.5"
+              y="2.5"
+              width="7"
+              height="7"
+              stroke="currentColor"
+              strokeWidth="1"
+              fill="none"
+            />
           </svg>
         ) : (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1" fill="none" />
+            <rect
+              x="0.5"
+              y="0.5"
+              width="9"
+              height="9"
+              stroke="currentColor"
+              strokeWidth="1"
+              fill="none"
+            />
           </svg>
         )}
       </button>
@@ -87,7 +111,11 @@ export function WindowControls() {
         className="wc-btn wc-close"
         aria-label="Close window"
         tabIndex={-1}
-        onClick={() => void tauriWindow()?.close().catch(() => {})}
+        onClick={() =>
+          void tauriWindow()
+            ?.close()
+            .catch(() => {})
+        }
       >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" fill="none" />

@@ -1,7 +1,7 @@
 /**
  * Update checker (M7) — a thin controller around @tauri-apps/plugin-updater.
  *
- * Policy (plan.md M7): check on launch and on demand from Settings; when an
+ * Policy: check on launch and on demand from Settings; when an
  * update exists show an unobtrusive status-bar chip; clicking it downloads and
  * installs, then relaunches via plugin-process. Errors are SILENT (console
  * only) — the updater must never block or delay startup, and a notepad must

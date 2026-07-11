@@ -1,4 +1,4 @@
-# Release pipeline — plan.md §7. Trigger: push a v* tag.
+# Release pipeline. Trigger: push a v* tag.
 #
 # Produces a DRAFT GitHub release containing:
 #   Windows NSIS .exe · macOS universal .dmg · Linux .deb/.rpm/.AppImage
@@ -8,7 +8,7 @@
 # The maintainer reviews the draft and publishes manually — publishing is
 # what makes latest.json visible to auto-updaters.
 #
-# Secrets (created during M7's key ceremony, see plan.md §5-M7):
+# Secrets (created during M7's key ceremony):
 #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 name: Release
 
@@ -71,6 +71,31 @@ jobs:
         with:
           tagName: v__VERSION__ # tauri-action substitutes the app version
           releaseName: 'MD Notepad v__VERSION__'
+          # Shown above the asset list — tells non-technical users which file
+          # is theirs. Keep the suffixes in sync with the bundle targets.
+          releaseBody: |
+            ## Which file should I download?
+
+            | Your computer | Download the file ending in… |
+            | --- | --- |
+            | 🪟 **Windows** | `-setup.exe` |
+            | 🍎 **macOS** (Intel & Apple Silicon) | `.dmg` |
+            | 🐧 **Linux** (any distro) | `.AppImage` |
+            | 🐧 Linux (Debian/Ubuntu) | `.deb` |
+            | 🐧 Linux (Fedora/RHEL) | `.rpm` |
+
+            **First-run notes**
+            - **Windows**: SmartScreen may warn because the app isn't signed with a paid certificate — click *More info → Run anyway*.
+            - **macOS**: right-click the app → *Open* the first time (Gatekeeper).
+            - **Linux AppImage**: `chmod +x` the file, then run it.
+
+            The app updates itself automatically after this install.
+
+            <details>
+            <summary>Other files (you don't need these)</summary>
+
+            `SHA256SUMS`, `latest.json`, and `*.sig` support checksum verification and the built-in auto-updater. See the README for how to verify downloads.
+            </details>
           releaseDraft: true
           includeUpdaterJson: true
           args: ${{ matrix.args }}

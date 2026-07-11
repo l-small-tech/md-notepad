@@ -39,7 +39,7 @@ function ModeSegments({ activeMode, tabId }: { activeMode: EditorMode; tabId: st
 }
 
 /**
- * Unobtrusive update chip (plan.md M7): appears only when a newer release is
+ * Unobtrusive update chip: appears only when a newer release is
  * known; one click downloads, installs, and relaunches. Never a dialog.
  */
 function UpdateChip() {
@@ -76,7 +76,13 @@ export function StatusBar() {
 
   return (
     <div className="statusbar">
-      <ModeSegments activeMode={active.mode} tabId={active.id} />
+      {active.readOnly ? (
+        <span className="statusbar-readonly" title="This document can be read but not edited">
+          Read-only
+        </span>
+      ) : (
+        <ModeSegments activeMode={active.mode} tabId={active.id} />
+      )}
       <div className="statusbar-notice" role="status">
         {notice}
       </div>
