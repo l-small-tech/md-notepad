@@ -1,6 +1,9 @@
 mod commands;
 
 use std::sync::Mutex;
+// Only the desktop single-instance closure below uses these traits
+// (emit_to / get_webview_window); on mobile that block is gated out.
+#[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
 /// File paths passed on the command line at first launch.
@@ -31,10 +34,18 @@ fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_files = file_args(&std::env::args().collect::<Vec<_>>());
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Desktop-only plugins. On mobile there is no second process to fold in, no
+    // native window geometry to persist, no self-updater (the store handles
+    // updates), and no process restart/exit — and single-instance does not even
+    // compile for Android/iOS. See the target-gated deps in Cargo.toml.
+    #[cfg(desktop)]
+    let builder = builder
         // single-instance must be the FIRST plugin registered (its docs) so it
         // can bail out before any other plugin does work in a doomed instance.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -66,10 +77,12 @@ pub fn run() {
                 )
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::default().build())
         .manage(StartupFiles(Mutex::new(startup_files)))

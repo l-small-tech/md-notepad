@@ -15,7 +15,10 @@
     "test": "vitest run",
     "check": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build --debug --apk",
+    "android:release": "tauri android build --apk --aab"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
