@@ -126,6 +126,24 @@ pub struct SafStat {
 #[derive(Deserialize)]
 struct SafUnit {}
 
+/* ---- On-device speech-to-text (voice comments) ------------------------- */
+
+/// The final transcript from a dictation session.
+#[derive(Serialize, Deserialize)]
+pub struct SttResult {
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+struct SttAvailable {
+    available: bool,
+}
+
+#[derive(Deserialize)]
+struct SttPermission {
+    granted: bool,
+}
+
 impl<R: Runtime> Androidfs<R> {
     /// The app-specific EXTERNAL files dir
     /// (`/storage/emulated/0/Android/data/<pkg>/files`), or `None` when external
@@ -255,6 +273,48 @@ impl<R: Runtime> Androidfs<R> {
     pub fn release_synced_tree(&self, tree_uri: String) -> crate::Result<()> {
         self.0
             .run_mobile_plugin::<SafUnit>("releaseSyncedTree", TreeArgs { tree_uri })
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /* ---- On-device speech-to-text (voice comments) --------------------- */
+
+    /// Whether on-device recognition is available on this device.
+    pub fn stt_available(&self) -> crate::Result<bool> {
+        self.0
+            .run_mobile_plugin::<SttAvailable>("sttAvailable", EmptyArgs {})
+            .map(|r| r.available)
+            .map_err(Into::into)
+    }
+
+    /// Current RECORD_AUDIO grant, without prompting.
+    pub fn stt_permission(&self) -> crate::Result<bool> {
+        self.0
+            .run_mobile_plugin::<SttPermission>("sttPermission", EmptyArgs {})
+            .map(|r| r.granted)
+            .map_err(Into::into)
+    }
+
+    /// Prompt for RECORD_AUDIO if needed; resolves the resulting grant.
+    pub fn stt_request_permission(&self) -> crate::Result<bool> {
+        self.0
+            .run_mobile_plugin::<SttPermission>("sttRequestPermission", EmptyArgs {})
+            .map(|r| r.granted)
+            .map_err(Into::into)
+    }
+
+    /// Start listening; blocks (async on the JS side) until the recognizer
+    /// reports the final transcript.
+    pub fn stt_start(&self) -> crate::Result<SttResult> {
+        self.0
+            .run_mobile_plugin::<SttResult>("startSpeech", EmptyArgs {})
+            .map_err(Into::into)
+    }
+
+    /// Stop listening; the final transcript still resolves the pending start.
+    pub fn stt_stop(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>("stopSpeech", EmptyArgs {})
             .map(|_| ())
             .map_err(Into::into)
     }

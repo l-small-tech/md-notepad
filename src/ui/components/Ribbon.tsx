@@ -25,6 +25,7 @@ import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink } from '../session';
+import { addCommentAtLine } from '../voice-comments';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -66,6 +67,29 @@ function zoom(step: number | 'reset'): void {
  * Relative link paths are auto-resolved to absolute against the document's own
  * directory so the CLI can find them regardless of where it was launched.
  */
+/**
+ * Start a voice comment anchored to the caret's line (desktop entry point; on
+ * mobile a long-press on the line does this). Gated out of WYSIWYG like the
+ * formatting controls — anchor tokens live in the CM6 source, and a rich-mode
+ * re-serialize could drop them.
+ */
+function addVoiceCommentAtCaret(): void {
+  const state = tabsStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (!tab) {
+    return;
+  }
+  if (tab.mode === 'wysiwyg') {
+    uiStore.getState().showNotice('Voice comments work in Markdown and Split modes.');
+    return;
+  }
+  const adapter = getSourceAdapter(tab.id);
+  if (!adapter) {
+    return;
+  }
+  void addCommentAtLine(tab.id, adapter.anchorLineAt());
+}
+
 function copyRawText(): void {
   const state = tabsStore.getState();
   const tab = state.tabs.find((t) => t.id === state.activeTabId);
@@ -148,6 +172,18 @@ function FormatControls() {
         onClick={(e) => insertFileLink({ image: true, absolute: !e.altKey })}
       >
         🖼
+      </button>
+
+      <span className="ribbon-divider" role="separator" />
+
+      <button
+        className="ribbon-btn"
+        aria-label="Add a voice comment"
+        title="Add a voice comment on the current line"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={addVoiceCommentAtCaret}
+      >
+        💬
       </button>
     </div>
   );

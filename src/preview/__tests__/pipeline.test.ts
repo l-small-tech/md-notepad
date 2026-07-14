@@ -68,6 +68,16 @@ describe('renderMarkdownToHtml — sanitize policy (invariant I6)', () => {
     const html = await renderMarkdownToHtml('[docs](https://example.com/docs)\n');
     expect(html).toContain('href="https://example.com/docs"');
   });
+
+  // Voice-comment anchor tokens are invisible HTML comments; the preview must
+  // render nothing for them (the feature relies on this — see src/core/comments.ts).
+  test('voice-comment anchor tokens are stripped from the rendered output', async () => {
+    const html = await renderMarkdownToHtml('## Setup <!-- ^c1a2 -->\n\nBody text.\n');
+    expect(html).toContain('Setup');
+    expect(html).toContain('Body text.');
+    expect(html).not.toContain('c1a2');
+    expect(html).not.toContain('<!--');
+  });
 });
 
 describe('createRenderSequence', () => {

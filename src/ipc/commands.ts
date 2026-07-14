@@ -162,6 +162,22 @@ export const ipc = {
       relPath,
     }),
   releaseSyncedTree: (treeUri: string) => call<void>('release_synced_tree', { treeUri }),
+  /**
+   * Android only — on-device speech-to-text for voice comments. These are native
+   * bridges (SpeechRecognizer), not storage ops, so they're called directly
+   * behind an `isAndroid()` check, never through a StorageProvider. Not
+   * registered on desktop.
+   *   - sttAvailable: is on-device recognition available on this device?
+   *   - sttPermission: current RECORD_AUDIO grant (no prompt).
+   *   - sttRequestPermission: prompt if needed; resolves the resulting grant.
+   *   - sttStart: begin listening; resolves the final transcript text.
+   *   - sttStop: stop listening (the final transcript still resolves sttStart).
+   */
+  sttAvailable: () => call<boolean>('stt_available'),
+  sttPermission: () => call<boolean>('stt_permission'),
+  sttRequestPermission: () => call<boolean>('stt_request_permission'),
+  sttStart: () => call<string>('stt_start'),
+  sttStop: () => call<void>('stt_stop'),
 };
 
 export type Ipc = typeof ipc;

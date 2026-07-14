@@ -1,3 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voice comments: on-device speech-to-text records from the mic. Declared
+         here in the plugin manifest so it merges into the (generated) app
+         manifest and survives app-manifest regeneration. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

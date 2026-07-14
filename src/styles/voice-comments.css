@@ -1,0 +1,168 @@
+/* Voice comments — capture sheet + transcript panel.
+ *
+ * One overlay serves both platforms: a right-side panel on desktop, a bottom
+ * sheet on mobile (body gets [data-android] — see main.tsx). Colours are all
+ * theme variables so it flips with the app. */
+
+.vc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+
+.vc-panel {
+  background: var(--bg);
+  color: var(--fg);
+  border-left: 1px solid var(--border);
+  width: min(380px, 92vw);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.22);
+}
+
+/* Mobile: dock to the bottom as a sheet. */
+.vc-backdrop.vc-android {
+  align-items: flex-end;
+  justify-content: stretch;
+}
+
+.vc-backdrop.vc-android .vc-panel {
+  width: 100%;
+  max-height: 70vh;
+  border-left: none;
+  border-top: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.22);
+}
+
+.vc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.vc-close {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 6px;
+}
+.vc-close:hover {
+  color: var(--fg);
+}
+
+.vc-body {
+  overflow-y: auto;
+  padding: 10px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Capture state */
+.vc-capturing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 14px;
+}
+.vc-pulse {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  animation: vc-pulse 1.3s ease-in-out infinite;
+}
+@keyframes vc-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.65; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+.vc-capture-label {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+/* Comment card */
+.vc-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-alt);
+}
+.vc-card-focus {
+  border-color: var(--accent);
+}
+.vc-card-orphan {
+  opacity: 0.85;
+}
+.vc-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+}
+.vc-orphan-tag {
+  color: var(--danger);
+}
+.vc-transcript {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 48px;
+}
+.vc-audio {
+  width: 100%;
+  margin-top: 8px;
+}
+.vc-empty {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.vc-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.vc-btn:hover {
+  border-color: var(--accent);
+}
+.vc-btn-danger {
+  border: none;
+  background: none;
+  color: var(--danger);
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}

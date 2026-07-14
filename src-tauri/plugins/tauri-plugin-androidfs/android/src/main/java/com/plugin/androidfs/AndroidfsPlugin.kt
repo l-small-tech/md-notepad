@@ -1,17 +1,26 @@
 package com.plugin.androidfs
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Base64
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
+import androidx.core.content.ContextCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
@@ -45,7 +54,11 @@ class SafRenameArgs {
     var newName: String? = null
 }
 
-@TauriPlugin
+@TauriPlugin(
+    permissions = [
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone"),
+    ],
+)
 class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
     // Incoming "Open with"/"Share" intents (VIEW/SEND/SEND_MULTIPLE) leave their
     // content:// URIs here. The frontend drains them via takeIncomingUris() at
@@ -605,4 +618,150 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
         docIdCache.remove(treeUri)
         invoke.resolve(JSObject())
     }
+
+    /* ---- On-device speech-to-text (voice comments) ----------------------- */
+    //
+    // Android's SpeechRecognizer with EXTRA_PREFER_OFFLINE keeps dictation on the
+    // device (no cloud, no UI overlay) — the app owns the mic via tap-and-hold.
+    // The recognizer MUST be created and driven on the main thread, and its
+    // results arrive asynchronously through a RecognitionListener, so we hold the
+    // startSpeech Invoke and resolve it from onResults / onError. v1 returns only
+    // the final transcript (partials are ignored) to keep this a clean
+    // request/response, mirroring every other command here.
+
+    private var recognizer: SpeechRecognizer? = null
+    private var speechInvoke: Invoke? = null
+
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    // Whether on-device recognition is available at all on this device.
+    @Command
+    fun sttAvailable(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("available", SpeechRecognizer.isRecognitionAvailable(activity))
+        invoke.resolve(ret)
+    }
+
+    // Current RECORD_AUDIO grant, without prompting: { granted }.
+    @Command
+    fun sttPermission(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("granted", hasMicPermission())
+        invoke.resolve(ret)
+    }
+
+    // Prompt for RECORD_AUDIO if needed; resolves { granted } after the user
+    // answers (or immediately if already granted).
+    @Command
+    fun sttRequestPermission(invoke: Invoke) {
+        if (hasMicPermission()) {
+            val ret = JSObject()
+            ret.put("granted", true)
+            invoke.resolve(ret)
+            return
+        }
+        requestPermissionForAlias("microphone", invoke, "sttPermissionCallback")
+    }
+
+    @PermissionCallback
+    fun sttPermissionCallback(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("granted", hasMicPermission())
+        invoke.resolve(ret)
+    }
+
+    // Start listening; resolves { text } with the final transcript, or rejects
+    // ("PERMISSION_DENIED" / "STT_BUSY" / "STT_UNAVAILABLE" / "STT_ERROR:<n>").
+    @Command
+    fun startSpeech(invoke: Invoke) {
+        if (!hasMicPermission()) {
+            invoke.reject("PERMISSION_DENIED")
+            return
+        }
+        activity.runOnUiThread {
+            if (speechInvoke != null) {
+                invoke.reject("STT_BUSY")
+                return@runOnUiThread
+            }
+            if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+                invoke.reject("STT_UNAVAILABLE")
+                return@runOnUiThread
+            }
+            speechInvoke = invoke
+            val rec = SpeechRecognizer.createSpeechRecognizer(activity)
+            recognizer = rec
+            rec.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+                override fun onError(error: Int) {
+                    resolveSpeech(null, error)
+                }
+                override fun onResults(results: Bundle?) {
+                    resolveSpeech(firstResult(results) ?: "", null)
+                }
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                )
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.packageName)
+            }
+            try {
+                rec.startListening(intent)
+            } catch (e: Exception) {
+                resolveSpeech(null, -1)
+            }
+        }
+    }
+
+    // Stop listening; the final transcript still arrives via onResults, resolving
+    // the pending startSpeech. This call itself just acknowledges.
+    @Command
+    fun stopSpeech(invoke: Invoke) {
+        activity.runOnUiThread {
+            try {
+                recognizer?.stopListening()
+            } catch (e: Exception) {
+                // Ignore — a torn-down recognizer needs no stop.
+            }
+        }
+        invoke.resolve(JSObject())
+    }
+
+    // Resolve/reject the held startSpeech invoke and destroy the recognizer.
+    // Runs on the main thread (called from listener callbacks or startSpeech).
+    private fun resolveSpeech(text: String?, error: Int?) {
+        val invoke = speechInvoke
+        speechInvoke = null
+        if (invoke != null) {
+            if (text != null) {
+                val ret = JSObject()
+                ret.put("text", text)
+                invoke.resolve(ret)
+            } else {
+                invoke.reject("STT_ERROR:${error ?: -1}")
+            }
+        }
+        recognizer?.let {
+            try {
+                it.destroy()
+            } catch (e: Exception) {
+                // Best effort.
+            }
+        }
+        recognizer = null
+    }
+
+    private fun firstResult(bundle: Bundle?): String? =
+        bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
 }
