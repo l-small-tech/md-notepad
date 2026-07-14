@@ -1,16 +1,25 @@
 /**
- * Built-in theme plugins, seeded into the themes folder on first run (only when
- * a file with the same id is absent) so they double as editable, AI-friendly
- * examples. These are the exact palettes that used to live as hard-coded blocks
- * in styles/themes.css — ported 1:1 (the authors' published hex values, lightly
- * adapted only where the app needs a variable the original doesn't name, e.g. a
- * recessed --editor-bg or a --selection tint). 'default' is NOT here: it is the
- * base.css palette and needs no plugin.
+ * Built-in theme plugins, seeded into the themes folder so they double as
+ * editable, AI-friendly examples. These are the exact palettes that used to live
+ * as hard-coded blocks in styles/themes.css — ported 1:1 (the authors' published
+ * hex values, lightly adapted only where the app needs a variable the original
+ * doesn't name, e.g. a recessed --editor-bg or a --selection tint). 'default' is
+ * NOT here: it is the base.css palette and needs no plugin.
+ *
+ * Each seeded file is stamped with SEED_VERSION. The loader (ipc/theme-loader.ts)
+ * writes a built-in when absent AND refreshes a copy whose stamped version is
+ * older than SEED_VERSION — so a definition change here (a fixed color, an added
+ * syntax block) reaches devices that seeded an earlier build, instead of the old
+ * write-once behavior that left stale files forever. Bump SEED_VERSION whenever
+ * any definition below changes.
  */
 
 import type { ThemePlugin } from './theme-plugins';
 
-export const BUILT_IN_THEMES: ThemePlugin[] = [
+/** Bump when any built-in definition below changes (see module comment). */
+export const SEED_VERSION = 1;
+
+const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   {
     id: 'solarized',
     name: 'Solarized',
@@ -293,3 +302,10 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
     },
   },
 ];
+
+/** The built-ins as seeded: every one stamped with the current SEED_VERSION so
+ *  the loader can tell a shipped copy apart from an older, stale one. */
+export const BUILT_IN_THEMES: ThemePlugin[] = BUILT_IN_THEME_DEFS.map((theme) => ({
+  ...theme,
+  version: SEED_VERSION,
+}));

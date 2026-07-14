@@ -89,6 +89,10 @@ export interface ThemePlugin {
   syntax?: SyntaxColors;
   /** Optional verbatim CSS appended after the palette blocks. */
   css?: string;
+  /** Seed-content version, stamped only on the built-in examples we write to the
+   *  themes folder. Lets the loader refresh a stale copy when the shipped
+   *  definition changes (see ipc/theme-loader.ts). User-authored themes omit it. */
+  version?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
