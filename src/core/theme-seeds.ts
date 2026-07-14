@@ -151,65 +151,145 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
       selection: '#403d52',
     },
   },
-  // Two originals inspired by the University of the Fraser Valley's visual
-  // identity — its PANTONE 349 forest green (web #00703c, "growth and
-  // transformation") over cool-grey neutrals. "Light Green" is the airy,
-  // green-tinted-paper reading of that palette; "Dark Green" is the deep
-  // emerald-forest reading. Each still ships both a light and a dark mode.
+  // Two originals drawn straight from the University of the Fraser Valley's live
+  // web palette (ufv.ca): PANTONE 349 forest green #00703c ("growth and
+  // transformation"), the fresh leaf-green #7cb232 it pairs with, pale-lime
+  // highlights (#daebbd/#cfe6a9), warm-orange #e45300, and charcoal — never pure
+  // black — over open, airy neutrals.
+  //
+  // These two are intentionally MODE-LOCKED: unlike the adaptive schemes above,
+  // each presents ONE character no matter the OS light/dark setting, because
+  // that character *is* the point — you pick the mood, not the machine.
+  //   • "Light Green" is a bright, high-contrast light theme for glare, daylight,
+  //     and meetings — near-white green-tinted paper, forest-green ink.
+  //   • "Dark Green" is a low-light dark theme that's easy on the eyes for long
+  //     or late sessions — deep emerald-forest with a soft (non-white) fg.
+  // The lock is achieved by giving `light` and `dark` the SAME palette: the
+  // renderer's dark block (higher specificity) then also overrides base.css's
+  // own dark defaults, so the look holds in either OS mode. Keep the two blocks
+  // in sync if you edit them — that's what pins the mood.
   {
     id: 'light-green',
     name: 'Light Green',
+    // Always-light. `dark` mirrors `light` on purpose (see note above).
     light: {
-      bg: '#eef3ea',
-      editorBg: '#f8fbf5',
-      bgAlt: '#e3ecdd',
-      bgHover: '#d6e3cf',
-      fg: '#222c25',
-      fgMuted: '#5c6b5f',
-      accent: '#00703c',
-      border: '#d9e4d3',
-      danger: '#b23a2b',
-      selection: '#c3e0c4',
+      bg: '#eaf1e4', // app chrome: pale green-grey
+      editorBg: '#fbfdf8', // writing surface: near-white, faint green warmth, bright for glare
+      bgAlt: '#e0ebd8', // raised panels / cards
+      bgHover: '#d3e3c9',
+      fg: '#1e2a20', // green-charcoal ink — high contrast for daylight readability
+      fgMuted: '#586a5b',
+      accent: '#00703c', // UFV PANTONE 349 forest green
+      border: '#d2e0c9',
+      danger: '#c62828', // readable alert red (near UFV #ce2127)
+      selection: '#cfe6a9', // UFV pale-lime highlight
     },
     dark: {
-      bg: '#182019',
-      editorBg: '#121a13',
-      bgAlt: '#202a22',
-      bgHover: '#2a352b',
-      fg: '#d6e3d4',
-      fgMuted: '#8ba08c',
-      accent: '#6fc48a',
-      border: '#2a352b',
-      danger: '#e39182',
-      selection: '#33493a',
+      bg: '#eaf1e4',
+      editorBg: '#fbfdf8',
+      bgAlt: '#e0ebd8',
+      bgHover: '#d3e3c9',
+      fg: '#1e2a20',
+      fgMuted: '#586a5b',
+      accent: '#00703c',
+      border: '#d2e0c9',
+      danger: '#c62828',
+      selection: '#cfe6a9',
+    },
+    syntax: {
+      // Headings walk UFV's forest-green → fresh-leaf-green range for hierarchy.
+      light: {
+        heading1: '#005c31', // deepest forest
+        heading2: '#00703c', // UFV primary
+        heading3: '#2f7d43',
+        heading4: '#47913c',
+        heading5: '#619f36',
+        heading6: '#7cb232', // UFV fresh leaf-green
+        bold: '#17241b', // strong green-charcoal
+        italic: '#5f7a63',
+        strikethrough: '#8a978c',
+        link: '#00703c',
+        code: '#b5451f', // burnt orange (UFV #e45300, darkened for a light bg)
+        quote: '#4e7358',
+        list: '#4f9e3c',
+      },
+      dark: {
+        heading1: '#005c31',
+        heading2: '#00703c',
+        heading3: '#2f7d43',
+        heading4: '#47913c',
+        heading5: '#619f36',
+        heading6: '#7cb232',
+        bold: '#17241b',
+        italic: '#5f7a63',
+        strikethrough: '#8a978c',
+        link: '#00703c',
+        code: '#b5451f',
+        quote: '#4e7358',
+        list: '#4f9e3c',
+      },
     },
   },
   {
     id: 'dark-green',
     name: 'Dark Green',
+    // Always-dark. `light` mirrors `dark` on purpose (see note above).
     light: {
-      bg: '#eaf1e8',
-      editorBg: '#f4f9f2',
-      bgAlt: '#dde8da',
-      bgHover: '#cddccb',
-      fg: '#16241b',
-      fgMuted: '#506657',
-      accent: '#086a3a',
-      border: '#d1dfce',
-      danger: '#a83828',
-      selection: '#b7dabf',
+      bg: '#111c15', // deep-forest chrome
+      editorBg: '#0c150f', // deepest writing surface
+      bgAlt: '#18261c', // raised panels
+      bgHover: '#223529',
+      fg: '#cbdcce', // soft green-white — deliberately not pure white, easy on the eyes
+      fgMuted: '#7d9585',
+      accent: '#56c07a', // lifted emerald: on-brand green that reads on dark without glowing
+      border: '#223529',
+      danger: '#e5766a', // soft coral-red for dark
+      selection: '#21503a', // forest highlight
     },
     dark: {
-      bg: '#0d1712',
-      editorBg: '#091210',
-      bgAlt: '#15221a',
-      bgHover: '#1e3024',
-      fg: '#cbe0d0',
-      fgMuted: '#789583',
-      accent: '#52c684',
-      border: '#1e3024',
-      danger: '#e58a7c',
-      selection: '#204a37',
+      bg: '#111c15',
+      editorBg: '#0c150f',
+      bgAlt: '#18261c',
+      bgHover: '#223529',
+      fg: '#cbdcce',
+      fgMuted: '#7d9585',
+      accent: '#56c07a',
+      border: '#223529',
+      danger: '#e5766a',
+      selection: '#21503a',
+    },
+    syntax: {
+      // Lifted greens on the deep bg; a warm-sand code color for contrast.
+      light: {
+        heading1: '#7fd39b', // brightest mint at the top level
+        heading2: '#6ac98a',
+        heading3: '#56c07a', // accent emerald
+        heading4: '#6fbf6e',
+        heading5: '#8ccb5f',
+        heading6: '#a6d96a', // fresh leaf-green, lifted
+        bold: '#e2efe3', // brighter than fg for clean emphasis
+        italic: '#93ab97',
+        strikethrough: '#6f8677',
+        link: '#4ec9a0', // teal-green, distinct from the heading greens
+        code: '#e0a878', // warm sand — pops against the greens
+        quote: '#8aa891',
+        list: '#8ecb62',
+      },
+      dark: {
+        heading1: '#7fd39b',
+        heading2: '#6ac98a',
+        heading3: '#56c07a',
+        heading4: '#6fbf6e',
+        heading5: '#8ccb5f',
+        heading6: '#a6d96a',
+        bold: '#e2efe3',
+        italic: '#93ab97',
+        strikethrough: '#6f8677',
+        link: '#4ec9a0',
+        code: '#e0a878',
+        quote: '#8aa891',
+        list: '#8ecb62',
+      },
     },
   },
 ];
