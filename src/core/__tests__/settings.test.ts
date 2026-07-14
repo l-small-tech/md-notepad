@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
-import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
+import {
+  COLOR_SCHEMES,
+  CURSOR_STYLES,
+  EDITOR_FONT_IDS,
+  UI_FONT_IDS,
+  WORKSPACE_COLORS,
+} from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -14,6 +20,7 @@ describe('normalizeSettings', () => {
     const settings = normalizeSettings({
       notesDir: 'D:/notes',
       theme: 'dark',
+      colorScheme: 'nord',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -33,6 +40,7 @@ describe('normalizeSettings', () => {
     expect(settings).toEqual({
       notesDir: 'D:/notes',
       theme: 'dark',
+      colorScheme: 'nord',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -55,6 +63,7 @@ describe('normalizeSettings', () => {
     const settings = normalizeSettings({
       notesDir: 123,
       theme: 'sepia',
+      colorScheme: 'neon',
       fontSize: 'big',
       editorFont: 'comic-sans',
       uiFont: 'papyrus',
@@ -154,6 +163,14 @@ describe('normalizeSettings', () => {
     // A font family name (rather than an id) is not accepted — defaults win.
     expect(normalizeSettings({ editorFont: 'Fira Code' }).editorFont).toBe('fira-code');
     expect(normalizeSettings({ uiFont: 'Inter' }).uiFont).toBe('match');
+  });
+
+  test('every color scheme is accepted; anything else defaults to default', () => {
+    for (const scheme of COLOR_SCHEMES) {
+      expect(normalizeSettings({ colorScheme: scheme }).colorScheme).toBe(scheme);
+    }
+    expect(normalizeSettings({ colorScheme: 'neon' }).colorScheme).toBe('default');
+    expect(normalizeSettings({}).colorScheme).toBe('default');
   });
 
   test('every reader-margins mode is accepted', () => {
