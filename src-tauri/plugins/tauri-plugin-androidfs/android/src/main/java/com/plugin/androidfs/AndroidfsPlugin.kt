@@ -464,7 +464,14 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
             resolver.registerContentObserver(childrenUri, false, observer)
             try {
                 val requested = try {
-                    DocumentsContract.refreshDocument(resolver, docUri(tree, docId), null, null)
+                    // ContentResolver.refresh forwards to DocumentsProvider.refresh,
+                    // asking the provider (e.g. Drive) to re-fetch this directory.
+                    // API 26+ only; on older devices we skip and just re-list below.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        resolver.refresh(docUri(tree, docId), null, null)
+                    } else {
+                        false
+                    }
                 } catch (_: Exception) {
                     false // provider doesn't implement refresh — nothing to wait for
                 }
