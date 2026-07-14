@@ -1,1 +1,0 @@
-- LOCKED feature/theme-merge-syntax-colors | agent=claude | since=2026-07-14T07:12Z | session=cc-e31f6c70
