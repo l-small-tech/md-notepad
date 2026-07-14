@@ -48,7 +48,14 @@
   font-weight: 600;
 }
 
-.vc-close {
+.vc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vc-close,
+.vc-add {
   background: none;
   border: none;
   color: var(--fg-muted);
@@ -57,8 +64,13 @@
   line-height: 1;
   padding: 4px 6px;
 }
-.vc-close:hover {
+.vc-close:hover,
+.vc-add:hover {
   color: var(--fg);
+}
+.vc-add {
+  color: var(--accent);
+  font-size: 1.25rem;
 }
 
 .vc-body {

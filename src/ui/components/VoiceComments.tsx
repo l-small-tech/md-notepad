@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+  addFromPanel,
   audioDataUrl,
   closePanel,
   deleteComment,
@@ -111,9 +112,21 @@ export function VoiceComments() {
       <div className="vc-panel" role="dialog" aria-label="Voice comments">
         <div className="vc-header">
           <span>{state.phase === 'capturing' ? 'New voice comment' : 'Voice comments'}</span>
-          <button className="vc-close" onClick={closePanel} aria-label="Close">
-            ✕
-          </button>
+          <div className="vc-header-actions">
+            {state.phase === 'viewing' && (
+              <button
+                className="vc-add"
+                onClick={() => void addFromPanel()}
+                aria-label="Add a voice comment"
+                title="Add a voice comment on the current line"
+              >
+                ＋
+              </button>
+            )}
+            <button className="vc-close" onClick={closePanel} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </div>
         {state.phase === 'capturing' ? (
           <CaptureView state={state} />
