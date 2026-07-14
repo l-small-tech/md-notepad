@@ -93,8 +93,11 @@ never touched. `pane.ts` keeps a `navStack` of `{ path, text }`:
   it (scrolled to top). Relative destinations resolve against the *current*
   page's directory, so chained relative links keep working. Images (and files
   that won't read as text) hand off to `onOpenFile` — they open in a tab.
-- A sticky **Back** button (`.preview-back`) leads the content whenever the
-  stack is non-empty; clicking it pops one entry, ending back at home.
+- A **Back** affordance appears whenever the stack is non-empty; it pops one
+  entry, ending back at home. It lives OUTSIDE the pane (the ribbon toolbar in
+  normal mode, the floating cluster in full screen) — the pane surfaces its
+  state via `onCanGoBackChange` and exposes `goBack()`, so nothing floats over
+  the reading column.
 - While browsing (stack non-empty) model edits are ignored — an edit to the
   underlying tab must not yank the reader off the page it's on.
 

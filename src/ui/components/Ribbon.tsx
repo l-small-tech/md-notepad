@@ -29,6 +29,7 @@ import { addCommentAtLine, openAllComments } from '../voice-comments';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
+import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
 
 /** Platform-correct shortcut hint for the fullscreen tooltips. */
 const FULLSCREEN_KEY = detectPlatform(navigator.platform) === 'mac' ? '⌃⌘F' : 'F11';
@@ -256,7 +257,14 @@ function ReaderControls() {
 }
 
 export function Ribbon() {
+  const activeTabId = useTabsStore((s) => s.activeTabId);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode ?? 'raw');
+  // Back appears only while browsing a followed link in the active tab's preview
+  // (read/split). It sits with the chrome, so full screen (which hides the
+  // ribbon) uses the floating cluster's Back instead — no in-pane bar either way.
+  const canGoBack = usePreviewNav(
+    (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
+  );
   return (
     <div className="ribbon">
       <div className="ribbon-left">
@@ -278,6 +286,21 @@ export function Ribbon() {
         >
           ⚙
         </button>
+        {canGoBack && (
+          <button
+            className="ribbon-btn ribbon-btn-lg"
+            aria-label="Back"
+            title="Back to the previous page"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (activeTabId) {
+                goBackPreview(activeTabId);
+              }
+            }}
+          >
+            ←
+          </button>
+        )}
       </div>
 
       {mode === 'read' ? <ReaderControls /> : <FormatControls />}

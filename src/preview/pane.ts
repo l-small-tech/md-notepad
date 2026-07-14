@@ -140,19 +140,9 @@ export function attachPreviewPane(
       return; // a newer render (text or theme change) already superseded this one
     }
     host.innerHTML = html;
-    // A Back button leads the content whenever we're browsing a followed link.
-    // Re-created each render (innerHTML wipes it); clicks route through the
-    // delegated `onClick` handler, so no per-render listener to clean up.
-    if (navStack.length > 0) {
-      const bar = document.createElement('div');
-      bar.className = 'preview-nav';
-      const back = document.createElement('button');
-      back.type = 'button';
-      back.className = 'preview-back';
-      back.textContent = '← Back';
-      bar.appendChild(back);
-      host.insertBefore(bar, host.firstChild);
-    }
+    // The Back affordance for followed links lives OUTSIDE the pane (the ribbon
+    // toolbar in normal mode, the fullscreen cluster in full screen) — surfaced
+    // via `onCanGoBackChange` — so nothing is injected into the content here.
     await renderMermaidBlocks(host, { dark });
     await inlineLocalImages(token);
   }
@@ -225,11 +215,6 @@ export function attachPreviewPane(
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
-    if (el.closest('.preview-back')) {
-      event.preventDefault();
-      goBack();
-      return;
-    }
     const anchor = el.closest('a');
     if (!anchor) {
       return;

@@ -99,8 +99,10 @@ export function App() {
  *  - Desktop: appears while the pointer is in the top reveal zone; once it drops
  *    below, it lingers briefly then hides. Overshooting the top edge fires no
  *    further movement, so the cluster stays put and stays clickable there.
- *  - Android: a pull-down from the top edge summons it (hover/edge-peek don't
- *    apply on touch); it auto-hides after a few seconds.
+ *  - Android: a DOUBLE-TAP near the top toggles it (a top-edge swipe would fight
+ *    the system notification shade); when shown it auto-hides after a few
+ *    seconds. In normal (non-full-screen) mode the ribbon is visible, so this
+ *    only matters in full screen.
  * `:focus-within` (CSS) also holds it open so it's reachable by keyboard.
  */
 function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
@@ -129,43 +131,45 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
       shown = true;
       setRevealed(true);
     };
+    const hide = () => {
+      clearHide();
+      shown = false;
+      setRevealed(false);
+    };
     const scheduleHide = () => {
       clearHide();
-      hideTimer = setTimeout(() => {
-        hideTimer = undefined;
-        shown = false;
-        setRevealed(false);
-      }, HIDE_MS);
+      hideTimer = setTimeout(hide, HIDE_MS);
     };
 
     if (android) {
-      // Pull-down: a touch that starts at the very top edge and drags down far
-      // enough reveals the cluster, which then auto-hides.
-      const EDGE_Y = 48; // the drag must start within this band of the top
-      const PULL = 56; // …and travel down at least this far
-      let startY: number | null = null;
-      const onStart = (e: TouchEvent) => {
-        const t = e.touches[0];
-        startY = t && t.clientY <= EDGE_Y ? t.clientY : null;
-      };
-      const onMove = (e: TouchEvent) => {
-        const t = e.touches[0];
-        if (startY !== null && t && t.clientY - startY > PULL) {
-          startY = null;
-          show();
-          scheduleHide();
+      // Double-tap near the top toggles the cluster. Two taps in the top band
+      // within the double-tap window flip it; showing arms an auto-hide. A
+      // top-edge swipe is deliberately NOT used — it collides with Android's
+      // notification shade and obscures these very buttons.
+      const TOP_ZONE = 140; // px band at the top where the double-tap counts
+      const DOUBLE_MS = 300; // max gap between the two taps
+      let lastTap = 0;
+      const onTap = (e: TouchEvent) => {
+        const t = e.changedTouches[0];
+        if (!t || t.clientY > TOP_ZONE) {
+          lastTap = 0; // a tap outside the zone breaks any pending double-tap
+          return;
+        }
+        if (e.timeStamp - lastTap < DOUBLE_MS) {
+          lastTap = 0;
+          if (shown) {
+            hide();
+          } else {
+            show();
+            scheduleHide();
+          }
+        } else {
+          lastTap = e.timeStamp;
         }
       };
-      const onEnd = () => {
-        startY = null;
-      };
-      window.addEventListener('touchstart', onStart, { passive: true });
-      window.addEventListener('touchmove', onMove, { passive: true });
-      window.addEventListener('touchend', onEnd, { passive: true });
+      window.addEventListener('touchend', onTap, { passive: true });
       return () => {
-        window.removeEventListener('touchstart', onStart);
-        window.removeEventListener('touchmove', onMove);
-        window.removeEventListener('touchend', onEnd);
+        window.removeEventListener('touchend', onTap);
         clearHide();
       };
     }
