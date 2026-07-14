@@ -76,6 +76,27 @@ export type CursorStyle = (typeof CURSOR_STYLES)[number];
 export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
 
 /**
+ * Editor color schemes — the palette family, chosen independently of light/dark
+ * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
+ * working). Each scheme supplies BOTH a light and a dark palette by overriding
+ * the ten `--bg`/`--fg`/`--accent`/… variables in styles/themes.css, keyed off
+ * `data-color-scheme` on <html>. Because the whole app (CM6, preview, reader)
+ * styles itself only through those variables, switching schemes needs no code
+ * beyond flipping the attribute. 'default' is the built-in blue/grey palette in
+ * base.css (it has no themes.css block — the base :root IS its palette).
+ */
+export const COLOR_SCHEMES = [
+  'default',
+  'solarized',
+  'nord',
+  'gruvbox',
+  'everforest',
+  'rose-pine',
+] as const;
+
+export type ColorScheme = (typeof COLOR_SCHEMES)[number];
+
+/**
  * Workspace accent colors — named tokens, not hex, so the palette can be
  * tuned per theme in CSS without touching persisted settings.
  */
@@ -160,6 +181,8 @@ export interface Settings {
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
   theme: 'system' | 'light' | 'dark';
+  /** Palette family; light-vs-dark still comes from `theme`. Default 'default'. */
+  colorScheme: ColorScheme;
   fontSize: number;
   /** Editor/content typeface. Default 'fira-code'. */
   editorFont: EditorFontId;

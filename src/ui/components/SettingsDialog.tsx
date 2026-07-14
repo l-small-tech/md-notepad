@@ -25,6 +25,15 @@ const THEMES: { value: Settings['theme']; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
+const COLOR_SCHEME_OPTIONS: { value: Settings['colorScheme']; label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'solarized', label: 'Solarized' },
+  { value: 'nord', label: 'Nord' },
+  { value: 'gruvbox', label: 'Gruvbox' },
+  { value: 'everforest', label: 'Everforest' },
+  { value: 'rose-pine', label: 'Rosé Pine' },
+];
+
 const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
   { value: 'split', label: 'Split' },
@@ -126,6 +135,21 @@ export function SettingsDialog() {
               {THEMES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-label">Color scheme</span>
+            <select
+              className="settings-control"
+              value={settings.colorScheme}
+              onChange={(e) => update({ colorScheme: e.target.value as Settings['colorScheme'] })}
+            >
+              {COLOR_SCHEME_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </select>

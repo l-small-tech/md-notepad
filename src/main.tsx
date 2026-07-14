@@ -38,6 +38,7 @@ import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/700.css';
 import './styles/base.css';
+import './styles/themes.css';
 import './styles/app.css';
 import './styles/preview.css';
 import { App } from './ui/App';
@@ -82,10 +83,13 @@ const IMAGE_FILTERS = [
 /* ---- Settings → DOM (theme, ligatures, fonts, editor font size) --------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize, editorFont, uiFont, readerMargins, cursorStyle } =
+  const { ligatures, fontSize, editorFont, uiFont, readerMargins, cursorStyle, colorScheme } =
     settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
+  // Palette family — themes.css maps each value (paired with data-theme) to the
+  // ten color variables; 'default' has no block and falls through to base.css.
+  root.dataset.colorScheme = colorScheme;
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
   // Editor/content typeface; the UI chrome either follows it ('match', the

@@ -8,8 +8,15 @@
  * schema library: a handful of fields doesn't justify a dependency.
  */
 
-import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from './types';
+import {
+  COLOR_SCHEMES,
+  CURSOR_STYLES,
+  EDITOR_FONT_IDS,
+  UI_FONT_IDS,
+  WORKSPACE_COLORS,
+} from './types';
 import type {
+  ColorScheme,
   CursorStyle,
   EditorFontId,
   Settings,
@@ -21,6 +28,7 @@ import type {
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
   theme: 'system',
+  colorScheme: 'default',
   fontSize: 14,
   editorFont: 'fira-code',
   uiFont: 'match',
@@ -107,6 +115,9 @@ export function normalizeSettings(raw: unknown): Settings {
   return {
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
     theme: r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme,
+    colorScheme: (COLOR_SCHEMES as readonly unknown[]).includes(r.colorScheme)
+      ? (r.colorScheme as ColorScheme)
+      : d.colorScheme,
     fontSize:
       typeof r.fontSize === 'number' && Number.isFinite(r.fontSize)
         ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(r.fontSize)))
