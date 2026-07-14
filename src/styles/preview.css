@@ -116,43 +116,9 @@
   color: var(--md-list, inherit);
 }
 
-/* ---- In-pane reader navigation (Back button) --------------------------- */
-
-/* Sticks to the top of the scroll container so it's reachable however far the
-   reader has scrolled into a followed link. An opaque background plus a hairline
-   bottom border give the followed text a clean edge to slide under, so the bar
-   reads as a fixed toolbar rather than a button floating over the words. */
-.preview-nav {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin: 0 0 1em;
-  padding: 0.5em 0;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
-
-/* In full screen the Back affordance moves into the floating control cluster
-   (App.tsx) so it hides with the exit/stage buttons and never fights the
-   window-drag strip. Hide the in-pane bar there to avoid a duplicate. */
-.app-fullscreen .preview-nav {
-  display: none;
-}
-
-.preview-back {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  color: var(--accent);
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-
-.preview-back:hover {
-  border-color: var(--accent);
-}
+/* The in-pane reader "Back" bar is gone: following a link surfaces Back to the
+   ribbon toolbar (normal mode) and the fullscreen control cluster (full screen)
+   via the preview-nav store, so nothing floats over the reading column. */
 
 .preview blockquote {
   margin: 0.8em 0;

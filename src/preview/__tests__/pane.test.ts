@@ -197,11 +197,16 @@ describe('attachPreviewPane', () => {
     expect(el.innerHTML).not.toContain('two');
   });
 
-  test('clicking a local markdown link follows it in the pane with a Back button', async () => {
+  test('following a local markdown link surfaces the Back affordance', async () => {
     readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
+    const onCanGoBackChange = vi.fn();
     const model = createDocModel('[go](other.md)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onCanGoBackChange,
+    });
     await vi.runOnlyPendingTimersAsync();
 
     expect(click(el.querySelector('a')!)).toBe(true);
@@ -209,26 +214,31 @@ describe('attachPreviewPane', () => {
 
     expect(readTextFileMock).toHaveBeenCalledWith('/ws/other.md');
     expect(el.innerHTML).toContain('<h1>Linked Page</h1>');
-    expect(el.querySelector('.preview-back')).not.toBeNull();
+    expect(onCanGoBackChange).toHaveBeenLastCalledWith(true);
     expect(openUrlMock).not.toHaveBeenCalled();
     pane.dispose();
   });
 
-  test('Back returns to the tab document and hides the Back button', async () => {
+  test('goBack() returns to the tab document and clears the Back affordance', async () => {
     readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
+    const onCanGoBackChange = vi.fn();
     const model = createDocModel('# Home\n\n[go](other.md)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onCanGoBackChange,
+    });
     await vi.runOnlyPendingTimersAsync();
 
     click(el.querySelector('a')!);
     await vi.runOnlyPendingTimersAsync();
     expect(el.innerHTML).toContain('Linked Page');
 
-    click(el.querySelector('.preview-back')!);
+    pane.goBack();
     await vi.runOnlyPendingTimersAsync();
     expect(el.innerHTML).toContain('<h1>Home</h1>');
-    expect(el.querySelector('.preview-back')).toBeNull();
+    expect(onCanGoBackChange).toHaveBeenLastCalledWith(false);
     pane.dispose();
   });
 
@@ -251,31 +261,43 @@ describe('attachPreviewPane', () => {
 
   test('a link to an image opens in a tab instead of the pane', async () => {
     const onOpenFile = vi.fn();
+    const onCanGoBackChange = vi.fn();
     const model = createDocModel('[pic](photo.png)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md', onOpenFile });
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onOpenFile,
+      onCanGoBackChange,
+    });
     await vi.runOnlyPendingTimersAsync();
 
     click(el.querySelector('a')!);
     await vi.runOnlyPendingTimersAsync();
     expect(onOpenFile).toHaveBeenCalledWith('/ws/photo.png');
     expect(readTextFileMock).not.toHaveBeenCalled();
-    expect(el.querySelector('.preview-back')).toBeNull();
+    expect(onCanGoBackChange).not.toHaveBeenCalled(); // no in-pane navigation happened
     pane.dispose();
   });
 
   test('an unreadable local link falls back to opening in a tab', async () => {
     readTextFileMock.mockRejectedValue(new Error('not text'));
     const onOpenFile = vi.fn();
+    const onCanGoBackChange = vi.fn();
     const model = createDocModel('[data](blob.bin)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md', onOpenFile });
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onOpenFile,
+      onCanGoBackChange,
+    });
     await vi.runOnlyPendingTimersAsync();
 
     click(el.querySelector('a')!);
     await vi.runOnlyPendingTimersAsync();
     expect(onOpenFile).toHaveBeenCalledWith('/ws/blob.bin');
-    expect(el.querySelector('.preview-back')).toBeNull();
+    expect(onCanGoBackChange).not.toHaveBeenCalled();
     pane.dispose();
   });
 
