@@ -1,1 +1,0 @@
-- LOCKED feature/read-default-mobile | agent=cc | since=2026-07-14T07:15Z | session=cc-read-default
