@@ -383,49 +383,59 @@
   opacity: 1;
 }
 
-/* Desktop: a full-width bar tucked just above the top edge that slides down
-   (Chrome-style) when the mouse reaches the top. A thin trigger strip catches
-   that hover; hovering the bar itself keeps it open. In the 'window' stage the
-   bar is a Tauri drag region, so it's an easy grab-to-move handle for the
-   otherwise titlebar-less window. */
-.fullscreen-trigger {
+/* Desktop: a single ✕ tucked just above the top-center edge that slides down
+   when the mouse moves into that area. A small top-center trigger strip catches
+   the hover; hovering the ✕ itself keeps it open. Nothing spans the full width. */
+.fullscreen-exit-trigger {
   position: fixed;
   top: 0;
-  left: 0;
-  right: 0;
-  height: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Generous top-center hover zone so the ✕ is easy to summon. */
+  width: clamp(280px, 32vw, 520px);
+  height: 64px;
   z-index: 41;
 }
 
-.fullscreen-topbar {
+.fullscreen-topcenter {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 42;
+  display: flex;
+  gap: 6px;
+  /* Tucked fully above the top edge until revealed. */
+  transform: translate(-50%, calc(-100% - 16px));
+  transition: transform 160ms ease;
+}
+
+.fullscreen-topcenter .fullscreen-btn {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.fullscreen-exit-trigger:hover + .fullscreen-topcenter,
+.fullscreen-topcenter:hover,
+.fullscreen-topcenter:focus-within {
+  transform: translate(-50%, 0);
+}
+
+/* 'window' stage: an invisible strip over the top of the view that grabs-to-move
+   the otherwise titlebar-less window. Sits below the top-center cluster (z 41/42)
+   so those controls stay hoverable/clickable. Titlebar-height by default (so it
+   doesn't swallow the first editor lines in edit modes); taller in Read mode to
+   cover the reading column's top whitespace (~3 lines). */
+.fullscreen-drag-strip {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: 40px;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 0 14px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-  transform: translateY(-100%);
-  transition: transform 160ms ease;
-}
-
-/* The 'window' stage keeps the OS window in place, so the bar doubles as the
-   missing titlebar — grab anywhere on it (not the buttons) to drag the window. */
-.fullscreen-topbar-drag {
+  height: 2.25rem;
+  z-index: 39;
   cursor: grab;
 }
 
-.fullscreen-trigger:hover + .fullscreen-topbar,
-.fullscreen-topbar:hover,
-.fullscreen-topbar:focus-within {
-  transform: translateY(0);
+.fullscreen-drag-strip-read {
+  height: 4.5rem;
 }
 
 .fullscreen-btn {

@@ -364,6 +364,20 @@ pub async fn external_files_dir(app: tauri::AppHandle) -> Result<Option<String>,
     app.androidfs().external_files_dir().map_err(|e| e.to_string())
 }
 
+/// Extract the bundled `docs` asset folder to a real filesystem path and return
+/// it. On Android the guide ships as compressed APK assets (`resolveResource`
+/// would yield an `asset://` URI), but the explorer's list/read commands all use
+/// `std::fs`, so Settings "Open docs" needs a POSIX copy. Delegates to the
+/// `androidfs` plugin (Kotlin holds the AssetManager). Errors are plain strings
+/// (not `FsError`): the sole caller `resolveDocsDir` treats any failure as "docs
+/// unavailable" and shows a notice, so a rich code is moot.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn extract_docs_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().extract_docs_dir().map_err(|e| e.to_string())
+}
+
 /// Read a `content://` URI's bytes (base64) + display name — for copy-into-app
 /// open of an external file chosen via the Android picker (Stage 2) or delivered
 /// by an incoming intent (Stage 3). Delegates to the `androidfs` plugin.

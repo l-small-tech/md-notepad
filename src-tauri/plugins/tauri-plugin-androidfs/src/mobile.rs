@@ -58,6 +58,18 @@ impl<R: Runtime> Androidfs<R> {
             .map_err(Into::into)
     }
 
+    /// Extract the bundled `docs` asset folder to a real filesystem path
+    /// (`filesDir/docs`) and return it. The APK ships docs as compressed assets
+    /// that our `std::fs` commands can't read, so this copies them out on each
+    /// call (overwriting, so an app update refreshes the guide). `None` only if
+    /// the plugin reports no path.
+    pub fn extract_docs_dir(&self) -> crate::Result<Option<String>> {
+        self.0
+            .run_mobile_plugin::<ExternalDirResponse>("extractDocs", EmptyArgs {})
+            .map(|r| r.path)
+            .map_err(Into::into)
+    }
+
     /// Read a `content://`/`file://` URI's bytes once (base64) plus its display
     /// name — the source for copy-into-app open of external files.
     pub fn read_content_uri(&self, uri: String) -> crate::Result<ContentPayload> {

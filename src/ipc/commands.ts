@@ -110,6 +110,14 @@ export const ipc = {
    */
   externalFilesDir: () => call<string | null>('external_files_dir'),
   /**
+   * Android only: extract the bundled docs assets to a real filesystem path and
+   * return it (null if unavailable). The APK ships docs as compressed assets the
+   * std::fs-based read/list commands can't touch, so Settings "Open docs" needs
+   * a POSIX copy. Not registered on desktop — only call behind an Android check
+   * (see src/ipc/paths.ts).
+   */
+  extractDocsDir: () => call<string | null>('extract_docs_dir'),
+  /**
    * Android only: read a `content://` URI's bytes (base64) + display name, for
    * copy-into-app open of an external file (picker or "Open with" intent). Not
    * registered on desktop — only call it behind an Android platform check.

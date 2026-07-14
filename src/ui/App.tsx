@@ -23,6 +23,7 @@ import { isAndroid } from './platform';
 export function App() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
   const fullscreenView = useUiStore((s) => s.fullscreenView);
 
   useEffect(() => {
@@ -62,24 +63,36 @@ export function App() {
       <StatusBar />
       <SettingsDialog />
       {fullscreenView !== 'normal' && <FullscreenControls stage={fullscreenView} />}
+      {/* The 'window' stage hides all chrome and leaves the OS window in place, so
+          there's no titlebar to grab. A strip over the top of the view doubles as
+          the grab-to-move handle in every mode. It fires only on itself, so content
+          below stays interactive. In Read mode it's tall (~3 lines of top
+          whitespace); in edit modes it's titlebar-height so it doesn't swallow the
+          first editor lines. */}
+      {fullscreenView === 'window' && (
+        <div
+          className={`fullscreen-drag-strip${activeMode === 'read' ? ' fullscreen-drag-strip-read' : ''}`}
+          data-tauri-drag-region=""
+        />
+      )}
     </div>
   );
 }
 
 /**
  * The chrome (with the ribbon's fullscreen button) is hidden in full screen, so
- * these floating controls are the always-there way back. Each glyph has one
- * fixed meaning: ⤢ = full window, ⛶ = full screen, ✕ = exit; only the toggle
- * for the stage you're NOT in shows, plus exit. F11/Esc remain the keyboard paths.
+ * these floating controls are the always-there way back. F11 cycles stages and
+ * Esc steps back; the mouse gets a small cluster: the stage toggle for the stage
+ * you're NOT in (⛶ = full screen from 'window', ⤢ = full window from 'screen')
+ * plus an exit ✕.
  *
- * Desktop: the controls ride a full-width bar that stays tucked above the top
- * edge and slides down (Chrome-style) when the mouse reaches the top — a thin
- * trigger strip catches that hover. In the 'window' stage (OS window unchanged,
- * no titlebar) the bar is a `data-tauri-drag-region`, so grabbing it drags the
- * window; in 'screen' stage the window is already OS-fullscreen, so no drag.
+ * Desktop: the cluster is tucked just above the top-CENTER edge and slides down
+ * when the mouse moves into that area — a generous top-center trigger strip
+ * catches the hover. Nothing spans the full width (that full-width reveal bar
+ * read as cheap/janky). Window dragging in the 'window' stage lives in a
+ * separate strip over the top of the view (see App), not here.
  *
- * Android: hover and window dragging don't apply, so keep the quiet, always-on
- * top-right controls instead.
+ * Android: hover doesn't apply, so keep the quiet, always-on top-right controls.
  */
 function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
   const buttons = (
@@ -121,18 +134,13 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
     return <div className="fullscreen-controls">{buttons}</div>;
   }
 
-  // The thin trigger strip is a sibling BEFORE the bar so `:hover` on it reveals
-  // the bar via the adjacent-sibling selector; hovering the bar itself keeps it
-  // open. Only the 'window' stage is draggable (see doc comment).
+  // The trigger strip is a sibling BEFORE the cluster so `:hover` on it reveals
+  // the cluster via the adjacent-sibling selector; hovering the cluster itself
+  // keeps it open.
   return (
     <>
-      <div className="fullscreen-trigger" />
-      <div
-        className={`fullscreen-topbar${stage === 'window' ? ' fullscreen-topbar-drag' : ''}`}
-        {...(stage === 'window' ? { 'data-tauri-drag-region': '' } : {})}
-      >
-        {buttons}
-      </div>
+      <div className="fullscreen-exit-trigger" />
+      <div className="fullscreen-topcenter">{buttons}</div>
     </>
   );
 }

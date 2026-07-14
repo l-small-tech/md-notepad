@@ -13,6 +13,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
 
 @InvokeArg
 class ReadUriArgs {
@@ -78,6 +79,43 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
             ret.put("path", dir.absolutePath)
         }
         invoke.resolve(ret)
+    }
+
+    // Extract the bundled `docs` asset folder to a real filesystem path.
+    // The APK ships the user guide as compressed assets (a `resolveResource`
+    // path would be an `asset://` URI), but the app's read/list/stat commands
+    // all use std::fs, which can't touch assets. So copy the tree into internal
+    // storage (`filesDir/docs`) once per launch — overwriting, so an app update
+    // refreshes the guide — and hand back that POSIX path. Resolves { path }.
+    @Command
+    fun extractDocs(invoke: Invoke) {
+        try {
+            val dest = File(activity.filesDir, "docs")
+            copyAsset("docs", dest)
+            val ret = JSObject()
+            ret.put("path", dest.absolutePath)
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "extract failed")
+        }
+    }
+
+    // Recursively copy an APK asset path to `dest`, overwriting files.
+    // AssetManager.list() returns a directory's children, or an empty array for
+    // a file — our docs tree has no empty directories, so empty means "leaf".
+    private fun copyAsset(assetPath: String, dest: File) {
+        val children = activity.assets.list(assetPath) ?: emptyArray()
+        if (children.isEmpty()) {
+            dest.parentFile?.mkdirs()
+            activity.assets.open(assetPath).use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            return
+        }
+        dest.mkdirs()
+        for (child in children) {
+            copyAsset("$assetPath/$child", File(dest, child))
+        }
     }
 
     // Read a content:// (or file://) URI's bytes once, for copy-into-app open.

@@ -55,8 +55,18 @@ export async function resolvePaths(
  * The bundled user documentation folder (tauri.conf.json bundles ../docs as a
  * `docs` resource). Null when resolution fails (e.g. outside a Tauri webview);
  * the Settings "Open docs" button degrades to a notice then.
+ *
+ * On Android the resource lives inside the APK as a compressed asset, so
+ * `resolveResource` would return an `asset://` URI our std::fs-based read/list
+ * commands can't touch. Instead we ask Rust to extract the tree to a real
+ * internal-storage path (see `ipc.extractDocsDir`) and hand that back.
  */
-export async function resolveDocsDir(): Promise<string | null> {
+export async function resolveDocsDir(
+  platform: Runtime = detectRuntime(),
+): Promise<string | null> {
+  if (platform === 'android') {
+    return await ipc.extractDocsDir().catch(() => null);
+  }
   try {
     return await resolveResource('docs');
   } catch {

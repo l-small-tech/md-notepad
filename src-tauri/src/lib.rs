@@ -118,6 +118,8 @@ pub fn run() {
             commands::fs::delete_path,
             commands::fs::stat_path,
             #[cfg(target_os = "android")]
+            commands::fs::extract_docs_dir,
+            #[cfg(target_os = "android")]
             commands::fs::external_files_dir,
             #[cfg(target_os = "android")]
             commands::fs::read_content_uri,
