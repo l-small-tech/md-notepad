@@ -1,0 +1,1 @@
+- LOCKED fix/fullscreen-controls-and-back-button | agent=claude | since=2026-07-14T22:41Z | session=cc-fullscreen
