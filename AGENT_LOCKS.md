@@ -1,1 +1,0 @@
-- LOCKED fix/mobile-single-fullscreen | agent=claude | since=2026-07-14T23:40Z | session=cc-mobile-fs
