@@ -682,6 +682,29 @@ export function FileExplorer() {
         onPaste={handlePaste}
       >
         <div className="file-explorer-header">
+          {/* Android has no persistent ribbon in reach of the thumb, so give the
+              drawer its own way out — a back button that closes it (the ☰ toggle
+              is easy to miss). Desktop keeps the ribbon toggle, so it's hidden
+              there. */}
+          {isAndroid() && (
+            <button
+              className="file-explorer-action file-explorer-back"
+              aria-label="Close file explorer"
+              title="Close"
+              onClick={() => uiStore.getState().toggleExplorer()}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                <path
+                  d="M8 2.5 4 6.5l4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+          )}
           <span className="file-explorer-title">Workspaces</span>
           <div className="file-explorer-actions">
             {/* Android: pick a synced folder (Drive/OneDrive/SD card) via SAF.

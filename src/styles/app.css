@@ -518,6 +518,16 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--fg-muted);
+  /* Absorb the free space to the title's right so the (Android-only) back
+     button and title stay grouped on the left and the actions sit far right. */
+  margin-right: auto;
+}
+
+/* The back button (Android) leads the header; nudge it left to the edge and
+   give the title a little breathing room after it. */
+.file-explorer-back {
+  margin-left: -2px;
+  margin-right: 4px;
 }
 
 .file-explorer-actions {
