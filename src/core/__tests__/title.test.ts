@@ -1,11 +1,39 @@
 import { describe, expect, test } from 'vitest';
 import {
+  deriveImportName,
   deriveTitle,
   dropTrailingExtension,
   sanitizeFileBaseName,
   slugifyTitle,
   stripExtension,
 } from '../title';
+
+describe('deriveImportName', () => {
+  test('splits base and extension, preserving casing/spaces', () => {
+    expect(deriveImportName('Meeting Notes.md')).toEqual({ base: 'Meeting Notes', ext: '.md' });
+  });
+
+  test('keeps a non-md extension', () => {
+    expect(deriveImportName('todo.markdown')).toEqual({ base: 'todo', ext: '.markdown' });
+  });
+
+  test('defaults the extension to .md when there is none', () => {
+    expect(deriveImportName('README')).toEqual({ base: 'README', ext: '.md' });
+  });
+
+  test('falls back to imported.md for a missing name', () => {
+    expect(deriveImportName(null)).toEqual({ base: 'imported', ext: '.md' });
+    expect(deriveImportName('')).toEqual({ base: 'imported', ext: '.md' });
+  });
+
+  test('splits on the LAST dot for multi-dotted names', () => {
+    expect(deriveImportName('archive.tar.gz')).toEqual({ base: 'archive.tar', ext: '.gz' });
+  });
+
+  test('sanitises illegal path characters in the base', () => {
+    expect(deriveImportName('a/b:c.md')).toEqual({ base: 'a b c', ext: '.md' });
+  });
+});
 
 describe('deriveTitle', () => {
   test('uses the first non-blank line', () => {

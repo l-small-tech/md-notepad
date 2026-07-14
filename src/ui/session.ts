@@ -41,6 +41,7 @@ import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
 import { pickUnusedColor } from '../core/settings';
 import {
+  deriveImportName,
   dropTrailingExtension,
   sanitizeFileBaseName,
   slugifyTitle,
@@ -49,7 +50,9 @@ import {
 import { planNoteMoves } from '../core/notes-move';
 import { getSourceAdapter } from './editor-registry';
 import type { CursorPos, WorkspaceColor } from '../core/types';
-import { ipc as realIpc, type Ipc } from '../ipc/commands';
+import { ipc as nativeIpc, type Ipc } from '../ipc/commands';
+import { currentProvider } from '../ipc/provider';
+import { isAndroid } from './platform';
 import type { SessionPaths } from '../ipc/paths';
 import { setFlushRequester } from './stores/flush-signal';
 import { settingsStore } from './stores/settings';
@@ -147,6 +150,11 @@ export interface SessionController {
   closeAllTabsInteractive(): Promise<void>;
   /** Ctrl+O: native open dialog, then {@link openPaths}. */
   openFileDialog(): Promise<void>;
+  /**
+   * Android: copy external files (content:// URIs from the picker or incoming
+   * "Open with"/"Share" intents) into the notes dir and open the local copies.
+   */
+  openIncoming(uris: string[]): Promise<void>;
   /**
    * Open each path as a file tab; focuses the existing tab if already open.
    * `preview` opens a reusable italic preview tab (explorer single-click).
@@ -523,7 +531,9 @@ function persistedToInit(tab: PersistedTab, text: string, dirty = false): Restor
 }
 
 export function createSessionController(deps: SessionControllerDeps): SessionController {
-  const ipc = deps.ipc ?? realIpc;
+  // Route all fs I/O through the active storage provider (local FS today; a
+  // future cloud drive swaps in via setProvider). Tests still inject deps.ipc.
+  const ipc = deps.ipc ?? currentProvider();
   const confirm = deps.confirm ?? (async () => true);
   // Safe defaults for when a dependency is never injected (e.g. a test that
   // doesn't exercise file dialogs): open/save do nothing rather than guess a
@@ -1087,7 +1097,43 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (!selected || selected.length === 0) {
       return;
     }
-    await openPaths(selected);
+    // On Android the picker hands back content:// URIs that std::fs can't read;
+    // copy them into the notes dir and open the local copies instead.
+    if (isAndroid()) {
+      await copyInExternal(selected);
+    } else {
+      await openPaths(selected);
+    }
+  }
+
+  /**
+   * Android: copy external file(s) — content:// URIs from the picker or an
+   * "Open with" intent — INTO the notes dir, then open the local copies. std::fs
+   * can't read a content URI, so we read the bytes once via the androidfs plugin
+   * (`readContentUri`, a native bridge, not a storage op — hence the direct ipc
+   * call) and write a note. Edits then save to the app copy, not the original.
+   */
+  async function copyInExternal(uris: string[]): Promise<void> {
+    const targets: string[] = [];
+    let failed = 0;
+    for (const uri of uris) {
+      try {
+        const { base64, displayName } = await nativeIpc.readContentUri(uri);
+        const { base, ext } = deriveImportName(displayName);
+        const target = await uniquePathIn(notesDir, base, ext);
+        await ipc.writeFileBase64(target, base64);
+        targets.push(target);
+      } catch (error) {
+        failed += 1;
+        deps.onError?.(error);
+      }
+    }
+    if (targets.length > 0) {
+      await openPaths(targets);
+    }
+    if (failed > 0) {
+      uiStore.getState().showNotice(`Could not open ${failed} file(s).`);
+    }
   }
 
   /**
@@ -2146,6 +2192,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     closeTabInteractive,
     closeAllTabsInteractive,
     openFileDialog,
+    openIncoming: copyInExternal,
     openPaths,
     saveActive,
     saveAsActive,

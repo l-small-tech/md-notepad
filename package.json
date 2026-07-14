@@ -16,6 +16,7 @@
     "check": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build --debug --apk",
     "android:release": "tauri android build --apk --aab"

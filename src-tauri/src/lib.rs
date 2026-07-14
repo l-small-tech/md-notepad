@@ -80,6 +80,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
+    // Android-only: native Context APIs (external files dir now; content:// reads
+    // and incoming intents later) that pure-Rust JNI can't reach in Tauri.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_androidfs::init());
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -100,6 +105,12 @@ pub fn run() {
             commands::fs::rename_path,
             commands::fs::delete_path,
             commands::fs::stat_path,
+            #[cfg(target_os = "android")]
+            commands::fs::external_files_dir,
+            #[cfg(target_os = "android")]
+            commands::fs::read_content_uri,
+            #[cfg(target_os = "android")]
+            commands::fs::take_incoming_uris,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

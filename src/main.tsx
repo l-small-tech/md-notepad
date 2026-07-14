@@ -64,6 +64,7 @@ import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { resolveDocsDir, resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
+import { isAndroid } from './ui/platform';
 import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
@@ -177,9 +178,15 @@ async function spawnTabWindow(
 
 let lastWindowTitle = '';
 
+// A dev run (`npm run tauri:dev`) serves the frontend from Vite, so import.meta
+// .env.DEV is true here but false in the built release. Tag the window/taskbar
+// title so a dev instance is obvious next to an installed release (the amber
+// icon from tauri.dev.conf.json is the other half of that distinction).
+const APP_NAME = import.meta.env.DEV ? 'MD Notepad Dev' : 'MD Notepad';
+
 function applyWindowTitle(): void {
   const active = tabsStore.getState().activeTab();
-  const title = active ? `${tabDisplayTitle(active)} — MD Notepad` : 'MD Notepad';
+  const title = active ? `${tabDisplayTitle(active)} — ${APP_NAME}` : APP_NAME;
   if (title === lastWindowTitle) {
     return;
   }
@@ -440,6 +447,21 @@ async function boot(): Promise<void> {
       .catch(() => {});
   }
 
+  // Android: files from an "Open with"/"Share" intent arrive as content:// URIs
+  // held in the androidfs plugin. Drain them at boot (cold-start intent) and on
+  // window focus (warm start — a new intent resumes the app). copyInExternal
+  // copies each into the notes dir and opens the local copy.
+  const drainIncomingUris = (): void => {
+    if (!isAndroid()) {
+      return;
+    }
+    void ipc
+      .takeIncomingUris()
+      .then((uris) => (uris.length > 0 ? controller.openIncoming(uris) : undefined))
+      .catch(() => {});
+  };
+  drainIncomingUris();
+
   // Second-instance argv (user opens a .md while the app runs). Windows close
   // independently, so main may be gone by then — the Rust single-instance
   // callback targets exactly one surviving window (main preferred); every
@@ -530,6 +552,8 @@ async function boot(): Promise<void> {
     .onFocusChanged(({ payload: focused }) => {
       if (focused) {
         void controller.checkAllFileConflicts();
+        // A warm-start "Open with"/"Share" intent refocuses the window.
+        drainIncomingUris();
       } else {
         void controller.flushNow();
       }
@@ -544,7 +568,11 @@ async function boot(): Promise<void> {
     await controller.flushNow();
     await delay(600); // give the other windows a beat to finish their flush
   });
-  if (IS_MAIN_WINDOW) {
+  // The updater/process plugins are desktop-only (mobile updates via the store),
+  // so skip the check on Android — otherwise it logs "updater.check not allowed".
+  // Also skip in a dev run: it points at the release's endpoint (different
+  // identifier) and a "restart to update" prompt makes no sense for `cargo run`.
+  if (IS_MAIN_WINDOW && !isAndroid() && !import.meta.env.DEV) {
     setTimeout(() => void checkForUpdate({ manual: false }), 3000);
   }
 

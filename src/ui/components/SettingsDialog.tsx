@@ -14,6 +14,7 @@ import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/ty
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
+import { currentProvider } from '../../ipc/provider';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { uiStore, useUiStore } from '../stores/ui';
 import { checkForUpdate, useUpdateStore } from '../update';
@@ -317,9 +318,12 @@ export function SettingsDialog() {
               <span className="settings-path" title={settings.notesDir ?? undefined}>
                 {settings.notesDir ?? 'Default (app data folder)'}
               </span>
-              <button className="settings-button" onClick={() => requestChangeNotesDir()}>
-                Change…
-              </button>
+              {/* No folder picker on Android — the notes folder is fixed there. */}
+              {currentProvider().capabilities.canPickDir && (
+                <button className="settings-button" onClick={() => requestChangeNotesDir()}>
+                  Change…
+                </button>
+              )}
             </div>
           </div>
           <UpdatesRow />

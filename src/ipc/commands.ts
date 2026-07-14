@@ -102,6 +102,25 @@ export const ipc = {
   statPath: (path: string) => call<PathStat>('stat_path', { path }),
   /** Files from first-launch argv; call once at boot (see src-tauri/src/lib.rs). */
   drainStartupFiles: () => call<string[]>('drain_startup_files'),
+  /**
+   * Android only: the app-specific EXTERNAL files dir
+   * (`/storage/emulated/0/Android/data/<pkg>/files`), or null if unavailable.
+   * The command is not registered on desktop — only call it behind an Android
+   * platform check (see src/ipc/paths.ts).
+   */
+  externalFilesDir: () => call<string | null>('external_files_dir'),
+  /**
+   * Android only: read a `content://` URI's bytes (base64) + display name, for
+   * copy-into-app open of an external file (picker or "Open with" intent). Not
+   * registered on desktop — only call it behind an Android platform check.
+   */
+  readContentUri: (uri: string) =>
+    call<{ base64: string; displayName?: string }>('read_content_uri', { uri }),
+  /**
+   * Android only: drain content:// URIs from incoming "Open with"/"Share"
+   * intents since the last call. Called at boot and on window focus.
+   */
+  takeIncomingUris: () => call<string[]>('take_incoming_uris'),
 };
 
 export type Ipc = typeof ipc;

@@ -34,3 +34,11 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+# Android-only. Native Context APIs Tauri's path API can't resolve (the
+# app-specific EXTERNAL files dir, content:// reads, incoming intents) live in a
+# local mobile plugin whose Kotlin holds the Activity/Context — pure-Rust JNI
+# can't reach the Context in Tauri (ndk-context is unpopulated). See
+# plugins/tauri-plugin-androidfs.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-androidfs = { path = "plugins/tauri-plugin-androidfs" }

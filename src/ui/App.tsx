@@ -18,6 +18,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
+import { isAndroid } from './platform';
 
 export function App() {
   const tabs = useTabsStore((s) => s.tabs);
@@ -60,45 +61,78 @@ export function App() {
       </div>
       <StatusBar />
       <SettingsDialog />
-      {fullscreenView !== 'normal' && (
-        // The chrome (with the ribbon's fullscreen button) is hidden, so leave
-        // quiet always-there mouse controls in the same top-right spot. Each
-        // glyph has one fixed meaning wherever it appears: ⤢ = full window,
-        // ⛶ = full screen, ✕ = exit. We only show the toggle for the stage
-        // you're NOT in, plus exit. F11/Esc remain the keyboard paths.
-        <div className="fullscreen-controls">
-          {fullscreenView === 'screen' ? (
-            <button
-              className="fullscreen-btn"
-              aria-label="Full window"
-              title="Full window (Esc)"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setFullscreen('window')}
-            >
-              ⤢
-            </button>
-          ) : (
-            <button
-              className="fullscreen-btn"
-              aria-label="Full screen"
-              title="Full screen (F11)"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setFullscreen('screen')}
-            >
-              ⛶
-            </button>
-          )}
-          <button
-            className="fullscreen-btn"
-            aria-label="Exit full screen"
-            title="Exit full screen"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setFullscreen('normal')}
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      {fullscreenView !== 'normal' && <FullscreenControls stage={fullscreenView} />}
     </div>
+  );
+}
+
+/**
+ * The chrome (with the ribbon's fullscreen button) is hidden in full screen, so
+ * these floating controls are the always-there way back. Each glyph has one
+ * fixed meaning: ⤢ = full window, ⛶ = full screen, ✕ = exit; only the toggle
+ * for the stage you're NOT in shows, plus exit. F11/Esc remain the keyboard paths.
+ *
+ * Desktop: the controls ride a full-width bar that stays tucked above the top
+ * edge and slides down (Chrome-style) when the mouse reaches the top — a thin
+ * trigger strip catches that hover. In the 'window' stage (OS window unchanged,
+ * no titlebar) the bar is a `data-tauri-drag-region`, so grabbing it drags the
+ * window; in 'screen' stage the window is already OS-fullscreen, so no drag.
+ *
+ * Android: hover and window dragging don't apply, so keep the quiet, always-on
+ * top-right controls instead.
+ */
+function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
+  const buttons = (
+    <>
+      {stage === 'screen' ? (
+        <button
+          className="fullscreen-btn"
+          aria-label="Full window"
+          title="Full window (Esc)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setFullscreen('window')}
+        >
+          ⤢
+        </button>
+      ) : (
+        <button
+          className="fullscreen-btn"
+          aria-label="Full screen"
+          title="Full screen (F11)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setFullscreen('screen')}
+        >
+          ⛶
+        </button>
+      )}
+      <button
+        className="fullscreen-btn"
+        aria-label="Exit full screen"
+        title="Exit full screen (Esc)"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setFullscreen('normal')}
+      >
+        ✕
+      </button>
+    </>
+  );
+
+  if (isAndroid()) {
+    return <div className="fullscreen-controls">{buttons}</div>;
+  }
+
+  // The thin trigger strip is a sibling BEFORE the bar so `:hover` on it reveals
+  // the bar via the adjacent-sibling selector; hovering the bar itself keeps it
+  // open. Only the 'window' stage is draggable (see doc comment).
+  return (
+    <>
+      <div className="fullscreen-trigger" />
+      <div
+        className={`fullscreen-topbar${stage === 'window' ? ' fullscreen-topbar-drag' : ''}`}
+        {...(stage === 'window' ? { 'data-tauri-drag-region': '' } : {})}
+      >
+        {buttons}
+      </div>
+    </>
   );
 }

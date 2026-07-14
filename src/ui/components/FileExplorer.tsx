@@ -47,6 +47,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { stripExtension } from '../../core/title';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
+import { currentProvider } from '../../ipc/provider';
 import {
   addWorkspace,
   appendImagesToMd,
@@ -677,22 +678,24 @@ export function FileExplorer() {
         <div className="file-explorer-header">
           <span className="file-explorer-title">Workspaces</span>
           <div className="file-explorer-actions">
-            <button
-              className="file-explorer-action"
-              aria-label="Add workspace"
-              title="Add workspace (pick a folder)"
-              onClick={() => addWorkspace()}
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
-                <path
-                  d="M6.5 2v9M2 6.5h9"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-              </svg>
-            </button>
+            {currentProvider().capabilities.canPickDir && (
+              <button
+                className="file-explorer-action"
+                aria-label="Add workspace"
+                title="Add workspace (pick a folder)"
+                onClick={() => addWorkspace()}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                  <path
+                    d="M6.5 2v9M2 6.5h9"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
         <div className="file-explorer-list">

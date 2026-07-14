@@ -346,6 +346,50 @@ pub async fn stat_path(path: PathBuf) -> FsResult<PathStat> {
     }
 }
 
+/// The app-specific EXTERNAL files dir on Android
+/// (`/storage/emulated/0/Android/data/<pkg>/files`) — a real POSIX path our
+/// `std::fs` commands can use, visible in file managers, needing no runtime
+/// permission. Tauri's `appDataDir()` only exposes the INTERNAL files dir, and
+/// pure-Rust JNI can't reach the Context in Tauri, so we delegate to the local
+/// `androidfs` mobile plugin (Kotlin has the Context). Returns `None` when
+/// external storage is unavailable (e.g. removable volume unmounted); callers
+/// fall back to internal.
+///
+/// Errors are plain strings (not `FsError`): the sole caller `resolvePaths`
+/// treats any failure as "no external dir" and falls back, so a rich code is moot.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn external_files_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().external_files_dir().map_err(|e| e.to_string())
+}
+
+/// Read a `content://` URI's bytes (base64) + display name — for copy-into-app
+/// open of an external file chosen via the Android picker (Stage 2) or delivered
+/// by an incoming intent (Stage 3). Delegates to the `androidfs` plugin.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn read_content_uri(
+    app: tauri::AppHandle,
+    uri: String,
+) -> Result<tauri_plugin_androidfs::ContentPayload, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .read_content_uri(uri)
+        .map_err(|e| e.to_string())
+}
+
+/// Drain content:// URIs from incoming "Open with"/"Share" intents (Stage 3).
+/// The frontend calls this at boot and on window focus, then copies each in.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn take_incoming_uris(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .take_incoming_uris()
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
