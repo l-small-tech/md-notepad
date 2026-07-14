@@ -3,10 +3,11 @@
  * location). Kept in `src/ipc` because it does file I/O; the pure model
  * (validation, CSS rendering) lives in core/theme-plugins.ts.
  *
- * Flow (see `loadThemePlugins`): ensure the folder exists → seed any missing
- * built-in example on first run → list `*.json` → read + validate each. Invalid
- * or unreadable files are skipped individually, never failing the batch, so one
- * bad hand-edit can't strip every theme.
+ * Flow (see `loadThemePlugins`): ensure the folder exists → list `*.json` → seed
+ * any missing built-in example and refresh any stale one (an older SEED_VERSION
+ * stamp) → read + validate each. Invalid or unreadable files are skipped
+ * individually, never failing the batch, so one bad hand-edit can't strip every
+ * theme.
  *
  * The themes folder is always app-owned local storage (internal on desktop, the
  * external files dir on Android), never a SAF synced tree, so this talks to the
@@ -39,12 +40,14 @@ function slugFromPath(path: string): string {
 function toFileJson(plugin: ThemePlugin): string {
   const body: {
     name: string;
+    version?: number;
     light: Palette;
     dark: Palette;
     syntax?: SyntaxColors;
     css?: string;
   } = {
     name: plugin.name,
+    ...(plugin.version !== undefined ? { version: plugin.version } : {}),
     light: plugin.light,
     dark: plugin.dark,
     ...(plugin.syntax ? { syntax: plugin.syntax } : {}),
@@ -54,32 +57,67 @@ function toFileJson(plugin: ThemePlugin): string {
 }
 
 /**
- * Write the built-in example themes that aren't already present. Only writes a
- * file whose id has no existing `.json`, so a user's edits to (or deletion of) a
- * seeded theme are never overwritten on the next launch.
+ * Read the `version` stamp of an existing theme file. Returns:
+ *  - the number, when the file is valid JSON carrying a finite `version`;
+ *  - `0` for valid JSON with no stamp (a legacy seed, written before versioning
+ *    or by an older build) — old enough to refresh;
+ *  - `null` when the file can't be read or parsed, so the caller leaves it
+ *    alone rather than risk clobbering a locked or hand-broken file.
  */
-async function seedBuiltIns(themesDir: string, existingIds: Set<string>): Promise<number> {
-  let seeded = 0;
-  for (const theme of BUILT_IN_THEMES) {
-    if (existingIds.has(theme.id)) {
-      continue;
+async function readSeededVersion(path: string): Promise<number | null> {
+  try {
+    const { text } = await ipc.readTextFile(path);
+    const raw: unknown = JSON.parse(text);
+    if (raw && typeof raw === 'object') {
+      const v = (raw as Record<string, unknown>).version;
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        return v;
+      }
     }
-    const path = await join(themesDir, `${theme.id}.json`);
-    try {
-      await ipc.atomicWriteText(path, toFileJson(theme));
-      seeded += 1;
-    } catch {
-      // A failed seed is non-fatal: the theme just won't appear until the file
-      // can be written; the rest of the folder still loads.
-    }
+    return 0;
+  } catch {
+    return null;
   }
-  return seeded;
 }
 
 /**
- * Ensure the themes folder exists, seed missing built-ins, then read and
- * validate every `*.json` into a `ThemePlugin`. Duplicate ids resolve to the
- * first (sorted) file. Never throws for a missing folder or a bad file.
+ * Ensure every built-in example is present and current. Writes a built-in when
+ * no file for its id exists, and refreshes an existing copy whose stamped
+ * version is older than the shipped SEED_VERSION (so a fixed color or added
+ * syntax block reaches devices seeded by an earlier build). A copy that is
+ * already current — or that a user has bumped past ours — is left untouched, as
+ * is any unreadable file. Returns the number of files written. `existingById`
+ * maps a built-in id to its actual on-disk path (which may differ in case from
+ * `<id>.json`), so a refresh overwrites the user's real file rather than
+ * spawning a case-variant duplicate.
+ */
+async function seedBuiltIns(themesDir: string, existingById: Map<string, string>): Promise<number> {
+  let written = 0;
+  for (const theme of BUILT_IN_THEMES) {
+    const existingPath = existingById.get(theme.id);
+    if (existingPath) {
+      const onDisk = await readSeededVersion(existingPath);
+      if (onDisk === null || onDisk >= (theme.version ?? 0)) {
+        continue;
+      }
+    }
+    const path = existingPath ?? (await join(themesDir, `${theme.id}.json`));
+    try {
+      await ipc.atomicWriteText(path, toFileJson(theme));
+      written += 1;
+    } catch {
+      // A failed seed/refresh is non-fatal: the theme just keeps its old copy
+      // (or won't appear until writable); the rest of the folder still loads.
+    }
+  }
+  return written;
+}
+
+/**
+ * Ensure the themes folder exists, seed missing built-ins and refresh stale
+ * ones, then read and validate every `*.json` into a `ThemePlugin`. Duplicate
+ * ids resolve to the first (sorted) file. Never throws for a missing folder or a
+ * bad file.
  */
 export async function loadThemePlugins(themesDir: string): Promise<ThemePlugin[]> {
   try {
@@ -93,10 +131,19 @@ export async function loadThemePlugins(themesDir: string): Promise<ThemePlugin[]
   }
 
   let paths = await ipc.listThemeFiles(themesDir).catch(() => [] as string[]);
-  const existingIds = new Set(paths.map(slugFromPath));
-  const seeded = await seedBuiltIns(themesDir, existingIds);
+  // First path wins per id (matches the dedup in the read loop below), so a
+  // refresh targets the same file the registry will end up loading.
+  const existingById = new Map<string, string>();
+  for (const path of paths) {
+    const id = slugFromPath(path);
+    if (!existingById.has(id)) {
+      existingById.set(id, path);
+    }
+  }
+  const seeded = await seedBuiltIns(themesDir, existingById);
 
-  // Re-list only if we actually wrote new example files this run.
+  // Re-list only if we wrote files this run (a fresh seed adds new paths; a
+  // refresh rewrites an existing one, which the read loop already re-reads).
   if (seeded > 0) {
     paths = await ipc.listThemeFiles(themesDir).catch(() => paths);
   }
