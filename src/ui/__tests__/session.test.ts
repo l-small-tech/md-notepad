@@ -1384,6 +1384,9 @@ describe('insertFileLink (file/image links)', () => {
       setFontSize() {},
       format() {},
       insertLinkTo: (label, url, image) => calls.push({ label, url, image }),
+      insertAnchorAtLine() {},
+      anchorLineAt: () => 1,
+      removeAnchor() {},
     });
     return calls;
   }

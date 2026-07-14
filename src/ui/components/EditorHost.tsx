@@ -30,6 +30,8 @@ import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import { isDark, subscribeDark } from '../theme';
+import { isAndroid } from '../platform';
+import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
 
 /**
@@ -98,6 +100,12 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             },
             saveImage: (data) => savePastedImageForTab(tabId, data),
             enrichCopy: (text) => enrichCopiedText(tabId, text),
+            // Voice comments: a gutter marker opens the transcript; on touch a
+            // long-press on a line starts a new dictated comment there.
+            onOpenComment: (id, line) => void openComment(tabId, id, line),
+            onLongPressLine: isAndroid()
+              ? (line) => void addCommentAtLine(tabId, line)
+              : undefined,
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);

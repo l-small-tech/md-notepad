@@ -143,6 +143,16 @@ pub fn run() {
             commands::fs::saf_stat,
             #[cfg(target_os = "android")]
             commands::fs::release_synced_tree,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_available,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_permission,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_request_permission,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_start,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

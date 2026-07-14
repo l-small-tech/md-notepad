@@ -41,6 +41,7 @@ import './styles/base.css';
 import './styles/themes.css';
 import './styles/app.css';
 import './styles/preview.css';
+import './styles/voice-comments.css';
 import { App } from './ui/App';
 import type { Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';

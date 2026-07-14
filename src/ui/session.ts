@@ -37,6 +37,7 @@ import {
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { imageMimeType, isImagePath } from '../core/images';
+import { commentsPathFor, isCommentsPath } from '../core/comments';
 import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
 import { pickUnusedColor } from '../core/settings';
@@ -800,7 +801,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
     let recent: RestoredTabInit[];
     try {
-      const notes = await ipc.listNotes(notesDir);
+      const notes = (await ipc.listNotes(notesDir)).filter((n) => !isCommentsPath(n.path));
       const reads = await Promise.all(
         notes.slice(0, 20).map(async (n) => {
           try {
@@ -1850,6 +1851,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * title-drives-the-filename flush machinery (note tabs). Renaming a folder
    * retargets every open tab whose file lives under it.
    */
+  /**
+   * Best-effort: follow a note file's `.comments.md` sidecar when the note file
+   * is renamed/moved, so its voice comments stay attached. A stranded sidecar is
+   * harmless (it re-associates by name if the note is renamed back) and never
+   * loses transcripts, so any failure is swallowed. Desktop audio clips are not
+   * relocated on a cross-directory move yet (a documented follow-up).
+   */
+  async function moveCommentsSidecar(oldNotePath: string, newNotePath: string): Promise<void> {
+    if (isCommentsPath(oldNotePath) || extName(oldNotePath).toLowerCase() !== '.md') {
+      return;
+    }
+    const from = commentsPathFor(oldNotePath);
+    const to = commentsPathFor(newNotePath);
+    if (pathKey(from) === pathKey(to)) {
+      return;
+    }
+    try {
+      if ((await ipc.statPath(from)).exists) {
+        await ipc.renamePath(from, to);
+      }
+    } catch {
+      // Best effort — see the doc comment.
+    }
+  }
+
   async function renameEntry(path: string, newName: string, isDir: boolean): Promise<void> {
     if (refuseReadOnly(path)) {
       return;
@@ -1892,6 +1918,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       uiStore.getState().showNotice(`Could not rename "${baseName(path)}".`);
       deps.onError?.(error);
       return;
+    }
+    if (!isDir) {
+      await moveCommentsSidecar(path, newPath);
     }
     if (isDir) {
       // Retarget open tabs whose files lived under the renamed folder. Key
@@ -1966,6 +1995,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       deps.onError?.(error);
       return;
     }
+    await moveCommentsSidecar(sourcePath, newPath);
     if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
       let mtimeMs = owner.savedMtimeMs ?? now();
       try {
@@ -2221,12 +2251,16 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   changeNotesDirDispatch = () => void changeNotesDir();
   listNotesDispatch = async (dir?: string) => {
     const entries = await ipc.listDir(dir ?? notesDir);
-    return entries.map((e) => ({
-      path: e.path,
-      name: baseName(e.path),
-      isDir: e.isDir,
-      mtimeMs: e.mtimeMs,
-    }));
+    return entries
+      // Hide voice-comment sidecar files (`*.comments.md`) from the explorer —
+      // they're managed alongside their note, not opened directly.
+      .filter((e) => e.isDir || !isCommentsPath(e.path))
+      .map((e) => ({
+        path: e.path,
+        name: baseName(e.path),
+        isDir: e.isDir,
+        mtimeMs: e.mtimeMs,
+      }));
   };
   readImageDispatch = async (path: string) =>
     `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;

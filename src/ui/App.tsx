@@ -15,6 +15,7 @@ import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
+import { VoiceComments } from './components/VoiceComments';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
@@ -62,6 +63,7 @@ export function App() {
       </div>
       <StatusBar />
       <SettingsDialog />
+      <VoiceComments />
       {fullscreenView !== 'normal' && <FullscreenControls stage={fullscreenView} />}
       {/* The 'window' stage hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as

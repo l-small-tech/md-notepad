@@ -546,6 +546,57 @@ pub async fn release_synced_tree(app: tauri::AppHandle, tree_uri: String) -> FsR
         .map_err(map_saf_err)
 }
 
+/* ---- On-device speech-to-text (voice comments) ------------------------- */
+//
+// Delegates to the androidfs plugin (Kotlin drives SpeechRecognizer). Errors are
+// plain strings: the frontend treats any failure as "STT unavailable" and the
+// capture UI aborts with a notice, so a rich FsError code is moot here.
+
+/// Whether on-device speech recognition is available on this device.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_available(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_available().map_err(|e| e.to_string())
+}
+
+/// Current RECORD_AUDIO grant, without prompting.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_permission().map_err(|e| e.to_string())
+}
+
+/// Prompt for RECORD_AUDIO if needed; resolves the resulting grant.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_request_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .stt_request_permission()
+        .map_err(|e| e.to_string())
+}
+
+/// Start listening; resolves the final transcript text.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_start(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .stt_start()
+        .map(|r| r.text)
+        .map_err(|e| e.to_string())
+}
+
+/// Stop listening (the final transcript still resolves the pending start).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_stop(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_stop().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

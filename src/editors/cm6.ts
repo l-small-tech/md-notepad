@@ -27,6 +27,8 @@ import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
 import { imageFilesFromDataTransfer, readImageFile } from './image-paste';
+import { createVoiceGutter } from './voice-gutter';
+import { findAnchors, insertAnchorText } from '../core/comments';
 
 export interface Cm6Options {
   /**
@@ -56,6 +58,17 @@ export interface Cm6Options {
    * unchanged falls through to the editor's native copy.
    */
   enrichCopy?: (text: string) => string;
+  /**
+   * A voice-comment gutter marker was activated — open the transcript for the
+   * given anchor id (on the given 1-based line). When set, the voice-comment
+   * gutter is added to the editor.
+   */
+  onOpenComment?: (id: string, line: number) => void;
+  /**
+   * A source line was long-pressed on touch — start a new voice comment there
+   * (1-based line). Only wired on mobile.
+   */
+  onLongPressLine?: (line: number) => void;
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -80,6 +93,12 @@ export interface Cm6Adapter extends EditorAdapter {
   format(action: FormatAction): void;
   /** Insert a file/image reference at the caret (from the ribbon's link pickers). */
   insertLinkTo(label: string, url: string, image: boolean): void;
+  /** Append an invisible voice-comment anchor token at the end of the 1-based line. */
+  insertAnchorAtLine(line: number, id: string): void;
+  /** The 1-based line containing a document offset (defaults to the caret). */
+  anchorLineAt(offset?: number): number;
+  /** Remove the anchor token for `id` (and one leading space), if present. */
+  removeAnchor(id: string): void;
 }
 
 /** Colors come from CSS variables so themes switch without touching CM6. */
@@ -522,6 +541,17 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),
         wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
         EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off' }),
+        // Voice-comment gutter + mobile long-press gesture, only when the host
+        // wires the open callback. Purely presentational/input — never mutates
+        // the doc, so it can't violate the DocModel projection (I1).
+        ...(options.onOpenComment
+          ? [
+              createVoiceGutter({
+                onOpen: options.onOpenComment,
+                onLongPress: options.onLongPressLine,
+              }),
+            ]
+          : []),
         updateListener,
       ],
     });
@@ -599,6 +629,40 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
       if (view) {
         insertReference(view, label, url, image);
       }
+    },
+    insertAnchorAtLine(line, id) {
+      if (!view) {
+        return;
+      }
+      const total = view.state.doc.lines;
+      const target = view.state.doc.line(Math.max(1, Math.min(line, total)));
+      // Append at the line end so list/heading prefixes and the caret column
+      // are untouched; the dispatch flows through updateListener → pushText.
+      view.dispatch({ changes: { from: target.to, insert: insertAnchorText(id) } });
+    },
+    anchorLineAt(offset) {
+      if (!view) {
+        return 1;
+      }
+      const pos = offset ?? view.state.selection.main.head;
+      const clamped = Math.max(0, Math.min(pos, view.state.doc.length));
+      return view.state.doc.lineAt(clamped).number;
+    },
+    removeAnchor(id) {
+      if (!view) {
+        return;
+      }
+      const anchor = findAnchors(view.state.doc.toString()).find((a) => a.id === id);
+      if (!anchor) {
+        return;
+      }
+      // Also swallow a single space in front of the token (the one inserted
+      // with it) so deleting a comment leaves no double space behind.
+      const from =
+        anchor.from > 0 && view.state.doc.sliceString(anchor.from - 1, anchor.from) === ' '
+          ? anchor.from - 1
+          : anchor.from;
+      view.dispatch({ changes: { from, to: anchor.to } });
     },
   };
 }
