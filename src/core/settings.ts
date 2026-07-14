@@ -111,16 +111,23 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
 export function normalizeSettings(raw: unknown): Settings {
   const r = isRecord(raw) ? raw : {};
   const d = DEFAULT_SETTINGS;
+  // Any non-empty string is a valid scheme id now (themes are pluggable —
+  // core/theme-plugins.ts). An id with no loaded theme falls through to the
+  // default palette at render time, so no allowlist is needed here.
+  const colorScheme =
+    typeof r.colorScheme === 'string' && r.colorScheme.trim().length > 0
+      ? r.colorScheme.trim()
+      : DEFAULT_COLOR_SCHEME;
+  const rawTheme =
+    r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme;
   return {
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
-    theme: r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme,
-    // Any non-empty string is a valid scheme id now (themes are pluggable —
-    // core/theme-plugins.ts). An id with no loaded theme falls through to the
-    // default palette at render time, so no allowlist is needed here.
-    colorScheme:
-      typeof r.colorScheme === 'string' && r.colorScheme.trim().length > 0
-        ? r.colorScheme.trim()
-        : DEFAULT_COLOR_SCHEME,
+    // The Theme picker is unified (Settings): a plugin scheme always follows the
+    // OS light/dark, so light/dark is only a meaningful override for the built-in
+    // `default` palette. Coerce any legacy `theme: 'light'|'dark'` paired with a
+    // plugin back to 'system' so persisted state matches the merged model.
+    theme: colorScheme === DEFAULT_COLOR_SCHEME ? rawTheme : 'system',
+    colorScheme,
     fontSize:
       typeof r.fontSize === 'number' && Number.isFinite(r.fontSize)
         ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(r.fontSize)))

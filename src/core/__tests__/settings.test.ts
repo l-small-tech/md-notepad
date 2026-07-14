@@ -13,8 +13,10 @@ describe('normalizeSettings', () => {
   test('valid fields pass through', () => {
     const settings = normalizeSettings({
       notesDir: 'D:/notes',
+      // Light/Dark is a meaningful override only on the built-in default palette;
+      // a plugin scheme is exercised by the merged-model test below.
       theme: 'dark',
-      colorScheme: 'nord',
+      colorScheme: 'default',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -34,7 +36,7 @@ describe('normalizeSettings', () => {
     expect(settings).toEqual({
       notesDir: 'D:/notes',
       theme: 'dark',
-      colorScheme: 'nord',
+      colorScheme: 'default',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -50,6 +52,21 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'blue',
       imagePasteLocation: 'workspaceRoot',
       imageFolderName: 'assets',
+    });
+  });
+
+  test('a plugin colorScheme forces theme to system (merged Theme picker)', () => {
+    // The unified Theme picker makes a plugin scheme always follow the OS
+    // light/dark, so a legacy `theme: 'light'|'dark'` paired with a plugin is
+    // coerced back to 'system'. The plugin id itself passes through.
+    expect(normalizeSettings({ theme: 'dark', colorScheme: 'nord' })).toMatchObject({
+      theme: 'system',
+      colorScheme: 'nord',
+    });
+    // On the default palette, a forced light/dark is preserved.
+    expect(normalizeSettings({ theme: 'dark', colorScheme: 'default' })).toMatchObject({
+      theme: 'dark',
+      colorScheme: 'default',
     });
   });
 
