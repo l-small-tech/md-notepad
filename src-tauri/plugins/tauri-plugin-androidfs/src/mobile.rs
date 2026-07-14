@@ -199,6 +199,17 @@ impl<R: Runtime> Androidfs<R> {
             .map_err(Into::into)
     }
 
+    /// Ask the provider to re-fetch a directory from its backend (Drive et al.
+    /// serve cached listings, so a change made elsewhere is otherwise invisible).
+    /// Resolves once the refresh has been requested and the provider has notified
+    /// — or a short timeout elapses — so a following `saf_list` sees fresh data.
+    pub fn saf_refresh(&self, tree_uri: String, rel_path: String) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>("safRefresh", SafPathArgs { tree_uri, rel_path })
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
     /// Read a synced document's bytes as base64.
     pub fn saf_read(&self, tree_uri: String, rel_path: String) -> crate::Result<SafRead> {
         self.0

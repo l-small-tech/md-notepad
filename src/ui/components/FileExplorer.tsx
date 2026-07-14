@@ -61,6 +61,7 @@ import {
   moveExplorerEntryInto,
   openNotePath,
   openNotePathPinned,
+  refreshWorkspaces,
   removeWorkspace,
   renameExplorerEntry,
   savePastedFileInto,
@@ -169,6 +170,8 @@ export function FileExplorer() {
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Paste destination; null = the default workspace. */
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
+  /** True while a manual refresh is in flight (Drive re-fetch can take seconds). */
+  const [refreshing, setRefreshing] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   /** True for the single click event that trails a completed row drag. */
   const dragConsumedClick = useRef(false);
@@ -302,6 +305,25 @@ export function FileExplorer() {
       void file
         .arrayBuffer()
         .then((buf) => savePastedFileInto(pasteDir, { base64: bytesToBase64(buf), ext, name }));
+    }
+  }
+
+  /**
+   * Refresh button: re-fetch every workspace root and expanded subfolder from
+   * its backend, then re-list. Synced (Drive) dirs otherwise serve a stale
+   * cached listing, so a note added on another device never shows up until this
+   * forces the provider to re-sync. Guarded so double-taps don't stack.
+   */
+  async function handleRefresh(): Promise<void> {
+    if (refreshing) {
+      return;
+    }
+    setRefreshing(true);
+    const dirs = [...workspaces.map((w) => w.path), ...expandedDirs];
+    try {
+      await refreshWorkspaces(dirs);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -755,6 +777,37 @@ export function FileExplorer() {
                 </svg>
               </button>
             )}
+            {/* Re-fetch every workspace from its backend and re-list. The
+                headline case is a synced (Drive) folder whose remote changes the
+                provider was serving from cache — see refreshWorkspaces. */}
+            <button
+              className={
+                'file-explorer-action file-explorer-refresh' + (refreshing ? ' is-spinning' : '')
+              }
+              aria-label="Refresh workspaces"
+              aria-busy={refreshing || undefined}
+              title="Refresh (re-check synced folders for changes)"
+              disabled={refreshing}
+              onClick={() => void handleRefresh()}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                <path
+                  d="M11 6.5a4.5 4.5 0 1 1-1.32-3.18"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+                <path
+                  d="M10.8 1.4v2.4H8.4"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
           </div>
         </div>
         <div className="file-explorer-list">

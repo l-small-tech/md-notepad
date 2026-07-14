@@ -149,6 +149,8 @@ export const ipc = {
   pickSyncedTree: () => call<{ treeUri: string; displayName?: string }>('pick_synced_tree'),
   safList: (treeUri: string, relPath: string) =>
     call<{ entries: SafEntry[] }>('saf_list', { treeUri, relPath }),
+  /** Force a synced dir to re-fetch from its backend (picks up remote changes). */
+  safRefresh: (treeUri: string, relPath: string) => call<void>('saf_refresh', { treeUri, relPath }),
   safRead: (treeUri: string, relPath: string) =>
     call<{ base64: string }>('saf_read', { treeUri, relPath }),
   safWrite: (treeUri: string, relPath: string, base64: string) =>

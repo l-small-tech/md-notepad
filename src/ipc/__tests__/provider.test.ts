@@ -20,6 +20,9 @@ function makeFakeSaf() {
   const files = new Map<string, string>();
   const calls: string[] = [];
   const ops: SafOps = {
+    safRefresh: async (_tree, relPath) => {
+      calls.push(`refresh:${relPath}`);
+    },
     safList: async (_tree, relPath) => {
       calls.push(`list:${relPath}`);
       const prefix = relPath ? `${relPath}/` : '';
@@ -206,6 +209,17 @@ describe('SafProvider', () => {
     expect(saf.capabilities.canPickDir).toBe(false);
     expect(saf.capabilities.canRename).toBe(true);
   });
+
+  test('refresh forwards the parsed tree + rel path to safRefresh', async () => {
+    const { calls, ops } = makeFakeSaf();
+    const saf = createSafProvider(ops);
+    await saf.refresh!(`${ROOT}/sub`);
+    expect(calls).toContain('refresh:sub');
+    calls.length = 0;
+    await saf.refresh!(ROOT);
+    // Root has an empty rel path.
+    expect(calls).toContain('refresh:');
+  });
 });
 
 describe('RoutingProvider', () => {
@@ -273,5 +287,18 @@ describe('RoutingProvider', () => {
   test('stays non-local-fs so desktop path assumptions never apply', () => {
     const router = createRoutingProvider(LocalFsProvider, createSafProvider(makeFakeSaf().ops));
     expect(router.capabilities.isLocalFs).toBe(false);
+  });
+
+  test('refresh routes to the SAF backend and no-ops for local dirs', async () => {
+    const { calls, ops } = makeFakeSaf();
+    const saf = createSafProvider(ops);
+    const { provider: local } = fakeLocal();
+    const router = createRoutingProvider(local, saf);
+
+    await router.refresh!(`${ROOT}/sub`);
+    expect(calls).toContain('refresh:sub');
+
+    // A local dir has no refresh op; the router must resolve without throwing.
+    await expect(router.refresh!('C:/notes')).resolves.toBeUndefined();
   });
 });

@@ -70,6 +70,14 @@ export type StorageOps = Pick<
 export interface StorageProvider extends StorageOps {
   readonly id: string;
   readonly capabilities: StorageCapabilities;
+  /**
+   * Ask the backend to re-fetch `dir` from its source before the next listing,
+   * so a change made elsewhere (a note added to the same Drive folder on another
+   * device) becomes visible. Optional: the local FS never serves stale listings,
+   * so it omits this; only the synced (SAF) backend implements it. Best-effort —
+   * resolves even if the provider can't refresh.
+   */
+  refresh?(dir: string): Promise<void>;
 }
 
 /** The local filesystem provider — the `ipc` fs wrappers, unchanged. */
@@ -161,7 +169,14 @@ const textEncoder = new TextEncoder();
 /** The SAF ops a SafProvider needs — injectable so unit tests can pass fakes. */
 export type SafOps = Pick<
   Ipc,
-  'safList' | 'safRead' | 'safWrite' | 'safCreateDir' | 'safRename' | 'safDelete' | 'safStat'
+  | 'safList'
+  | 'safRefresh'
+  | 'safRead'
+  | 'safWrite'
+  | 'safCreateDir'
+  | 'safRename'
+  | 'safDelete'
+  | 'safStat'
 >;
 
 function isMarkdown(name: string): boolean {
@@ -204,6 +219,11 @@ export function createSafProvider(ops: SafOps = ipc): StorageProvider {
         mtimeMs: 0,
         size: e.size ?? 0,
       }));
+  }
+
+  async function refresh(dir: string): Promise<void> {
+    const { treeUri, relPath } = parseSaf(dir);
+    await ops.safRefresh(treeUri, relPath);
   }
 
   async function listNotes(dir: string): Promise<NoteMeta[]> {
@@ -288,6 +308,7 @@ export function createSafProvider(ops: SafOps = ipc): StorageProvider {
   return {
     id: 'saf',
     capabilities: { canPickDir: false, canRename: true, isLocalFs: false },
+    refresh,
     readTextFile,
     atomicWriteText,
     listNotes,
@@ -325,6 +346,8 @@ export function createRoutingProvider(
       canRename: true,
       isLocalFs: false,
     },
+    // Only the synced backend refreshes; a local dir resolves as a no-op.
+    refresh: (dir) => backend(dir).refresh?.(dir) ?? Promise.resolve(),
     readTextFile: (path) => backend(path).readTextFile(path),
     atomicWriteText: (path, text) => backend(path).atomicWriteText(path, text),
     listNotes: (dir) => backend(dir).listNotes(dir),

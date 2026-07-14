@@ -131,6 +131,8 @@ pub fn run() {
             #[cfg(target_os = "android")]
             commands::fs::saf_list,
             #[cfg(target_os = "android")]
+            commands::fs::saf_refresh,
+            #[cfg(target_os = "android")]
             commands::fs::saf_read,
             #[cfg(target_os = "android")]
             commands::fs::saf_write,

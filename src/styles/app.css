@@ -556,6 +556,22 @@
   background: var(--bg-hover);
 }
 
+.file-explorer-action:disabled {
+  cursor: default;
+}
+
+/* Spin the refresh glyph while a re-fetch is in flight (Drive can take a few
+   seconds). The <svg> is the button's only child, so rotate that. */
+.file-explorer-refresh.is-spinning svg {
+  animation: file-explorer-spin 0.8s linear infinite;
+}
+
+@keyframes file-explorer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .file-explorer-list {
   flex: 1 1 auto;
   overflow-y: auto;
