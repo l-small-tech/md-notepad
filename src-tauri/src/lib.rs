@@ -110,6 +110,7 @@ pub fn run() {
             commands::fs::list_notes,
             commands::fs::list_dir,
             commands::fs::list_session_manifests,
+            commands::fs::list_theme_files,
             commands::fs::read_file_base64,
             commands::fs::write_file_base64,
             commands::fs::copy_path,

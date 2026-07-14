@@ -65,7 +65,9 @@ import { uiStore } from './ui/stores/ui';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { initProviders } from './ipc/provider';
-import { resolveDocsDir, resolvePaths } from './ipc/paths';
+import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
+import { themeRegistryStore } from './ui/stores/theme-registry';
+import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
 import { isAndroid } from './ui/platform';
 import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
@@ -112,6 +114,24 @@ applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
 // Follow the OS live while the setting is "system".
 subscribeDark(applyDomSettings);
+
+/* ---- Pluggable themes → injected <style> -------------------------------- */
+
+// The loaded theme plugins are rendered to one <style id="theme-plugins"> whose
+// `:root[data-color-scheme='<id>']` blocks work exactly like the old built-in
+// styles/themes.css. Re-run on every registry change (e.g. "Reload themes"),
+// mirroring how applyDomSettings tracks the settings store. CSP allows this
+// inline <style> (style-src 'unsafe-inline'); a linked file would be blocked.
+function injectThemeStyles(): void {
+  const css = themePluginsToCss(themeRegistryStore.getState().plugins);
+  let style = document.getElementById('theme-plugins');
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement('style');
+    style.id = 'theme-plugins';
+    document.head.appendChild(style);
+  }
+  style.textContent = css;
+}
 
 /* ---- Settings persistence (tauri-plugin-store, debounced) ---------------- */
 
@@ -379,6 +399,12 @@ async function boot(): Promise<void> {
   // currentProvider(): on Android this routes local + synced (SAF) workspaces;
   // desktop stays on the plain local FS.
   initProviders();
+
+  // Load pluggable themes and inject their CSS before mount so the first paint
+  // uses the saved color scheme. Seeds the built-in examples on first run.
+  await themeRegistryStore.getState().load(await resolveThemesDir());
+  injectThemeStyles();
+  themeRegistryStore.subscribe(injectThemeStyles);
 
   const paths = await resolvePaths(settingsStore.getState().settings);
 

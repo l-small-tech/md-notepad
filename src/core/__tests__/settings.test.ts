@@ -1,12 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
-import {
-  COLOR_SCHEMES,
-  CURSOR_STYLES,
-  EDITOR_FONT_IDS,
-  UI_FONT_IDS,
-  WORKSPACE_COLORS,
-} from '../types';
+import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -63,7 +57,9 @@ describe('normalizeSettings', () => {
     const settings = normalizeSettings({
       notesDir: 123,
       theme: 'sepia',
-      colorScheme: 'neon',
+      // colorScheme accepts any non-empty string now (pluggable themes), so an
+      // "invalid" value here is a non-string that must fall back to the default.
+      colorScheme: 42,
       fontSize: 'big',
       editorFont: 'comic-sans',
       uiFont: 'papyrus',
@@ -165,11 +161,16 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ uiFont: 'Inter' }).uiFont).toBe('match');
   });
 
-  test('every color scheme is accepted; anything else defaults to default', () => {
-    for (const scheme of COLOR_SCHEMES) {
+  test('any non-empty string is a valid (pluggable) color scheme id', () => {
+    // Themes are now pluggable, so an arbitrary id is accepted and kept — an id
+    // with no loaded theme falls back to the default palette at render time.
+    for (const scheme of ['default', 'solarized', 'my-custom-theme']) {
       expect(normalizeSettings({ colorScheme: scheme }).colorScheme).toBe(scheme);
     }
-    expect(normalizeSettings({ colorScheme: 'neon' }).colorScheme).toBe('default');
+    expect(normalizeSettings({ colorScheme: '  spaced  ' }).colorScheme).toBe('spaced');
+    // Blank / non-string / missing degrade to the default id.
+    expect(normalizeSettings({ colorScheme: '   ' }).colorScheme).toBe('default');
+    expect(normalizeSettings({ colorScheme: 42 }).colorScheme).toBe('default');
     expect(normalizeSettings({}).colorScheme).toBe('default');
   });
 

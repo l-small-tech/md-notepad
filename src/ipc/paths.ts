@@ -52,6 +52,26 @@ export async function resolvePaths(
 }
 
 /**
+ * The pluggable-themes folder: user-droppable theme `.json` files (see
+ * ipc/theme-loader.ts). Like `notesDir`, it defaults under the INTERNAL app data
+ * dir on desktop (`<appDataDir>/themes`) but on Android under the app-specific
+ * EXTERNAL files dir so the seeded example files are visible in a file manager
+ * (and thus copyable/editable). Always app-owned local storage — never a SAF
+ * synced tree — so the std::fs-based commands handle it on both platforms. Falls
+ * back to the internal dir if the external one is unavailable.
+ */
+export async function resolveThemesDir(platform: Runtime = detectRuntime()): Promise<string> {
+  const base = await appDataDir();
+  if (platform === 'android') {
+    const ext = await ipc.externalFilesDir().catch(() => null);
+    if (ext) {
+      return await join(ext, 'themes');
+    }
+  }
+  return await join(base, 'themes');
+}
+
+/**
  * The bundled user documentation folder (tauri.conf.json bundles ../docs as a
  * `docs` resource). Null when resolution fails (e.g. outside a Tauri webview);
  * the Settings "Open docs" button degrades to a notice then.
@@ -61,9 +81,7 @@ export async function resolvePaths(
  * commands can't touch. Instead we ask Rust to extract the tree to a real
  * internal-storage path (see `ipc.extractDocsDir`) and hand that back.
  */
-export async function resolveDocsDir(
-  platform: Runtime = detectRuntime(),
-): Promise<string | null> {
+export async function resolveDocsDir(platform: Runtime = detectRuntime()): Promise<string | null> {
   if (platform === 'android') {
     return await ipc.extractDocsDir().catch(() => null);
   }
