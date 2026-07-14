@@ -123,6 +123,15 @@ const baseTheme = EditorView.theme({
     backgroundColor: 'var(--editor-bg, var(--bg))',
     height: '100%',
   },
+  // The voice-comment gutter (voice-gutter.ts) reserves a full-height column
+  // even with no comments. Blend it into the writing surface and drop CM6's
+  // default light-grey background + right border, which otherwise read as a
+  // white band between the file explorer and the text (in dark mode especially).
+  '.cm-gutters': {
+    backgroundColor: 'var(--editor-bg, var(--bg))',
+    color: 'var(--fg-muted)',
+    border: 'none',
+  },
   '.cm-scroller': {
     fontFamily: 'var(--font-mono)',
     lineHeight: '1.55',
