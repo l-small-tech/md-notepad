@@ -6,16 +6,20 @@ remembered. Press Esc or click outside the panel to close it.
 
 ## Appearance
 
-- **Theme** — Light, Dark, or System. *System* follows your computer's
-  setting, switching live when it changes.
-- **Color scheme** — the palette of colors used everywhere in the app. The
-  built-in **Default** ships with the app; **Solarized**, **Nord**, **Gruvbox**,
-  **Everforest**, **Rosé Pine**, **Light Green**, and **Dark Green** are included
-  as example *theme files* you can edit — and you can add your own. Each scheme has both a light and a dark
-  version, so it works with whatever you pick for **Theme**. See
-  **[Themes](themes.md)** for how to make your own (an AI can write one for you
-  in seconds). The **Themes folder** row below the dropdown has buttons to
-  **Open folder**, start a **New theme…**, and **Reload** after editing.
+- **Theme** — one list that combines the light/dark mode and the color scheme:
+  - **System**, **Light**, and **Dark** use the app's built-in palette.
+    *System* follows your computer's setting, switching live when it changes.
+  - Below the divider are the **themes**: **Solarized**, **Nord**, **Gruvbox**,
+    **Everforest**, **Rosé Pine**, **Light Green**, and **Dark Green** ship as
+    example *theme files* you can edit — and you can add your own. Each theme has
+    both a light and a dark version and **follows your computer's light/dark
+    setting automatically**.
+
+  See **[Themes](themes.md)** for how to make your own (an AI can write one for
+  you in seconds) — a theme can set the whole palette *and* recolor individual
+  markdown elements (headings, bold, links, …). The **Themes folder** row below
+  the dropdown has buttons to **Open folder**, start a **New theme…**, and
+  **Reload** after editing.
 - **Font size** — the size of text in the editor and previews. You can also
   change it any time with **Ctrl+=** / **Ctrl+-** (and **Ctrl+0** to
   reset), which is especially handy in Read mode.
