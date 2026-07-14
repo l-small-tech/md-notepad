@@ -177,7 +177,7 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
       editorBg: '#fbfdf8', // writing surface: near-white, faint green warmth, bright for glare
       bgAlt: '#e0ebd8', // raised panels / cards
       bgHover: '#d3e3c9',
-      fg: '#1e2a20', // green-charcoal ink — high contrast for daylight readability
+      fg: '#000000', // black ink — maximum contrast for daylight readability
       fgMuted: '#586a5b',
       accent: '#00703c', // UFV PANTONE 349 forest green
       border: '#d2e0c9',
@@ -189,7 +189,7 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
       editorBg: '#fbfdf8',
       bgAlt: '#e0ebd8',
       bgHover: '#d3e3c9',
-      fg: '#1e2a20',
+      fg: '#000000',
       fgMuted: '#586a5b',
       accent: '#00703c',
       border: '#d2e0c9',
@@ -239,7 +239,7 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
       editorBg: '#0c150f', // deepest writing surface
       bgAlt: '#18261c', // raised panels
       bgHover: '#223529',
-      fg: '#cbdcce', // soft green-white — deliberately not pure white, easy on the eyes
+      fg: '#ffffff', // white text on the deep-forest bg
       fgMuted: '#7d9585',
       accent: '#56c07a', // lifted emerald: on-brand green that reads on dark without glowing
       border: '#223529',
@@ -251,7 +251,7 @@ export const BUILT_IN_THEMES: ThemePlugin[] = [
       editorBg: '#0c150f',
       bgAlt: '#18261c',
       bgHover: '#223529',
-      fg: '#cbdcce',
+      fg: '#ffffff',
       fgMuted: '#7d9585',
       accent: '#56c07a',
       border: '#223529',
