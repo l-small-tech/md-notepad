@@ -473,6 +473,21 @@ pub async fn saf_list(
         .map_err(map_saf_err)
 }
 
+/// Force a synced directory to re-fetch from its backend (picks up remote
+/// changes the provider was serving from cache — see the plugin's safRefresh).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_refresh(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_refresh(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
 /// Read a synced document's bytes as base64.
 #[cfg(target_os = "android")]
 #[tauri::command]

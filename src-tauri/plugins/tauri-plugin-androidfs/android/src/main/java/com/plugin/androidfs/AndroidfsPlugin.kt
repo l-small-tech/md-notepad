@@ -433,6 +433,59 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    // Force the provider to re-fetch a directory from its backend, so a change
+    // made on another device (a note added in Google Drive on desktop, say)
+    // shows up here. A SAF DocumentsProvider like Drive serves cached listings:
+    // a plain re-query returns the same stale children. DocumentsContract
+    // .refreshDocument asks the provider to pull fresh data and notify via the
+    // directory's children URI, so we register an observer, request the refresh,
+    // and wait (bounded) for that notification before resolving — the app
+    // re-lists once we return. Best-effort: providers that can't refresh return
+    // false and we resolve immediately. We also drop the cached docIds under
+    // this dir so the following safList re-resolves against the fresh listing.
+    @Command
+    fun safRefresh(invoke: Invoke) {
+        val args = invoke.parseArgs(SafPathArgs::class.java)
+        val treeUri = args.treeUri ?: return invoke.reject("missing treeUri")
+        val relPath = args.relPath ?: ""
+        try {
+            val tree = Uri.parse(treeUri)
+            val docId = resolveDocId(treeUri, relPath)
+                ?: return invoke.reject("NOT_FOUND: $relPath")
+            val resolver = activity.contentResolver
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+            val latch = java.util.concurrent.CountDownLatch(1)
+            val observer = object :
+                android.database.ContentObserver(
+                    android.os.Handler(android.os.Looper.getMainLooper()),
+                ) {
+                override fun onChange(selfChange: Boolean) = latch.countDown()
+            }
+            resolver.registerContentObserver(childrenUri, false, observer)
+            try {
+                val requested = try {
+                    DocumentsContract.refreshDocument(resolver, docUri(tree, docId), null, null)
+                } catch (_: Exception) {
+                    false // provider doesn't implement refresh — nothing to wait for
+                }
+                if (requested) {
+                    // Give the backend a moment to fetch and notify. Bounded so a
+                    // provider that never notifies can't hang the refresh; this
+                    // runs off the main thread (a @Command worker), so the wait is
+                    // safe. If it times out we still re-list — no worse than before.
+                    latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            } finally {
+                resolver.unregisterContentObserver(observer)
+            }
+            val rel = relPath.trim('/')
+            if (rel.isEmpty()) docIdCache[treeUri]?.clear() else evictSubtree(treeUri, rel)
+            invoke.resolve(JSObject())
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "refresh failed")
+        }
+    }
+
     // Read a document's bytes as base64. mtime is deliberately not returned —
     // SAF/Drive last-modified is unreliable, so the app treats synced files as
     // having no mtime baseline (see src/ipc/provider.ts).

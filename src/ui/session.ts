@@ -74,7 +74,12 @@ type SessionIpc = Pick<
   | 'writeFileBase64'
   | 'copyPath'
   | 'createDir'
->;
+> & {
+  // Not a raw `Ipc` command: `refresh` lives on the StorageProvider (only the
+  // synced backend implements it), so it's added here rather than Pick'd.
+  // Optional — tests fake the provider without it.
+  refresh?: (dir: string) => Promise<void>;
+};
 
 /** Native confirm dialog (plugin-dialog in the app; a stub in tests). */
 export type ConfirmDialog = (message: string, title: string) => Promise<boolean>;
@@ -315,6 +320,7 @@ let renameEntryDispatch: (
 ) => Promise<void> = async () => {};
 let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
 let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
+let refreshWorkspacesDispatch: (dirs: string[]) => Promise<void> = async () => {};
 
 /** A saved image, ready for the editor to reference: markdown alt text + a
  *  destination path relative to (or absolute from) the document. */
@@ -369,6 +375,18 @@ export function requestChangeNotesDir(): void {
  *  subfolders plus markdown/image files. */
 export function listNoteFiles(dir?: string): Promise<ExplorerEntry[]> {
   return listNotesDispatch(dir);
+}
+/**
+ * FileExplorer refresh button → controller: ask each of `dirs` (workspace roots
+ * and any expanded subfolders) to re-fetch from its backend, then bump the
+ * explorer so it re-lists. Synced (Drive/OneDrive) dirs serve cached listings,
+ * so without the re-fetch a note added elsewhere never appears; local dirs
+ * refresh as a no-op and just re-list. Best-effort — a backend that can't
+ * refresh still re-lists.
+ */
+export async function refreshWorkspaces(dirs: string[]): Promise<void> {
+  await refreshWorkspacesDispatch(dirs);
+  uiStore.getState().refreshExplorer();
 }
 /** ImageView → controller: an image file as a ready-to-use data: URL. */
 export function loadImageDataUrl(path: string): Promise<string> {
@@ -2251,16 +2269,18 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   changeNotesDirDispatch = () => void changeNotesDir();
   listNotesDispatch = async (dir?: string) => {
     const entries = await ipc.listDir(dir ?? notesDir);
-    return entries
-      // Hide voice-comment sidecar files (`*.comments.md`) from the explorer —
-      // they're managed alongside their note, not opened directly.
-      .filter((e) => e.isDir || !isCommentsPath(e.path))
-      .map((e) => ({
-        path: e.path,
-        name: baseName(e.path),
-        isDir: e.isDir,
-        mtimeMs: e.mtimeMs,
-      }));
+    return (
+      entries
+        // Hide voice-comment sidecar files (`*.comments.md`) from the explorer —
+        // they're managed alongside their note, not opened directly.
+        .filter((e) => e.isDir || !isCommentsPath(e.path))
+        .map((e) => ({
+          path: e.path,
+          name: baseName(e.path),
+          isDir: e.isDir,
+          mtimeMs: e.mtimeMs,
+        }))
+    );
   };
   readImageDispatch = async (path: string) =>
     `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;
@@ -2278,6 +2298,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   renameEntryDispatch = renameEntry;
   moveEntryDispatch = moveEntry;
   deleteEntryDispatch = deleteEntry;
+  refreshWorkspacesDispatch = async (dirs) => {
+    // Best-effort: refresh every dir in parallel; a backend that can't refresh
+    // (local FS) or one dir that fails must not block the others or the re-list.
+    await Promise.all(dirs.map((dir) => Promise.resolve(ipc.refresh?.(dir)).catch(() => {})));
+  };
   renameTabDispatch = (id, newName) => {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (tab && (tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
