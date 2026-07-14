@@ -4,12 +4,14 @@ A **theme** sets the colors the app uses — the background, the text, the accen
 on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
-Pick a theme in **Settings → Color scheme**. The app ships with **Default** and
-seven ready-made examples: five popular community schemes — **Solarized**,
-**Nord**, **Gruvbox**, **Everforest**, and **Rosé Pine** — plus two originals,
-**Light Green** and **Dark Green** (a fresh, forest-green pair). Each one comes
-in both a light and a dark version, and the app automatically uses the right one
-based on your **Theme** setting (Light / Dark / System).
+Pick a theme in **Settings → Theme**. That one dropdown starts with **System /
+Light / Dark** (the app's built-in palette, following your computer's light/dark
+setting), then — below a divider — every theme: seven ready-made examples ship
+with the app — five popular community schemes (**Solarized**, **Nord**,
+**Gruvbox**, **Everforest**, and **Rosé Pine**) plus two originals, **Light
+Green** and **Dark Green** (a fresh, forest-green pair). Each theme comes in both
+a light and a dark version, and the app automatically uses the right one based on
+your computer's light/dark setting.
 
 The best part: **themes are just small files you can edit or create yourself** —
 no programming needed, and an AI assistant can write a whole theme for you in
@@ -18,8 +20,7 @@ seconds. Read on.
 ## The themes folder
 
 Every theme is one small `.json` file in your **themes folder**. In Settings,
-the **Themes folder** row (just under the Color scheme dropdown) has three
-buttons:
+the **Themes folder** row (just under the Theme dropdown) has three buttons:
 
 - **Open folder** — opens the themes folder in your file manager, so you can
   see the files, drop new ones in, or make copies. *(Desktop only.)*
@@ -67,7 +68,7 @@ name. Here's a complete one:
 ```
 
 Save it as, say, `midnight.json` in the themes folder, click **Reload**, and
-"Midnight" appears in the Color scheme dropdown. The **file name** (without
+"Midnight" appears in the Theme dropdown. The **file name** (without
 `.json`) is the theme's id, so keep it simple: lowercase letters, numbers, and
 dashes.
 
@@ -91,6 +92,56 @@ color like `navy`.
 
 You don't have to include all ten — any you leave out simply use the Default
 theme's value. But for a polished result, set them all for both light and dark.
+
+### Coloring markdown elements (optional)
+
+The ten colors above cover the whole app. If you also want to recolor
+**individual markdown elements** — give headings their own color, tint links,
+make code stand out — add an optional `"syntax"` block. It has a `light` and a
+`dark` palette of its own, and any key you set applies in every view (source,
+Rich, and Read). Leave the block out entirely, or leave any key unset, and that
+element keeps its normal color.
+
+```json
+{
+  "name": "Inky",
+  "light": { "bg": "#ffffff", "fg": "#1f1f1f", "accent": "#3574f0" },
+  "dark": { "bg": "#1e1e1e", "fg": "#e8e8e8", "accent": "#6ea1ff" },
+  "syntax": {
+    "light": {
+      "heading": "#8a101f",
+      "bold": "#1f1f1f",
+      "italic": "#6e6e6e",
+      "link": "#3574f0",
+      "code": "#b23a2b",
+      "quote": "#6e6e6e",
+      "list": "#6e6e6e"
+    },
+    "dark": {
+      "heading": "#ff8a97",
+      "link": "#6ea1ff",
+      "code": "#ff6b5e"
+    }
+  }
+}
+```
+
+The keys:
+
+| Key             | What it colors |
+| --------------- | -------------- |
+| `heading`       | All headings (levels 1–6). |
+| `heading1`…`heading6` | A single heading level — overrides `heading` for that level. |
+| `bold`          | **Bold** text. |
+| `italic`        | *Italic* text. |
+| `strikethrough` | ~~Struck-through~~ text. |
+| `link`          | Links and URLs. |
+| `code`          | Inline code and code blocks. |
+| `quote`         | Blockquotes. |
+| `list`          | List bullets and numbers. |
+
+To color each heading level differently, set `heading1` through `heading6`
+instead of (or on top of) `heading`.
 
 ### Advanced: the `css` field (optional)
 
@@ -128,6 +179,11 @@ result into your themes folder.
 > - `border` — dividing lines
 > - `danger` — warnings/delete
 > - `selection` — selected-text highlight
+>
+> Optionally also add a `syntax` object with `light` and `dark` palettes to
+> recolor markdown elements, using any of these keys: `heading` (or
+> `heading1`…`heading6` for per-level), `bold`, `italic`, `strikethrough`,
+> `link`, `code`, `quote`, `list`.
 >
 > Please output only a valid JSON file. Make it **[describe what you want — e.g.
 > "a warm, low-contrast sepia theme that's easy on the eyes at night"]**. Ensure

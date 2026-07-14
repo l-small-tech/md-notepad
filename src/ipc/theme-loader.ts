@@ -16,7 +16,12 @@
 
 import { join } from '@tauri-apps/api/path';
 import { ipc, IpcError } from './commands';
-import { parseThemePlugin, type ThemePlugin, type Palette } from '../core/theme-plugins';
+import {
+  parseThemePlugin,
+  type ThemePlugin,
+  type Palette,
+  type SyntaxColors,
+} from '../core/theme-plugins';
 import { BUILT_IN_THEMES } from '../core/theme-seeds';
 
 /** Filename slug (no extension), lowercased and reduced to a safe id. */
@@ -32,10 +37,17 @@ function slugFromPath(path: string): string {
 
 /** The on-disk JSON shape (the plugin minus its filename-derived id). */
 function toFileJson(plugin: ThemePlugin): string {
-  const body: { name: string; light: Palette; dark: Palette; css?: string } = {
+  const body: {
+    name: string;
+    light: Palette;
+    dark: Palette;
+    syntax?: SyntaxColors;
+    css?: string;
+  } = {
     name: plugin.name,
     light: plugin.light,
     dark: plugin.dark,
+    ...(plugin.syntax ? { syntax: plugin.syntax } : {}),
     ...(plugin.css ? { css: plugin.css } : {}),
   };
   return `${JSON.stringify(body, null, 2)}\n`;
@@ -135,7 +147,9 @@ export async function writeThemeTemplate(
 }
 
 /** Starter palette = the app's default (base.css) light/dark values; the
- *  template fills all ten keys for both modes so the user edits in place. */
+ *  template fills all ten keys for both modes so the user edits in place. The
+ *  optional `syntax` block demonstrates recoloring markdown elements (the
+ *  `--md-*` vars) — seeded with the app's defaults so it's a no-op until edited. */
 const TEMPLATE: ThemePlugin = {
   id: 'my-theme',
   name: 'My Theme',
@@ -162,5 +176,25 @@ const TEMPLATE: ThemePlugin = {
     border: '#3c3c3c',
     danger: '#ff6b5e',
     selection: '#2a4a78',
+  },
+  syntax: {
+    light: {
+      heading: '#3574f0',
+      bold: '#1f1f1f',
+      italic: '#6e6e6e',
+      link: '#3574f0',
+      code: '#c42b1c',
+      quote: '#6e6e6e',
+      list: '#6e6e6e',
+    },
+    dark: {
+      heading: '#6ea1ff',
+      bold: '#e8e8e8',
+      italic: '#9a9a9a',
+      link: '#6ea1ff',
+      code: '#ff6b5e',
+      quote: '#9a9a9a',
+      list: '#9a9a9a',
+    },
   },
 };

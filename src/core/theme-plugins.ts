@@ -3,21 +3,23 @@
  *
  * The whole app styles itself through ten CSS variables (see styles/base.css),
  * redefined per light/dark and selected by `data-color-scheme` on <html>. A
- * "theme plugin" is just those ten variables for light and dark, authored as a
- * small JSON file the user drops in the themes folder (loaded by
- * ipc/theme-loader.ts). This module is DOM/Tauri-free: it validates a parsed
- * JSON blob into a `ThemePlugin` and renders a plugin to the scoped CSS the app
- * injects at boot.
+ * "theme plugin" is those ten variables for light and dark, plus an optional
+ * `syntax` block that recolors individual markdown elements (headings, bold,
+ * links, …) — authored as a small JSON file the user drops in the themes folder
+ * (loaded by ipc/theme-loader.ts). This module is DOM/Tauri-free: it validates a
+ * parsed JSON blob into a `ThemePlugin` and renders a plugin to the scoped CSS
+ * the app injects at boot.
  *
  * Design notes:
- * - Palette values are validated as *safe* color strings — anything containing
- *   `;{}:` or a newline is dropped, so a hand-edited value can't break out of
- *   its declaration and corrupt the whole stylesheet. Missing keys are simply
- *   omitted; the app falls back to base.css's default for that variable, so a
- *   partial theme still works.
+ * - Palette/syntax values are validated as *safe* color strings — anything
+ *   containing `;{}:` or a newline is dropped, so a hand-edited value can't break
+ *   out of its declaration and corrupt the whole stylesheet. Missing keys are
+ *   simply omitted; the app falls back to base.css's default for that variable
+ *   (and each `--md-*` var itself falls back to a palette var in the consuming
+ *   stylesheet), so a partial theme still works.
  * - `css` is an intentional escape hatch: verbatim CSS the author scopes
- *   themselves (for spacing/font tweaks the ten-variable palette can't express).
- *   It is emitted as-is — the themes folder is the user's own machine.
+ *   themselves (for spacing/font tweaks the variables can't express). It is
+ *   emitted as-is — the themes folder is the user's own machine.
  */
 
 /** The ten palette keys (JSON field → CSS custom property). Every scheme block
@@ -35,12 +37,46 @@ export const PALETTE_KEYS = {
   selection: '--selection',
 } as const;
 
+/**
+ * Optional markdown-element colors (JSON field → CSS custom property). Each maps
+ * to a `--md-*` variable consumed by the three rendering surfaces (editors/cm6.ts,
+ * styles/preview.css, styles/wysiwyg.css). Every consumer references its var with
+ * a fallback to the previous palette-derived color, so an unset key changes
+ * nothing. `heading` sets all levels; `heading1`…`heading6` override per level.
+ */
+export const SYNTAX_KEYS = {
+  heading: '--md-heading',
+  heading1: '--md-heading1',
+  heading2: '--md-heading2',
+  heading3: '--md-heading3',
+  heading4: '--md-heading4',
+  heading5: '--md-heading5',
+  heading6: '--md-heading6',
+  bold: '--md-bold',
+  italic: '--md-italic',
+  strikethrough: '--md-strike',
+  link: '--md-link',
+  code: '--md-code',
+  quote: '--md-quote',
+  list: '--md-list',
+} as const;
+
 export type PaletteKey = keyof typeof PALETTE_KEYS;
+export type SyntaxKey = keyof typeof SYNTAX_KEYS;
 
 export const PALETTE_KEY_LIST = Object.keys(PALETTE_KEYS) as PaletteKey[];
+export const SYNTAX_KEY_LIST = Object.keys(SYNTAX_KEYS) as SyntaxKey[];
 
 /** A light or dark palette: any subset of the ten keys → color string. */
 export type Palette = Partial<Record<PaletteKey, string>>;
+/** A light or dark markdown-element palette: any subset of the syntax keys. */
+export type SyntaxPalette = Partial<Record<SyntaxKey, string>>;
+
+/** Per-mode markdown-element colors. */
+export interface SyntaxColors {
+  light: SyntaxPalette;
+  dark: SyntaxPalette;
+}
 
 export interface ThemePlugin {
   /** Slug (from the filename); also the `data-color-scheme` value. */
@@ -49,6 +85,8 @@ export interface ThemePlugin {
   name: string;
   light: Palette;
   dark: Palette;
+  /** Optional per-mode markdown-element colors (the `--md-*` vars). */
+  syntax?: SyntaxColors;
   /** Optional verbatim CSS appended after the palette blocks. */
   css?: string;
 }
@@ -67,13 +105,13 @@ function isSafeColor(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !/[;{}:\n\r]/.test(value);
 }
 
-/** Keep only known keys with safe values; drop everything else silently. */
-function normalizePalette(raw: unknown): Palette {
+/** Keep only the given keys with safe values; drop everything else silently. */
+function pickSafe<K extends string>(raw: unknown, keys: readonly K[]): Partial<Record<K, string>> {
   if (!isRecord(raw)) {
     return {};
   }
-  const out: Palette = {};
-  for (const key of PALETTE_KEY_LIST) {
+  const out: Partial<Record<K, string>> = {};
+  for (const key of keys) {
     const value = raw[key];
     if (isSafeColor(value)) {
       out[key] = value.trim();
@@ -84,23 +122,41 @@ function normalizePalette(raw: unknown): Palette {
 
 /**
  * Validate a parsed JSON blob into a `ThemePlugin`. Returns null only when the
- * input is unusable (not an object, or no palette values at all after
+ * input is unusable (not an object, or no *palette* values at all after
  * validation) — a lenient parse so a slightly-malformed theme degrades rather
- * than disappearing. `id` is supplied by the caller (the filename slug).
+ * than disappearing. A theme with only `syntax` colors and no palette is treated
+ * as invalid (there'd be nothing to distinguish it from the default palette).
+ * `id` is supplied by the caller (the filename slug).
  */
 export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
   if (!isRecord(raw)) {
     return null;
   }
-  const light = normalizePalette(raw.light);
-  const dark = normalizePalette(raw.dark);
+  const light = pickSafe(raw.light, PALETTE_KEY_LIST);
+  const dark = pickSafe(raw.dark, PALETTE_KEY_LIST);
   if (Object.keys(light).length === 0 && Object.keys(dark).length === 0) {
     // Nothing to apply — treat as invalid so the loader skips it.
     return null;
   }
   const name = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : id;
   const css = typeof raw.css === 'string' && raw.css.trim().length > 0 ? raw.css : undefined;
-  return { id, name, light, dark, ...(css ? { css } : {}) };
+
+  const syntaxRaw = isRecord(raw.syntax) ? raw.syntax : undefined;
+  const syntaxLight = pickSafe(syntaxRaw?.light, SYNTAX_KEY_LIST);
+  const syntaxDark = pickSafe(syntaxRaw?.dark, SYNTAX_KEY_LIST);
+  const syntax =
+    Object.keys(syntaxLight).length > 0 || Object.keys(syntaxDark).length > 0
+      ? { light: syntaxLight, dark: syntaxDark }
+      : undefined;
+
+  return {
+    id,
+    name,
+    light,
+    dark,
+    ...(syntax ? { syntax } : {}),
+    ...(css ? { css } : {}),
+  };
 }
 
 /** CSS-escape a single-quoted attribute value (id is already slug-safe, but be
@@ -109,9 +165,25 @@ function escapeAttrValue(id: string): string {
   return id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function declarations(palette: Palette): string {
-  return PALETTE_KEY_LIST.filter((key) => palette[key] !== undefined)
-    .map((key) => `  ${PALETTE_KEYS[key]}: ${palette[key]};`)
+/** Render `values` as `--var: color;` lines for the keys that are present. */
+function declarations<K extends string>(
+  values: Partial<Record<K, string>>,
+  vars: Record<K, string>,
+  keys: readonly K[],
+): string {
+  return keys
+    .filter((key) => values[key] !== undefined)
+    .map((key) => `  ${vars[key]}: ${values[key]};`)
+    .join('\n');
+}
+
+/** Join the palette declarations and (optional) syntax declarations for one mode. */
+function modeDeclarations(palette: Palette, syntax: SyntaxPalette | undefined): string {
+  return [
+    declarations(palette, PALETTE_KEYS, PALETTE_KEY_LIST),
+    syntax ? declarations(syntax, SYNTAX_KEYS, SYNTAX_KEY_LIST) : '',
+  ]
+    .filter((block) => block.length > 0)
     .join('\n');
 }
 
@@ -119,15 +191,16 @@ function declarations(palette: Palette): string {
  * Render a plugin to the CSS the app injects: an unscoped light block plus a
  * `[data-theme='dark']` block (which wins by specificity, exactly like the
  * built-in schemes in the old styles/themes.css), then the verbatim `css`.
+ * Palette and `--md-*` syntax vars share each mode's block.
  */
 export function themePluginToCss(plugin: ThemePlugin): string {
   const attr = escapeAttrValue(plugin.id);
   const blocks: string[] = [];
-  const light = declarations(plugin.light);
+  const light = modeDeclarations(plugin.light, plugin.syntax?.light);
   if (light) {
     blocks.push(`:root[data-color-scheme='${attr}'] {\n${light}\n}`);
   }
-  const dark = declarations(plugin.dark);
+  const dark = modeDeclarations(plugin.dark, plugin.syntax?.dark);
   if (dark) {
     blocks.push(`:root[data-color-scheme='${attr}'][data-theme='dark'] {\n${dark}\n}`);
   }

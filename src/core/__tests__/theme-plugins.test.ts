@@ -54,6 +54,40 @@ describe('parseThemePlugin', () => {
     expect(parseThemePlugin('a', { light: {}, dark: {} })).toBeNull();
     expect(parseThemePlugin('a', { light: { bg: '' }, dark: {} })).toBeNull();
   });
+
+  test('parses an optional per-mode syntax block', () => {
+    const plugin = parseThemePlugin('syn', {
+      light: { bg: '#fff' },
+      dark: { bg: '#000' },
+      syntax: {
+        light: { heading1: '#0a0', bold: '#111', link: '#00f' },
+        dark: { heading: '#6f6' },
+      },
+    });
+    expect(plugin!.syntax).toEqual({
+      light: { heading1: '#0a0', bold: '#111', link: '#00f' },
+      dark: { heading: '#6f6' },
+    });
+  });
+
+  test('drops unknown/unsafe syntax keys and omits syntax when empty', () => {
+    const plugin = parseThemePlugin('syn2', {
+      light: { bg: '#fff' },
+      dark: {},
+      syntax: {
+        light: { heading1: 'red; }', bogus: '#000' },
+        dark: { link: '' },
+      },
+    });
+    // Every syntax value was unsafe/unknown → no syntax block at all.
+    expect(plugin!.syntax).toBeUndefined();
+  });
+
+  test('a theme with only syntax colors (no palette) is invalid', () => {
+    expect(
+      parseThemePlugin('syn3', { light: {}, dark: {}, syntax: { light: { heading: '#0a0' } } }),
+    ).toBeNull();
+  });
 });
 
 describe('themePluginToCss', () => {
@@ -82,6 +116,29 @@ describe('themePluginToCss', () => {
       dark: {},
     });
     expect(css).toContain("data-color-scheme='a\\'b\\\\c'");
+  });
+
+  test('emits --md-* syntax vars into the matching mode blocks', () => {
+    const css = themePluginToCss({
+      id: 'syn',
+      name: 'Syn',
+      light: { bg: '#ffffff' },
+      dark: { bg: '#000000' },
+      syntax: {
+        light: { heading1: '#00aa00', link: '#0000ff' },
+        dark: { heading: '#66ff66' },
+      },
+    });
+    const lightBlock = css.slice(
+      css.indexOf(":root[data-color-scheme='syn'] {"),
+      css.indexOf(":root[data-color-scheme='syn'][data-theme='dark']"),
+    );
+    const darkBlock = css.slice(css.indexOf(":root[data-color-scheme='syn'][data-theme='dark']"));
+    expect(lightBlock).toContain('--md-heading1: #00aa00;');
+    expect(lightBlock).toContain('--md-link: #0000ff;');
+    expect(lightBlock).not.toContain('--md-heading:');
+    expect(darkBlock).toContain('--md-heading: #66ff66;');
+    expect(darkBlock).not.toContain('--md-heading1:');
   });
 
   test('renders every seeded built-in without throwing', () => {

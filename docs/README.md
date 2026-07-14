@@ -27,8 +27,8 @@ Read these in order the first time, or jump straight to what you need:
 6. **[Pictures in your notes](pictures-and-images.md)** — pasting screenshots
    and adding images.
 7. **[Settings](settings.md)** — every option explained, plus how updates work.
-8. **[Themes](themes.md)** — pick a color scheme, or make your own (an AI can
-   write one for you).
+8. **[Themes](themes.md)** — pick a theme, or make your own (an AI can write one
+   for you).
 9. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
 
 ## About this documentation

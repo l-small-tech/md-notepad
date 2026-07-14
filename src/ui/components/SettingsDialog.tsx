@@ -18,15 +18,16 @@ import { openDocs, requestChangeNotesDir } from '../session';
 import { currentProvider } from '../../ipc/provider';
 import { writeThemeTemplate } from '../../ipc/theme-loader';
 import { settingsStore, useSettingsStore } from '../stores/settings';
-import { themeRegistryStore, useThemeRegistry, themeOptions } from '../stores/theme-registry';
+import {
+  themeRegistryStore,
+  useThemeRegistry,
+  APPEARANCE_MODES,
+  themePluginOptions,
+  isAppearanceMode,
+} from '../stores/theme-registry';
+import { DEFAULT_COLOR_SCHEME } from '../../core/types';
 import { uiStore, useUiStore } from '../stores/ui';
 import { checkForUpdate, useUpdateStore } from '../update';
-
-const THEMES: { value: Settings['theme']; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-];
 
 const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
@@ -115,8 +116,24 @@ export function SettingsDialog() {
     return null;
   }
 
-  const schemeOptions = themeOptions(plugins);
+  const pluginOptions = themePluginOptions(plugins);
   const canReveal = currentProvider().capabilities.isLocalFs;
+
+  // Unified Theme picker: System/Light/Dark drive the built-in default palette;
+  // a plugin id drives that scheme and follows the OS light/dark. The dropdown
+  // shows the mode when on the default palette, else the plugin id.
+  const themeValue =
+    settings.colorScheme === DEFAULT_COLOR_SCHEME ? settings.theme : settings.colorScheme;
+  const onThemeChange = (value: string) => {
+    if (isAppearanceMode(value)) {
+      update({ theme: value, colorScheme: DEFAULT_COLOR_SCHEME });
+    } else {
+      update({ colorScheme: value, theme: 'system' });
+    }
+  };
+  const pluginMissing =
+    settings.colorScheme !== DEFAULT_COLOR_SCHEME &&
+    !pluginOptions.some((p) => p.value === settings.colorScheme);
 
   const close = () => uiStore.getState().closeSettings();
 
@@ -151,32 +168,23 @@ export function SettingsDialog() {
             <span className="settings-label">Theme</span>
             <select
               className="settings-control"
-              value={settings.theme}
-              onChange={(e) => update({ theme: e.target.value as Settings['theme'] })}
+              value={themeValue}
+              onChange={(e) => onThemeChange(e.target.value)}
             >
-              {THEMES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
+              {APPEARANCE_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
                 </option>
               ))}
-            </select>
-          </label>
-
-          <label className="settings-row">
-            <span className="settings-label">Color scheme</span>
-            <select
-              className="settings-control"
-              value={settings.colorScheme}
-              onChange={(e) => update({ colorScheme: e.target.value as Settings['colorScheme'] })}
-            >
-              {schemeOptions.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
+              {pluginOptions.length > 0 && <option disabled>──────────</option>}
+              {pluginOptions.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
                 </option>
               ))}
-              {/* A saved scheme whose theme file is missing still shows as the
-                  current value (falls back to the default palette visually). */}
-              {!schemeOptions.some((c) => c.value === settings.colorScheme) && (
+              {/* A saved theme whose file is missing still shows as the current
+                  value (falls back to the default palette visually). */}
+              {pluginMissing && (
                 <option value={settings.colorScheme}>{settings.colorScheme} (missing)</option>
               )}
             </select>
