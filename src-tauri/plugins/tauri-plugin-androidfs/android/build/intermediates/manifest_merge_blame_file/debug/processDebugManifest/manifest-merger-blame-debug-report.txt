@@ -3,5 +3,13 @@
 3    package="com.plugin.androidfs" >
 4
 5    <uses-sdk android:minSdkVersion="24" />
-6
-7</manifest>
+6    <!--
+7         Voice comments: on-device speech-to-text records from the mic. Declared
+8         here in the plugin manifest so it merges into the (generated) app
+9         manifest and survives app-manifest regeneration.
+10    -->
+11    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+11-->C:\Users\yklog\Workspace\md-notepad\src-tauri\plugins\tauri-plugin-androidfs\android\src\main\AndroidManifest.xml:6:5-71
+11-->C:\Users\yklog\Workspace\md-notepad\src-tauri\plugins\tauri-plugin-androidfs\android\src\main\AndroidManifest.xml:6:22-68
+12
+13</manifest>
