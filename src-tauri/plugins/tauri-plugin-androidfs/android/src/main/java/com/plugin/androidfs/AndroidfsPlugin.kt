@@ -3,6 +3,7 @@ package com.plugin.androidfs
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -348,6 +349,18 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
             )
+            // Park the picker inside Documents. It's a selectable (non-blocklisted)
+            // location, so the system's "USE THIS FOLDER" button is enabled on
+            // arrival instead of greyed out with "To protect your privacy, choose
+            // another folder" — which is what the user hits at storage/Download
+            // roots. Honoured from API 26; older versions just ignore the extra.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val initial = DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents",
+                    "primary:Documents",
+                )
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial)
+            }
         }
         startActivityForResult(invoke, intent, "onTreePicked")
     }
