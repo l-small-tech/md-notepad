@@ -106,6 +106,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             onLongPressLine: isAndroid()
               ? (line) => void addCommentAtLine(tabId, line)
               : undefined,
+            // Android: double-tap the text to dismiss the soft keyboard.
+            dismissKeyboardOnDoubleTap: isAndroid(),
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
