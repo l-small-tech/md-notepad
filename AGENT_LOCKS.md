@@ -1,1 +1,0 @@
-- LOCKED fix/back-in-toolbar | agent=claude | since=2026-07-14T23:08Z | session=cc-back-toolbar
