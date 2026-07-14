@@ -34,6 +34,12 @@ export interface PreviewPaneOptions {
    * followed IN the pane instead (see "Link policy" — in-pane reader nav).
    */
   onOpenFile?: (path: string) => void;
+  /**
+   * Notified whenever the followed-link history goes empty↔non-empty, i.e. when
+   * the Back affordance appears or disappears. Lets a host surface Back outside
+   * the pane (the fullscreen control cluster) instead of the in-pane bar.
+   */
+  onCanGoBackChange?: (canGoBack: boolean) => void;
 }
 
 /** One followed link in the in-pane navigation history: its path + cached text. */
@@ -45,6 +51,8 @@ interface NavEntry {
 export interface PreviewPane {
   /** Mermaid bakes colors in at render time — a theme flip needs a fresh render. */
   setDark(dark: boolean): void;
+  /** Pop the current followed-link page (same as the in-pane Back button). */
+  goBack(): void;
   dispose(): void;
 }
 
@@ -186,10 +194,21 @@ export function attachPreviewPane(
       return;
     }
     navStack.push({ path: abs, text });
+    notifyCanGoBack();
     clearTimer();
     await render();
     if (!disposed) {
       host.scrollTop = 0;
+    }
+  }
+
+  /** Report whether Back is now available, but only when it actually flips. */
+  let lastCanGoBack = false;
+  function notifyCanGoBack(): void {
+    const canGoBack = navStack.length > 0;
+    if (canGoBack !== lastCanGoBack) {
+      lastCanGoBack = canGoBack;
+      options.onCanGoBackChange?.(canGoBack);
     }
   }
 
@@ -199,6 +218,7 @@ export function attachPreviewPane(
       return;
     }
     navStack.pop();
+    notifyCanGoBack();
     clearTimer();
     void render();
   }
@@ -248,6 +268,7 @@ export function attachPreviewPane(
       clearTimer();
       void render();
     },
+    goBack,
     dispose() {
       disposed = true;
       clearTimer();
