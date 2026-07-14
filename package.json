@@ -19,6 +19,7 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build --debug --apk",
+    "android:deploy": "tauri android build --debug --apk --target aarch64 && adb install -r src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk",
     "android:release": "tauri android build --apk --aab"
   },
   "dependencies": {
