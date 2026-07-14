@@ -19,7 +19,13 @@ import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
-import { enrichCopiedText, getCursor, noteCursor, savePastedImageForTab } from '../session';
+import {
+  enrichCopiedText,
+  getCursor,
+  noteCursor,
+  openNotePath,
+  savePastedImageForTab,
+} from '../session';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -159,6 +165,9 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     const pane = attachPreviewPane(host, tab.model, {
       dark: isDark(),
       docPath: tab.filePath ?? tab.notePath,
+      // A followed link to an image (or any non-text file) opens in a tab —
+      // the reader can only render markdown/text inline.
+      onOpenFile: (path) => openNotePath(path),
     });
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
     // Read mode: move focus onto the scrollable reading pane so keyboard

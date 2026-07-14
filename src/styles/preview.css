@@ -78,6 +78,34 @@
   color: var(--accent);
 }
 
+/* ---- In-pane reader navigation (Back button) --------------------------- */
+
+/* Sticks to the top of the scroll container so it's reachable however far the
+   reader has scrolled into a followed link. */
+.preview-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -0.4em 0 1em;
+  padding: 0.4em 0;
+  background: var(--bg);
+}
+
+.preview-back {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--accent);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.preview-back:hover {
+  border-color: var(--accent);
+}
+
 .preview blockquote {
   margin: 0.8em 0;
   padding: 0.1em 1em;

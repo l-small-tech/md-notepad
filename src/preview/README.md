@@ -73,12 +73,30 @@ preview (toggling belongs to wysiwyg mode).
 
 ## Link policy
 
-One delegated `click` listener on the pane:
+One delegated `click` listener on the pane. The window must NEVER navigate,
+so every link click is `preventDefault()`ed; what happens next depends on the
+href:
 
-- `a[href^="http:"]`/`https:` → `event.preventDefault()` +
-  `openUrl(href)` from `@tauri-apps/plugin-opener`.
-- Everything else (relative paths, anchors, mailto for v1) →
-  `preventDefault()` and ignore. The window must NEVER navigate.
+- `http:`/`https:` → `openUrl(href)` (`@tauri-apps/plugin-opener`) — system browser.
+- A **local file** link (`isLocalLinkTarget`, i.e. a relative/absolute path,
+  no URL scheme) is FOLLOWED in the pane — see "In-pane reader nav" below.
+- Everything else (in-document `#anchors`, `mailto:`, other schemes) → inert.
+
+### In-pane reader nav
+
+A followed local link opens IN the reading pane (help-browser style) rather
+than in the tab — the tab's identity (title, its own file, unsaved edits) is
+never touched. `pane.ts` keeps a `navStack` of `{ path, text }`:
+
+- Empty stack = "home": renders the tab's live model, re-rendering on edits.
+- Following a **markdown/text** link reads it off disk, pushes it, and renders
+  it (scrolled to top). Relative destinations resolve against the *current*
+  page's directory, so chained relative links keep working. Images (and files
+  that won't read as text) hand off to `onOpenFile` — they open in a tab.
+- A sticky **Back** button (`.preview-back`) leads the content whenever the
+  stack is non-empty; clicking it pops one entry, ending back at home.
+- While browsing (stack non-empty) model edits are ignored — an edit to the
+  underlying tab must not yank the reader off the page it's on.
 
 ## Styling (`src/styles/preview.css`, new in M4)
 
