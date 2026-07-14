@@ -713,8 +713,13 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
                 )
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.packageName)
+                // We do NOT force EXTRA_PREFER_OFFLINE: modern Android already
+                // uses on-device recognition when a language model is installed,
+                // and forcing offline hard-fails (ERROR_LANGUAGE_UNAVAILABLE) on
+                // devices without one. Letting the system choose keeps dictation
+                // on-device where available and falls back to the network model
+                // otherwise, so the feature works out of the box.
             }
             try {
                 rec.startListening(intent)

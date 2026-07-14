@@ -201,6 +201,50 @@ export async function openComment(tabId: string, id: string, line: number): Prom
 }
 
 /**
+ * Open the panel showing ALL of a note's comments (no single focus). This is the
+ * read-mode entry point: the preview has no gutter markers to click, so the
+ * ribbon opens the full list to view/play/edit/delete — and add from within it.
+ */
+export async function openAllComments(tabId: string): Promise<void> {
+  const notePath = notePathFor(tabId);
+  if (!notePath) {
+    uiStore.getState().showNotice('Save the note before adding voice comments.');
+    return;
+  }
+  let comments: VoiceComment[] = [];
+  try {
+    comments = await loadComments(notePath);
+  } catch {
+    uiStore.getState().showNotice('Could not read voice comments.');
+  }
+  voiceStore.setState({
+    phase: 'viewing',
+    tabId,
+    notePath,
+    commentsPath: commentsPathFor(notePath),
+    comments,
+    anchoredIds: anchoredIdsFor(tabId),
+    focusId: null,
+    line: null,
+    captureKind: null,
+  });
+}
+
+/**
+ * Add a comment from within the panel (the "+" button). Anchors to the source
+ * editor's current caret line — which is valid in read mode too, since the CM6
+ * source editor stays attached (just hidden) there.
+ */
+export async function addFromPanel(): Promise<void> {
+  const { tabId } = voiceStore.getState();
+  if (!tabId) {
+    return;
+  }
+  const line = getSourceAdapter(tabId)?.anchorLineAt() ?? 1;
+  await addCommentAtLine(tabId, line);
+}
+
+/**
  * Begin adding a voice comment on `line`. Loads existing comments (to dedupe the
  * new id), mints the id, then starts the platform capture. The anchor token and
  * the stored comment are written only when capture completes.
@@ -243,25 +287,74 @@ export async function addCommentAtLine(tabId: string, line: number): Promise<voi
   }
 }
 
+/**
+ * Turn an Android `SpeechRecognizer` reject ("STT_ERROR:<code>" / "PERMISSION_
+ * DENIED" / "STT_BUSY" / "STT_UNAVAILABLE") into a message that says what to do.
+ * The codes are `android.speech.SpeechRecognizer.ERROR_*`.
+ */
+function sttErrorMessage(raw: string): string {
+  if (raw.includes('PERMISSION_DENIED')) {
+    return 'Microphone permission is required for voice comments.';
+  }
+  if (raw.includes('STT_BUSY')) {
+    return 'Still finishing the last recording — try again in a moment.';
+  }
+  if (raw.includes('STT_UNAVAILABLE')) {
+    return 'On-device speech recognition is unavailable on this device.';
+  }
+  const m = /STT_ERROR:(-?\d+)/.exec(raw);
+  switch (m ? Number(m[1]) : null) {
+    case 6: // SPEECH_TIMEOUT
+    case 7: // NO_MATCH
+      return "Didn't catch that — try again and speak clearly.";
+    case 1: // NETWORK_TIMEOUT
+    case 2: // NETWORK
+      return 'Network error during recognition. Check your connection or install offline voice typing.';
+    case 8: // RECOGNIZER_BUSY
+      return 'The recognizer is busy — try again in a moment.';
+    case 9: // INSUFFICIENT_PERMISSIONS
+      return 'Microphone permission is required for voice comments.';
+    case 12: // LANGUAGE_UNAVAILABLE
+    case 13: // LANGUAGE_NOT_SUPPORTED
+      return 'No speech model for this language. Install offline voice typing, or connect to the network.';
+    default:
+      return 'Speech recognition failed. Try again.';
+  }
+}
+
 async function captureAndroid(): Promise<void> {
+  // Stage 1 — permission. A rejection here (vs. a clean "not granted") means the
+  // permission bridge itself failed, which is worth its own message.
+  let granted: boolean;
   try {
-    const granted = (await ipc.sttPermission()) || (await ipc.sttRequestPermission());
-    if (!granted) {
-      failCapture('Microphone permission denied.');
-      return;
-    }
+    granted = (await ipc.sttPermission()) || (await ipc.sttRequestPermission());
+  } catch {
+    failCapture('Could not request microphone permission.');
+    return;
+  }
+  if (!granted) {
+    failCapture('Microphone permission denied.');
+    return;
+  }
+  // Stage 2 — availability (best-effort; a flaky check shouldn't block a try).
+  try {
     if (!(await ipc.sttAvailable())) {
       failCapture('On-device speech recognition is unavailable on this device.');
       return;
     }
+  } catch {
+    // Ignore — attempt recognition anyway; sttStart surfaces a real problem.
+  }
+  // Stage 3 — recognition. Map the error code so the message is actionable.
+  try {
     const text = await ipc.sttStart(); // resolves on the final result
     if (voiceStore.getState().phase !== 'capturing') {
       return; // panel was closed mid-capture
     }
     await finishCapture(text.trim(), null);
-  } catch {
+  } catch (e) {
     if (voiceStore.getState().phase === 'capturing') {
-      failCapture('Speech recognition failed. Try again.');
+      failCapture(sttErrorMessage(e instanceof Error ? e.message : String(e)));
     }
   }
 }

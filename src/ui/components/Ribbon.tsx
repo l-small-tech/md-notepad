@@ -25,7 +25,7 @@ import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink } from '../session';
-import { addCommentAtLine } from '../voice-comments';
+import { addCommentAtLine, openAllComments } from '../voice-comments';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -88,6 +88,15 @@ function addVoiceCommentAtCaret(): void {
     return;
   }
   void addCommentAtLine(tab.id, adapter.anchorLineAt());
+}
+
+/** Open the voice-comments panel for the active tab (read-mode entry point). */
+function openVoiceComments(): void {
+  const state = tabsStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (tab) {
+    void openAllComments(tab.id);
+  }
 }
 
 function copyRawText(): void {
@@ -221,8 +230,6 @@ function ReaderControls() {
         A+
       </button>
 
-      <span className="ribbon-divider" role="separator" />
-
       <button
         className="ribbon-btn"
         aria-label="Reset zoom"
@@ -231,6 +238,18 @@ function ReaderControls() {
         onClick={() => zoom('reset')}
       >
         ⟲
+      </button>
+
+      <span className="ribbon-divider" role="separator" />
+
+      <button
+        className="ribbon-btn"
+        aria-label="Voice comments"
+        title="Voice comments — view, play, or add"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={openVoiceComments}
+      >
+        💬
       </button>
     </div>
   );
