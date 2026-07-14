@@ -3,9 +3,10 @@
  *
  * Each non-default scheme is a JSON theme file in the user's themes folder,
  * loaded at boot and injected as a <style id="theme-plugins"> element by
- * main.tsx (see core/theme-plugins.ts, ipc/theme-loader.ts). The five former
- * built-ins (Solarized, Nord, Gruvbox, Everforest, Rosé Pine) are seeded into
- * that folder on first run as editable examples (core/theme-seeds.ts).
+ * main.tsx (see core/theme-plugins.ts, ipc/theme-loader.ts). The seven
+ * built-in examples (Solarized, Nord, Gruvbox, Everforest, Rosé Pine, plus the
+ * UFV-inspired Light Green and Dark Green) are seeded into that folder on first
+ * run as editable examples (core/theme-seeds.ts).
  *
  * The mechanism is unchanged: every scheme redefines the same ten variables
  * base.css declares (--bg, --editor-bg, --bg-alt, --bg-hover, --fg, --fg-muted,

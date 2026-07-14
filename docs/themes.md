@@ -5,10 +5,11 @@ on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
 Pick a theme in **Settings → Color scheme**. The app ships with **Default** and
-five popular schemes as ready-made examples: **Solarized**, **Nord**,
-**Gruvbox**, **Everforest**, and **Rosé Pine**. Each one comes in both a light
-and a dark version, and the app automatically uses the right one based on your
-**Theme** setting (Light / Dark / System).
+seven ready-made examples: five popular community schemes — **Solarized**,
+**Nord**, **Gruvbox**, **Everforest**, and **Rosé Pine** — plus two originals,
+**Light Green** and **Dark Green** (a fresh, forest-green pair). Each one comes
+in both a light and a dark version, and the app automatically uses the right one
+based on your **Theme** setting (Light / Dark / System).
 
 The best part: **themes are just small files you can edit or create yourself** —
 no programming needed, and an AI assistant can write a whole theme for you in
@@ -27,7 +28,7 @@ buttons:
 - **Reload** — re-reads the folder after you've edited or added files, so your
   changes show up right away.
 
-The five example themes live here too — open any of them to see exactly how a
+The seven example themes live here too — open any of them to see exactly how a
 theme is built, or copy one as a starting point.
 
 ## What a theme file looks like
@@ -153,6 +154,6 @@ reload again.
 - **Multiple windows** — a newly added theme shows up in other open windows
   after you click **Reload** in each (or restart the app).
 
-The five example themes are yours to modify — if you change one and want the
+The seven example themes are yours to modify — if you change one and want the
 original back, just delete your version and reopen Settings (the app re-creates
 any missing example on the next launch).
