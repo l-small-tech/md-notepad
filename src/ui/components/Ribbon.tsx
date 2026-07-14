@@ -23,6 +23,7 @@ import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
+import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
@@ -33,6 +34,14 @@ import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
 
 /** Platform-correct shortcut hint for the fullscreen tooltips. */
 const FULLSCREEN_KEY = detectPlatform(navigator.platform) === 'mac' ? '⌃⌘F' : 'F11';
+
+/**
+ * Tooltip for the ribbon's fullscreen button. Desktop has two stages (hide
+ * chrome, then OS fullscreen); Android has a single distraction-free stage.
+ */
+const FULLSCREEN_TITLE = isAndroid()
+  ? 'Full screen — hide the app chrome'
+  : `Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`;
 
 function applyFormat(action: FormatAction): void {
   const state = tabsStore.getState();
@@ -308,8 +317,8 @@ export function Ribbon() {
       <div className="ribbon-right">
         <button
           className="ribbon-btn"
-          aria-label="Full window"
-          title={`Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`}
+          aria-label={isAndroid() ? 'Full screen' : 'Full window'}
+          title={FULLSCREEN_TITLE}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setFullscreen('window')}
         >

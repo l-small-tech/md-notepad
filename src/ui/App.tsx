@@ -71,8 +71,9 @@ export function App() {
           the grab-to-move handle in every mode. It fires only on itself, so content
           below stays interactive. In Read mode it's tall (~3 lines of top
           whitespace); in edit modes it's titlebar-height so it doesn't swallow the
-          first editor lines. */}
-      {fullscreenView === 'window' && (
+          first editor lines. Android has no draggable OS window (and the strip would
+          sit in the double-tap reveal zone), so it's desktop-only. */}
+      {fullscreenView === 'window' && !isAndroid() && (
         <div
           className={`fullscreen-drag-strip${activeMode === 'read' ? ' fullscreen-drag-strip-read' : ''}`}
           data-tauri-drag-region=""
@@ -86,9 +87,10 @@ export function App() {
  * The chrome (with the ribbon's fullscreen button) is hidden in full screen, so
  * this floating cluster is the way back. F11 cycles stages and Esc steps back;
  * the cluster holds the stage toggle for the stage you're NOT in (⛶ = full
- * screen from 'window', ⤢ = full window from 'screen'), an exit ✕, and — when
- * browsing a followed link in the preview — a ← Back that pops the page. Back
- * lives here (not as an in-pane bar) in full screen so it hides with the rest.
+ * screen from 'window', ⤢ = full window from 'screen') — desktop-only, since
+ * Android has a single stage — an exit ✕, and — when browsing a followed link
+ * in the preview — a ← Back that pops the page. Back lives here (not as an
+ * in-pane bar) in full screen so it hides with the rest.
  *
  * The cluster is tucked just above the top-CENTER edge and slides down when
  * summoned. Nothing spans the full width (that full-width reveal bar read as
@@ -209,27 +211,31 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
           ←
         </button>
       )}
-      {stage === 'screen' ? (
-        <button
-          className="fullscreen-btn"
-          aria-label="Full window"
-          title="Full window (Esc)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('window')}
-        >
-          ⤢
-        </button>
-      ) : (
-        <button
-          className="fullscreen-btn"
-          aria-label="Full screen"
-          title="Full screen (F11)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('screen')}
-        >
-          ⛶
-        </button>
-      )}
+      {/* The stage toggle (full window ⇄ full screen) is desktop-only. On Android
+          the OS window already fills the screen, so there is a single
+          distraction-free stage ('window') and no second stage to switch to. */}
+      {!android &&
+        (stage === 'screen' ? (
+          <button
+            className="fullscreen-btn"
+            aria-label="Full window"
+            title="Full window (Esc)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setFullscreen('window')}
+          >
+            ⤢
+          </button>
+        ) : (
+          <button
+            className="fullscreen-btn"
+            aria-label="Full screen"
+            title="Full screen (F11)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setFullscreen('screen')}
+          >
+            ⛶
+          </button>
+        ))}
       <button
         className="fullscreen-btn"
         aria-label="Exit full screen"
