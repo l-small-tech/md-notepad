@@ -203,6 +203,13 @@ const cursorByTab = new Map<string, CursorPos>();
  * paths; the raw path is still what gets stored and written.
  */
 function pathKey(path: string): string {
+  // Synced (SAF) identifiers (`saf://<token>/<relPath>`) are opaque and
+  // case-sensitive — the token encodes a case-sensitive document URI, so
+  // lowercasing it would corrupt the id and could collide two distinct trees.
+  // Return them verbatim; local paths keep the separator/case normalization.
+  if (path.startsWith('saf://')) {
+    return path;
+  }
   return path.replaceAll('\\', '/').toLowerCase();
 }
 
@@ -329,6 +336,8 @@ let openNotePathPinnedDispatch: (path: string) => void = () => {};
 // registers — the explorer just shows no default section pre-boot.
 let defaultWorkspaceDispatch: () => string | null = () => null;
 let addWorkspaceDispatch: () => void = () => {};
+let addCloudWorkspaceDispatch: () => void = () => {};
+let removeSyncedWorkspaceDispatch: (path: string) => void = () => {};
 let openDocsDispatch: () => void = () => {};
 let insertFileLinkDispatch: (opts: { image: boolean; absolute: boolean }) => void = () => {};
 // Default (pre-boot / tests): a plain label change. The controller swaps in
@@ -452,15 +461,30 @@ export function getDefaultWorkspacePath(): string | null {
 export function addWorkspace(): void {
   addWorkspaceDispatch();
 }
+/**
+ * FileExplorer (Android) → controller: pick a synced folder (Google Drive,
+ * OneDrive, SD card, …) via the system picker and add it as a workspace whose
+ * ops route through the SafProvider.
+ */
+export function addCloudWorkspace(): void {
+  addCloudWorkspaceDispatch();
+}
 /** SettingsDialog → controller: open the bundled docs as a read-only workspace. */
 export function openDocs(): void {
   openDocsDispatch();
 }
 /**
- * FileExplorer → settings: forget a workspace. Pure settings surgery (the
- * folder and its files are untouched), so no controller round trip is needed.
+ * FileExplorer → settings: forget a workspace. For a local workspace this is
+ * pure settings surgery (the folder and its files are untouched). A synced
+ * (`saf://`) workspace needs a controller round trip — open tabs under it must
+ * be closed and the persisted folder permission released first — so it routes
+ * to {@link removeSyncedWorkspace} via the controller dispatch.
  */
 export function removeWorkspace(path: string): void {
+  if (path.startsWith('saf://')) {
+    removeSyncedWorkspaceDispatch(path);
+    return;
+  }
   const { settings, update } = settingsStore.getState();
   update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
 }
@@ -1389,6 +1413,74 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   }
 
   /**
+   * Android "Add synced folder": launch the SAF system picker (any installed
+   * storage provider — Drive, OneDrive, Dropbox, SD card), take a persistable
+   * permission, and add the tree as a workspace. Its root id is
+   * `saf://<encodeURIComponent(treeUri)>`; all its ops route through the
+   * SafProvider. Duplicates (the same tree picked twice → the same URI) are
+   * rejected. Non-destructive: removal only forgets it (see
+   * {@link removeSyncedWorkspace}).
+   */
+  async function addCloudWorkspaceFromDialog(): Promise<void> {
+    let picked: { treeUri: string; displayName?: string };
+    try {
+      picked = await nativeIpc.pickSyncedTree();
+    } catch {
+      return; // user cancelled the picker
+    }
+    if (!picked.treeUri) {
+      return;
+    }
+    const rootId = `saf://${encodeURIComponent(picked.treeUri)}`;
+    const key = pathKey(rootId);
+    const { settings, update } = settingsStore.getState();
+    if (settings.workspaces.some((w) => pathKey(w.path) === key)) {
+      uiStore.getState().showNotice('That synced folder is already a workspace.');
+      return;
+    }
+    const name = picked.displayName?.trim() || 'Synced folder';
+    const color = pickUnusedColor([
+      settings.defaultWorkspaceColor,
+      ...settings.workspaces.map((w) => w.color),
+    ]);
+    update({
+      workspaces: [
+        ...settings.workspaces,
+        { name, path: rootId, color, kind: 'synced', treeUri: picked.treeUri },
+      ],
+    });
+    if (!uiStore.getState().explorerOpen) {
+      uiStore.getState().toggleExplorer();
+    }
+  }
+
+  /**
+   * Remove a synced (`saf://`) workspace. Unlike a local removal (pure settings
+   * surgery), a synced root needs teardown in order: (1) close/evict any open
+   * tabs whose file lives under the removed root — a post-release flush/read
+   * would otherwise fail ugly; (2) best-effort release the persisted folder
+   * permission; (3) drop the settings entry. Non-destructive: no files are
+   * deleted (the folder still lives in Drive/OneDrive/…).
+   */
+  async function removeSyncedWorkspace(path: string): Promise<void> {
+    const { settings, update } = settingsStore.getState();
+    const entry = settings.workspaces.find((w) => pathKey(w.path) === pathKey(path));
+    const prefix = `${path}/`;
+    for (const t of tabsStore.getState().tabs) {
+      const owned = t.filePath ?? t.notePath;
+      if (owned && (owned === path || owned.startsWith(prefix))) {
+        tabsStore.getState().closeTab(t.id);
+      }
+    }
+    if (entry?.treeUri) {
+      await nativeIpc.releaseSyncedTree(entry.treeUri).catch(() => {
+        // Best effort — the workspace is forgotten regardless of the release.
+      });
+    }
+    update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
+  }
+
+  /**
    * Settings "Open docs": register the bundled documentation folder as a
    * read-only workspace (idempotent — an existing entry for that path is
    * upgraded to read-only rather than duplicated), reveal it in the explorer,
@@ -2140,6 +2232,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;
   defaultWorkspaceDispatch = () => notesDir;
   addWorkspaceDispatch = () => void addWorkspaceFromDialog();
+  addCloudWorkspaceDispatch = () => void addCloudWorkspaceFromDialog();
+  removeSyncedWorkspaceDispatch = (path) => void removeSyncedWorkspace(path);
   openDocsDispatch = () => void openDocsWorkspace();
   importFilesDispatch = importFiles;
   appendImagesDispatch = appendImagesToMarkdown;

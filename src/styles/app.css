@@ -716,6 +716,16 @@
   text-overflow: ellipsis;
 }
 
+/* Cloud glyph marking a synced (SAF) workspace, after its name. */
+.workspace-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: var(--fg-muted, var(--fg));
+  opacity: 0.7;
+}
+
 .file-explorer-item {
   display: block;
   width: 100%;

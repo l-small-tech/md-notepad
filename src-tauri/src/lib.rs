@@ -125,6 +125,24 @@ pub fn run() {
             commands::fs::read_content_uri,
             #[cfg(target_os = "android")]
             commands::fs::take_incoming_uris,
+            #[cfg(target_os = "android")]
+            commands::fs::pick_synced_tree,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_list,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_read,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_write,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_create_dir,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_rename,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_delete,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_stat,
+            #[cfg(target_os = "android")]
+            commands::fs::release_synced_tree,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

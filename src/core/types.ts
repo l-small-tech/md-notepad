@@ -126,7 +126,13 @@ export type UiFontId = (typeof UI_FONT_IDS)[number];
 export interface WorkspaceEntry {
   /** Display name; defaults to the folder's basename when added. */
   name: string;
-  /** Absolute path to the folder. */
+  /**
+   * The workspace root identifier. For a local workspace this is an absolute
+   * folder path; for a `kind: 'synced'` workspace it is the opaque scheme-
+   * prefixed id `saf://<encodeURIComponent(treeUri)>` the storage router
+   * dispatches on (see src/ipc/provider.ts). Never lowercase/normalize a
+   * synced id — SAF document ids are case-sensitive.
+   */
   path: string;
   /** Accent color, or null for none. */
   color: WorkspaceColor | null;
@@ -135,6 +141,19 @@ export interface WorkspaceEntry {
    * read mode and the explorer offers no create/rename/move/delete for it.
    */
   readOnly?: boolean;
+  /**
+   * 'synced' = an Android Storage-Access-Framework folder (Google Drive,
+   * OneDrive, an SD card, …) whose ops route through the SafProvider. Absent
+   * or 'local' = an ordinary filesystem folder. Persisted so the workspace
+   * survives relaunch.
+   */
+  kind?: 'local' | 'synced';
+  /**
+   * `kind: 'synced'` only — the durable SAF tree URI whose persisted
+   * permission Android re-grants on launch. It is the release handle used when
+   * the workspace is removed (releasePersistableUriPermission).
+   */
+  treeUri?: string;
 }
 
 export interface Settings {

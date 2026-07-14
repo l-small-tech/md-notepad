@@ -404,6 +404,148 @@ pub async fn take_incoming_uris(app: tauri::AppHandle) -> Result<Vec<String>, St
         .map_err(|e| e.to_string())
 }
 
+/* ---- Storage Access Framework (synced-folder workspaces) --------------- */
+//
+// These delegate to the androidfs plugin's SAF ops (Kotlin holds the
+// ContentResolver). The Kotlin side rejects with a code-prefixed message
+// ("NOT_FOUND: …", "EXISTS: …", "IO: …"); `map_saf_err` turns that back into
+// the app's `{ code, message }` contract so TS `IpcError` semantics hold, the
+// same way the std::fs commands above do.
+
+/// Map an androidfs plugin error (a flat string) onto an `FsError` code by
+/// inspecting the Kotlin reject prefix. Anything unrecognized is IO.
+#[cfg(target_os = "android")]
+fn map_saf_err(e: tauri_plugin_androidfs::Error) -> FsError {
+    let msg = e.to_string();
+    if msg.contains("NOT_FOUND") {
+        FsError::NotFound(PathBuf::from(msg))
+    } else if msg.contains("EXISTS") {
+        FsError::Exists(PathBuf::from(msg))
+    } else {
+        FsError::Io(std::io::Error::new(std::io::ErrorKind::Other, msg))
+    }
+}
+
+/// Launch the SAF folder picker and return the picked tree URI + display name.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn pick_synced_tree(
+    app: tauri::AppHandle,
+) -> FsResult<tauri_plugin_androidfs::PickTreeResponse> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().pick_synced_tree().map_err(map_saf_err)
+}
+
+/// List one directory level of a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_list(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafList> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_list(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Read a synced document's bytes as base64.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_read(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafRead> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_read(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Create-or-truncate write of base64 bytes into a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_write(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+    base64: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_write(tree_uri, rel_path, base64)
+        .map_err(map_saf_err)
+}
+
+/// Create a directory in a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_create_dir(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_create_dir(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Same-parent display rename of a synced document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_rename(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+    new_name: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_rename(tree_uri, rel_path, new_name)
+        .map_err(map_saf_err)
+}
+
+/// Delete a synced document (idempotent).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_delete(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_delete(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Existence + type/size/mtime of a synced document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_stat(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafStat> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_stat(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Release a persisted folder permission (workspace removal).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn release_synced_tree(app: tauri::AppHandle, tree_uri: String) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .release_synced_tree(tree_uri)
+        .map_err(map_saf_err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

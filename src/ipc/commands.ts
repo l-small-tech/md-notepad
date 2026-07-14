@@ -81,6 +81,14 @@ export interface DirEntryMeta {
   size: number;
 }
 
+/** One raw entry from a synced-folder listing (name only, not a full id). */
+export interface SafEntry {
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtimeMs: number;
+}
+
 export const ipc = {
   readTextFile: (path: string) => call<FileText>('read_text_file', { path }),
   atomicWriteText: (path: string, text: string) => call<void>('atomic_write_text', { path, text }),
@@ -129,6 +137,31 @@ export const ipc = {
    * intents since the last call. Called at boot and on window focus.
    */
   takeIncomingUris: () => call<string[]>('take_incoming_uris'),
+  /**
+   * Android only — Storage Access Framework (synced-folder workspaces). Each
+   * addresses a document by (treeUri, relPath) under a persisted-permission
+   * tree; the SafProvider (src/ipc/provider.ts) wraps these behind the same
+   * `saf://` identifiers the storage router dispatches on. Not registered on
+   * desktop — only call behind an Android platform check.
+   */
+  pickSyncedTree: () => call<{ treeUri: string; displayName?: string }>('pick_synced_tree'),
+  safList: (treeUri: string, relPath: string) =>
+    call<{ entries: SafEntry[] }>('saf_list', { treeUri, relPath }),
+  safRead: (treeUri: string, relPath: string) =>
+    call<{ base64: string }>('saf_read', { treeUri, relPath }),
+  safWrite: (treeUri: string, relPath: string, base64: string) =>
+    call<void>('saf_write', { treeUri, relPath, base64 }),
+  safCreateDir: (treeUri: string, relPath: string) =>
+    call<void>('saf_create_dir', { treeUri, relPath }),
+  safRename: (treeUri: string, relPath: string, newName: string) =>
+    call<void>('saf_rename', { treeUri, relPath, newName }),
+  safDelete: (treeUri: string, relPath: string) => call<void>('saf_delete', { treeUri, relPath }),
+  safStat: (treeUri: string, relPath: string) =>
+    call<{ exists: boolean; isDir?: boolean; size?: number; mtimeMs?: number }>('saf_stat', {
+      treeUri,
+      relPath,
+    }),
+  releaseSyncedTree: (treeUri: string) => call<void>('release_synced_tree', { treeUri }),
 };
 
 export type Ipc = typeof ipc;

@@ -47,6 +47,85 @@ struct UrisResponse {
     uris: Vec<String>,
 }
 
+/* ---- Storage Access Framework (synced-folder workspaces) --------------- */
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafPathArgs {
+    tree_uri: String,
+    rel_path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafWriteArgs {
+    tree_uri: String,
+    rel_path: String,
+    base64: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafRenameArgs {
+    tree_uri: String,
+    rel_path: String,
+    new_name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TreeArgs {
+    tree_uri: String,
+}
+
+/// The tree URI + display name of a folder the user picked via SAF.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickTreeResponse {
+    pub tree_uri: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+/// One entry in a synced-folder listing.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafEntry {
+    pub name: String,
+    pub is_dir: bool,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub mtime_ms: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SafList {
+    #[serde(default)]
+    pub entries: Vec<SafEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SafRead {
+    pub base64: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafStat {
+    pub exists: bool,
+    #[serde(default)]
+    pub is_dir: bool,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub mtime_ms: i64,
+}
+
+/// `{}` — the plugin resolves an empty object for the mutating ops.
+#[derive(Deserialize)]
+struct SafUnit {}
+
 impl<R: Runtime> Androidfs<R> {
     /// The app-specific EXTERNAL files dir
     /// (`/storage/emulated/0/Android/data/<pkg>/files`), or `None` when external
@@ -84,6 +163,99 @@ impl<R: Runtime> Androidfs<R> {
         self.0
             .run_mobile_plugin::<UrisResponse>("takeIncomingUris", EmptyArgs {})
             .map(|r| r.uris)
+            .map_err(Into::into)
+    }
+
+    /// Launch the SAF folder picker; resolves the picked tree URI + display name
+    /// (after taking a persistable read/write grant), or errors on cancel.
+    pub fn pick_synced_tree(&self) -> crate::Result<PickTreeResponse> {
+        self.0
+            .run_mobile_plugin::<PickTreeResponse>("pickSyncedTree", EmptyArgs {})
+            .map_err(Into::into)
+    }
+
+    /// List one directory level of a synced tree.
+    pub fn saf_list(&self, tree_uri: String, rel_path: String) -> crate::Result<SafList> {
+        self.0
+            .run_mobile_plugin::<SafList>("safList", SafPathArgs { tree_uri, rel_path })
+            .map_err(Into::into)
+    }
+
+    /// Read a synced document's bytes as base64.
+    pub fn saf_read(&self, tree_uri: String, rel_path: String) -> crate::Result<SafRead> {
+        self.0
+            .run_mobile_plugin::<SafRead>("safRead", SafPathArgs { tree_uri, rel_path })
+            .map_err(Into::into)
+    }
+
+    /// Create-or-truncate write of base64 bytes (parents created as needed).
+    pub fn saf_write(
+        &self,
+        tree_uri: String,
+        rel_path: String,
+        base64: String,
+    ) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>(
+                "safWrite",
+                SafWriteArgs {
+                    tree_uri,
+                    rel_path,
+                    base64,
+                },
+            )
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /// Create a directory in a synced tree (mkdir -p; EXISTS if the leaf is taken).
+    pub fn saf_create_dir(&self, tree_uri: String, rel_path: String) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>("safCreateDir", SafPathArgs { tree_uri, rel_path })
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /// Same-parent display rename of a synced document.
+    pub fn saf_rename(
+        &self,
+        tree_uri: String,
+        rel_path: String,
+        new_name: String,
+    ) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>(
+                "safRename",
+                SafRenameArgs {
+                    tree_uri,
+                    rel_path,
+                    new_name,
+                },
+            )
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /// Delete a synced document (idempotent).
+    pub fn saf_delete(&self, tree_uri: String, rel_path: String) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>("safDelete", SafPathArgs { tree_uri, rel_path })
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /// Existence + type/size/mtime of a synced document.
+    pub fn saf_stat(&self, tree_uri: String, rel_path: String) -> crate::Result<SafStat> {
+        self.0
+            .run_mobile_plugin::<SafStat>("safStat", SafPathArgs { tree_uri, rel_path })
+            .map_err(Into::into)
+    }
+
+    /// Release a persisted folder permission (workspace removal; best-effort).
+    pub fn release_synced_tree(&self, tree_uri: String) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<SafUnit>("releaseSyncedTree", TreeArgs { tree_uri })
+            .map(|_| ())
             .map_err(Into::into)
     }
 }

@@ -48,7 +48,9 @@ import { bytesToBase64, isImagePath } from '../../core/images';
 import { stripExtension } from '../../core/title';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
 import { currentProvider } from '../../ipc/provider';
+import { isAndroid } from '../platform';
 import {
+  addCloudWorkspace,
   addWorkspace,
   appendImagesToMd,
   createNewFileIn,
@@ -77,6 +79,8 @@ interface WorkspaceView {
   removable: boolean;
   /** Read-only workspace (the docs): no create/rename/move/delete/paste/drop. */
   readOnly: boolean;
+  /** Synced (SAF) workspace — gets a cloud glyph so it's distinguishable. */
+  synced: boolean;
 }
 
 /** Indentation per tree depth; file rows add the caret column's width. */
@@ -195,6 +199,7 @@ export function FileExplorer() {
             color: defaultColor,
             removable: false,
             readOnly: false,
+            synced: false,
           },
         ]
       : []),
@@ -204,6 +209,7 @@ export function FileExplorer() {
       color: w.color,
       removable: true,
       readOnly: w.readOnly === true,
+      synced: w.kind === 'synced',
     })),
   ];
   /** Is `dir` the root of (or inside) a read-only workspace? */
@@ -678,6 +684,36 @@ export function FileExplorer() {
         <div className="file-explorer-header">
           <span className="file-explorer-title">Workspaces</span>
           <div className="file-explorer-actions">
+            {/* Android: pick a synced folder (Drive/OneDrive/SD card) via SAF.
+                On desktop the Drive-for-Desktop folder is added with the plain
+                "+" below, so this only shows on Android. */}
+            {isAndroid() && (
+              <button
+                className="file-explorer-action"
+                aria-label="Add synced folder"
+                title="Add synced folder (Google Drive, OneDrive, SD card…)"
+                onClick={() => addCloudWorkspace()}
+              >
+                <svg width="15" height="13" viewBox="0 0 15 13" aria-hidden="true">
+                  <path
+                    d="M4 10.5a2.6 2.6 0 0 1-.2-5.19A3.2 3.2 0 0 1 10 4.7a2.4 2.4 0 0 1 .3 4.79"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                  <path
+                    d="M7.5 6.2v4.6M5.7 8.4l1.8-2 1.8 2"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              </button>
+            )}
             {currentProvider().capabilities.canPickDir && (
               <button
                 className="file-explorer-action"
@@ -736,6 +772,23 @@ export function FileExplorer() {
                   >
                     <span className="workspace-caret">{isCollapsed ? '▸' : '▾'}</span>
                     <span className="workspace-name">{ws.name}</span>
+                    {ws.synced && (
+                      <span
+                        className="workspace-badge"
+                        title="Synced folder"
+                        aria-label="Synced folder"
+                      >
+                        <svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true">
+                          <path
+                            d="M3.6 8.5a2.2 2.2 0 0 1-.17-4.4A2.8 2.8 0 0 1 9 3.6a2.1 2.1 0 0 1 .25 4.9z"
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </span>
+                    )}
                   </button>
                   {menuFor === ws.path &&
                     renderContextMenu(ws.path, ws.color, undefined, ws.removable, ws.readOnly)}

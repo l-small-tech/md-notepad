@@ -62,6 +62,7 @@ import {
 import { uiStore } from './ui/stores/ui';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
+import { initProviders } from './ipc/provider';
 import { resolveDocsDir, resolvePaths } from './ipc/paths';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
 import { isAndroid } from './ui/platform';
@@ -368,6 +369,11 @@ async function boot(): Promise<void> {
   // Only now arm the debounced saver, so the initial load doesn't echo back a
   // write; every subsequent field edit persists.
   settingsStore.subscribe(persistSettingsDebounced);
+
+  // Install the platform storage provider BEFORE the controller captures
+  // currentProvider(): on Android this routes local + synced (SAF) workspaces;
+  // desktop stays on the plain local FS.
+  initProviders();
 
   const paths = await resolvePaths(settingsStore.getState().settings);
 

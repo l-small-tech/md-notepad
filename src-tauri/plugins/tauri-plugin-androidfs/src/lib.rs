@@ -26,7 +26,7 @@ use desktop::Androidfs;
 use mobile::Androidfs;
 
 #[cfg(mobile)]
-pub use mobile::ContentPayload;
+pub use mobile::{ContentPayload, PickTreeResponse, SafEntry, SafList, SafRead, SafStat};
 
 /// Access the Android FS APIs from any [`tauri::Manager`] (App/AppHandle/Window).
 pub trait AndroidfsExt<R: Runtime> {

@@ -85,11 +85,16 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
       typeof entry.name === 'string' && entry.name.trim().length > 0
         ? entry.name.trim()
         : entry.path;
+    // Synced (SAF) workspaces carry two extra fields that must survive a
+    // round-trip through the store, or the persisted folder-permission handle
+    // (treeUri) is lost and the workspace can't be reconnected after relaunch.
+    const synced = entry.kind === 'synced' && typeof entry.treeUri === 'string';
     out.push({
       name,
       path: entry.path,
       color: normalizeColor(entry.color),
       ...(entry.readOnly === true ? { readOnly: true } : {}),
+      ...(synced ? { kind: 'synced' as const, treeUri: entry.treeUri as string } : {}),
     });
   }
   return out;
