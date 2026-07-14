@@ -38,6 +38,7 @@ import type { ModeSync } from '../../core/mode-sync';
 import type { EditorMode, TabKind, TabState } from '../../core/types';
 import { settingsStore } from './settings';
 import { requestFlush } from './flush-signal';
+import { isMobile } from '../platform';
 
 /**
  * A tab entry = the serializable {@link TabState} plus the live objects and
@@ -348,7 +349,10 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     renamingTabId: null,
     closedNotePaths: [],
     obsoleteBufferTabIds: [],
-    lastFileMode: settingsStore.getState().settings.defaultMode,
+    // Mobile reads first: opened files default to 'read' rather than the
+    // (edit-oriented) settings.defaultMode. Switching modes still updates this
+    // via setMode, so flipping through files preserves the user's choice.
+    lastFileMode: isMobile() ? 'read' : settingsStore.getState().settings.defaultMode,
 
     newTab() {
       const tab = makeTab();
@@ -557,7 +561,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         closedNotePaths: [],
         obsoleteBufferTabIds: [],
         lastFileMode: activeEntry.readOnly
-          ? settingsStore.getState().settings.defaultMode
+          ? (isMobile() ? 'read' : settingsStore.getState().settings.defaultMode)
           : activeEntry.mode,
       });
     },
