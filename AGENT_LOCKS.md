@@ -1,1 +1,0 @@
-- LOCKED fix/read-mode-image-drive-path | agent=cc | since=2026-07-14T18:11Z | session=cc-read-img
