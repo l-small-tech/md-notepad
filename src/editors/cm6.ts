@@ -28,6 +28,7 @@ import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
 import { imageFilesFromDataTransfer, readImageFile } from './image-paste';
 import { createVoiceGutter } from './voice-gutter';
+import { createKeyboardDismissGesture } from './dismiss-keyboard';
 import { findAnchors, insertAnchorText } from '../core/comments';
 
 export interface Cm6Options {
@@ -69,6 +70,11 @@ export interface Cm6Options {
    * (1-based line). Only wired on mobile.
    */
   onLongPressLine?: (line: number) => void;
+  /**
+   * Dismiss the soft keyboard on a double-tap in the editor (blurs the content
+   * DOM). Only meaningful on touch platforms — wired on Android.
+   */
+  dismissKeyboardOnDoubleTap?: boolean;
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -561,6 +567,8 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
               }),
             ]
           : []),
+        // Touch-only: double-tap the text to retract the soft keyboard.
+        ...(options.dismissKeyboardOnDoubleTap ? [createKeyboardDismissGesture()] : []),
         updateListener,
       ],
     });

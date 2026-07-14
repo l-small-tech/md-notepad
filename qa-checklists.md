@@ -180,3 +180,15 @@ sibling `session/` folder).
       it opens in the MAIN window.
 - [ ] Linux: drag-out gesture does nothing; the context-menu item still
       opens a new window.
+
+## Mobile (Android)
+
+- [ ] Tap the editor text → the soft keyboard opens and the caret lands where
+      tapped. Double-tap the text → the keyboard retracts and the full document
+      is visible; no word stays selected.
+- [ ] After a double-tap dismiss, tap the text again → the keyboard reopens and
+      typing continues normally.
+- [ ] Scroll the document with a drag (a moving gesture, not two taps) → the
+      keyboard is NOT dismissed mid-scroll.
+- [ ] Desktop regression: double-CLICK with a mouse still selects a word (the
+      dismiss gesture is touch-only and must not fire).
