@@ -1199,6 +1199,19 @@ body.explorer-dragging * {
   background: var(--bg-alt);
 }
 
+.settings-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.settings-theme-buttons {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .settings-footer {
   display: flex;
   justify-content: flex-end;

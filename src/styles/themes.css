@@ -1,155 +1,18 @@
 /*
- * Color schemes — the optional palette families layered on top of base.css.
+ * Color schemes are now PLUGGABLE — this file no longer hard-codes them.
  *
- * Selection by `data-color-scheme` on <html> (set by main.tsx from the
- * `colorScheme` setting). Each scheme redefines the SAME ten variables base.css
- * declares (--bg, --editor-bg, --bg-alt, --bg-hover, --fg, --fg-muted, --accent,
- * --border, --danger, --selection), so the whole app — CM6, preview, reader —
- * restyles with zero JS beyond flipping the attribute (see cm6.ts / preview.css).
+ * Each non-default scheme is a JSON theme file in the user's themes folder,
+ * loaded at boot and injected as a <style id="theme-plugins"> element by
+ * main.tsx (see core/theme-plugins.ts, ipc/theme-loader.ts). The five former
+ * built-ins (Solarized, Nord, Gruvbox, Everforest, Rosé Pine) are seeded into
+ * that folder on first run as editable examples (core/theme-seeds.ts).
  *
- * Light-vs-dark still comes from `data-theme` (following the OS on 'system'), so
- * every scheme ships BOTH: an unscoped block for its light palette and a
- * `[data-theme='dark']` block for its dark one. The dark block wins by
- * specificity (three attributes beat two), and every block sets all ten
- * variables so no value ever leaks across the light/dark boundary.
+ * The mechanism is unchanged: every scheme redefines the same ten variables
+ * base.css declares (--bg, --editor-bg, --bg-alt, --bg-hover, --fg, --fg-muted,
+ * --accent, --border, --danger, --selection), selected by `data-color-scheme`
+ * on <html> with a `[data-theme='dark']` block winning by specificity. 'default'
+ * still has no block — it IS base.css's palette.
  *
- * 'default' has no block here — it IS base.css's palette. Palettes below use the
- * authors' published hex values (Solarized · Nord · Gruvbox · Everforest ·
- * Rosé Pine), lightly adapted only where this app needs a variable the original
- * scheme doesn't name (e.g. a recessed --editor-bg or a --selection tint).
+ * This file is kept (imported by main.tsx) as the documented home of that
+ * contract; add nothing here — ship a theme plugin instead.
  */
-
-/* ============================ Solarized ================================== */
-/* Ethan Schoonover's precision palette — famously low-fatigue for reading. */
-:root[data-color-scheme='solarized'] {
-  --bg: #fdf6e3; /* base3 */
-  --editor-bg: #f7f1de;
-  --bg-alt: #eee8d5; /* base2 */
-  --bg-hover: #e4dcc4;
-  --fg: #586e75; /* base01 */
-  --fg-muted: #93a1a1; /* base1 */
-  --accent: #268bd2; /* blue */
-  --border: #e5ddc8;
-  --danger: #dc322f; /* red */
-  --selection: #cfe0ef;
-}
-:root[data-color-scheme='solarized'][data-theme='dark'] {
-  --bg: #002b36; /* base03 */
-  --editor-bg: #00252e;
-  --bg-alt: #073642; /* base02 */
-  --bg-hover: #0a4451;
-  --fg: #93a1a1; /* base1 */
-  --fg-muted: #657b83; /* base00 */
-  --accent: #268bd2; /* blue */
-  --border: #0f4b58;
-  --danger: #dc322f; /* red */
-  --selection: #124651;
-}
-
-/* =============================== Nord ==================================== */
-/* Arctic, calm and cool — dark from Polar Night, light from Snow Storm. */
-:root[data-color-scheme='nord'] {
-  --bg: #eceff4; /* nord6 */
-  --editor-bg: #e9edf3;
-  --bg-alt: #e5e9f0; /* nord5 */
-  --bg-hover: #dbe1ea;
-  --fg: #2e3440; /* nord0 */
-  --fg-muted: #5b6577;
-  --accent: #5e81ac; /* nord10 */
-  --border: #d8dee9; /* nord4 */
-  --danger: #bf616a; /* nord11 */
-  --selection: #d2dbe8;
-}
-:root[data-color-scheme='nord'][data-theme='dark'] {
-  --bg: #2e3440; /* nord0 */
-  --editor-bg: #2b303b;
-  --bg-alt: #3b4252; /* nord1 */
-  --bg-hover: #434c5e; /* nord2 */
-  --fg: #d8dee9; /* nord4 */
-  --fg-muted: #8a93a5;
-  --accent: #88c0d0; /* nord8 */
-  --border: #3b4252; /* nord1 */
-  --danger: #bf616a; /* nord11 */
-  --selection: #434c5e; /* nord2 */
-}
-
-/* ============================= Gruvbox =================================== */
-/* Retro, warm and high-contrast — orange accent gives it its signature glow. */
-:root[data-color-scheme='gruvbox'] {
-  --bg: #fbf1c7; /* light bg0 */
-  --editor-bg: #f4e8c1;
-  --bg-alt: #ebdbb2; /* light bg1 */
-  --bg-hover: #e0d3a8;
-  --fg: #3c3836; /* dark2 */
-  --fg-muted: #7c6f64; /* gray */
-  --accent: #d65d0e; /* orange */
-  --border: #e6d5a8;
-  --danger: #cc241d; /* red */
-  --selection: #e8c99a;
-}
-:root[data-color-scheme='gruvbox'][data-theme='dark'] {
-  --bg: #282828; /* dark bg0 */
-  --editor-bg: #1d2021; /* bg0_hard */
-  --bg-alt: #3c3836; /* dark bg1 */
-  --bg-hover: #504945; /* dark bg2 */
-  --fg: #ebdbb2; /* light1 */
-  --fg-muted: #a89984; /* gray */
-  --accent: #fe8019; /* bright orange */
-  --border: #3c3836;
-  --danger: #fb4934; /* bright red */
-  --selection: #504945;
-}
-
-/* ============================ Everforest ================================= */
-/* Soft, green and comfortable — designed for long, low-strain reading. */
-:root[data-color-scheme='everforest'] {
-  --bg: #fdf6e3; /* light bg0 */
-  --editor-bg: #f2efdf; /* bg_dim */
-  --bg-alt: #f4f0d9; /* bg1 */
-  --bg-hover: #efebd4; /* bg2 */
-  --fg: #5c6a72;
-  --fg-muted: #939f91; /* grey */
-  --accent: #8da101; /* green */
-  --border: #eae5cf;
-  --danger: #f85552; /* red */
-  --selection: #dfe6c8;
-}
-:root[data-color-scheme='everforest'][data-theme='dark'] {
-  --bg: #2d353b; /* dark bg0 */
-  --editor-bg: #232a2e; /* bg_dim */
-  --bg-alt: #343f44; /* bg1 */
-  --bg-hover: #3d484d; /* bg2 */
-  --fg: #d3c6aa;
-  --fg-muted: #859289; /* grey1 */
-  --accent: #a7c080; /* green */
-  --border: #3d484d;
-  --danger: #e67e80; /* red */
-  --selection: #475258; /* bg3 */
-}
-
-/* ============================= Rosé Pine ================================= */
-/* Soho-vibes aesthetic — Dawn for light, Main for dark, iris as the accent. */
-:root[data-color-scheme='rose-pine'] {
-  --bg: #faf4ed; /* dawn base */
-  --editor-bg: #f2ece3;
-  --bg-alt: #f2e9e1; /* dawn overlay */
-  --bg-hover: #e9dfd6;
-  --fg: #575279; /* dawn text */
-  --fg-muted: #797593; /* dawn subtle */
-  --accent: #907aa9; /* dawn iris */
-  --border: #ece3d8;
-  --danger: #b4637a; /* dawn love */
-  --selection: #dfdad9; /* dawn highlightMed */
-}
-:root[data-color-scheme='rose-pine'][data-theme='dark'] {
-  --bg: #191724; /* base */
-  --editor-bg: #16151f;
-  --bg-alt: #1f1d2e; /* surface */
-  --bg-hover: #26233a; /* overlay */
-  --fg: #e0def4; /* text */
-  --fg-muted: #908caa; /* subtle */
-  --accent: #c4a7e7; /* iris */
-  --border: #26233a;
-  --danger: #eb6f92; /* love */
-  --selection: #403d52; /* highlightMed */
-}

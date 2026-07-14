@@ -9,14 +9,13 @@
  */
 
 import {
-  COLOR_SCHEMES,
   CURSOR_STYLES,
+  DEFAULT_COLOR_SCHEME,
   EDITOR_FONT_IDS,
   UI_FONT_IDS,
   WORKSPACE_COLORS,
 } from './types';
 import type {
-  ColorScheme,
   CursorStyle,
   EditorFontId,
   Settings,
@@ -115,9 +114,13 @@ export function normalizeSettings(raw: unknown): Settings {
   return {
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
     theme: r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme,
-    colorScheme: (COLOR_SCHEMES as readonly unknown[]).includes(r.colorScheme)
-      ? (r.colorScheme as ColorScheme)
-      : d.colorScheme,
+    // Any non-empty string is a valid scheme id now (themes are pluggable —
+    // core/theme-plugins.ts). An id with no loaded theme falls through to the
+    // default palette at render time, so no allowlist is needed here.
+    colorScheme:
+      typeof r.colorScheme === 'string' && r.colorScheme.trim().length > 0
+        ? r.colorScheme.trim()
+        : DEFAULT_COLOR_SCHEME,
     fontSize:
       typeof r.fontSize === 'number' && Number.isFinite(r.fontSize)
         ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(r.fontSize)))

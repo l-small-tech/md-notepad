@@ -10,12 +10,15 @@
  * flow (folder picker → optional move) via the module-level dispatcher.
  */
 
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { currentProvider } from '../../ipc/provider';
+import { writeThemeTemplate } from '../../ipc/theme-loader';
 import { settingsStore, useSettingsStore } from '../stores/settings';
+import { themeRegistryStore, useThemeRegistry, themeOptions } from '../stores/theme-registry';
 import { uiStore, useUiStore } from '../stores/ui';
 import { checkForUpdate, useUpdateStore } from '../update';
 
@@ -23,15 +26,6 @@ const THEMES: { value: Settings['theme']; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
-];
-
-const COLOR_SCHEME_OPTIONS: { value: Settings['colorScheme']; label: string }[] = [
-  { value: 'default', label: 'Default' },
-  { value: 'solarized', label: 'Solarized' },
-  { value: 'nord', label: 'Nord' },
-  { value: 'gruvbox', label: 'Gruvbox' },
-  { value: 'everforest', label: 'Everforest' },
-  { value: 'rose-pine', label: 'Rosé Pine' },
 ];
 
 const MODES: { value: EditorMode; label: string }[] = [
@@ -64,6 +58,30 @@ function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
 
+/** Reveal the themes folder in the OS file manager so the user can drop in
+ *  theme files (desktop only; the button is hidden where reveal is unavailable). */
+async function openThemesFolder(): Promise<void> {
+  const { themesDir } = themeRegistryStore.getState();
+  if (themesDir) {
+    await revealItemInDir(themesDir).catch(() => {});
+  }
+}
+
+/** Write a starter theme file, reload the registry, select it, and reveal it. */
+async function newTheme(): Promise<void> {
+  const { themesDir, plugins, reload } = themeRegistryStore.getState();
+  if (!themesDir) {
+    return;
+  }
+  const existing = new Set(plugins.map((p) => p.id));
+  const { id, path } = await writeThemeTemplate(themesDir, existing);
+  await reload();
+  update({ colorScheme: id });
+  if (currentProvider().capabilities.isLocalFs) {
+    await revealItemInDir(path).catch(() => {});
+  }
+}
+
 /**
  * Manual update check (this app has no
  * menu bar, so Settings is its home). Outcome lands in the status bar: either
@@ -91,10 +109,14 @@ function UpdatesRow() {
 export function SettingsDialog() {
   const open = useUiStore((s) => s.settingsOpen);
   const settings = useSettingsStore((s) => s.settings);
+  const plugins = useThemeRegistry((s) => s.plugins);
 
   if (!open) {
     return null;
   }
+
+  const schemeOptions = themeOptions(plugins);
+  const canReveal = currentProvider().capabilities.isLocalFs;
 
   const close = () => uiStore.getState().closeSettings();
 
@@ -147,13 +169,43 @@ export function SettingsDialog() {
               value={settings.colorScheme}
               onChange={(e) => update({ colorScheme: e.target.value as Settings['colorScheme'] })}
             >
-              {COLOR_SCHEME_OPTIONS.map((c) => (
+              {schemeOptions.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
                 </option>
               ))}
+              {/* A saved scheme whose theme file is missing still shows as the
+                  current value (falls back to the default palette visually). */}
+              {!schemeOptions.some((c) => c.value === settings.colorScheme) && (
+                <option value={settings.colorScheme}>{settings.colorScheme} (missing)</option>
+              )}
             </select>
           </label>
+
+          <div className="settings-row settings-row-notes">
+            <span className="settings-label">Themes folder</span>
+            <div className="settings-notes-value">
+              <span className="settings-hint">
+                Drop in theme files, or ask your AI to make one (see Open Docs).
+              </span>
+              <div className="settings-theme-buttons">
+                {canReveal && (
+                  <button className="settings-button" onClick={() => void openThemesFolder()}>
+                    Open folder
+                  </button>
+                )}
+                <button className="settings-button" onClick={() => void newTheme()}>
+                  New theme…
+                </button>
+                <button
+                  className="settings-button"
+                  onClick={() => void themeRegistryStore.getState().reload()}
+                >
+                  Reload
+                </button>
+              </div>
+            </div>
+          </div>
 
           <label className="settings-row">
             <span className="settings-label">Default mode (new tabs)</span>

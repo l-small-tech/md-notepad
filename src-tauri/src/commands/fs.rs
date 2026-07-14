@@ -294,6 +294,29 @@ pub async fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
     Ok(manifests)
 }
 
+/// List theme-plugin files (`*.json`) inside the themes folder. `list_dir`
+/// filters to md/images for the explorer and would hide these (or leak them if
+/// widened), so the pluggable-themes loader gets its own listing. Returns full
+/// paths, sorted; a missing dir is an empty list, like the other listings.
+#[tauri::command]
+pub async fn list_theme_files(dir: PathBuf) -> FsResult<Vec<String>> {
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.starts_with('.') && name.ends_with(".json") && entry.metadata()?.is_file() {
+            files.push(entry.path().to_string_lossy().into_owned());
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
 /// Read a binary file as base64 (image tabs). The frontend builds a data URL;
 /// this avoids widening the asset-protocol scope to arbitrary workspace dirs.
 #[tauri::command]

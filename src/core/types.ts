@@ -76,25 +76,22 @@ export type CursorStyle = (typeof CURSOR_STYLES)[number];
 export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
 
 /**
- * Editor color schemes — the palette family, chosen independently of light/dark
+ * Editor color scheme — the palette family id, chosen independently of light/dark
  * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
- * working). Each scheme supplies BOTH a light and a dark palette by overriding
- * the ten `--bg`/`--fg`/`--accent`/… variables in styles/themes.css, keyed off
- * `data-color-scheme` on <html>. Because the whole app (CM6, preview, reader)
- * styles itself only through those variables, switching schemes needs no code
- * beyond flipping the attribute. 'default' is the built-in blue/grey palette in
- * base.css (it has no themes.css block — the base :root IS its palette).
+ * working). A scheme supplies BOTH a light and a dark palette by overriding the
+ * ten `--bg`/`--fg`/`--accent`/… variables, keyed off `data-color-scheme` on
+ * <html>. Because the whole app (CM6, preview, reader) styles itself only through
+ * those variables, switching schemes needs no code beyond flipping the attribute.
+ *
+ * The id is a free-form string, not a closed union: schemes are pluggable theme
+ * files loaded from the themes folder at runtime (see core/theme-plugins.ts,
+ * ipc/theme-loader.ts). 'default' is the built-in blue/grey palette in base.css
+ * (it has no plugin — the base :root IS its palette); an id with no loaded plugin
+ * simply matches no injected block and falls through to that default.
  */
-export const COLOR_SCHEMES = [
-  'default',
-  'solarized',
-  'nord',
-  'gruvbox',
-  'everforest',
-  'rose-pine',
-] as const;
+export const DEFAULT_COLOR_SCHEME = 'default';
 
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
+export type ColorScheme = string;
 
 /**
  * Workspace accent colors — named tokens, not hex, so the palette can be
