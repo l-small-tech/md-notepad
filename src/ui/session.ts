@@ -314,7 +314,7 @@ let savePastedImageDispatch: (
   file: { base64: string; ext: string; name: string | null },
 ) => Promise<ImageRef | null> = async () => null;
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
-let createNewFileDispatch: (dir: string) => Promise<void> = async () => {};
+let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
 let renameEntryDispatch: (
   path: string,
@@ -454,9 +454,10 @@ export function enrichCopiedText(tabId: string, selection: string): string {
   }
   return text;
 }
-/** FileExplorer context menu → controller: create a new .md file in `dir`,
- *  open it, and start the tab rename so it can be named immediately. */
-export function createNewFileIn(dir: string): Promise<void> {
+/** FileExplorer context menu → controller: create a new .md file in `dir` and
+ *  open it. Resolves with the created file's path (null on failure) so the
+ *  caller can start the inline rename on its explorer row. */
+export function createNewFileIn(dir: string): Promise<string | null> {
   return createNewFileDispatch(dir);
 }
 /** FileExplorer context menu → controller: create a new subfolder in `dir`. */
@@ -1973,22 +1974,22 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * `dir`, open it as a file tab, and begin the inline tab rename so the user
    * can name it in one motion (the rename also renames the file on disk).
    */
-  async function createNewFile(dir: string): Promise<void> {
+  async function createNewFile(dir: string): Promise<string | null> {
     if (refuseReadOnly(dir)) {
-      return;
+      return null;
     }
     try {
       const target = await uniquePathIn(dir, 'untitled', '.md');
       await ipc.atomicWriteText(target, '');
       uiStore.getState().refreshExplorer();
       await openPaths([target]);
-      const tab = tabOwning(pathKey(target));
-      if (tab) {
-        tabsStore.getState().beginRename(tab.id);
-      }
+      // Naming happens inline on the file's explorer row (the caller starts
+      // the rename with this path); no tab-rename here so there's one input.
+      return target;
     } catch (error) {
       uiStore.getState().showNotice('Could not create a new file there.');
       deps.onError?.(error);
+      return null;
     }
   }
 

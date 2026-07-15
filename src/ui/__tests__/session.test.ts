@@ -877,18 +877,21 @@ describe('savePastedImageForTab (editor paste)', () => {
 });
 
 describe('createNewFileIn (explorer context menu)', () => {
-  test('creates an empty untitled.md, opens it, and starts the tab rename', async () => {
+  test('creates an empty untitled.md, opens it, and returns its path for the inline rename', async () => {
     const fs = makeFakeFs();
     makeController(fs);
 
-    await session.createNewFileIn('/ws');
+    const created = await session.createNewFileIn('/ws');
 
+    expect(created).toBe('/ws/untitled.md');
     expect(fs.files.get('/ws/untitled.md')).toBe('');
     const state = tabs.tabsStore.getState();
     const opened = state.tabs.find((t) => t.filePath === '/ws/untitled.md')!;
     expect(opened.kind).toBe('file');
     expect(state.activeTabId).toBe(opened.id);
-    expect(state.renamingTabId).toBe(opened.id);
+    // The rename now happens on the explorer row (FileExplorer starts it with
+    // the returned path), not on the tab — so no tab enters rename mode.
+    expect(state.renamingTabId).toBeNull();
   });
 
   test('a second new file in the same folder gets a collision suffix', async () => {

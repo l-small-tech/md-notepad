@@ -734,8 +734,12 @@
   opacity: 0.7;
 }
 
+/* A flex row so a recognized file's type badge stays pinned right while the
+   name ellipsizes. Names carry the ellipsis on their own span (below). */
 .file-explorer-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
   border: none;
@@ -745,8 +749,13 @@
   font-size: 13px;
   padding: 4px 10px 4px 22px; /* left is overridden per tree depth inline */
   cursor: pointer;
-  white-space: nowrap;
   overflow: hidden;
+}
+
+.file-explorer-item-name {
+  min-width: 0; /* let the name shrink so it can ellipsize beside the badge */
+  overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
@@ -837,33 +846,34 @@ body.explorer-dragging * {
   background: var(--bg-hover);
 }
 
-/* Importable documents (PDF/DOCX): a flex row so the format badge stays
-   pinned right while the filename ellipsizes. Muted to read as "not a note,
-   but you can bring it in". */
+/* Importable documents (PDF/DOCX): muted to read as "not a note, but you can
+   bring it in". Layout is the shared flex row above. */
 .file-explorer-item.is-importable {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   color: var(--fg-muted);
 }
 
-.file-explorer-item.is-importable .file-explorer-item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.file-import-badge {
+/* Right-pinned file-type badge (md / PNG / PDF …). Neutral by default; the
+   md variant below picks up the accent blue. */
+.file-badge {
   flex: none;
   margin-left: auto;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1;
+  text-transform: uppercase;
   padding: 2px 4px;
   border-radius: 3px;
   color: var(--fg-muted);
   background: var(--bg-hover);
   box-shadow: inset 0 0 0 1px var(--border, var(--bg-hover));
+}
+
+/* Markdown — the notes' native format — reads in the accent blue. */
+.file-badge[data-kind='md'] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .file-explorer-item.is-importable:hover,
