@@ -53,10 +53,12 @@ const schema: Schema = {
   // cases (the sanitizer matches protocols case-sensitively and drive letters
   // are usually upper-case), so drive paths pass through; genuinely dangerous
   // schemes (javascript:, …) are longer and stay blocked, and an <img> src
-  // can't execute script regardless.
+  // can't execute script regardless. The same applies to the `saf` scheme of a
+  // synced-folder image id (`saf://<token>/…` — Android SAF); it too must
+  // survive sanitizing so `inlineLocalImages` can read the bytes off the tree.
   protocols: {
     ...defaultSchema.protocols,
-    src: [...(defaultSchema.protocols?.src ?? []), ...DRIVE_LETTER_SCHEMES],
+    src: [...(defaultSchema.protocols?.src ?? []), ...DRIVE_LETTER_SCHEMES, 'saf'],
   },
 };
 

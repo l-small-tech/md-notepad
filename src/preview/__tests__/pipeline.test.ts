@@ -82,6 +82,14 @@ describe('renderMarkdownToHtml — sanitize policy (invariant I6)', () => {
     expect(html).toContain('src="/home/me/notes/images/pasted-1.png"');
   });
 
+  // A synced-folder (Android SAF) image id carries a `saf:` scheme; it must
+  // survive sanitizing so `inlineLocalImages` can read the bytes off the tree.
+  test('a synced-folder saf:// image src survives sanitizing', async () => {
+    const src = 'saf://content%3A%2F%2Ftree%2Fabc/notes/images/pasted-1.png';
+    const html = await renderMarkdownToHtml(`![shot](${src})\n`);
+    expect(html).toContain(`src="${src}"`);
+  });
+
   test('javascript: image src is still stripped', async () => {
     const html = await renderMarkdownToHtml('![x](javascript:alert(1))\n');
     expect(html).not.toContain('javascript:');

@@ -447,4 +447,16 @@ describe('toAbsolutePath', () => {
   test('no absolute base (unsaved doc) yields a normalized relative path', () => {
     expect(toAbsolutePath('', './pics/a.png')).toBe('pics/a.png');
   });
+
+  test('a synced-folder saf:// id is an opaque root that round-trips', () => {
+    const saf = 'saf://content%3A%2F%2Ftree%2Fabc';
+    // Absolute saf src (what the importer/paste write): returned untouched.
+    expect(toAbsolutePath(`${saf}/notes`, `${saf}/notes/images/a.png`)).toBe(
+      `${saf}/notes/images/a.png`,
+    );
+    // Relative src inside a saf note resolves onto the same tree.
+    expect(toAbsolutePath(`${saf}/notes`, 'images/a.png')).toBe(`${saf}/notes/images/a.png`);
+    // ../ traversal stays within the saf root.
+    expect(toAbsolutePath(`${saf}/notes/sub`, '../images/a.png')).toBe(`${saf}/notes/images/a.png`);
+  });
 });
