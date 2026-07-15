@@ -1883,4 +1883,19 @@ describe('openPaths — importable documents', () => {
     expect(tabs.tabsStore.getState().tabs.length).toBe(before);
     expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
   });
+
+  test('a document is skipped when a note with the same basename already exists', async () => {
+    // report.md is already present; confirming the import of report.pdf must
+    // not create a suffixed duplicate (report-2.md) — the real converter is
+    // never even reached (it would choke on the fake bytes).
+    const fs = makeFakeFs({ '/notes/report.md': 'the real note', '/notes/report.pdf': 'fake-pdf' });
+    const confirm = vi.fn(async () => true); // accept — but the pre-check should still skip
+    const controller = makeController(fs, () => 111, { confirm });
+
+    await controller.openPaths(['/notes/report.pdf']);
+
+    const mdFiles = [...fs.files.keys()].filter((p) => p.endsWith('.md'));
+    expect(mdFiles).toEqual(['/notes/report.md']);
+    expect(fs.files.get('/notes/report.md')).toBe('the real note'); // untouched
+  });
 });

@@ -1741,10 +1741,24 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       uiStore.getState().showNotice(`${conv.label} import isn't available yet.`);
       return;
     }
+    const base = sanitizeFileBaseName(stripExtension(name)) || 'imported';
+    // Skip if a note with this basename already exists — re-importing the same
+    // document (e.g. report.pdf when report.md is already here) would otherwise
+    // create a suffixed duplicate (report-2.md). Convert only after this check.
+    const mdPath = joinPath(dir, `${base}.md`);
+    try {
+      if ((await ipc.statPath(mdPath)).exists) {
+        uiStore
+          .getState()
+          .showNotice(`"${baseName(mdPath)}" already exists — skipped importing "${name}".`);
+        return;
+      }
+    } catch {
+      // Can't stat → fall through and let the import proceed as usual.
+    }
     uiStore.getState().showNotice(`Importing "${name}"…`);
     try {
       const result = await conv.convert(bytes, name);
-      const base = sanitizeFileBaseName(stripExtension(name)) || 'imported';
       const target = await uniquePathIn(dir, base, '.md');
       // Save extracted images via the standard placement (settings-driven
       // location) and swap their placeholders for real markdown links.
