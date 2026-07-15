@@ -1,0 +1,1 @@
+- LOCKED fix/docx-saf-image-paths | agent=A | since=2026-07-15T01:53Z | session=cc-docx-saf
