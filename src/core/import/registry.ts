@@ -48,15 +48,9 @@ const CONVERTERS: Converter[] = [
     convert: async (bytesBase64, name) => (await import('./pdf')).convertPdf(bytesBase64, name),
   },
   {
-    // Recognized so .docx files show in the explorer and offer import, but the
-    // converter is not built yet — the session reports it as unavailable before
-    // ever calling this. The throw is a backstop if some path calls it anyway.
     extensions: ['.docx'],
     label: 'Word document',
-    available: false,
-    convert: async () => {
-      throw new Error('DOCX import is not available yet.');
-    },
+    convert: async (bytesBase64, name) => (await import('./docx')).convertDocx(bytesBase64, name),
   },
 ];
 

@@ -15,9 +15,10 @@ describe('converterFor', () => {
     expect(converterFor('.pdf')?.available).not.toBe(false);
   });
 
-  test('DOCX is recognized but marked not-yet-available', () => {
+  test('finds the DOCX converter case-insensitively', () => {
     expect(converterFor('.docx')?.label).toBe('Word document');
-    expect(converterFor('.DOCX')?.available).toBe(false);
+    expect(converterFor('.DOCX')?.label).toBe('Word document');
+    expect(converterFor('.docx')?.available).not.toBe(false);
   });
 
   test('unknown extensions have no converter', () => {
