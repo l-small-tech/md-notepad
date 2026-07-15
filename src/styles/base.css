@@ -25,32 +25,37 @@
      the default here means the editor is styled correctly before JS runs. */
   --editor-font-size: 14px;
 
-  /* Light palette (default) */
-  --bg: #ffffff;
+  /* Light palette (default) — green-tinted. Mirrors the "Light Green" theme
+     plugin (UFV PANTONE 349 forest green #00703c on pale green-grey paper), with
+     a green-charcoal ink softer than the plugin's pure black for everyday use. */
+  --bg: #eaf1e4; /* app chrome: pale green-grey */
   /* The writing surface — a hair off the chrome (--bg) so the editor reads as
      its own recessed panel below the ribbon/active tab. */
-  --editor-bg: #f7f7f5;
-  --bg-alt: #f5f5f5;
-  --bg-hover: #ececec;
-  --fg: #1f1f1f;
-  --fg-muted: #6e6e6e;
-  --accent: #3574f0;
-  --border: #e1e1e1;
-  --danger: #c42b1c;
-  --selection: #b5d1ff;
+  --editor-bg: #fbfdf8; /* near-white, faint green warmth */
+  --bg-alt: #e0ebd8;
+  --bg-hover: #d3e3c9;
+  --fg: #17241b; /* green-charcoal ink */
+  --fg-muted: #586a5b;
+  --accent: #00703c; /* UFV forest green */
+  --border: #d2e0c9;
+  --danger: #c62828;
+  --selection: #cfe6a9; /* pale-lime highlight */
 }
 
 :root[data-theme='dark'] {
-  --bg: #1e1e1e;
-  --editor-bg: #1a1a1a;
-  --bg-alt: #252526;
-  --bg-hover: #2e2e30;
-  --fg: #e8e8e8;
-  --fg-muted: #9a9a9a;
-  --accent: #6ea1ff;
-  --border: #3c3c3c;
-  --danger: #ff6b5e;
-  --selection: #2a4a78;
+  /* Dark palette (default) — green-tinted. Mirrors the "Dark Green" theme
+     plugin: deep emerald-forest with a lifted emerald accent and a soft
+     (non-white) fg for long, late sessions. */
+  --bg: #111c15; /* deep-forest chrome */
+  --editor-bg: #0c150f; /* deepest writing surface */
+  --bg-alt: #18261c;
+  --bg-hover: #223529;
+  --fg: #eef4ef; /* soft off-white */
+  --fg-muted: #7d9585;
+  --accent: #56c07a; /* lifted emerald */
+  --border: #223529;
+  --danger: #e5766a;
+  --selection: #21503a; /* forest highlight */
 }
 
 * {
