@@ -83,6 +83,7 @@ jobs:
             | 🐧 **Linux** (any distro) | `.AppImage` |
             | 🐧 Linux (Debian/Ubuntu) | `.deb` |
             | 🐧 Linux (Fedora/RHEL) | `.rpm` |
+            | 🤖 **Android** | `.apk` |
 
             **First-run notes**
             - **Windows**: SmartScreen may warn because the app isn't signed with a paid certificate — click *More info → Run anyway*.
@@ -100,10 +101,74 @@ jobs:
           includeUpdaterJson: true
           args: ${{ matrix.args }}
 
+  # Android APK. Runs after `build` so the draft release already exists and
+  # the APK can be uploaded to it directly with gh (draft releases are
+  # resolvable by tag via the API).
+  #
+  # Signing secrets (create the upload keystore locally, then add):
+  #   ANDROID_KEYSTORE_B64      — base64 of the .jks upload keystore
+  #   ANDROID_KEY_ALIAS         — key alias
+  #   ANDROID_KEY_PASSWORD      — key + store password
+  # Without them the job still runs but produces an UNSIGNED apk, which is
+  # uploaded with an explicit -unsigned name so nobody ships it by accident.
+  android:
+    needs: build
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Configure release signing
+        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          printf 'keyAlias=%s\nkeyPassword=%s\nstorePassword=%s\nstoreFile=%s\n' \
+            "$KEY_ALIAS" "$KEY_PASSWORD" "$KEY_PASSWORD" "$RUNNER_TEMP/upload.jks" \
+            > src-tauri/gen/android/keystore.properties
+
+      - name: Build APK
+        # NDK + JDK 17 are preinstalled on GitHub runners — using them avoids
+        # adding new (unpinned) actions to a workflow that holds signing keys.
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          npm run tauri android build -- --apk
+
+      - name: Upload APK to draft release
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n1)
+          case "$APK" in
+            *unsigned*) NAME="md-notepad_${TAG#v}-unsigned.apk" ;;
+            *)          NAME="md-notepad_${TAG#v}.apk" ;;
+          esac
+          cp "$APK" "$NAME"
+          gh release upload "$TAG" "$NAME" --repo '${{ github.repository }}'
+
   # Attestations + checksums run over the assembled draft release so every
   # asset is covered in one place, regardless of which runner built it.
   finalize:
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -136,6 +201,7 @@ jobs:
               *.deb)        echo 30 ;;   # Linux Debian/Ubuntu
               *.AppImage)   echo 40 ;;   # Linux
               *.rpm)        echo 50 ;;   # Linux Fedora/RHEL
+              *.apk)        echo 52 ;;   # Android
               *.app.tar.gz) echo 60 ;;   # macOS updater bundle
               latest.json)  echo 70 ;;
               *.sig)        echo 80 ;;   # all signatures (incl. *.app.tar.gz.sig)
