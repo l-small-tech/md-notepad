@@ -179,6 +179,31 @@ const MIME_EXT: Record<string, string> = {
   'image/avif': '.avif',
 };
 
+/**
+ * A directory listing that outruns this is treated as failed, so a cloud folder
+ * (Google Drive / OneDrive) whose backend never responds surfaces a Retry
+ * affordance instead of sitting on "Loading…" forever. Generous, because a cold
+ * synced-folder fetch is legitimately slow.
+ */
+const LISTING_TIMEOUT_MS = 20_000;
+
+/** `listNoteFiles`, but rejects if the backend hasn't answered in time. */
+function listWithTimeout(dir: string): Promise<ExplorerEntry[]> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('listing timed out')), LISTING_TIMEOUT_MS);
+    listNoteFiles(dir).then(
+      (list) => {
+        clearTimeout(timer);
+        resolve(list);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export function FileExplorer() {
   const open = useUiStore((s) => s.explorerOpen);
   const dropTargetDir = useUiStore((s) => s.dropTargetDir);
@@ -189,6 +214,9 @@ export function FileExplorer() {
   const notesDirSetting = useSettingsStore((s) => s.settings.notesDir);
   // Missing key = not yet loaded (show "Loading…"); an array = the listing.
   const [entriesByDir, setEntriesByDir] = useState<Record<string, ExplorerEntry[]>>({});
+  // Dirs whose last listing failed or timed out — a never-loaded one (no entry
+  // in entriesByDir) shows a Retry affordance instead of an endless "Loading…".
+  const [failedDirs, setFailedDirs] = useState<ReadonlySet<string>>(new Set());
   const [collapsedWs, setCollapsedWs] = useState<ReadonlySet<string>>(new Set());
   const [expandedDirs, setExpandedDirs] = useState<ReadonlySet<string>>(new Set());
   /** Entry whose context menu is open (workspace root, subfolder, or file), or null. */
@@ -260,15 +288,27 @@ export function FileExplorer() {
     const roots = JSON.parse(workspaceSignature) as string[];
     const expanded = JSON.parse(expandedSignature) as string[];
     for (const path of [...roots, ...expanded]) {
-      void listNoteFiles(path)
+      void listWithTimeout(path)
         .then((list) => {
           if (!cancelled) {
             setEntriesByDir((prev) => ({ ...prev, [path]: list }));
+            // A retry (or a slow load that eventually arrived) succeeded — clear
+            // any stale failure flag so the row stops offering Retry.
+            setFailedDirs((prev) => {
+              if (!prev.has(path)) {
+                return prev;
+              }
+              const next = new Set(prev);
+              next.delete(path);
+              return next;
+            });
           }
         })
         .catch(() => {
+          // Leave entriesByDir untouched: a never-loaded dir stays undefined so
+          // renderDir can tell "failed load" apart from a genuinely empty folder.
           if (!cancelled) {
-            setEntriesByDir((prev) => ({ ...prev, [path]: [] }));
+            setFailedDirs((prev) => (prev.has(path) ? prev : new Set(prev).add(path)));
           }
         });
     }
@@ -640,10 +680,38 @@ export function FileExplorer() {
     );
   }
 
+  function retryDir(dirPath: string): void {
+    // Drop the failure flag (row returns to "Loading…"), then force a re-fetch
+    // + re-list. For a synced dir this re-queries the backend; for a local dir
+    // it's a plain re-list. The effect above resolves the row from there.
+    setFailedDirs((prev) => {
+      if (!prev.has(dirPath)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(dirPath);
+      return next;
+    });
+    void refreshWorkspaces([dirPath]);
+  }
+
   function renderDir(dirPath: string, depth: number, readOnly = false): ReactNode {
     const entries = entriesByDir[dirPath];
     const indent = { paddingLeft: `${dirIndent(depth) + 14}px` };
     if (entries === undefined) {
+      // Never loaded: distinguish an in-flight listing from one that failed or
+      // timed out (common on an unresponsive cloud folder) — the latter offers
+      // a way to try again rather than spinning forever.
+      if (failedDirs.has(dirPath)) {
+        return (
+          <div className="file-explorer-empty" style={indent}>
+            Couldn’t load —{' '}
+            <button type="button" className="file-explorer-retry" onClick={() => retryDir(dirPath)}>
+              Retry
+            </button>
+          </div>
+        );
+      }
       return (
         <div className="file-explorer-empty" style={indent}>
           Loading…

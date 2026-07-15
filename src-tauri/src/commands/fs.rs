@@ -242,17 +242,22 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
         if !is_md {
             continue;
         }
-        let meta = match entry.metadata() {
-            Ok(m) => m,
+        // Classify without stat'ing (see `list_dir`): `file_type()` is free from
+        // the enumeration, while `metadata()` can block on a cloud placeholder.
+        // A `.md` whose stat fails is still listed with zeroed mtime/size.
+        match entry.file_type() {
+            Ok(t) if t.is_file() => {}
+            Ok(_) => continue,
             Err(_) => continue,
-        };
-        if !meta.is_file() {
-            continue;
         }
+        let (mtime_ms, size) = match entry.metadata() {
+            Ok(m) => (mtime_ms(&m), m.len()),
+            Err(_) => (0, 0),
+        };
         notes.push(NoteMeta {
             path: path.to_string_lossy().into_owned(),
-            mtime_ms: mtime_ms(&meta),
-            size: meta.len(),
+            mtime_ms,
+            size,
         });
     }
     notes.sort_by_key(|note| std::cmp::Reverse(note.mtime_ms));
@@ -281,19 +286,33 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
         if entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
-        let meta = match entry.metadata() {
-            Ok(m) => m,
+        // Classify via `file_type()`, which comes straight from the directory
+        // enumeration and does NOT stat the entry. On a cloud-synced folder
+        // (Google Drive / OneDrive "Files On-Demand") a per-entry `metadata()`
+        // can block while the provider hydrates a placeholder — doing that for
+        // every entry is what left the explorer stuck on "Loading…". `metadata`
+        // is now fetched best-effort, only for the mtime/size fields, and a file
+        // whose stat fails is still listed (mtime/size default to 0) rather than
+        // silently dropped.
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
             Err(_) => continue,
+        };
+        let is_dir = file_type.is_dir();
+        let is_file = file_type.is_file();
+        let (mtime_ms, size) = match entry.metadata() {
+            Ok(m) => (mtime_ms(&m), m.len()),
+            Err(_) => (0, 0),
         };
         let item = DirEntryMeta {
             path: path.to_string_lossy().into_owned(),
-            is_dir: meta.is_dir(),
-            mtime_ms: mtime_ms(&meta),
-            size: meta.len(),
+            is_dir,
+            mtime_ms,
+            size,
         };
-        if meta.is_dir() {
+        if is_dir {
             dirs.push(item);
-        } else if meta.is_file()
+        } else if is_file
             && (has_extension(&path, "md") || is_image_path(&path) || is_importable_path(&path))
         {
             files.push(item);
