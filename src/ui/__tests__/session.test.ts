@@ -1856,46 +1856,91 @@ describe('closeAllTabsInteractive', () => {
 });
 
 describe('openPaths — importable documents', () => {
-  test('a recognized document opens no tab; it prompts to import instead', async () => {
+  test('a recognized document opens a read-only import card, no dialog', async () => {
     const fs = makeFakeFs({ '/notes/report.pdf': 'fake-pdf' });
-    const confirm = vi.fn(async () => false); // decline: don't run the real converter
+    const confirm = vi.fn(async () => true);
     const controller = makeController(fs, () => 111, { confirm });
-    const before = tabs.tabsStore.getState().tabs.length;
 
     await controller.openPaths(['/notes/report.pdf']);
 
-    // The document is never opened as a tab, and a declined confirm imports nothing.
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(tabs.tabsStore.getState().tabs.length).toBe(before);
+    // No confirm dialog; an import tab now owns the document and nothing was
+    // converted just by opening it.
+    expect(confirm).not.toHaveBeenCalled();
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/notes/report.pdf');
+    expect(tab?.kind).toBe('import');
     expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
   });
 
-  test('a DOCX opens no tab; it prompts to import like a PDF', async () => {
+  test('a DOCX opens an import card like a PDF', async () => {
     const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
-    const confirm = vi.fn(async () => false); // decline: don't run the real converter
-    const controller = makeController(fs, () => 111, { confirm });
-    const before = tabs.tabsStore.getState().tabs.length;
+    const controller = makeController(fs);
 
     await controller.openPaths(['/notes/memo.docx']);
 
-    // A recognized document prompts to import rather than opening as a tab.
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(tabs.tabsStore.getState().tabs.length).toBe(before);
-    expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/notes/memo.docx');
+    expect(tab?.kind).toBe('import');
   });
 
-  test('a document is skipped when a note with the same basename already exists', async () => {
-    // report.md is already present; confirming the import of report.pdf must
-    // not create a suffixed duplicate (report-2.md) — the real converter is
-    // never even reached (it would choke on the fake bytes).
-    const fs = makeFakeFs({ '/notes/report.md': 'the real note', '/notes/report.pdf': 'fake-pdf' });
-    const confirm = vi.fn(async () => true); // accept — but the pre-check should still skip
-    const controller = makeController(fs, () => 111, { confirm });
+  test('clicking the same document twice focuses the one import tab', async () => {
+    const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
+    const controller = makeController(fs);
 
-    await controller.openPaths(['/notes/report.pdf']);
+    await controller.openPaths(['/notes/memo.docx'], { preview: true });
+    await controller.openPaths(['/notes/memo.docx']); // pinned re-open
+
+    const importTabs = tabs.tabsStore.getState().tabs.filter((t) => t.kind === 'import');
+    expect(importTabs).toHaveLength(1);
+    // The non-preview re-open promoted the preview card to a permanent tab.
+    expect(importTabs[0]!.preview).toBe(false);
+  });
+
+  test('checkImportStatus reports the target note and whether it exists', async () => {
+    const fs = makeFakeFs({ '/notes/report.pdf': 'fake-pdf' });
+    makeController(fs); // wires the module-level dispatch
+
+    expect(await session.checkImportStatus('/notes/report.pdf')).toEqual({
+      mdPath: '/notes/report.md',
+      imported: false,
+    });
+
+    fs.files.set('/notes/report.md', 'the note');
+    expect(await session.checkImportStatus('/notes/report.pdf')).toEqual({
+      mdPath: '/notes/report.md',
+      imported: true,
+    });
+  });
+
+  test('importing is skipped when a note with the same basename already exists', async () => {
+    // report.md is already present; importing report.pdf must not create a
+    // suffixed duplicate (report-2.md) — the real converter is never even
+    // reached (it would choke on the fake bytes).
+    const fs = makeFakeFs({ '/notes/report.md': 'the real note', '/notes/report.pdf': 'fake-pdf' });
+    makeController(fs); // wires importDocumentInto's dispatch
+
+    await session.importDocumentInto('/notes', '/notes/report.pdf');
 
     const mdFiles = [...fs.files.keys()].filter((p) => p.endsWith('.md'));
     expect(mdFiles).toEqual(['/notes/report.md']);
     expect(fs.files.get('/notes/report.md')).toBe('the real note'); // untouched
+  });
+
+  test('an import tab persists and restore rebuilds it (dropping a gone file)', async () => {
+    const fs = makeFakeFs({ '/notes/a.pdf': 'fake-pdf', '/notes/b.pdf': 'fake-pdf' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/notes/a.pdf', '/notes/b.pdf']);
+    await controller.flushNow();
+
+    const manifest = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      tabs: { kind: string; filePath: string | null }[];
+    };
+    expect(manifest.tabs.find((t) => t.filePath === '/notes/a.pdf')?.kind).toBe('import');
+
+    fs.files.delete('/notes/b.pdf');
+    const fresh = makeController(fs);
+    await fresh.restore();
+
+    const restored = tabs.tabsStore.getState().tabs;
+    expect(restored.some((t) => t.kind === 'import' && t.filePath === '/notes/a.pdf')).toBe(true);
+    expect(restored.some((t) => t.filePath === '/notes/b.pdf')).toBe(false);
   });
 });

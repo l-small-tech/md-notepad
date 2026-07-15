@@ -714,7 +714,7 @@ export function FileExplorer() {
                 readOnly
                   ? `${entry.path}\nRead-only`
                   : isImportablePath(entry.path)
-                    ? `${entry.path}\nClick to import as Markdown · Drag into a folder to move · Right-click: rename, delete`
+                    ? `${entry.path}\nClick to preview and import as Markdown · Drag into a folder to move · Right-click: rename, delete`
                     : isImagePath(entry.path)
                       ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
                       : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`

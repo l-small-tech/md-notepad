@@ -13,6 +13,7 @@ import { Ribbon } from './components/Ribbon';
 import { FileExplorer } from './components/FileExplorer';
 import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
+import { ImportView } from './components/ImportView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { VoiceComments } from './components/VoiceComments';
@@ -52,10 +53,12 @@ export function App() {
         <FileExplorer />
         <div className="editor-stack">
           {tabs.map((tab) =>
-            // A tab's kind never changes to/from 'image', so this branch is
-            // stable per key and never remounts an editor (I7 holds).
+            // A tab's kind never changes to/from 'image' or 'import', so each
+            // branch is stable per key and never remounts an editor (I7 holds).
             tab.kind === 'image' ? (
               <ImageView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ) : tab.kind === 'import' ? (
+              <ImportView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : (
               <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ),

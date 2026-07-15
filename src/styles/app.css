@@ -1007,6 +1007,87 @@ body.explorer-dragging * {
   font-size: 13px;
 }
 
+/* ---- Import tabs (PDF/DOCX card) ---------------------------------------- */
+
+/* A read-mode-like surface hosting a single centered card. */
+.import-view {
+  flex: 1 1 auto;
+  display: flex;
+  overflow: auto;
+  padding: 24px;
+  outline: none;
+}
+
+/* The card itself: a quiet panel, sized to its text, centered in the pane. */
+.import-card {
+  margin: auto;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.import-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Format chip (PDF/DOCX), styled like the explorer's file badge. */
+.import-card-badge {
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 3px 5px;
+  border-radius: 3px;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border, var(--bg-hover));
+}
+
+.import-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.import-card-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+/* Primary action — the accent-tinted button used across the card's states. */
+.import-card-btn {
+  align-self: flex-start;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 5px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  cursor: pointer;
+}
+
+.import-card-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.import-card-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ---- Conflict banner (M3) ------------------------------------------------ */
 
 .conflict-banner {
