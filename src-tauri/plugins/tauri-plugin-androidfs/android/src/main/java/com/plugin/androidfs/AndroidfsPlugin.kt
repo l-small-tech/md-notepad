@@ -27,6 +27,7 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 @InvokeArg
 class ReadUriArgs {
@@ -210,10 +211,14 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
     // The cache survives across @Command calls, like pendingUris above.
 
     // treeUri -> (relPath -> documentId). relPath "" is the tree root.
-    private val docIdCache = HashMap<String, HashMap<String, String>>()
+    // Concurrent maps: safRefresh does its bounded wait on a background thread
+    // (so it can't stall the shared IPC dispatch thread), which means the cache
+    // is now touched from more than one thread at a time — a plain HashMap would
+    // corrupt or throw ConcurrentModificationException under that access.
+    private val docIdCache = ConcurrentHashMap<String, ConcurrentHashMap<String, String>>()
 
-    private fun cacheFor(treeUri: String): HashMap<String, String> =
-        docIdCache.getOrPut(treeUri) { HashMap() }
+    private fun cacheFor(treeUri: String): ConcurrentHashMap<String, String> =
+        docIdCache.computeIfAbsent(treeUri) { ConcurrentHashMap() }
 
     private fun docUri(tree: Uri, docId: String): Uri =
         DocumentsContract.buildDocumentUriUsingTree(tree, docId)
@@ -443,54 +448,65 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
     // re-lists once we return. Best-effort: providers that can't refresh return
     // false and we resolve immediately. We also drop the cached docIds under
     // this dir so the following safList re-resolves against the fresh listing.
+    //
+    // The whole thing runs on a dedicated background thread: Tauri services
+    // every plugin command on a single shared dispatch thread, so holding it in
+    // the bounded wait below (up to 6s, and once per synced dir) would queue
+    // every other IPC call — autosave, stat, any file op the UI needs — behind
+    // it and freeze the app until the refresh finished. Off that thread, the
+    // command returns to the bridge immediately and the wait costs nothing
+    // app-wide. (docIdCache is a ConcurrentHashMap for exactly this reason —
+    // other commands keep hitting it on the dispatch thread meanwhile.)
     @Command
     fun safRefresh(invoke: Invoke) {
         val args = invoke.parseArgs(SafPathArgs::class.java)
         val treeUri = args.treeUri ?: return invoke.reject("missing treeUri")
         val relPath = args.relPath ?: ""
-        try {
-            val tree = Uri.parse(treeUri)
-            val docId = resolveDocId(treeUri, relPath)
-                ?: return invoke.reject("NOT_FOUND: $relPath")
-            val resolver = activity.contentResolver
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
-            val latch = java.util.concurrent.CountDownLatch(1)
-            val observer = object :
-                android.database.ContentObserver(
-                    android.os.Handler(android.os.Looper.getMainLooper()),
-                ) {
-                override fun onChange(selfChange: Boolean) = latch.countDown()
-            }
-            resolver.registerContentObserver(childrenUri, false, observer)
+        Thread {
             try {
-                val requested = try {
-                    // ContentResolver.refresh forwards to DocumentsProvider.refresh,
-                    // asking the provider (e.g. Drive) to re-fetch this directory.
-                    // API 26+ only; on older devices we skip and just re-list below.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        resolver.refresh(docUri(tree, docId), null, null)
-                    } else {
-                        false
+                val tree = Uri.parse(treeUri)
+                val docId = resolveDocId(treeUri, relPath)
+                    ?: return@Thread invoke.reject("NOT_FOUND: $relPath")
+                val resolver = activity.contentResolver
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val observer = object :
+                    android.database.ContentObserver(
+                        android.os.Handler(android.os.Looper.getMainLooper()),
+                    ) {
+                    override fun onChange(selfChange: Boolean) = latch.countDown()
+                }
+                resolver.registerContentObserver(childrenUri, false, observer)
+                try {
+                    val requested = try {
+                        // ContentResolver.refresh forwards to DocumentsProvider
+                        // .refresh, asking the provider (e.g. Drive) to re-fetch
+                        // this directory. API 26+ only; older devices skip and just
+                        // re-list below.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            resolver.refresh(docUri(tree, docId), null, null)
+                        } else {
+                            false
+                        }
+                    } catch (_: Exception) {
+                        false // provider doesn't implement refresh — nothing to wait for
                     }
-                } catch (_: Exception) {
-                    false // provider doesn't implement refresh — nothing to wait for
+                    if (requested) {
+                        // Give the backend a moment to fetch and notify. Bounded so
+                        // a provider that never notifies can't hang the refresh; if
+                        // it times out we still re-list — no worse than before.
+                        latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                } finally {
+                    resolver.unregisterContentObserver(observer)
                 }
-                if (requested) {
-                    // Give the backend a moment to fetch and notify. Bounded so a
-                    // provider that never notifies can't hang the refresh; this
-                    // runs off the main thread (a @Command worker), so the wait is
-                    // safe. If it times out we still re-list — no worse than before.
-                    latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
-                }
-            } finally {
-                resolver.unregisterContentObserver(observer)
+                val rel = relPath.trim('/')
+                if (rel.isEmpty()) docIdCache[treeUri]?.clear() else evictSubtree(treeUri, rel)
+                invoke.resolve(JSObject())
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: "refresh failed")
             }
-            val rel = relPath.trim('/')
-            if (rel.isEmpty()) docIdCache[treeUri]?.clear() else evictSubtree(treeUri, rel)
-            invoke.resolve(JSObject())
-        } catch (e: Exception) {
-            invoke.reject(e.message ?: "refresh failed")
-        }
+        }.start()
     }
 
     // Read a document's bytes as base64. mtime is deliberately not returned —

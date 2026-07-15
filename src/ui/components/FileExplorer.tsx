@@ -895,6 +895,15 @@ export function FileExplorer() {
             </button>
           </div>
         </div>
+        {/* A refresh over a synced (Drive) folder can take several seconds; the
+            header glyph spins but is easy to miss on a tablet, so surface an
+            explicit, unmissable strip while one is in flight. */}
+        {refreshing && (
+          <div className="file-explorer-refreshing" role="status" aria-live="polite">
+            <span className="file-explorer-refreshing-bar" aria-hidden="true" />
+            Refreshing…
+          </div>
+        )}
         <div className="file-explorer-list">
           {workspaces.map((ws) => {
             const isCollapsed = collapsedWs.has(ws.path);
