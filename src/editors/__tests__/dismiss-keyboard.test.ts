@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  DOUBLE_TAP_MOVE_PX,
-  DOUBLE_TAP_MS,
-  isDoubleTap,
-  type Tap,
-} from '../dismiss-keyboard';
+import { DOUBLE_TAP_MOVE_PX, DOUBLE_TAP_MS, isDoubleTap, type Tap } from '../dismiss-keyboard';
 
 const at = (time: number, x = 0, y = 0): Tap => ({ time, x, y });
 

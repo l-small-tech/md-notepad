@@ -51,6 +51,13 @@ interface NavEntry {
 export interface PreviewPane {
   /** Mermaid bakes colors in at render time — a theme flip needs a fresh render. */
   setDark(dark: boolean): void;
+  /**
+   * Update the previewed document's path (e.g. an untitled note just got saved
+   * to disk). Relative link/image resolution starts using the new directory. A
+   * no-op when the directory is unchanged, so it's safe to call on every store
+   * tick without churning renders.
+   */
+  setDocPath(docPath: string | null | undefined): void;
   /** Pop the current followed-link page (same as the in-pane Back button). */
   goBack(): void;
   dispose(): void;
@@ -69,7 +76,11 @@ export function attachPreviewPane(
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const sequence = createRenderSequence();
-  const docDir = options.docPath ? dirName(options.docPath) : null;
+  // The directory relative refs resolve against for the tab's own document.
+  // Mutable: a freshly-created untitled note starts with no path (docDir=null)
+  // and is assigned one later by the flusher — `setDocPath` pushes that in so
+  // in-pane relative links/images start resolving without a remount.
+  let docDir = options.docPath ? dirName(options.docPath) : null;
   /**
    * Followed-link history. Empty = showing the tab's own live model ("home").
    * A non-empty stack means we're browsing a linked document read-only; the top
@@ -252,6 +263,24 @@ export function attachPreviewPane(
       dark = next;
       clearTimer();
       void render();
+    },
+    setDocPath(next) {
+      if (disposed) {
+        return;
+      }
+      const nextDir = next ? dirName(next) : null;
+      if (nextDir === docDir) {
+        return; // unchanged — no work, no needless re-render
+      }
+      docDir = nextDir;
+      // While browsing a followed link the current dir comes from the nav stack,
+      // so the tab's docDir change can't affect what's on screen — skip the
+      // render. At home, re-render so relative images inline against the new
+      // path (the same text, so an empty new note stays scrolled at the top).
+      if (navStack.length === 0) {
+        clearTimer();
+        void render();
+      }
     },
     goBack,
     dispose() {
