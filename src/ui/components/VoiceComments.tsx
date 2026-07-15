@@ -145,9 +145,7 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
       <div className="vc-pulse" aria-hidden="true">
         🎙️
       </div>
-      <div className="vc-capture-label">
-        {listening ? 'Listening… speak now' : 'Recording…'}
-      </div>
+      <div className="vc-capture-label">{listening ? 'Listening… speak now' : 'Recording…'}</div>
       <button className="vc-btn" onClick={stopCapture}>
         {listening ? 'Stop' : 'Stop & save'}
       </button>
@@ -159,9 +157,11 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
   const anchored = new Set(state.anchoredIds);
   const notePath = state.notePath ?? '';
   if (state.comments.length === 0) {
-    return <div className="vc-body">
-      <div className="vc-empty">No voice comments on this note yet.</div>
-    </div>;
+    return (
+      <div className="vc-body">
+        <div className="vc-empty">No voice comments on this note yet.</div>
+      </div>
+    );
   }
   // Focused first, then the rest in file order; orphans keep their place but are
   // flagged so a transcript whose anchor was edited away is never lost.

@@ -28,6 +28,7 @@
 
 import {
   ipc,
+  IpcError,
   type Ipc,
   type FileText,
   type NoteMeta,
@@ -267,15 +268,26 @@ export function createSafProvider(ops: SafOps = ipc): StorageProvider {
   async function copyPath(from: string, to: string): Promise<void> {
     // SAF has no server-side copy; read the bytes and write them back. Both
     // ends are synced here (cross-backend copy is handled by the router).
+    // safWrite truncates, so guard the clobber ourselves to mirror the local
+    // FS EXISTS contract the frontend's collision-suffixing depends on.
+    const dst = parseSaf(to);
+    if ((await ops.safStat(dst.treeUri, dst.relPath)).exists) {
+      throw new IpcError('EXISTS', `destination already exists: ${to}`);
+    }
     const src = parseSaf(from);
     const { base64 } = await ops.safRead(src.treeUri, src.relPath);
-    const dst = parseSaf(to);
     await ops.safWrite(dst.treeUri, dst.relPath, base64);
   }
 
   async function renamePath(from: string, to: string): Promise<void> {
     const a = parseSaf(from);
     const b = parseSaf(to);
+    // Never clobber: SAF rename/write overwrite silently, so stat the
+    // destination first and mirror the local FS EXISTS contract the frontend's
+    // collision-suffixing depends on.
+    if ((await ops.safStat(b.treeUri, b.relPath)).exists) {
+      throw new IpcError('EXISTS', `destination already exists: ${to}`);
+    }
     // A pure display-name change (same tree, same parent dir) is a real SAF
     // rename; a move across directories/trees has no SAF primitive, so fall
     // back to copy+delete (also the fallback if renameDocument fails).
@@ -287,7 +299,10 @@ export function createSafProvider(ops: SafOps = ipc): StorageProvider {
         // Some providers (incl. Drive) reject renameDocument; copy+delete below.
       }
     }
-    await copyPath(from, to);
+    // `to` was already confirmed free above, so copy the bytes over directly
+    // (skipping copyPath's redundant re-stat) and drop the source.
+    const { base64 } = await ops.safRead(a.treeUri, a.relPath);
+    await ops.safWrite(b.treeUri, b.relPath, base64);
     await deletePath(from);
   }
 
@@ -367,6 +382,11 @@ export function createRoutingProvider(
       if (isSafPath(from) === isSafPath(to)) {
         return backend(from).copyPath(from, to);
       }
+      // writeFileBase64 truncates on both backends, so guard the clobber to
+      // mirror the local FS EXISTS contract the frontend depends on.
+      if ((await backend(to).statPath(to)).exists) {
+        throw new IpcError('EXISTS', `destination already exists: ${to}`);
+      }
       const base64 = await backend(from).readFileBase64(from);
       await backend(to).writeFileBase64(to, base64);
     },
@@ -376,6 +396,10 @@ export function createRoutingProvider(
       }
       // Cross-backend "rename" (a move between a local and a synced workspace)
       // has no in-place primitive: copy the bytes over, then drop the source.
+      // writeFileBase64 truncates, so never clobber an existing destination.
+      if ((await backend(to).statPath(to)).exists) {
+        throw new IpcError('EXISTS', `destination already exists: ${to}`);
+      }
       const base64 = await backend(from).readFileBase64(from);
       await backend(to).writeFileBase64(to, base64);
       await backend(from).deletePath(from);

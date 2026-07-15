@@ -192,9 +192,14 @@ function modeDeclarations(palette: Palette, syntax: SyntaxPalette | undefined): 
 }
 
 /**
- * Render a plugin to the CSS the app injects: an unscoped light block plus a
- * `[data-theme='dark']` block (which wins by specificity, exactly like the
- * built-in schemes in the old styles/themes.css), then the verbatim `css`.
+ * Render a plugin to the CSS the app injects: a light block scoped
+ * `:not([data-theme='dark'])` plus a `[data-theme='dark']` block, then the
+ * verbatim `css`. base.css signals dark with `data-theme='dark'` on <html> and
+ * this stylesheet is appended AFTER it, so the light block MUST exclude dark
+ * mode — otherwise a theme that sets a `light` key but omits the same `dark` key
+ * would tie base.css's dark rule on specificity and (winning by source order)
+ * leak its light color into OS dark mode. Excluding dark preserves the contract
+ * that a missing key falls back to base.css's default in BOTH modes.
  * Palette and `--md-*` syntax vars share each mode's block.
  */
 export function themePluginToCss(plugin: ThemePlugin): string {
@@ -202,7 +207,7 @@ export function themePluginToCss(plugin: ThemePlugin): string {
   const blocks: string[] = [];
   const light = modeDeclarations(plugin.light, plugin.syntax?.light);
   if (light) {
-    blocks.push(`:root[data-color-scheme='${attr}'] {\n${light}\n}`);
+    blocks.push(`:root[data-color-scheme='${attr}']:not([data-theme='dark']) {\n${light}\n}`);
   }
   const dark = modeDeclarations(plugin.dark, plugin.syntax?.dark);
   if (dark) {

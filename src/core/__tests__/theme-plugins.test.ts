@@ -99,13 +99,36 @@ describe('themePluginToCss', () => {
       dark: { bg: '#000000' },
       css: '/* extra */',
     });
-    expect(css).toContain(":root[data-color-scheme='demo'] {");
+    // The light block is scoped out of dark mode so it can't leak into base.css's
+    // dark cascade (see the mode-locking test below).
+    expect(css).toContain(":root[data-color-scheme='demo']:not([data-theme='dark']) {");
     expect(css).toContain('--bg: #ffffff;');
     expect(css).toContain('--fg: #111111;');
     expect(css).toContain(":root[data-color-scheme='demo'][data-theme='dark'] {");
     expect(css).toContain('/* extra */');
     // No dark --fg was supplied, so it must not appear in the dark block.
     expect(css).not.toContain('--fg: #000000;');
+  });
+
+  test("a light-only key is scoped out of dark mode (doesn't leak into the dark cascade)", () => {
+    // `accent` is set only for light; `dark` omits it, so in OS dark mode the app
+    // must fall back to base.css's default --accent, NOT the light value.
+    const css = themePluginToCss({
+      id: 'partial',
+      name: 'Partial',
+      light: { accent: '#aabbcc' },
+      dark: { bg: '#000000' },
+    });
+    const lightSelector = ":root[data-color-scheme='partial']:not([data-theme='dark'])";
+    const darkSelector = ":root[data-color-scheme='partial'][data-theme='dark']";
+    const lightBlock = css.slice(css.indexOf(lightSelector), css.indexOf(darkSelector));
+    const darkBlock = css.slice(css.indexOf(darkSelector));
+
+    // The light value lives ONLY in the dark-excluded selector.
+    expect(lightBlock).toContain(lightSelector);
+    expect(lightBlock).toContain('--accent: #aabbcc;');
+    // It never appears in the dark selector's block, so dark mode falls back.
+    expect(darkBlock).not.toContain('--accent');
   });
 
   test('escapes quotes/backslashes in the id for the selector', () => {
@@ -130,7 +153,7 @@ describe('themePluginToCss', () => {
       },
     });
     const lightBlock = css.slice(
-      css.indexOf(":root[data-color-scheme='syn'] {"),
+      css.indexOf(":root[data-color-scheme='syn']:not([data-theme='dark']) {"),
       css.indexOf(":root[data-color-scheme='syn'][data-theme='dark']"),
     );
     const darkBlock = css.slice(css.indexOf(":root[data-color-scheme='syn'][data-theme='dark']"));

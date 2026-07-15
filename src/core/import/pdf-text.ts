@@ -184,7 +184,12 @@ export function pageToMarkdown(items: PdfTextItem[], images: PdfImageItem[] = []
   return blocks.join('\n\n');
 }
 
-/** Join per-page markdown blocks into one document. */
+/**
+ * Join per-page markdown blocks into one document. Returns '' (not '\n') when
+ * nothing could be extracted, so the caller can treat an empty PDF like docx's
+ * empty result rather than writing a blank note reported as success.
+ */
 export function pagesToMarkdown(pages: string[]): string {
-  return pages.filter((p) => p.trim().length > 0).join('\n\n') + '\n';
+  const body = pages.filter((p) => p.trim().length > 0).join('\n\n');
+  return body ? `${body}\n` : '';
 }

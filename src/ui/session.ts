@@ -307,7 +307,11 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
   throw new Error('not booted');
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
-let importDocumentDispatch: (dir: string, srcPath?: string) => Promise<void> = async () => {};
+let importDocumentDispatch: (
+  dir: string,
+  srcPath?: string,
+  options?: { allowDuplicate?: boolean },
+) => Promise<void> = async () => {};
 let importStatusDispatch: (
   srcPath: string,
 ) => Promise<{ mdPath: string; imported: boolean }> = async (srcPath) => ({
@@ -411,8 +415,12 @@ export function importFilesInto(dir: string, paths: string[]): Promise<void> {
  * document (e.g. a PDF) into a new .md in `dir`. Without `srcPath` a native
  * picker filtered to importable formats asks for the source file.
  */
-export function importDocumentInto(dir: string, srcPath?: string): Promise<void> {
-  return importDocumentDispatch(dir, srcPath);
+export function importDocumentInto(
+  dir: string,
+  srcPath?: string,
+  options?: { allowDuplicate?: boolean },
+): Promise<void> {
+  return importDocumentDispatch(dir, srcPath, options);
 }
 /**
  * ImportView → controller: whether `srcPath` has already been imported, plus
@@ -1710,6 +1718,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * "not imported" (the card then offers the import).
    */
   async function importStatusFor(srcPath: string): Promise<{ mdPath: string; imported: boolean }> {
+    // A content:// URI's tail is an opaque document id, not a filename (the real
+    // name comes from the picker's displayName at import time), so a name-based
+    // "already exists" check off it is meaningless — report "not imported" and
+    // let the card just offer the import rather than show misleading info.
+    if (/^content:\/\//i.test(srcPath)) {
+      return { mdPath: '', imported: false };
+    }
     const mdPath = importedMdPathFor(srcPath);
     try {
       return { mdPath, imported: (await ipc.statPath(mdPath)).exists };
@@ -1725,7 +1740,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * .md, and open it. Without `srcPath` the user picks the file via a native
    * dialog filtered to importable formats.
    */
-  async function importDocument(dir: string, srcPath?: string): Promise<void> {
+  async function importDocument(
+    dir: string,
+    srcPath?: string,
+    options: { allowDuplicate?: boolean } = {},
+  ): Promise<void> {
     if (refuseReadOnly(dir)) {
       return;
     }
@@ -1753,11 +1772,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       deps.onError?.(error);
       return;
     }
-    await importDocumentBytes(dir, bytes, name);
+    await importDocumentBytes(dir, bytes, name, options);
   }
 
-  /** Convert already-read document bytes into a new .md in `dir` and open it. */
-  async function importDocumentBytes(dir: string, bytes: string, name: string): Promise<void> {
+  /**
+   * Convert already-read document bytes into a new .md in `dir` and open it.
+   * With `allowDuplicate`, the same-name skip is bypassed and the note is
+   * written to a non-colliding suffixed path (e.g. `report-2.md`) — the
+   * "Import anyway" override for when the existing note is unrelated.
+   */
+  async function importDocumentBytes(
+    dir: string,
+    bytes: string,
+    name: string,
+    options: { allowDuplicate?: boolean } = {},
+  ): Promise<void> {
     const conv = converterFor(extName(name));
     if (!conv) {
       uiStore.getState().showNotice(`No importer for "${name}".`);
@@ -1772,20 +1801,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     // Skip if a note with this basename already exists — re-importing the same
     // document (e.g. report.pdf when report.md is already here) would otherwise
     // create a suffixed duplicate (report-2.md). Convert only after this check.
+    // The check is name-based (no provenance link), so the caller can override
+    // it via `allowDuplicate` when the existing note is a different document.
     const mdPath = joinPath(dir, `${base}.md`);
-    try {
-      if ((await ipc.statPath(mdPath)).exists) {
-        uiStore
-          .getState()
-          .showNotice(`"${baseName(mdPath)}" already exists — skipped importing "${name}".`);
-        return;
+    if (!options.allowDuplicate) {
+      try {
+        if ((await ipc.statPath(mdPath)).exists) {
+          uiStore
+            .getState()
+            .showNotice(`"${baseName(mdPath)}" already exists — skipped importing "${name}".`);
+          return;
+        }
+      } catch {
+        // Can't stat → fall through and let the import proceed as usual.
       }
-    } catch {
-      // Can't stat → fall through and let the import proceed as usual.
     }
     uiStore.getState().showNotice(`Importing "${name}"…`);
     try {
       const result = await conv.convert(bytes, name);
+      if (!result.markdown.trim()) {
+        // Empty conversion (e.g. a PDF with no extractable text or images, like
+        // docx's empty '' result) — surface a notice instead of writing a blank
+        // note reported as a successful import.
+        uiStore.getState().showNotice(`No text or images could be extracted from "${name}".`);
+        return;
+      }
       const target = await uniquePathIn(dir, base, '.md');
       // Save extracted images via the standard placement (settings-driven
       // location) and swap their placeholders for real markdown links.

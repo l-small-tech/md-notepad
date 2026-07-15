@@ -294,12 +294,17 @@ export function FileExplorer() {
       explorerWidth = clampExplorerWidth(moveEvent.clientX - left);
       drawer!.style.width = `${explorerWidth}px`;
     }
-    function onUp(): void {
+    function cleanup(): void {
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointerup', cleanup);
+      // A pointercancel mid-resize (touch/pen, or the OS stealing the pointer)
+      // must tear down the same listeners — otherwise they leak and the drawer
+      // keeps resizing on every later move. Mirrors startFileDrag's cleanup.
+      window.removeEventListener('pointercancel', cleanup);
     }
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
   }
 
   function handlePaste(event: React.ClipboardEvent<HTMLDivElement>): void {

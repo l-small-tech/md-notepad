@@ -200,9 +200,27 @@ describe('SafProvider', () => {
 
     calls.length = 0;
     await saf.renamePath(`${ROOT}/sub/c.md`, `${ROOT}/c.md`);
-    // No same-parent rename possible → read source, write dest, delete source.
-    expect(calls).toEqual(['read:sub/c.md', 'write:c.md', 'delete:sub/c.md']);
+    // No same-parent rename possible → stat dest (no-clobber guard), then read
+    // source, write dest, delete source.
+    expect(calls).toEqual(['stat:c.md', 'read:sub/c.md', 'write:c.md', 'delete:sub/c.md']);
     expect(files.get('c.md')).toBe('CCCC');
+  });
+
+  test('rename/copy refuse to clobber an existing destination (EXISTS)', async () => {
+    const { files, ops } = makeFakeSaf();
+    files.set('a.md', 'AAAA');
+    files.set('b.md', 'BBBB');
+    const saf = createSafProvider(ops);
+
+    await expect(saf.renamePath(`${ROOT}/a.md`, `${ROOT}/b.md`)).rejects.toMatchObject({
+      code: 'EXISTS',
+    });
+    await expect(saf.copyPath(`${ROOT}/a.md`, `${ROOT}/b.md`)).rejects.toMatchObject({
+      code: 'EXISTS',
+    });
+    // Both files survive untouched.
+    expect(files.get('a.md')).toBe('AAAA');
+    expect(files.get('b.md')).toBe('BBBB');
   });
 
   test('reports non-local, no-pick capabilities', () => {
@@ -239,6 +257,10 @@ describe('RoutingProvider', () => {
       },
       deletePath: async (p) => {
         log.push(`local-delete:${p}`);
+      },
+      statPath: async (p) => {
+        log.push(`local-stat:${p}`);
+        return { exists: false, mtimeMs: null };
       },
     };
     return { provider, log };

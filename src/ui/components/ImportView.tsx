@@ -52,20 +52,24 @@ function ImportViewImpl({ tabId, active }: { tabId: string; active: boolean }) {
     // covers a rename; `available` is derived from it.
   }, [filePath, available, active, refresh]);
 
-  const onImport = useCallback(async () => {
-    if (!filePath || !conv) {
-      return;
-    }
-    setImporting(true);
-    try {
-      // Imports beside the source and opens the resulting note (which steals
-      // focus); this card stays open behind it, showing the link on return.
-      await importDocumentInto(dirName(filePath), filePath);
-    } finally {
-      setImporting(false);
-      setRefresh((n) => n + 1);
-    }
-  }, [filePath, conv]);
+  const onImport = useCallback(
+    async (allowDuplicate = false) => {
+      if (!filePath || !conv) {
+        return;
+      }
+      setImporting(true);
+      try {
+        // Imports beside the source and opens the resulting note (which steals
+        // focus); this card stays open behind it, showing the link on return.
+        // `allowDuplicate` bypasses the same-name skip, writing a suffixed note.
+        await importDocumentInto(dirName(filePath), filePath, { allowDuplicate });
+      } finally {
+        setImporting(false);
+        setRefresh((n) => n + 1);
+      }
+    },
+    [filePath, conv],
+  );
 
   const name = filePath ? baseName(filePath) : '';
   const status = checked !== null && checked.path === filePath ? checked : null;
@@ -88,9 +92,20 @@ function ImportViewImpl({ tabId, active }: { tabId: string; active: boolean }) {
             <p className="import-card-note">Checking…</p>
           ) : status.imported ? (
             <>
-              <p className="import-card-note">Already imported.</p>
+              {/* Name-based match only — a same-named note exists, but it may be
+                  an unrelated file, so don't claim this document was imported. */}
+              <p className="import-card-note">
+                A note named {baseName(status.mdPath)} already exists.
+              </p>
               <button className="import-card-btn" onClick={() => openNotePath(status.mdPath)}>
                 Open {baseName(status.mdPath)}
+              </button>
+              <button
+                className="import-card-btn"
+                onClick={() => void onImport(true)}
+                disabled={importing}
+              >
+                {importing ? 'Importing…' : 'Import anyway'}
               </button>
             </>
           ) : (
