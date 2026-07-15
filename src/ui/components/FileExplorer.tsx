@@ -91,6 +91,31 @@ function dirIndent(depth: number): number {
   return 8 + depth * 12;
 }
 
+/**
+ * The right-pinned type badge for a recognized file, or null for anything
+ * else (which then keeps its full name, extension included). Recognized files
+ * show their name WITHOUT the extension plus this badge: 'md' for markdown
+ * (rendered in the accent blue), the uppercased extension for images and
+ * importable documents (PDF/DOCX).
+ */
+function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' } | null {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) {
+    return null;
+  }
+  const ext = name.slice(dot).toLowerCase();
+  if (ext === '.md' || ext === '.markdown') {
+    return { label: 'md', kind: 'md' };
+  }
+  if (isImportablePath(name)) {
+    return { label: name.slice(dot + 1), kind: 'doc' };
+  }
+  if (isImagePath(name)) {
+    return { label: name.slice(dot + 1), kind: 'image' };
+  }
+  return null;
+}
+
 /** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
 const DRAG_THRESHOLD_PX = 5;
 
@@ -441,6 +466,30 @@ export function FileExplorer() {
     }
   }
 
+  /**
+   * Context-menu "New file": create the file, then jump straight into renaming
+   * it on its explorer row (default name "untitled" pre-selected). The target
+   * dir is revealed first — a collapsed workspace is expanded, a collapsed
+   * subfolder opened — so the new row is actually on screen to rename.
+   */
+  async function startNewFile(dir: string): Promise<void> {
+    setSelectedDir(dir);
+    const isWorkspaceRoot = workspaces.some((w) => fileKey(w.path) === fileKey(dir));
+    if (isWorkspaceRoot) {
+      setCollapsedWs((prev) => {
+        const next = new Set(prev);
+        next.delete(dir);
+        return next;
+      });
+    } else {
+      setExpandedDirs((prev) => new Set(prev).add(dir));
+    }
+    const created = await createNewFileIn(dir);
+    if (created) {
+      setRenaming(created);
+    }
+  }
+
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
     return (
@@ -508,8 +557,7 @@ export function FileExplorer() {
             role="menuitem"
             onClick={() => {
               setMenuFor(null);
-              setSelectedDir(dir);
-              void createNewFileIn(dir);
+              void startNewFile(dir);
             }}
           >
             New file
@@ -702,14 +750,21 @@ export function FileExplorer() {
                 }
               }}
             >
-              <span className="file-explorer-item-name">{entry.name}</span>
-              {isImportablePath(entry.path) && (
-                <span className="file-import-badge" aria-hidden="true">
-                  {stripExtension(entry.name) === entry.name
-                    ? ''
-                    : entry.name.slice(entry.name.lastIndexOf('.') + 1).toUpperCase()}
-                </span>
-              )}
+              {(() => {
+                const badge = fileBadge(entry.name);
+                return (
+                  <>
+                    <span className="file-explorer-item-name">
+                      {badge ? stripExtension(entry.name) : entry.name}
+                    </span>
+                    {badge && (
+                      <span className="file-badge" data-kind={badge.kind} aria-hidden="true">
+                        {badge.label}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </button>
           )}
           {menuFor === entry.path &&
