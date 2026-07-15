@@ -35,4 +35,13 @@ describe('localImageToInline', () => {
   test('decodes percent-escapes before resolving', () => {
     expect(localImageToInline('/ws', 'images/my%20shot.png')).toBe('/ws/images/my shot.png');
   });
+
+  test('resolves a synced-folder saf:// image id without mangling the tree token', () => {
+    // A DOCX-import/paste in a synced (Android SAF) workspace writes an absolute
+    // saf:// src; it must round-trip so the bytes can be read off that tree.
+    const saf = 'saf://content%3A%2F%2Ftree%2Fabc';
+    expect(localImageToInline(`${saf}/notes`, `${saf}/notes/images/shot.png`)).toBe(
+      `${saf}/notes/images/shot.png`,
+    );
+  });
 });
