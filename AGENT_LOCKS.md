@@ -1,0 +1,1 @@
+- LOCKED fix/refresh-freeze | agent=cc | since=2026-07-15T01:46Z | session=refresh-hang
