@@ -545,6 +545,40 @@
   }
 }
 
+/* Explicit "a refresh is underway" strip below the header — an indeterminate
+   sliding bar plus a label, so it reads as active progress (not a frozen app)
+   even on a tablet where the small header glyph is easy to miss. */
+.file-explorer-refreshing {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  overflow: hidden;
+}
+
+.file-explorer-refreshing-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 40%;
+  background: var(--accent, currentColor);
+  border-radius: 2px;
+  animation: file-explorer-refreshing-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes file-explorer-refreshing-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
 .file-explorer-list {
   flex: 1 1 auto;
   overflow-y: auto;
