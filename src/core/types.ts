@@ -21,8 +21,12 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read';
  *           unsaved edits are session-buffered (see core/session).
  * 'image' — a read-only image viewer over `filePath`. Never written, never
  *           buffered; the flusher only records it in the manifest.
+ * 'import' — a foreign document (PDF/DOCX) shown as an inline import card over
+ *           `filePath`: offers a one-click "Import as Markdown" (no dialog), or
+ *           a link to the already-imported note. Like 'image', it holds no text
+ *           and is only recorded in the manifest.
  */
-export type TabKind = 'note' | 'file' | 'image';
+export type TabKind = 'note' | 'file' | 'image' | 'import';
 
 export interface CursorPos {
   anchor: number;

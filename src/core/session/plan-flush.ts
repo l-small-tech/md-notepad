@@ -132,7 +132,7 @@ export function parseManifest(raw: string): SessionManifest | null {
     const t = tab as Record<string, unknown>;
     if (
       typeof t.id !== 'string' ||
-      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image')
+      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image' && t.kind !== 'import')
     ) {
       return null;
     }

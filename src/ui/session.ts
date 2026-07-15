@@ -308,6 +308,12 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
 let importDocumentDispatch: (dir: string, srcPath?: string) => Promise<void> = async () => {};
+let importStatusDispatch: (
+  srcPath: string,
+) => Promise<{ mdPath: string; imported: boolean }> = async (srcPath) => ({
+  mdPath: srcPath,
+  imported: false,
+});
 let appendImagesDispatch: (mdPath: string, paths: string[]) => Promise<void> = async () => {};
 let savePastedImageDispatch: (
   tabId: string,
@@ -407,6 +413,14 @@ export function importFilesInto(dir: string, paths: string[]): Promise<void> {
  */
 export function importDocumentInto(dir: string, srcPath?: string): Promise<void> {
   return importDocumentDispatch(dir, srcPath);
+}
+/**
+ * ImportView → controller: whether `srcPath` has already been imported, plus
+ * the note path it maps to (so the card can link to the result rather than
+ * offering the conversion again).
+ */
+export function checkImportStatus(srcPath: string): Promise<{ mdPath: string; imported: boolean }> {
+  return importStatusDispatch(srcPath);
 }
 /**
  * Drag-drop (main.tsx) → controller: embed dropped image files into an existing
@@ -752,8 +766,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const restored: RestoredTabInit[] = [];
     const missing: string[] = [];
     for (const pt of persisted) {
-      if (pt.kind === 'image') {
-        // Image tabs hold no text; just confirm the file still exists.
+      if (pt.kind === 'image' || pt.kind === 'import') {
+        // Image and import tabs hold no text; just confirm the file still exists.
         if (!pt.filePath) {
           continue;
         }
@@ -1070,23 +1084,6 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   async function openPaths(paths: string[], opts: { preview?: boolean } = {}): Promise<void> {
     const preview = opts.preview ?? false;
     for (const path of paths) {
-      // A recognized document (a PDF via Ctrl+O, an explorer click, or a drop on
-      // the editor area) can't be opened as a tab — offer to import it as
-      // markdown instead, beside the source file. Guard on openingPaths so a
-      // double-click (onClick + onDoubleClick both reach here) doesn't stack
-      // multiple confirm dialogs for the same file.
-      if (converterFor(extName(path))) {
-        const key = pathKey(path);
-        if (!openingPaths.has(key)) {
-          openingPaths.add(key);
-          try {
-            await promptImport(path);
-          } finally {
-            openingPaths.delete(key);
-          }
-        }
-        continue;
-      }
       const lower = pathKey(path);
       // Focus the created/existing tab, and pin it when this open wasn't a
       // preview (or a concurrent pinned request asked for it while it opened).
@@ -1115,6 +1112,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       }
       openingPaths.add(lower);
       try {
+        if (converterFor(extName(path))) {
+          // A recognized document (PDF/DOCX) can't be edited as text — open a
+          // read-only import CARD instead (explorer click, Ctrl+O, editor-area
+          // drop). The card offers a one-click conversion (no dialog) or, once
+          // imported, a link to the resulting note. Existence is checked up
+          // front so a bad path errors here rather than inside the view.
+          const stat = await ipc.statPath(path);
+          if (!stat.exists) {
+            throw new Error(`not found: ${path}`);
+          }
+          const owner = tabOwning(lower);
+          if (owner) {
+            settle(owner.id);
+          } else {
+            settle(
+              tabsStore.getState().openImportTab({
+                filePath: path,
+                savedMtimeMs: stat.mtimeMs,
+                preview,
+                readOnly: isReadOnlyPath(path),
+              }),
+            );
+          }
+          continue;
+        }
         if (isImagePath(path)) {
           // Images open as a read-only viewer tab; existence check up front so
           // a bad path errors here (like a failed read) instead of in the view.
@@ -1221,7 +1243,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    */
   async function renameFileTab(id: string, newName: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || (tab.kind !== 'file' && tab.kind !== 'image') || !tab.filePath) {
+    if (
+      !tab ||
+      (tab.kind !== 'file' && tab.kind !== 'image' && tab.kind !== 'import') ||
+      !tab.filePath
+    ) {
       return;
     }
     if (tab.readOnly || isReadOnlyPath(tab.filePath)) {
@@ -1667,27 +1693,28 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   }
 
   /**
-   * Explorer click / Ctrl+O / editor-area drop of a recognized document: ask
-   * for confirmation, then import it as markdown beside the source file. A
-   * recognized-but-not-yet-implemented format (e.g. DOCX) reports that it isn't
-   * available yet rather than prompting for a conversion it can't do.
+   * The .md path {@link importDocument} would write for `srcPath`: same folder,
+   * the source's basename sanitized (`report.pdf` → `report.md`). Mirrors the
+   * skip-check in {@link importDocumentBytes} so "already imported?" and the
+   * import itself agree on the target name.
    */
-  async function promptImport(path: string): Promise<void> {
-    const conv = converterFor(extName(path));
-    if (!conv) {
-      return;
-    }
-    const name = baseName(path);
-    if (conv.available === false) {
-      uiStore.getState().showNotice(`${conv.label} import isn't available yet.`);
-      return;
-    }
-    const ok = await confirm(
-      `Import "${name}" as a Markdown note? Formatting is approximated (best-effort).`,
-      'Import document',
-    );
-    if (ok) {
-      await importDocument(dirName(path), path);
+  function importedMdPathFor(srcPath: string): string {
+    const base = sanitizeFileBaseName(stripExtension(baseName(srcPath))) || 'imported';
+    return joinPath(dirName(srcPath), `${base}.md`);
+  }
+
+  /**
+   * ImportView → controller: has `srcPath` already been imported? Returns the
+   * expected note path and whether it exists on disk, so the card can show a
+   * link to the note instead of the import button. A stat failure reads as
+   * "not imported" (the card then offers the import).
+   */
+  async function importStatusFor(srcPath: string): Promise<{ mdPath: string; imported: boolean }> {
+    const mdPath = importedMdPathFor(srcPath);
+    try {
+      return { mdPath, imported: (await ipc.statPath(mdPath)).exists };
+    } catch {
+      return { mdPath, imported: false };
     }
   }
 
@@ -2059,7 +2086,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       return;
     }
     const owner = isDir ? undefined : tabOwning(pathKey(path));
-    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+    if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
       await renameFileTab(owner.id, newName);
       uiStore.getState().refreshExplorer();
       return;
@@ -2174,7 +2201,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       return;
     }
     await moveCommentsSidecar(sourcePath, newPath);
-    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+    if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
       let mtimeMs = owner.savedMtimeMs ?? now();
       try {
         const after = await ipc.statPath(newPath);
@@ -2451,6 +2478,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   openDocsDispatch = () => void openDocsWorkspace();
   importFilesDispatch = importFiles;
   importDocumentDispatch = importDocument;
+  importStatusDispatch = importStatusFor;
   appendImagesDispatch = appendImagesToMarkdown;
   savePastedImageDispatch = savePastedImage;
   savePastedFileDispatch = savePastedFile;
@@ -2466,7 +2494,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   };
   renameTabDispatch = (id, newName) => {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (tab && (tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
+    if (
+      tab &&
+      (tab.kind === 'file' || tab.kind === 'image' || tab.kind === 'import') &&
+      tab.filePath
+    ) {
       void renameFileTab(id, newName);
     } else {
       // Note tab: set the title; the flush renames the note file to the new
