@@ -1,1 +1,0 @@
-- LOCKED feature/explorer-badges | agent=claude | since=2026-07-14T18:14Z | session=cc-explorer-badges
