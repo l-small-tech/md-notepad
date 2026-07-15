@@ -873,18 +873,21 @@ describe('savePastedImageForTab (editor paste)', () => {
 });
 
 describe('createNewFileIn (explorer context menu)', () => {
-  test('creates an empty untitled.md, opens it, and starts the tab rename', async () => {
+  test('creates an empty untitled.md, opens it, and returns its path for the inline rename', async () => {
     const fs = makeFakeFs();
     makeController(fs);
 
-    await session.createNewFileIn('/ws');
+    const created = await session.createNewFileIn('/ws');
 
+    expect(created).toBe('/ws/untitled.md');
     expect(fs.files.get('/ws/untitled.md')).toBe('');
     const state = tabs.tabsStore.getState();
     const opened = state.tabs.find((t) => t.filePath === '/ws/untitled.md')!;
     expect(opened.kind).toBe('file');
     expect(state.activeTabId).toBe(opened.id);
-    expect(state.renamingTabId).toBe(opened.id);
+    // The rename now happens on the explorer row (FileExplorer starts it with
+    // the returned path), not on the tab — so no tab enters rename mode.
+    expect(state.renamingTabId).toBeNull();
   });
 
   test('a second new file in the same folder gets a collision suffix', async () => {
@@ -1384,6 +1387,9 @@ describe('insertFileLink (file/image links)', () => {
       setFontSize() {},
       format() {},
       insertLinkTo: (label, url, image) => calls.push({ label, url, image }),
+      insertAnchorAtLine() {},
+      anchorLineAt: () => 1,
+      removeAnchor() {},
     });
     return calls;
   }
@@ -1846,5 +1852,95 @@ describe('closeAllTabsInteractive', () => {
     await controller.closeAllTabsInteractive();
 
     expect(tabs.tabsStore.getState().tabs.some((t) => t.id === fileTab.id)).toBe(true);
+  });
+});
+
+describe('openPaths — importable documents', () => {
+  test('a recognized document opens a read-only import card, no dialog', async () => {
+    const fs = makeFakeFs({ '/notes/report.pdf': 'fake-pdf' });
+    const confirm = vi.fn(async () => true);
+    const controller = makeController(fs, () => 111, { confirm });
+
+    await controller.openPaths(['/notes/report.pdf']);
+
+    // No confirm dialog; an import tab now owns the document and nothing was
+    // converted just by opening it.
+    expect(confirm).not.toHaveBeenCalled();
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/notes/report.pdf');
+    expect(tab?.kind).toBe('import');
+    expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
+  });
+
+  test('a DOCX opens an import card like a PDF', async () => {
+    const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/notes/memo.docx']);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/notes/memo.docx');
+    expect(tab?.kind).toBe('import');
+  });
+
+  test('clicking the same document twice focuses the one import tab', async () => {
+    const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
+    const controller = makeController(fs);
+
+    await controller.openPaths(['/notes/memo.docx'], { preview: true });
+    await controller.openPaths(['/notes/memo.docx']); // pinned re-open
+
+    const importTabs = tabs.tabsStore.getState().tabs.filter((t) => t.kind === 'import');
+    expect(importTabs).toHaveLength(1);
+    // The non-preview re-open promoted the preview card to a permanent tab.
+    expect(importTabs[0]!.preview).toBe(false);
+  });
+
+  test('checkImportStatus reports the target note and whether it exists', async () => {
+    const fs = makeFakeFs({ '/notes/report.pdf': 'fake-pdf' });
+    makeController(fs); // wires the module-level dispatch
+
+    expect(await session.checkImportStatus('/notes/report.pdf')).toEqual({
+      mdPath: '/notes/report.md',
+      imported: false,
+    });
+
+    fs.files.set('/notes/report.md', 'the note');
+    expect(await session.checkImportStatus('/notes/report.pdf')).toEqual({
+      mdPath: '/notes/report.md',
+      imported: true,
+    });
+  });
+
+  test('importing is skipped when a note with the same basename already exists', async () => {
+    // report.md is already present; importing report.pdf must not create a
+    // suffixed duplicate (report-2.md) — the real converter is never even
+    // reached (it would choke on the fake bytes).
+    const fs = makeFakeFs({ '/notes/report.md': 'the real note', '/notes/report.pdf': 'fake-pdf' });
+    makeController(fs); // wires importDocumentInto's dispatch
+
+    await session.importDocumentInto('/notes', '/notes/report.pdf');
+
+    const mdFiles = [...fs.files.keys()].filter((p) => p.endsWith('.md'));
+    expect(mdFiles).toEqual(['/notes/report.md']);
+    expect(fs.files.get('/notes/report.md')).toBe('the real note'); // untouched
+  });
+
+  test('an import tab persists and restore rebuilds it (dropping a gone file)', async () => {
+    const fs = makeFakeFs({ '/notes/a.pdf': 'fake-pdf', '/notes/b.pdf': 'fake-pdf' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/notes/a.pdf', '/notes/b.pdf']);
+    await controller.flushNow();
+
+    const manifest = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      tabs: { kind: string; filePath: string | null }[];
+    };
+    expect(manifest.tabs.find((t) => t.filePath === '/notes/a.pdf')?.kind).toBe('import');
+
+    fs.files.delete('/notes/b.pdf');
+    const fresh = makeController(fs);
+    await fresh.restore();
+
+    const restored = tabs.tabsStore.getState().tabs;
+    expect(restored.some((t) => t.kind === 'import' && t.filePath === '/notes/a.pdf')).toBe(true);
+    expect(restored.some((t) => t.filePath === '/notes/b.pdf')).toBe(false);
   });
 });

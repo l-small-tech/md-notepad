@@ -123,7 +123,31 @@ jobs:
         with:
           subject-path: assets/*
 
-      - name: Generate and upload SHA256SUMS
+      - name: Order release assets (installers first, support files last)
         run: |
+          # Checksums over the originals; write to parent so `*` can't self-include.
           (cd assets && sha256sum *) > SHA256SUMS
-          gh release upload "$TAG" SHA256SUMS --repo '${{ github.repository }}' --clobber
+          cp SHA256SUMS assets/
+          cd assets
+          rank() {
+            case "$1" in
+              *-setup.exe)  echo 10 ;;   # Windows installer
+              *.dmg)        echo 20 ;;   # macOS installer
+              *.deb)        echo 30 ;;   # Linux Debian/Ubuntu
+              *.AppImage)   echo 40 ;;   # Linux
+              *.rpm)        echo 50 ;;   # Linux Fedora/RHEL
+              *.app.tar.gz) echo 60 ;;   # macOS updater bundle
+              latest.json)  echo 70 ;;
+              *.sig)        echo 80 ;;   # all signatures (incl. *.app.tar.gz.sig)
+              SHA256SUMS)   echo 90 ;;
+              *)            echo 55 ;;   # unknown -> after installers, before support
+            esac
+          }
+          # Re-upload in ascending rank; --clobber resets created_at so the final
+          # upload order == the display order on the release page. Tab-delimited
+          # so the spaces in "MD Notepad_..." filenames survive sort/read.
+          for f in *; do printf '%s\t%s\n' "$(rank "$f")" "$f"; done \
+            | sort -n -k1,1 -s | cut -f2- \
+            | while IFS= read -r f; do
+                gh release upload "$TAG" "$f" --repo '${{ github.repository }}' --clobber
+              done

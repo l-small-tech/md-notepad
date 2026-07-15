@@ -83,6 +83,11 @@ export function StatusBar() {
       ) : (
         <ModeSegments activeMode={active.mode} tabId={active.id} />
       )}
+      {import.meta.env.DEV && (
+        <span className="statusbar-dev" title="Running from a development build (tauri dev)">
+          dev
+        </span>
+      )}
       <div className="statusbar-notice" role="status">
         {notice}
       </div>

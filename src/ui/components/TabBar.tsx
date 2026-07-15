@@ -16,6 +16,7 @@ import { detectPlatform } from '../keymap';
 import { computeTabWindow } from '../tab-overflow';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
 import { WindowControls } from './WindowControls';
+import { isAndroid } from '../platform';
 
 /**
  * The TabBar doubles as the window titlebar (no native decorations, so tabs
@@ -29,9 +30,10 @@ const IS_MAC = detectPlatform(navigator.platform) === 'mac';
  * Tear-off gesture (M8): releasing a tab drag outside the window spawns a new
  * window there. Gated off on Linux — Wayland gives apps no reliable global
  * cursor position or window placement, so only the context-menu fallback
- * ("Move to new window") is offered there.
+ * ("Move to new window") is offered there — and on Android, which is
+ * single-window (its UA already reports Linux, so this is belt-and-suspenders).
  */
-const CAN_TEAR_OFF = !/linux/i.test(navigator.platform);
+const CAN_TEAR_OFF = !/linux/i.test(navigator.platform) && !isAndroid();
 
 /** Where a context menu is open, and for which tab. */
 interface TabMenu {
@@ -465,7 +467,7 @@ export function TabBar() {
       >
         ⊗
       </button>
-      {!IS_MAC && <WindowControls />}
+      {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {overflowAnchor && hidden.length > 0 && (
         <OverflowMenu

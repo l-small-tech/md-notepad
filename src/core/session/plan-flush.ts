@@ -132,7 +132,7 @@ export function parseManifest(raw: string): SessionManifest | null {
     const t = tab as Record<string, unknown>;
     if (
       typeof t.id !== 'string' ||
-      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image')
+      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image' && t.kind !== 'import')
     ) {
       return null;
     }
@@ -193,13 +193,23 @@ export function bufferPathFor(sessionDir: string, tabId: string): string {
   return joinPath(joinPath(sessionDir, 'buffers'), `${tabId}.md`);
 }
 
-/** Split an absolute path into its root (drive `C:`, `/`, or '') + segments. */
+/** Split an absolute path into its root (a `scheme://host` id, drive `C:`, `/`,
+ *  or '') + segments. */
 function splitPath(path: string): { root: string; segments: string[] } {
   const normalized = path.replace(/\\/g, '/');
+  // A `scheme://authority` prefix is an already-absolute, opaque root — the
+  // app's only case is a synced-folder `saf://<token>` identifier, whose tree
+  // URI slashes are percent-encoded so the authority holds no literal `/`.
+  // Treat the whole prefix as the root and resolve `.`/`..` within the rel path,
+  // so a `saf://` image src round-trips instead of being mangled into segments.
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\/[^/]+/i.exec(normalized);
   const drive = /^([a-zA-Z]:)\/?/.exec(normalized);
   let root = '';
   let rest = normalized;
-  if (drive) {
+  if (scheme) {
+    root = scheme[0];
+    rest = normalized.slice(scheme[0].length);
+  } else if (drive) {
     root = drive[1]!.toUpperCase();
     rest = normalized.slice(drive[0].length);
   } else if (normalized.startsWith('/')) {
@@ -243,10 +253,10 @@ export function relativePath(fromDir: string, toPath: string): string | null {
 
 /**
  * Resolve `target` against `baseDir` into an absolute, forward-slashed path,
- * collapsing `.`/`..` segments. An already-absolute `target` (drive letter or
- * `/` root) is returned normalized, ignoring `baseDir`. When `baseDir` has no
- * root either (an unsaved document), the best we can do is a normalized
- * relative path — the inverse of {@link relativePath}.
+ * collapsing `.`/`..` segments. An already-absolute `target` (a `scheme://host`
+ * id, drive letter, or `/` root) is returned normalized, ignoring `baseDir`.
+ * When `baseDir` has no root either (an unsaved document), the best we can do
+ * is a normalized relative path — the inverse of {@link relativePath}.
  */
 export function toAbsolutePath(baseDir: string, target: string): string {
   const t = splitPath(target);

@@ -19,11 +19,24 @@ import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
-import { enrichCopiedText, getCursor, noteCursor, savePastedImageForTab } from '../session';
+import {
+  enrichCopiedText,
+  getCursor,
+  noteCursor,
+  openNotePath,
+  savePastedImageForTab,
+} from '../session';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
+import {
+  previewNavStore,
+  registerPreviewGoBack,
+  unregisterPreviewGoBack,
+} from '../stores/preview-nav';
 import { isDark, subscribeDark } from '../theme';
+import { isAndroid } from '../platform';
+import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
 
 /**
@@ -92,6 +105,12 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             },
             saveImage: (data) => savePastedImageForTab(tabId, data),
             enrichCopy: (text) => enrichCopiedText(tabId, text),
+            // Voice comments: a gutter marker opens the transcript; on touch a
+            // long-press on a line starts a new dictated comment there.
+            onOpenComment: (id, line) => void openComment(tabId, id, line),
+            onLongPressLine: isAndroid() ? (line) => void addCommentAtLine(tabId, line) : undefined,
+            // Android: double-tap the text to dismiss the soft keyboard.
+            dismissKeyboardOnDoubleTap: isAndroid(),
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
@@ -159,7 +178,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     const pane = attachPreviewPane(host, tab.model, {
       dark: isDark(),
       docPath: tab.filePath ?? tab.notePath,
+      // A followed link to an image (or any non-text file) opens in a tab —
+      // the reader can only render markdown/text inline.
+      onOpenFile: (path) => openNotePath(path),
+      // Surface Back state so the fullscreen cluster can host the Back button
+      // (the in-pane bar is hidden in fullscreen — see preview.css).
+      onCanGoBackChange: (canGoBack) => previewNavStore.getState().setCanGoBack(tabId, canGoBack),
     });
+    registerPreviewGoBack(tabId, () => pane.goBack());
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
     // Read mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.
@@ -168,6 +194,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     return () => {
       unsubscribeDark();
+      unregisterPreviewGoBack(tabId);
+      previewNavStore.getState().clear(tabId);
       pane.dispose();
       if (mode === 'split') {
         editorPane.style.flex = ''; // back to the raw-mode CSS default

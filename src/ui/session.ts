@@ -37,10 +37,13 @@ import {
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { imageMimeType, isImagePath } from '../core/images';
+import { commentsPathFor, isCommentsPath } from '../core/comments';
 import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
+import { converterFor, replaceImagePlaceholders } from '../core/import/registry';
 import { pickUnusedColor } from '../core/settings';
 import {
+  deriveImportName,
   dropTrailingExtension,
   sanitizeFileBaseName,
   slugifyTitle,
@@ -49,7 +52,9 @@ import {
 import { planNoteMoves } from '../core/notes-move';
 import { getSourceAdapter } from './editor-registry';
 import type { CursorPos, WorkspaceColor } from '../core/types';
-import { ipc as realIpc, type Ipc } from '../ipc/commands';
+import { ipc as nativeIpc, type Ipc } from '../ipc/commands';
+import { currentProvider } from '../ipc/provider';
+import { isAndroid } from './platform';
 import type { SessionPaths } from '../ipc/paths';
 import { setFlushRequester } from './stores/flush-signal';
 import { settingsStore } from './stores/settings';
@@ -70,7 +75,12 @@ type SessionIpc = Pick<
   | 'writeFileBase64'
   | 'copyPath'
   | 'createDir'
->;
+> & {
+  // Not a raw `Ipc` command: `refresh` lives on the StorageProvider (only the
+  // synced backend implements it), so it's added here rather than Pick'd.
+  // Optional — tests fake the provider without it.
+  refresh?: (dir: string) => Promise<void>;
+};
 
 /** Native confirm dialog (plugin-dialog in the app; a stub in tests). */
 export type ConfirmDialog = (message: string, title: string) => Promise<boolean>;
@@ -85,8 +95,9 @@ export type SaveDiscardCancelDialog = (
 ) => Promise<'save' | 'discard' | 'cancel'>;
 /** Native folder-picker for the M6 notes-dir change flow. Null if cancelled. */
 export type PickDirectoryDialog = () => Promise<string | null>;
-/** Native single-file picker for link insertion. `image` narrows the filter. */
-export type PickFileDialog = (kind: 'any' | 'image') => Promise<string | null>;
+/** Native single-file picker for link insertion. `image` narrows the filter
+ *  to image types, `import` to convertible document types (registry.ts). */
+export type PickFileDialog = (kind: 'any' | 'image' | 'import') => Promise<string | null>;
 
 export interface SessionControllerDeps {
   paths: SessionPaths;
@@ -148,6 +159,11 @@ export interface SessionController {
   /** Ctrl+O: native open dialog, then {@link openPaths}. */
   openFileDialog(): Promise<void>;
   /**
+   * Android: copy external files (content:// URIs from the picker or incoming
+   * "Open with"/"Share" intents) into the notes dir and open the local copies.
+   */
+  openIncoming(uris: string[]): Promise<void>;
+  /**
    * Open each path as a file tab; focuses the existing tab if already open.
    * `preview` opens a reusable italic preview tab (explorer single-click).
    */
@@ -195,6 +211,13 @@ const cursorByTab = new Map<string, CursorPos>();
  * paths; the raw path is still what gets stored and written.
  */
 function pathKey(path: string): string {
+  // Synced (SAF) identifiers (`saf://<token>/<relPath>`) are opaque and
+  // case-sensitive — the token encodes a case-sensitive document URI, so
+  // lowercasing it would corrupt the id and could collide two distinct trees.
+  // Return them verbatim; local paths keep the separator/case normalization.
+  if (path.startsWith('saf://')) {
+    return path;
+  }
   return path.replaceAll('\\', '/').toLowerCase();
 }
 
@@ -284,13 +307,20 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
   throw new Error('not booted');
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
+let importDocumentDispatch: (dir: string, srcPath?: string) => Promise<void> = async () => {};
+let importStatusDispatch: (
+  srcPath: string,
+) => Promise<{ mdPath: string; imported: boolean }> = async (srcPath) => ({
+  mdPath: srcPath,
+  imported: false,
+});
 let appendImagesDispatch: (mdPath: string, paths: string[]) => Promise<void> = async () => {};
 let savePastedImageDispatch: (
   tabId: string,
   file: { base64: string; ext: string; name: string | null },
 ) => Promise<ImageRef | null> = async () => null;
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
-let createNewFileDispatch: (dir: string) => Promise<void> = async () => {};
+let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
 let renameEntryDispatch: (
   path: string,
@@ -299,6 +329,7 @@ let renameEntryDispatch: (
 ) => Promise<void> = async () => {};
 let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
 let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
+let refreshWorkspacesDispatch: (dirs: string[]) => Promise<void> = async () => {};
 
 /** A saved image, ready for the editor to reference: markdown alt text + a
  *  destination path relative to (or absolute from) the document. */
@@ -321,6 +352,8 @@ let openNotePathPinnedDispatch: (path: string) => void = () => {};
 // registers — the explorer just shows no default section pre-boot.
 let defaultWorkspaceDispatch: () => string | null = () => null;
 let addWorkspaceDispatch: () => void = () => {};
+let addCloudWorkspaceDispatch: () => void = () => {};
+let removeSyncedWorkspaceDispatch: (path: string) => void = () => {};
 let openDocsDispatch: () => void = () => {};
 let insertFileLinkDispatch: (opts: { image: boolean; absolute: boolean }) => void = () => {};
 // Default (pre-boot / tests): a plain label change. The controller swaps in
@@ -352,6 +385,18 @@ export function requestChangeNotesDir(): void {
 export function listNoteFiles(dir?: string): Promise<ExplorerEntry[]> {
   return listNotesDispatch(dir);
 }
+/**
+ * FileExplorer refresh button → controller: ask each of `dirs` (workspace roots
+ * and any expanded subfolders) to re-fetch from its backend, then bump the
+ * explorer so it re-lists. Synced (Drive/OneDrive) dirs serve cached listings,
+ * so without the re-fetch a note added elsewhere never appears; local dirs
+ * refresh as a no-op and just re-list. Best-effort — a backend that can't
+ * refresh still re-lists.
+ */
+export async function refreshWorkspaces(dirs: string[]): Promise<void> {
+  await refreshWorkspacesDispatch(dirs);
+  uiStore.getState().refreshExplorer();
+}
 /** ImageView → controller: an image file as a ready-to-use data: URL. */
 export function loadImageDataUrl(path: string): Promise<string> {
   return readImageDispatch(path);
@@ -360,6 +405,22 @@ export function loadImageDataUrl(path: string): Promise<string> {
  *  (non-md/image paths are skipped). */
 export function importFilesInto(dir: string, paths: string[]): Promise<void> {
   return importFilesDispatch(dir, paths);
+}
+/**
+ * FileExplorer context menu / open flow → controller: convert a foreign
+ * document (e.g. a PDF) into a new .md in `dir`. Without `srcPath` a native
+ * picker filtered to importable formats asks for the source file.
+ */
+export function importDocumentInto(dir: string, srcPath?: string): Promise<void> {
+  return importDocumentDispatch(dir, srcPath);
+}
+/**
+ * ImportView → controller: whether `srcPath` has already been imported, plus
+ * the note path it maps to (so the card can link to the result rather than
+ * offering the conversion again).
+ */
+export function checkImportStatus(srcPath: string): Promise<{ mdPath: string; imported: boolean }> {
+  return importStatusDispatch(srcPath);
 }
 /**
  * Drag-drop (main.tsx) → controller: embed dropped image files into an existing
@@ -407,9 +468,10 @@ export function enrichCopiedText(tabId: string, selection: string): string {
   }
   return text;
 }
-/** FileExplorer context menu → controller: create a new .md file in `dir`,
- *  open it, and start the tab rename so it can be named immediately. */
-export function createNewFileIn(dir: string): Promise<void> {
+/** FileExplorer context menu → controller: create a new .md file in `dir` and
+ *  open it. Resolves with the created file's path (null on failure) so the
+ *  caller can start the inline rename on its explorer row. */
+export function createNewFileIn(dir: string): Promise<string | null> {
   return createNewFileDispatch(dir);
 }
 /** FileExplorer context menu → controller: create a new subfolder in `dir`. */
@@ -444,15 +506,30 @@ export function getDefaultWorkspacePath(): string | null {
 export function addWorkspace(): void {
   addWorkspaceDispatch();
 }
+/**
+ * FileExplorer (Android) → controller: pick a synced folder (Google Drive,
+ * OneDrive, SD card, …) via the system picker and add it as a workspace whose
+ * ops route through the SafProvider.
+ */
+export function addCloudWorkspace(): void {
+  addCloudWorkspaceDispatch();
+}
 /** SettingsDialog → controller: open the bundled docs as a read-only workspace. */
 export function openDocs(): void {
   openDocsDispatch();
 }
 /**
- * FileExplorer → settings: forget a workspace. Pure settings surgery (the
- * folder and its files are untouched), so no controller round trip is needed.
+ * FileExplorer → settings: forget a workspace. For a local workspace this is
+ * pure settings surgery (the folder and its files are untouched). A synced
+ * (`saf://`) workspace needs a controller round trip — open tabs under it must
+ * be closed and the persisted folder permission released first — so it routes
+ * to {@link removeSyncedWorkspace} via the controller dispatch.
  */
 export function removeWorkspace(path: string): void {
+  if (path.startsWith('saf://')) {
+    removeSyncedWorkspaceDispatch(path);
+    return;
+  }
   const { settings, update } = settingsStore.getState();
   update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
 }
@@ -523,7 +600,9 @@ function persistedToInit(tab: PersistedTab, text: string, dirty = false): Restor
 }
 
 export function createSessionController(deps: SessionControllerDeps): SessionController {
-  const ipc = deps.ipc ?? realIpc;
+  // Route all fs I/O through the active storage provider (local FS today; a
+  // future cloud drive swaps in via setProvider). Tests still inject deps.ipc.
+  const ipc = deps.ipc ?? currentProvider();
   const confirm = deps.confirm ?? (async () => true);
   // Safe defaults for when a dependency is never injected (e.g. a test that
   // doesn't exercise file dialogs): open/save do nothing rather than guess a
@@ -687,8 +766,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const restored: RestoredTabInit[] = [];
     const missing: string[] = [];
     for (const pt of persisted) {
-      if (pt.kind === 'image') {
-        // Image tabs hold no text; just confirm the file still exists.
+      if (pt.kind === 'image' || pt.kind === 'import') {
+        // Image and import tabs hold no text; just confirm the file still exists.
         if (!pt.filePath) {
           continue;
         }
@@ -766,7 +845,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     }
     let recent: RestoredTabInit[];
     try {
-      const notes = await ipc.listNotes(notesDir);
+      const notes = (await ipc.listNotes(notesDir)).filter((n) => !isCommentsPath(n.path));
       const reads = await Promise.all(
         notes.slice(0, 20).map(async (n) => {
           try {
@@ -1033,6 +1112,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       }
       openingPaths.add(lower);
       try {
+        if (converterFor(extName(path))) {
+          // A recognized document (PDF/DOCX) can't be edited as text — open a
+          // read-only import CARD instead (explorer click, Ctrl+O, editor-area
+          // drop). The card offers a one-click conversion (no dialog) or, once
+          // imported, a link to the resulting note. Existence is checked up
+          // front so a bad path errors here rather than inside the view.
+          const stat = await ipc.statPath(path);
+          if (!stat.exists) {
+            throw new Error(`not found: ${path}`);
+          }
+          const owner = tabOwning(lower);
+          if (owner) {
+            settle(owner.id);
+          } else {
+            settle(
+              tabsStore.getState().openImportTab({
+                filePath: path,
+                savedMtimeMs: stat.mtimeMs,
+                preview,
+                readOnly: isReadOnlyPath(path),
+              }),
+            );
+          }
+          continue;
+        }
         if (isImagePath(path)) {
           // Images open as a read-only viewer tab; existence check up front so
           // a bad path errors here (like a failed read) instead of in the view.
@@ -1087,7 +1191,49 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (!selected || selected.length === 0) {
       return;
     }
-    await openPaths(selected);
+    // On Android the picker hands back content:// URIs that std::fs can't read;
+    // copy them into the notes dir and open the local copies instead.
+    if (isAndroid()) {
+      await copyInExternal(selected);
+    } else {
+      await openPaths(selected);
+    }
+  }
+
+  /**
+   * Android: copy external file(s) — content:// URIs from the picker or an
+   * "Open with" intent — INTO the notes dir, then open the local copies. std::fs
+   * can't read a content URI, so we read the bytes once via the androidfs plugin
+   * (`readContentUri`, a native bridge, not a storage op — hence the direct ipc
+   * call) and write a note. Edits then save to the app copy, not the original.
+   */
+  async function copyInExternal(uris: string[]): Promise<void> {
+    const targets: string[] = [];
+    let failed = 0;
+    for (const uri of uris) {
+      try {
+        const { base64, displayName } = await nativeIpc.readContentUri(uri);
+        const { base, ext } = deriveImportName(displayName);
+        if (converterFor(ext)) {
+          // A convertible document (e.g. a PDF opened/shared from Drive) —
+          // import it as markdown instead of copying the raw bytes in.
+          await importDocumentBytes(notesDir, base64, `${base}${ext}`);
+          continue;
+        }
+        const target = await uniquePathIn(notesDir, base, ext);
+        await ipc.writeFileBase64(target, base64);
+        targets.push(target);
+      } catch (error) {
+        failed += 1;
+        deps.onError?.(error);
+      }
+    }
+    if (targets.length > 0) {
+      await openPaths(targets);
+    }
+    if (failed > 0) {
+      uiStore.getState().showNotice(`Could not open ${failed} file(s).`);
+    }
   }
 
   /**
@@ -1097,7 +1243,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    */
   async function renameFileTab(id: string, newName: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || (tab.kind !== 'file' && tab.kind !== 'image') || !tab.filePath) {
+    if (
+      !tab ||
+      (tab.kind !== 'file' && tab.kind !== 'image' && tab.kind !== 'import') ||
+      !tab.filePath
+    ) {
       return;
     }
     if (tab.readOnly || isReadOnlyPath(tab.filePath)) {
@@ -1343,6 +1493,74 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   }
 
   /**
+   * Android "Add synced folder": launch the SAF system picker (any installed
+   * storage provider — Drive, OneDrive, Dropbox, SD card), take a persistable
+   * permission, and add the tree as a workspace. Its root id is
+   * `saf://<encodeURIComponent(treeUri)>`; all its ops route through the
+   * SafProvider. Duplicates (the same tree picked twice → the same URI) are
+   * rejected. Non-destructive: removal only forgets it (see
+   * {@link removeSyncedWorkspace}).
+   */
+  async function addCloudWorkspaceFromDialog(): Promise<void> {
+    let picked: { treeUri: string; displayName?: string };
+    try {
+      picked = await nativeIpc.pickSyncedTree();
+    } catch {
+      return; // user cancelled the picker
+    }
+    if (!picked.treeUri) {
+      return;
+    }
+    const rootId = `saf://${encodeURIComponent(picked.treeUri)}`;
+    const key = pathKey(rootId);
+    const { settings, update } = settingsStore.getState();
+    if (settings.workspaces.some((w) => pathKey(w.path) === key)) {
+      uiStore.getState().showNotice('That synced folder is already a workspace.');
+      return;
+    }
+    const name = picked.displayName?.trim() || 'Synced folder';
+    const color = pickUnusedColor([
+      settings.defaultWorkspaceColor,
+      ...settings.workspaces.map((w) => w.color),
+    ]);
+    update({
+      workspaces: [
+        ...settings.workspaces,
+        { name, path: rootId, color, kind: 'synced', treeUri: picked.treeUri },
+      ],
+    });
+    if (!uiStore.getState().explorerOpen) {
+      uiStore.getState().toggleExplorer();
+    }
+  }
+
+  /**
+   * Remove a synced (`saf://`) workspace. Unlike a local removal (pure settings
+   * surgery), a synced root needs teardown in order: (1) close/evict any open
+   * tabs whose file lives under the removed root — a post-release flush/read
+   * would otherwise fail ugly; (2) best-effort release the persisted folder
+   * permission; (3) drop the settings entry. Non-destructive: no files are
+   * deleted (the folder still lives in Drive/OneDrive/…).
+   */
+  async function removeSyncedWorkspace(path: string): Promise<void> {
+    const { settings, update } = settingsStore.getState();
+    const entry = settings.workspaces.find((w) => pathKey(w.path) === pathKey(path));
+    const prefix = `${path}/`;
+    for (const t of tabsStore.getState().tabs) {
+      const owned = t.filePath ?? t.notePath;
+      if (owned && (owned === path || owned.startsWith(prefix))) {
+        tabsStore.getState().closeTab(t.id);
+      }
+    }
+    if (entry?.treeUri) {
+      await nativeIpc.releaseSyncedTree(entry.treeUri).catch(() => {
+        // Best effort — the workspace is forgotten regardless of the release.
+      });
+    }
+    update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
+  }
+
+  /**
    * Settings "Open docs": register the bundled documentation folder as a
    * read-only workspace (idempotent — an existing entry for that path is
    * upgraded to read-only rather than duplicated), reveal it in the explorer,
@@ -1431,10 +1649,17 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     let copied = 0;
     let skipped = 0;
     let failed = 0;
+    let converted = 0;
     for (const path of paths) {
       const ext = extName(path);
       if (ext.toLowerCase() !== '.md' && !isImagePath(path)) {
-        skipped += 1;
+        if (converterFor(ext)) {
+          // A convertible document (e.g. a PDF) — import it as markdown.
+          await importDocument(dir, path);
+          converted += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
       if (pathKey(dirName(path)) === pathKey(dir)) {
@@ -1462,8 +1687,127 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (parts.length > 0) {
       uiStore.getState().showNotice(`${parts.join(', ')}.`);
     }
-    if (copied > 0) {
+    if (copied > 0 || converted > 0) {
       uiStore.getState().refreshExplorer();
+    }
+  }
+
+  /**
+   * The .md path {@link importDocument} would write for `srcPath`: same folder,
+   * the source's basename sanitized (`report.pdf` → `report.md`). Mirrors the
+   * skip-check in {@link importDocumentBytes} so "already imported?" and the
+   * import itself agree on the target name.
+   */
+  function importedMdPathFor(srcPath: string): string {
+    const base = sanitizeFileBaseName(stripExtension(baseName(srcPath))) || 'imported';
+    return joinPath(dirName(srcPath), `${base}.md`);
+  }
+
+  /**
+   * ImportView → controller: has `srcPath` already been imported? Returns the
+   * expected note path and whether it exists on disk, so the card can show a
+   * link to the note instead of the import button. A stat failure reads as
+   * "not imported" (the card then offers the import).
+   */
+  async function importStatusFor(srcPath: string): Promise<{ mdPath: string; imported: boolean }> {
+    const mdPath = importedMdPathFor(srcPath);
+    try {
+      return { mdPath, imported: (await ipc.statPath(mdPath)).exists };
+    } catch {
+      return { mdPath, imported: false };
+    }
+  }
+
+  /**
+   * Import a foreign document (registry.ts converter, e.g. PDF) into `dir` as
+   * a new markdown file: read the source bytes, convert (lossy, best effort),
+   * save any extracted images through the standard image placement, write the
+   * .md, and open it. Without `srcPath` the user picks the file via a native
+   * dialog filtered to importable formats.
+   */
+  async function importDocument(dir: string, srcPath?: string): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
+    const src = srcPath ?? (await pickFile('import'));
+    if (!src) {
+      return;
+    }
+    // An Android picker hands back a content:// URI whose tail is an opaque
+    // document id (no extension) — the real filename and bytes come from the
+    // androidfs native bridge, like copyInExternal. Local paths read directly.
+    let name: string;
+    let bytes: string;
+    try {
+      if (/^content:\/\//i.test(src)) {
+        const { base64, displayName } = await nativeIpc.readContentUri(src);
+        const derived = deriveImportName(displayName);
+        name = `${derived.base}${derived.ext}`;
+        bytes = base64;
+      } else {
+        name = baseName(src);
+        bytes = await ipc.readFileBase64(src);
+      }
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not read "${baseName(src)}".`);
+      deps.onError?.(error);
+      return;
+    }
+    await importDocumentBytes(dir, bytes, name);
+  }
+
+  /** Convert already-read document bytes into a new .md in `dir` and open it. */
+  async function importDocumentBytes(dir: string, bytes: string, name: string): Promise<void> {
+    const conv = converterFor(extName(name));
+    if (!conv) {
+      uiStore.getState().showNotice(`No importer for "${name}".`);
+      return;
+    }
+    if (conv.available === false) {
+      // Recognized (drop/share of e.g. a DOCX) but its converter isn't built.
+      uiStore.getState().showNotice(`${conv.label} import isn't available yet.`);
+      return;
+    }
+    const base = sanitizeFileBaseName(stripExtension(name)) || 'imported';
+    // Skip if a note with this basename already exists — re-importing the same
+    // document (e.g. report.pdf when report.md is already here) would otherwise
+    // create a suffixed duplicate (report-2.md). Convert only after this check.
+    const mdPath = joinPath(dir, `${base}.md`);
+    try {
+      if ((await ipc.statPath(mdPath)).exists) {
+        uiStore
+          .getState()
+          .showNotice(`"${baseName(mdPath)}" already exists — skipped importing "${name}".`);
+        return;
+      }
+    } catch {
+      // Can't stat → fall through and let the import proceed as usual.
+    }
+    uiStore.getState().showNotice(`Importing "${name}"…`);
+    try {
+      const result = await conv.convert(bytes, name);
+      const target = await uniquePathIn(dir, base, '.md');
+      // Save extracted images via the standard placement (settings-driven
+      // location) and swap their placeholders for real markdown links.
+      const links: (string | null)[] = [];
+      for (const image of result.images) {
+        const ref = await placeImage(target, image);
+        links.push(ref ? `![${ref.alt}](${markdownDest(ref.src)})` : null);
+      }
+      const markdown = replaceImagePlaceholders(result.markdown, links);
+      await ipc.atomicWriteText(target, markdown);
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      const dropped = links.filter((l) => l === null).length;
+      uiStore
+        .getState()
+        .showNotice(
+          `Imported "${name}" → "${baseName(target)}".` +
+            (dropped > 0 ? ` (${dropped} image(s) could not be saved.)` : ''),
+        );
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not import "${name}".`);
+      deps.onError?.(error);
     }
   }
 
@@ -1671,22 +2015,22 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * `dir`, open it as a file tab, and begin the inline tab rename so the user
    * can name it in one motion (the rename also renames the file on disk).
    */
-  async function createNewFile(dir: string): Promise<void> {
+  async function createNewFile(dir: string): Promise<string | null> {
     if (refuseReadOnly(dir)) {
-      return;
+      return null;
     }
     try {
       const target = await uniquePathIn(dir, 'untitled', '.md');
       await ipc.atomicWriteText(target, '');
       uiStore.getState().refreshExplorer();
       await openPaths([target]);
-      const tab = tabOwning(pathKey(target));
-      if (tab) {
-        tabsStore.getState().beginRename(tab.id);
-      }
+      // Naming happens inline on the file's explorer row (the caller starts
+      // the rename with this path); no tab-rename here so there's one input.
+      return target;
     } catch (error) {
       uiStore.getState().showNotice('Could not create a new file there.');
       deps.onError?.(error);
+      return null;
     }
   }
 
@@ -1712,12 +2056,37 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
    * title-drives-the-filename flush machinery (note tabs). Renaming a folder
    * retargets every open tab whose file lives under it.
    */
+  /**
+   * Best-effort: follow a note file's `.comments.md` sidecar when the note file
+   * is renamed/moved, so its voice comments stay attached. A stranded sidecar is
+   * harmless (it re-associates by name if the note is renamed back) and never
+   * loses transcripts, so any failure is swallowed. Desktop audio clips are not
+   * relocated on a cross-directory move yet (a documented follow-up).
+   */
+  async function moveCommentsSidecar(oldNotePath: string, newNotePath: string): Promise<void> {
+    if (isCommentsPath(oldNotePath) || extName(oldNotePath).toLowerCase() !== '.md') {
+      return;
+    }
+    const from = commentsPathFor(oldNotePath);
+    const to = commentsPathFor(newNotePath);
+    if (pathKey(from) === pathKey(to)) {
+      return;
+    }
+    try {
+      if ((await ipc.statPath(from)).exists) {
+        await ipc.renamePath(from, to);
+      }
+    } catch {
+      // Best effort — see the doc comment.
+    }
+  }
+
   async function renameEntry(path: string, newName: string, isDir: boolean): Promise<void> {
     if (refuseReadOnly(path)) {
       return;
     }
     const owner = isDir ? undefined : tabOwning(pathKey(path));
-    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+    if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
       await renameFileTab(owner.id, newName);
       uiStore.getState().refreshExplorer();
       return;
@@ -1754,6 +2123,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       uiStore.getState().showNotice(`Could not rename "${baseName(path)}".`);
       deps.onError?.(error);
       return;
+    }
+    if (!isDir) {
+      await moveCommentsSidecar(path, newPath);
     }
     if (isDir) {
       // Retarget open tabs whose files lived under the renamed folder. Key
@@ -1828,7 +2200,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       deps.onError?.(error);
       return;
     }
-    if (owner && (owner.kind === 'file' || owner.kind === 'image')) {
+    await moveCommentsSidecar(sourcePath, newPath);
+    if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
       let mtimeMs = owner.savedMtimeMs ?? now();
       try {
         const after = await ipc.statPath(newPath);
@@ -2083,19 +2456,29 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   changeNotesDirDispatch = () => void changeNotesDir();
   listNotesDispatch = async (dir?: string) => {
     const entries = await ipc.listDir(dir ?? notesDir);
-    return entries.map((e) => ({
-      path: e.path,
-      name: baseName(e.path),
-      isDir: e.isDir,
-      mtimeMs: e.mtimeMs,
-    }));
+    return (
+      entries
+        // Hide voice-comment sidecar files (`*.comments.md`) from the explorer —
+        // they're managed alongside their note, not opened directly.
+        .filter((e) => e.isDir || !isCommentsPath(e.path))
+        .map((e) => ({
+          path: e.path,
+          name: baseName(e.path),
+          isDir: e.isDir,
+          mtimeMs: e.mtimeMs,
+        }))
+    );
   };
   readImageDispatch = async (path: string) =>
     `data:${imageMimeType(path)};base64,${await ipc.readFileBase64(path)}`;
   defaultWorkspaceDispatch = () => notesDir;
   addWorkspaceDispatch = () => void addWorkspaceFromDialog();
+  addCloudWorkspaceDispatch = () => void addCloudWorkspaceFromDialog();
+  removeSyncedWorkspaceDispatch = (path) => void removeSyncedWorkspace(path);
   openDocsDispatch = () => void openDocsWorkspace();
   importFilesDispatch = importFiles;
+  importDocumentDispatch = importDocument;
+  importStatusDispatch = importStatusFor;
   appendImagesDispatch = appendImagesToMarkdown;
   savePastedImageDispatch = savePastedImage;
   savePastedFileDispatch = savePastedFile;
@@ -2104,9 +2487,18 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   renameEntryDispatch = renameEntry;
   moveEntryDispatch = moveEntry;
   deleteEntryDispatch = deleteEntry;
+  refreshWorkspacesDispatch = async (dirs) => {
+    // Best-effort: refresh every dir in parallel; a backend that can't refresh
+    // (local FS) or one dir that fails must not block the others or the re-list.
+    await Promise.all(dirs.map((dir) => Promise.resolve(ipc.refresh?.(dir)).catch(() => {})));
+  };
   renameTabDispatch = (id, newName) => {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (tab && (tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
+    if (
+      tab &&
+      (tab.kind === 'file' || tab.kind === 'image' || tab.kind === 'import') &&
+      tab.filePath
+    ) {
       void renameFileTab(id, newName);
     } else {
       // Note tab: set the title; the flush renames the note file to the new
@@ -2146,6 +2538,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     closeTabInteractive,
     closeAllTabsInteractive,
     openFileDialog,
+    openIncoming: copyInExternal,
     openPaths,
     saveActive,
     saveAsActive,

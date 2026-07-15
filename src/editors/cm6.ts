@@ -27,6 +27,9 @@ import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
 import { imageFilesFromDataTransfer, readImageFile } from './image-paste';
+import { createVoiceGutter } from './voice-gutter';
+import { createKeyboardDismissGesture } from './dismiss-keyboard';
+import { findAnchors, insertAnchorText } from '../core/comments';
 
 export interface Cm6Options {
   /**
@@ -56,6 +59,22 @@ export interface Cm6Options {
    * unchanged falls through to the editor's native copy.
    */
   enrichCopy?: (text: string) => string;
+  /**
+   * A voice-comment gutter marker was activated — open the transcript for the
+   * given anchor id (on the given 1-based line). When set, the voice-comment
+   * gutter is added to the editor.
+   */
+  onOpenComment?: (id: string, line: number) => void;
+  /**
+   * A source line was long-pressed on touch — start a new voice comment there
+   * (1-based line). Only wired on mobile.
+   */
+  onLongPressLine?: (line: number) => void;
+  /**
+   * Dismiss the soft keyboard on a double-tap in the editor (blurs the content
+   * DOM). Only meaningful on touch platforms — wired on Android.
+   */
+  dismissKeyboardOnDoubleTap?: boolean;
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -80,18 +99,49 @@ export interface Cm6Adapter extends EditorAdapter {
   format(action: FormatAction): void;
   /** Insert a file/image reference at the caret (from the ribbon's link pickers). */
   insertLinkTo(label: string, url: string, image: boolean): void;
+  /** Append an invisible voice-comment anchor token at the end of the 1-based line. */
+  insertAnchorAtLine(line: number, id: string): void;
+  /** The 1-based line containing a document offset (defaults to the caret). */
+  anchorLineAt(offset?: number): number;
+  /** Remove the anchor token for `id` (and one leading space), if present. */
+  removeAnchor(id: string): void;
 }
 
-/** Colors come from CSS variables so themes switch without touching CM6. */
+/**
+ * Colors come from CSS variables so themes switch without touching CM6. The
+ * markdown elements a theme plugin can recolor read a `--md-*` var (core/
+ * theme-plugins.ts) with a fallback to their previous palette color, so an
+ * unset key looks exactly as before. Per-level headings cascade
+ * `--md-heading{n}` → `--md-heading` → `--accent`; the base `tags.heading` rule
+ * keeps the bold weight and colors the `#` marker.
+ */
+const HEADING_TAGS = [
+  tags.heading1,
+  tags.heading2,
+  tags.heading3,
+  tags.heading4,
+  tags.heading5,
+  tags.heading6,
+];
 const highlightStyle = HighlightStyle.define([
-  { tag: tags.heading, fontWeight: 'bold', color: 'var(--accent)' },
-  { tag: tags.strong, fontWeight: 'bold' },
-  { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strikethrough, textDecoration: 'line-through' },
-  { tag: [tags.monospace, tags.content], color: 'var(--fg)' },
-  { tag: tags.link, color: 'var(--accent)', textDecoration: 'underline' },
-  { tag: tags.url, color: 'var(--accent)' },
-  { tag: [tags.list, tags.quote], color: 'var(--fg-muted)' },
+  // heading1..6 inherit `heading`, and CM6 applies only the most-specific
+  // matching rule — so each level must carry `fontWeight` itself (a bare
+  // `heading` rule wouldn't reach them). The base rule stays for any generic
+  // heading token and to document intent.
+  { tag: tags.heading, fontWeight: 'bold', color: 'var(--md-heading, var(--accent))' },
+  ...HEADING_TAGS.map((tag, i) => ({
+    tag,
+    fontWeight: 'bold',
+    color: `var(--md-heading${i + 1}, var(--md-heading, var(--accent)))`,
+  })),
+  { tag: tags.strong, fontWeight: 'bold', color: 'var(--md-bold, var(--fg))' },
+  { tag: tags.emphasis, fontStyle: 'italic', color: 'var(--md-italic, var(--fg))' },
+  { tag: tags.strikethrough, textDecoration: 'line-through', color: 'var(--md-strike, var(--fg))' },
+  { tag: [tags.monospace, tags.content], color: 'var(--md-code, var(--fg))' },
+  { tag: tags.link, color: 'var(--md-link, var(--accent))', textDecoration: 'underline' },
+  { tag: tags.url, color: 'var(--md-link, var(--accent))' },
+  { tag: tags.list, color: 'var(--md-list, var(--fg-muted))' },
+  { tag: tags.quote, color: 'var(--md-quote, var(--fg-muted))' },
   { tag: [tags.processingInstruction, tags.meta], color: 'var(--fg-muted)' },
   { tag: tags.keyword, color: 'var(--accent)' },
 ]);
@@ -103,6 +153,15 @@ const baseTheme = EditorView.theme({
     // surface reads as its own recessed panel — falls back to --bg pre-JS.
     backgroundColor: 'var(--editor-bg, var(--bg))',
     height: '100%',
+  },
+  // The voice-comment gutter (voice-gutter.ts) reserves a full-height column
+  // even with no comments. Blend it into the writing surface and drop CM6's
+  // default light-grey background + right border, which otherwise read as a
+  // white band between the file explorer and the text (in dark mode especially).
+  '.cm-gutters': {
+    backgroundColor: 'var(--editor-bg, var(--bg))',
+    color: 'var(--fg-muted)',
+    border: 'none',
   },
   '.cm-scroller': {
     fontFamily: 'var(--font-mono)',
@@ -522,6 +581,19 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),
         wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
         EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off' }),
+        // Voice-comment gutter + mobile long-press gesture, only when the host
+        // wires the open callback. Purely presentational/input — never mutates
+        // the doc, so it can't violate the DocModel projection (I1).
+        ...(options.onOpenComment
+          ? [
+              createVoiceGutter({
+                onOpen: options.onOpenComment,
+                onLongPress: options.onLongPressLine,
+              }),
+            ]
+          : []),
+        // Touch-only: double-tap the text to retract the soft keyboard.
+        ...(options.dismissKeyboardOnDoubleTap ? [createKeyboardDismissGesture()] : []),
         updateListener,
       ],
     });
@@ -599,6 +671,40 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
       if (view) {
         insertReference(view, label, url, image);
       }
+    },
+    insertAnchorAtLine(line, id) {
+      if (!view) {
+        return;
+      }
+      const total = view.state.doc.lines;
+      const target = view.state.doc.line(Math.max(1, Math.min(line, total)));
+      // Append at the line end so list/heading prefixes and the caret column
+      // are untouched; the dispatch flows through updateListener → pushText.
+      view.dispatch({ changes: { from: target.to, insert: insertAnchorText(id) } });
+    },
+    anchorLineAt(offset) {
+      if (!view) {
+        return 1;
+      }
+      const pos = offset ?? view.state.selection.main.head;
+      const clamped = Math.max(0, Math.min(pos, view.state.doc.length));
+      return view.state.doc.lineAt(clamped).number;
+    },
+    removeAnchor(id) {
+      if (!view) {
+        return;
+      }
+      const anchor = findAnchors(view.state.doc.toString()).find((a) => a.id === id);
+      if (!anchor) {
+        return;
+      }
+      // Also swallow a single space in front of the token (the one inserted
+      // with it) so deleting a comment leaves no double space behind.
+      const from =
+        anchor.from > 0 && view.state.doc.sliceString(anchor.from - 1, anchor.from) === ' '
+          ? anchor.from - 1
+          : anchor.from;
+      view.dispatch({ changes: { from, to: anchor.to } });
     },
   };
 }

@@ -8,7 +8,13 @@
  * schema library: a handful of fields doesn't justify a dependency.
  */
 
-import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from './types';
+import {
+  CURSOR_STYLES,
+  DEFAULT_COLOR_SCHEME,
+  EDITOR_FONT_IDS,
+  UI_FONT_IDS,
+  WORKSPACE_COLORS,
+} from './types';
 import type {
   CursorStyle,
   EditorFontId,
@@ -21,6 +27,7 @@ import type {
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
   theme: 'system',
+  colorScheme: 'default',
   fontSize: 14,
   editorFont: 'fira-code',
   uiFont: 'match',
@@ -85,11 +92,16 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
       typeof entry.name === 'string' && entry.name.trim().length > 0
         ? entry.name.trim()
         : entry.path;
+    // Synced (SAF) workspaces carry two extra fields that must survive a
+    // round-trip through the store, or the persisted folder-permission handle
+    // (treeUri) is lost and the workspace can't be reconnected after relaunch.
+    const synced = entry.kind === 'synced' && typeof entry.treeUri === 'string';
     out.push({
       name,
       path: entry.path,
       color: normalizeColor(entry.color),
       ...(entry.readOnly === true ? { readOnly: true } : {}),
+      ...(synced ? { kind: 'synced' as const, treeUri: entry.treeUri as string } : {}),
     });
   }
   return out;
@@ -99,9 +111,23 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
 export function normalizeSettings(raw: unknown): Settings {
   const r = isRecord(raw) ? raw : {};
   const d = DEFAULT_SETTINGS;
+  // Any non-empty string is a valid scheme id now (themes are pluggable —
+  // core/theme-plugins.ts). An id with no loaded theme falls through to the
+  // default palette at render time, so no allowlist is needed here.
+  const colorScheme =
+    typeof r.colorScheme === 'string' && r.colorScheme.trim().length > 0
+      ? r.colorScheme.trim()
+      : DEFAULT_COLOR_SCHEME;
+  const rawTheme =
+    r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme;
   return {
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
-    theme: r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme,
+    // The Theme picker is unified (Settings): a plugin scheme always follows the
+    // OS light/dark, so light/dark is only a meaningful override for the built-in
+    // `default` palette. Coerce any legacy `theme: 'light'|'dark'` paired with a
+    // plugin back to 'system' so persisted state matches the merged model.
+    theme: colorScheme === DEFAULT_COLOR_SCHEME ? rawTheme : 'system',
+    colorScheme,
     fontSize:
       typeof r.fontSize === 'number' && Number.isFinite(r.fontSize)
         ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(r.fontSize)))

@@ -68,6 +68,42 @@ describe('renderMarkdownToHtml — sanitize policy (invariant I6)', () => {
     const html = await renderMarkdownToHtml('[docs](https://example.com/docs)\n');
     expect(html).toContain('href="https://example.com/docs"');
   });
+
+  // Image refs are stored as absolute forward-slashed paths; on Windows those
+  // carry a drive letter (`C:/…`) that the default sanitize schema mistakes for
+  // a protocol and strips, leaving the pane with no src to inline off disk.
+  test('absolute local image src survives sanitizing so the pane can inline it', async () => {
+    const html = await renderMarkdownToHtml('![shot](C:/Users/me/notes/images/pasted-1.png)\n');
+    expect(html).toContain('src="C:/Users/me/notes/images/pasted-1.png"');
+  });
+
+  test('a POSIX-absolute image src also survives', async () => {
+    const html = await renderMarkdownToHtml('![shot](/home/me/notes/images/pasted-1.png)\n');
+    expect(html).toContain('src="/home/me/notes/images/pasted-1.png"');
+  });
+
+  // A synced-folder (Android SAF) image id carries a `saf:` scheme; it must
+  // survive sanitizing so `inlineLocalImages` can read the bytes off the tree.
+  test('a synced-folder saf:// image src survives sanitizing', async () => {
+    const src = 'saf://content%3A%2F%2Ftree%2Fabc/notes/images/pasted-1.png';
+    const html = await renderMarkdownToHtml(`![shot](${src})\n`);
+    expect(html).toContain(`src="${src}"`);
+  });
+
+  test('javascript: image src is still stripped', async () => {
+    const html = await renderMarkdownToHtml('![x](javascript:alert(1))\n');
+    expect(html).not.toContain('javascript:');
+  });
+
+  // Voice-comment anchor tokens are invisible HTML comments; the preview must
+  // render nothing for them (the feature relies on this — see src/core/comments.ts).
+  test('voice-comment anchor tokens are stripped from the rendered output', async () => {
+    const html = await renderMarkdownToHtml('## Setup <!-- ^c1a2 -->\n\nBody text.\n');
+    expect(html).toContain('Setup');
+    expect(html).toContain('Body text.');
+    expect(html).not.toContain('c1a2');
+    expect(html).not.toContain('<!--');
+  });
 });
 
 describe('createRenderSequence', () => {

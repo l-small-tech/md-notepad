@@ -13,7 +13,10 @@ describe('normalizeSettings', () => {
   test('valid fields pass through', () => {
     const settings = normalizeSettings({
       notesDir: 'D:/notes',
+      // Light/Dark is a meaningful override only on the built-in default palette;
+      // a plugin scheme is exercised by the merged-model test below.
       theme: 'dark',
+      colorScheme: 'default',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -33,6 +36,7 @@ describe('normalizeSettings', () => {
     expect(settings).toEqual({
       notesDir: 'D:/notes',
       theme: 'dark',
+      colorScheme: 'default',
       fontSize: 16,
       editorFont: 'jetbrains-mono',
       uiFont: 'inter',
@@ -51,10 +55,28 @@ describe('normalizeSettings', () => {
     });
   });
 
+  test('a plugin colorScheme forces theme to system (merged Theme picker)', () => {
+    // The unified Theme picker makes a plugin scheme always follow the OS
+    // light/dark, so a legacy `theme: 'light'|'dark'` paired with a plugin is
+    // coerced back to 'system'. The plugin id itself passes through.
+    expect(normalizeSettings({ theme: 'dark', colorScheme: 'nord' })).toMatchObject({
+      theme: 'system',
+      colorScheme: 'nord',
+    });
+    // On the default palette, a forced light/dark is preserved.
+    expect(normalizeSettings({ theme: 'dark', colorScheme: 'default' })).toMatchObject({
+      theme: 'dark',
+      colorScheme: 'default',
+    });
+  });
+
   test('each invalid field independently falls back to its default', () => {
     const settings = normalizeSettings({
       notesDir: 123,
       theme: 'sepia',
+      // colorScheme accepts any non-empty string now (pluggable themes), so an
+      // "invalid" value here is a non-string that must fall back to the default.
+      colorScheme: 42,
       fontSize: 'big',
       editorFont: 'comic-sans',
       uiFont: 'papyrus',
@@ -154,6 +176,19 @@ describe('normalizeSettings', () => {
     // A font family name (rather than an id) is not accepted — defaults win.
     expect(normalizeSettings({ editorFont: 'Fira Code' }).editorFont).toBe('fira-code');
     expect(normalizeSettings({ uiFont: 'Inter' }).uiFont).toBe('match');
+  });
+
+  test('any non-empty string is a valid (pluggable) color scheme id', () => {
+    // Themes are now pluggable, so an arbitrary id is accepted and kept — an id
+    // with no loaded theme falls back to the default palette at render time.
+    for (const scheme of ['default', 'solarized', 'my-custom-theme']) {
+      expect(normalizeSettings({ colorScheme: scheme }).colorScheme).toBe(scheme);
+    }
+    expect(normalizeSettings({ colorScheme: '  spaced  ' }).colorScheme).toBe('spaced');
+    // Blank / non-string / missing degrade to the default id.
+    expect(normalizeSettings({ colorScheme: '   ' }).colorScheme).toBe('default');
+    expect(normalizeSettings({ colorScheme: 42 }).colorScheme).toBe('default');
+    expect(normalizeSettings({}).colorScheme).toBe('default');
   });
 
   test('every reader-margins mode is accepted', () => {

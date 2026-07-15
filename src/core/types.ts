@@ -21,8 +21,12 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read';
  *           unsaved edits are session-buffered (see core/session).
  * 'image' — a read-only image viewer over `filePath`. Never written, never
  *           buffered; the flusher only records it in the manifest.
+ * 'import' — a foreign document (PDF/DOCX) shown as an inline import card over
+ *           `filePath`: offers a one-click "Import as Markdown" (no dialog), or
+ *           a link to the already-imported note. Like 'image', it holds no text
+ *           and is only recorded in the manifest.
  */
-export type TabKind = 'note' | 'file' | 'image';
+export type TabKind = 'note' | 'file' | 'image' | 'import';
 
 export interface CursorPos {
   anchor: number;
@@ -76,6 +80,24 @@ export type CursorStyle = (typeof CURSOR_STYLES)[number];
 export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
 
 /**
+ * Editor color scheme — the palette family id, chosen independently of light/dark
+ * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
+ * working). A scheme supplies BOTH a light and a dark palette by overriding the
+ * ten `--bg`/`--fg`/`--accent`/… variables, keyed off `data-color-scheme` on
+ * <html>. Because the whole app (CM6, preview, reader) styles itself only through
+ * those variables, switching schemes needs no code beyond flipping the attribute.
+ *
+ * The id is a free-form string, not a closed union: schemes are pluggable theme
+ * files loaded from the themes folder at runtime (see core/theme-plugins.ts,
+ * ipc/theme-loader.ts). 'default' is the built-in blue/grey palette in base.css
+ * (it has no plugin — the base :root IS its palette); an id with no loaded plugin
+ * simply matches no injected block and falls through to that default.
+ */
+export const DEFAULT_COLOR_SCHEME = 'default';
+
+export type ColorScheme = string;
+
+/**
  * Workspace accent colors — named tokens, not hex, so the palette can be
  * tuned per theme in CSS without touching persisted settings.
  */
@@ -126,7 +148,13 @@ export type UiFontId = (typeof UI_FONT_IDS)[number];
 export interface WorkspaceEntry {
   /** Display name; defaults to the folder's basename when added. */
   name: string;
-  /** Absolute path to the folder. */
+  /**
+   * The workspace root identifier. For a local workspace this is an absolute
+   * folder path; for a `kind: 'synced'` workspace it is the opaque scheme-
+   * prefixed id `saf://<encodeURIComponent(treeUri)>` the storage router
+   * dispatches on (see src/ipc/provider.ts). Never lowercase/normalize a
+   * synced id — SAF document ids are case-sensitive.
+   */
   path: string;
   /** Accent color, or null for none. */
   color: WorkspaceColor | null;
@@ -135,12 +163,27 @@ export interface WorkspaceEntry {
    * read mode and the explorer offers no create/rename/move/delete for it.
    */
   readOnly?: boolean;
+  /**
+   * 'synced' = an Android Storage-Access-Framework folder (Google Drive,
+   * OneDrive, an SD card, …) whose ops route through the SafProvider. Absent
+   * or 'local' = an ordinary filesystem folder. Persisted so the workspace
+   * survives relaunch.
+   */
+  kind?: 'local' | 'synced';
+  /**
+   * `kind: 'synced'` only — the durable SAF tree URI whose persisted
+   * permission Android re-grants on launch. It is the release handle used when
+   * the workspace is removed (releasePersistableUriPermission).
+   */
+  treeUri?: string;
 }
 
 export interface Settings {
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
   theme: 'system' | 'light' | 'dark';
+  /** Palette family; light-vs-dark still comes from `theme`. Default 'default'. */
+  colorScheme: ColorScheme;
   fontSize: number;
   /** Editor/content typeface. Default 'fira-code'. */
   editorFont: EditorFontId;

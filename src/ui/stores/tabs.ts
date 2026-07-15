@@ -38,6 +38,7 @@ import type { ModeSync } from '../../core/mode-sync';
 import type { EditorMode, TabKind, TabState } from '../../core/types';
 import { settingsStore } from './settings';
 import { requestFlush } from './flush-signal';
+import { isMobile } from '../platform';
 
 /**
  * A tab entry = the serializable {@link TabState} plus the live objects and
@@ -171,6 +172,14 @@ export interface TabsState {
     preview?: boolean;
     readOnly?: boolean;
   }) => string;
+  /** Import card tab (PDF/DOCX) — read-only, never flushed beyond the manifest.
+   *  Renders an inline "Import as Markdown" offer instead of an editor. */
+  openImportTab: (input: {
+    filePath: string;
+    savedMtimeMs: number | null;
+    preview?: boolean;
+    readOnly?: boolean;
+  }) => string;
   /** Promote a preview tab to a permanent one (idempotent; no-op otherwise). */
   promoteTab: (id: string) => void;
   /**
@@ -218,7 +227,7 @@ export function tabDisplayTitle(tab: {
   title: string;
   charCount: number;
 }): string {
-  if ((tab.kind === 'file' || tab.kind === 'image') && tab.filePath) {
+  if ((tab.kind === 'file' || tab.kind === 'image' || tab.kind === 'import') && tab.filePath) {
     return stripExtension(baseName(tab.filePath));
   }
   if (!tab.customTitle && tab.charCount === 0) {
@@ -348,7 +357,10 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     renamingTabId: null,
     closedNotePaths: [],
     obsoleteBufferTabIds: [],
-    lastFileMode: settingsStore.getState().settings.defaultMode,
+    // Mobile reads first: opened files default to 'read' rather than the
+    // (edit-oriented) settings.defaultMode. Switching modes still updates this
+    // via setMode, so flipping through files preserves the user's choice.
+    lastFileMode: isMobile() ? 'read' : settingsStore.getState().settings.defaultMode,
 
     newTab() {
       const tab = makeTab();
@@ -557,7 +569,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         closedNotePaths: [],
         obsoleteBufferTabIds: [],
         lastFileMode: activeEntry.readOnly
-          ? settingsStore.getState().settings.defaultMode
+          ? isMobile()
+            ? 'read'
+            : settingsStore.getState().settings.defaultMode
           : activeEntry.mode,
       });
     },
@@ -612,6 +626,27 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           filePath,
           customTitle: null,
           // Semantically closest mode (read-only viewer); no editor is created.
+          mode: 'read',
+          savedMtimeMs,
+          text: '',
+          readOnly,
+        }),
+        preview,
+      };
+      addTab(tab, preview);
+      requestFlush();
+      return tab.id;
+    },
+
+    openImportTab({ filePath, savedMtimeMs, preview = false, readOnly = false }) {
+      const tab: TabEntry = {
+        ...makeTab({
+          id: nanoid(),
+          kind: 'import',
+          notePath: null,
+          filePath,
+          customTitle: null,
+          // Read-only card, no editor is created; 'read' is the closest mode.
           mode: 'read',
           savedMtimeMs,
           text: '',
@@ -695,7 +730,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     retargetFilePath(id, { filePath, mtimeMs }) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || (tab.kind !== 'file' && tab.kind !== 'image')) {
+      if (!tab || (tab.kind !== 'file' && tab.kind !== 'image' && tab.kind !== 'import')) {
         return;
       }
       set({

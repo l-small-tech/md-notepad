@@ -1,6 +1,6 @@
 /**
  * Full screen — a distraction-free view available in every editor mode, in
- * two stages:
+ * two stages on desktop:
  *
  *   normal ──⛶/F11──▶ window ──⛶/F11──▶ screen ──⛶/F11──▶ normal
  *
@@ -9,6 +9,11 @@
  * active tab. Stage 'screen' additionally makes the OS window truly fullscreen
  * (Tauri `setFullscreen`, so the titlebar/taskbar disappear). Escape steps
  * BACK one stage at a time, mirroring how the stages were entered.
+ *
+ * On Android there is only ONE stage: the OS window already fills the screen,
+ * so 'screen' would look identical to 'window'. `apply` folds any 'screen'
+ * request back to 'window' there, so the cycle is just normal ⇄ window and the
+ * Tauri fullscreen/geometry path is never touched on mobile.
  *
  * This module is the single writer of the ui-store `fullscreenView` value,
  * keeping the store side-effect free: every path (ribbon button, floating
@@ -24,6 +29,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { uiStore, type FullscreenStage } from './stores/ui';
+import { isAndroid } from './platform';
 
 /**
  * Window geometry captured just before entering OS fullscreen. Windows does
@@ -85,7 +91,12 @@ async function exitOsFullscreen(): Promise<void> {
   }
 }
 
-function apply(stage: FullscreenStage): void {
+function apply(requested: FullscreenStage): void {
+  // Mobile has a single distraction-free stage. The OS window already fills the
+  // screen, so the OS-level 'screen' stage looks identical to the pure-CSS
+  // 'window' stage (which hides the app chrome) — collapse the two into 'window'
+  // and never touch the Tauri fullscreen/geometry path on Android.
+  const stage: FullscreenStage = requested === 'screen' && isAndroid() ? 'window' : requested;
   const previous = uiStore.getState().fullscreenView;
   if (previous === stage) {
     return;
@@ -110,11 +121,16 @@ export function setFullscreen(stage: FullscreenStage): void {
   apply(stage);
 }
 
-/** Advance one stage (F11): normal → window → screen → normal. */
+/**
+ * Advance one stage (F11): normal → window → screen → normal. On Android there
+ * is no 'screen' stage, so it's just normal → window → normal (`apply` folds
+ * the requested 'screen' back to 'window', which then equals `previous` and
+ * this call becomes a no-op — so cycle straight to 'normal' from 'window').
+ */
 export function cycleFullscreen(): void {
   const stage = uiStore.getState().fullscreenView;
   if (stage === 'window') {
-    apply('screen');
+    apply(isAndroid() ? 'normal' : 'screen');
   } else if (stage === 'screen') {
     apply('normal');
   } else {

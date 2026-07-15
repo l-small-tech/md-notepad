@@ -45,19 +45,25 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
+import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
+import { currentProvider } from '../../ipc/provider';
+import { isAndroid } from '../platform';
 import {
+  addCloudWorkspace,
   addWorkspace,
   appendImagesToMd,
   createNewFileIn,
   createNewFolderIn,
+  importDocumentInto,
   deleteExplorerEntry,
   getDefaultWorkspacePath,
   listNoteFiles,
   moveExplorerEntryInto,
   openNotePath,
   openNotePathPinned,
+  refreshWorkspaces,
   removeWorkspace,
   renameExplorerEntry,
   savePastedFileInto,
@@ -76,11 +82,38 @@ interface WorkspaceView {
   removable: boolean;
   /** Read-only workspace (the docs): no create/rename/move/delete/paste/drop. */
   readOnly: boolean;
+  /** Synced (SAF) workspace — gets a cloud glyph so it's distinguishable. */
+  synced: boolean;
 }
 
 /** Indentation per tree depth; file rows add the caret column's width. */
 function dirIndent(depth: number): number {
   return 8 + depth * 12;
+}
+
+/**
+ * The right-pinned type badge for a recognized file, or null for anything
+ * else (which then keeps its full name, extension included). Recognized files
+ * show their name WITHOUT the extension plus this badge: 'md' for markdown
+ * (rendered in the accent blue), the uppercased extension for images and
+ * importable documents (PDF/DOCX).
+ */
+function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' } | null {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) {
+    return null;
+  }
+  const ext = name.slice(dot).toLowerCase();
+  if (ext === '.md' || ext === '.markdown') {
+    return { label: 'md', kind: 'md' };
+  }
+  if (isImportablePath(name)) {
+    return { label: name.slice(dot + 1), kind: 'doc' };
+  }
+  if (isImagePath(name)) {
+    return { label: name.slice(dot + 1), kind: 'image' };
+  }
+  return null;
 }
 
 /** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
@@ -164,6 +197,8 @@ export function FileExplorer() {
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Paste destination; null = the default workspace. */
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
+  /** True while a manual refresh is in flight (Drive re-fetch can take seconds). */
+  const [refreshing, setRefreshing] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   /** True for the single click event that trails a completed row drag. */
   const dragConsumedClick = useRef(false);
@@ -194,6 +229,7 @@ export function FileExplorer() {
             color: defaultColor,
             removable: false,
             readOnly: false,
+            synced: false,
           },
         ]
       : []),
@@ -203,6 +239,7 @@ export function FileExplorer() {
       color: w.color,
       removable: true,
       readOnly: w.readOnly === true,
+      synced: w.kind === 'synced',
     })),
   ];
   /** Is `dir` the root of (or inside) a read-only workspace? */
@@ -295,6 +332,25 @@ export function FileExplorer() {
       void file
         .arrayBuffer()
         .then((buf) => savePastedFileInto(pasteDir, { base64: bytesToBase64(buf), ext, name }));
+    }
+  }
+
+  /**
+   * Refresh button: re-fetch every workspace root and expanded subfolder from
+   * its backend, then re-list. Synced (Drive) dirs otherwise serve a stale
+   * cached listing, so a note added on another device never shows up until this
+   * forces the provider to re-sync. Guarded so double-taps don't stack.
+   */
+  async function handleRefresh(): Promise<void> {
+    if (refreshing) {
+      return;
+    }
+    setRefreshing(true);
+    const dirs = [...workspaces.map((w) => w.path), ...expandedDirs];
+    try {
+      await refreshWorkspaces(dirs);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -410,6 +466,30 @@ export function FileExplorer() {
     }
   }
 
+  /**
+   * Context-menu "New file": create the file, then jump straight into renaming
+   * it on its explorer row (default name "untitled" pre-selected). The target
+   * dir is revealed first — a collapsed workspace is expanded, a collapsed
+   * subfolder opened — so the new row is actually on screen to rename.
+   */
+  async function startNewFile(dir: string): Promise<void> {
+    setSelectedDir(dir);
+    const isWorkspaceRoot = workspaces.some((w) => fileKey(w.path) === fileKey(dir));
+    if (isWorkspaceRoot) {
+      setCollapsedWs((prev) => {
+        const next = new Set(prev);
+        next.delete(dir);
+        return next;
+      });
+    } else {
+      setExpandedDirs((prev) => new Set(prev).add(dir));
+    }
+    const created = await createNewFileIn(dir);
+    if (created) {
+      setRenaming(created);
+    }
+  }
+
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
     return (
@@ -477,8 +557,7 @@ export function FileExplorer() {
             role="menuitem"
             onClick={() => {
               setMenuFor(null);
-              setSelectedDir(dir);
-              void createNewFileIn(dir);
+              void startNewFile(dir);
             }}
           >
             New file
@@ -495,6 +574,19 @@ export function FileExplorer() {
             }}
           >
             New folder
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              setMenuFor(null);
+              setSelectedDir(dir);
+              void importDocumentInto(dir);
+            }}
+          >
+            Import document…
           </button>
         )}
         {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
@@ -614,20 +706,28 @@ export function FileExplorer() {
                 'file-explorer-item' +
                 (openFileKeys.has(fileKey(entry.path)) ? ' is-open' : '') +
                 (fileKey(entry.path) === activeFileKey ? ' is-active' : '') +
+                (isImportablePath(entry.path) ? ' is-importable' : '') +
                 (entry.path === dropTargetDir ? ' is-drop-target' : '')
               }
               style={indent}
               title={
                 readOnly
                   ? `${entry.path}\nRead-only`
-                  : isImagePath(entry.path)
-                    ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
-                    : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
+                  : isImportablePath(entry.path)
+                    ? `${entry.path}\nClick to preview and import as Markdown · Drag into a folder to move · Right-click: rename, delete`
+                    : isImagePath(entry.path)
+                      ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
+                      : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
               }
               data-drop-dir={readOnly ? undefined : dirPath}
               // md files double as an image-drop target (embed at end of file);
-              // main.tsx hit-tests this against OS drags. Images aren't targets.
-              data-drop-file={readOnly || isImagePath(entry.path) ? undefined : entry.path}
+              // main.tsx hit-tests this against OS drags. Images and importable
+              // documents hold no markdown, so they aren't embed targets.
+              data-drop-file={
+                readOnly || isImagePath(entry.path) || isImportablePath(entry.path)
+                  ? undefined
+                  : entry.path
+              }
               onPointerDown={readOnly ? undefined : (e) => startFileDrag(e, entry.path)}
               onClick={() => {
                 if (dragConsumedClick.current) {
@@ -650,7 +750,21 @@ export function FileExplorer() {
                 }
               }}
             >
-              {entry.name}
+              {(() => {
+                const badge = fileBadge(entry.name);
+                return (
+                  <>
+                    <span className="file-explorer-item-name">
+                      {badge ? stripExtension(entry.name) : entry.name}
+                    </span>
+                    {badge && (
+                      <span className="file-badge" data-kind={badge.kind} aria-hidden="true">
+                        {badge.label}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </button>
           )}
           {menuFor === entry.path &&
@@ -675,26 +789,121 @@ export function FileExplorer() {
         onPaste={handlePaste}
       >
         <div className="file-explorer-header">
-          <span className="file-explorer-title">Workspaces</span>
-          <div className="file-explorer-actions">
+          {/* Android has no persistent ribbon in reach of the thumb, so give the
+              drawer its own way out — a back button that closes it (the ☰ toggle
+              is easy to miss). Desktop keeps the ribbon toggle, so it's hidden
+              there. */}
+          {isAndroid() && (
             <button
-              className="file-explorer-action"
-              aria-label="Add workspace"
-              title="Add workspace (pick a folder)"
-              onClick={() => addWorkspace()}
+              className="file-explorer-action file-explorer-back"
+              aria-label="Close file explorer"
+              title="Close"
+              onClick={() => uiStore.getState().toggleExplorer()}
             >
               <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
                 <path
-                  d="M6.5 2v9M2 6.5h9"
+                  d="M8 2.5 4 6.5l4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+          )}
+          <span className="file-explorer-title">Workspaces</span>
+          <div className="file-explorer-actions">
+            {/* Android: pick a synced folder (Drive/OneDrive/SD card) via SAF.
+                On desktop the Drive-for-Desktop folder is added with the plain
+                "+" below, so this only shows on Android. */}
+            {isAndroid() && (
+              <button
+                className="file-explorer-action"
+                aria-label="Add synced folder"
+                title="Add synced folder (Google Drive, OneDrive, SD card…)"
+                onClick={() => addCloudWorkspace()}
+              >
+                <svg width="15" height="13" viewBox="0 0 15 13" aria-hidden="true">
+                  <path
+                    d="M4 10.5a2.6 2.6 0 0 1-.2-5.19A3.2 3.2 0 0 1 10 4.7a2.4 2.4 0 0 1 .3 4.79"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                  <path
+                    d="M7.5 6.2v4.6M5.7 8.4l1.8-2 1.8 2"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              </button>
+            )}
+            {currentProvider().capabilities.canPickDir && (
+              <button
+                className="file-explorer-action"
+                aria-label="Add workspace"
+                title="Add workspace (pick a folder)"
+                onClick={() => addWorkspace()}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                  <path
+                    d="M6.5 2v9M2 6.5h9"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </svg>
+              </button>
+            )}
+            {/* Re-fetch every workspace from its backend and re-list. The
+                headline case is a synced (Drive) folder whose remote changes the
+                provider was serving from cache — see refreshWorkspaces. */}
+            <button
+              className={
+                'file-explorer-action file-explorer-refresh' + (refreshing ? ' is-spinning' : '')
+              }
+              aria-label="Refresh workspaces"
+              aria-busy={refreshing || undefined}
+              title="Refresh (re-check synced folders for changes)"
+              disabled={refreshing}
+              onClick={() => void handleRefresh()}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                <path
+                  d="M11 6.5a4.5 4.5 0 1 1-1.32-3.18"
                   stroke="currentColor"
                   strokeWidth="1.3"
                   strokeLinecap="round"
+                  fill="none"
+                />
+                <path
+                  d="M10.8 1.4v2.4H8.4"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   fill="none"
                 />
               </svg>
             </button>
           </div>
         </div>
+        {/* A refresh over a synced (Drive) folder can take several seconds; the
+            header glyph spins but is easy to miss on a tablet, so surface an
+            explicit, unmissable strip while one is in flight. */}
+        {refreshing && (
+          <div className="file-explorer-refreshing" role="status" aria-live="polite">
+            <span className="file-explorer-refreshing-bar" aria-hidden="true" />
+            Refreshing…
+          </div>
+        )}
         <div className="file-explorer-list">
           {workspaces.map((ws) => {
             const isCollapsed = collapsedWs.has(ws.path);
@@ -733,6 +942,23 @@ export function FileExplorer() {
                   >
                     <span className="workspace-caret">{isCollapsed ? '▸' : '▾'}</span>
                     <span className="workspace-name">{ws.name}</span>
+                    {ws.synced && (
+                      <span
+                        className="workspace-badge"
+                        title="Synced folder"
+                        aria-label="Synced folder"
+                      >
+                        <svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true">
+                          <path
+                            d="M3.6 8.5a2.2 2.2 0 0 1-.17-4.4A2.8 2.8 0 0 1 9 3.6a2.1 2.1 0 0 1 .25 4.9z"
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </span>
+                    )}
                   </button>
                   {menuFor === ws.path &&
                     renderContextMenu(ws.path, ws.color, undefined, ws.removable, ws.readOnly)}

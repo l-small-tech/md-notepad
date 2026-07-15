@@ -10,8 +10,13 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: openUrlMock }));
 const { renderMermaidBlocksMock } = vi.hoisted(() => ({ renderMermaidBlocksMock: vi.fn() }));
 vi.mock('../mermaid', () => ({ renderMermaidBlocks: renderMermaidBlocksMock }));
 
-const { readFileBase64Mock } = vi.hoisted(() => ({ readFileBase64Mock: vi.fn() }));
-vi.mock('../../ipc/commands', () => ({ ipc: { readFileBase64: readFileBase64Mock } }));
+const { readFileBase64Mock, readTextFileMock } = vi.hoisted(() => ({
+  readFileBase64Mock: vi.fn(),
+  readTextFileMock: vi.fn(),
+}));
+vi.mock('../../ipc/commands', () => ({
+  ipc: { readFileBase64: readFileBase64Mock, readTextFile: readTextFileMock },
+}));
 
 import { attachPreviewPane } from '../pane';
 
@@ -26,7 +31,13 @@ beforeEach(() => {
   openUrlMock.mockReset();
   renderMermaidBlocksMock.mockReset().mockResolvedValue(undefined);
   readFileBase64Mock.mockReset().mockResolvedValue('QUJD'); // base64 of "ABC"
+  readTextFileMock.mockReset().mockResolvedValue({ text: '', mtimeMs: 0 });
 });
+
+function click(link: Element): boolean {
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+  return !link.dispatchEvent(event); // true = default prevented
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -184,6 +195,127 @@ describe('attachPreviewPane', () => {
     model.pushText('two', 'cm6');
     await vi.advanceTimersByTimeAsync(500);
     expect(el.innerHTML).not.toContain('two');
+  });
+
+  test('following a local markdown link surfaces the Back affordance', async () => {
+    readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
+    const onCanGoBackChange = vi.fn();
+    const model = createDocModel('[go](other.md)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onCanGoBackChange,
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(click(el.querySelector('a')!)).toBe(true);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(readTextFileMock).toHaveBeenCalledWith('/ws/other.md');
+    expect(el.innerHTML).toContain('<h1>Linked Page</h1>');
+    expect(onCanGoBackChange).toHaveBeenLastCalledWith(true);
+    expect(openUrlMock).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
+  test('goBack() returns to the tab document and clears the Back affordance', async () => {
+    readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
+    const onCanGoBackChange = vi.fn();
+    const model = createDocModel('# Home\n\n[go](other.md)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onCanGoBackChange,
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+    expect(el.innerHTML).toContain('Linked Page');
+
+    pane.goBack();
+    await vi.runOnlyPendingTimersAsync();
+    expect(el.innerHTML).toContain('<h1>Home</h1>');
+    expect(onCanGoBackChange).toHaveBeenLastCalledWith(false);
+    pane.dispose();
+  });
+
+  test('relative links resolve against the current page while browsing', async () => {
+    readTextFileMock.mockResolvedValue({ text: '[deeper](../sibling.md)', mtimeMs: 1 });
+    const model = createDocModel('[go](sub/child.md)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+    expect(readTextFileMock).toHaveBeenLastCalledWith('/ws/sub/child.md');
+
+    click(el.querySelector('a')!); // the "deeper" link, now inside the child page
+    await vi.runOnlyPendingTimersAsync();
+    expect(readTextFileMock).toHaveBeenLastCalledWith('/ws/sibling.md');
+    pane.dispose();
+  });
+
+  test('a link to an image opens in a tab instead of the pane', async () => {
+    const onOpenFile = vi.fn();
+    const onCanGoBackChange = vi.fn();
+    const model = createDocModel('[pic](photo.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onOpenFile,
+      onCanGoBackChange,
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+    expect(onOpenFile).toHaveBeenCalledWith('/ws/photo.png');
+    expect(readTextFileMock).not.toHaveBeenCalled();
+    expect(onCanGoBackChange).not.toHaveBeenCalled(); // no in-pane navigation happened
+    pane.dispose();
+  });
+
+  test('an unreadable local link falls back to opening in a tab', async () => {
+    readTextFileMock.mockRejectedValue(new Error('not text'));
+    const onOpenFile = vi.fn();
+    const onCanGoBackChange = vi.fn();
+    const model = createDocModel('[data](blob.bin)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, {
+      dark: false,
+      docPath: '/ws/note.md',
+      onOpenFile,
+      onCanGoBackChange,
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+    expect(onOpenFile).toHaveBeenCalledWith('/ws/blob.bin');
+    expect(onCanGoBackChange).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
+  test('model edits do not disturb the pane while browsing a followed link', async () => {
+    readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
+    const model = createDocModel('[go](other.md)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+
+    model.pushText('edited while away', 'cm6');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(el.innerHTML).toContain('Linked Page');
+    expect(el.innerHTML).not.toContain('edited while away');
+    pane.dispose();
   });
 
   test('a stale in-flight render is discarded so it never clobbers newer content', async () => {

@@ -95,6 +95,23 @@ export function sanitizeFileBaseName(name: string): string {
 }
 
 /**
+ * Turn an external file's display name (from the Android picker or an "Open
+ * with" intent) into a safe `{ base, ext }` for a copy-into-app note. Preserves
+ * the extension when present; falls back to `imported` / `.md` when the name is
+ * missing or nothing usable survives sanitising.
+ */
+export function deriveImportName(displayName: string | null | undefined): {
+  base: string;
+  ext: string;
+} {
+  const raw = (displayName ?? '').trim();
+  const match = /^(.+)(\.[^.\s]+)$/.exec(raw);
+  const ext = match ? match[2]! : '.md';
+  const base = sanitizeFileBaseName(match ? match[1]! : raw) || 'imported';
+  return { base, ext };
+}
+
+/**
  * Turn a title into a safe, portable file basename (no extension).
  *
  * Lossy on purpose: lowercased ASCII kebab-case. Non-latin titles collapse

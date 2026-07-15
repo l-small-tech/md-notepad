@@ -23,14 +23,25 @@ import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
+import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink } from '../session';
+import { addCommentAtLine, openAllComments } from '../voice-comments';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
+import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
 
 /** Platform-correct shortcut hint for the fullscreen tooltips. */
 const FULLSCREEN_KEY = detectPlatform(navigator.platform) === 'mac' ? '⌃⌘F' : 'F11';
+
+/**
+ * Tooltip for the ribbon's fullscreen button. Desktop has two stages (hide
+ * chrome, then OS fullscreen); Android has a single distraction-free stage.
+ */
+const FULLSCREEN_TITLE = isAndroid()
+  ? 'Full screen — hide the app chrome'
+  : `Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`;
 
 function applyFormat(action: FormatAction): void {
   const state = tabsStore.getState();
@@ -66,6 +77,38 @@ function zoom(step: number | 'reset'): void {
  * Relative link paths are auto-resolved to absolute against the document's own
  * directory so the CLI can find them regardless of where it was launched.
  */
+/**
+ * Start a voice comment anchored to the caret's line (desktop entry point; on
+ * mobile a long-press on the line does this). Gated out of WYSIWYG like the
+ * formatting controls — anchor tokens live in the CM6 source, and a rich-mode
+ * re-serialize could drop them.
+ */
+function addVoiceCommentAtCaret(): void {
+  const state = tabsStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (!tab) {
+    return;
+  }
+  if (tab.mode === 'wysiwyg') {
+    uiStore.getState().showNotice('Voice comments work in Markdown and Split modes.');
+    return;
+  }
+  const adapter = getSourceAdapter(tab.id);
+  if (!adapter) {
+    return;
+  }
+  void addCommentAtLine(tab.id, adapter.anchorLineAt());
+}
+
+/** Open the voice-comments panel for the active tab (read-mode entry point). */
+function openVoiceComments(): void {
+  const state = tabsStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (tab) {
+    void openAllComments(tab.id);
+  }
+}
+
 function copyRawText(): void {
   const state = tabsStore.getState();
   const tab = state.tabs.find((t) => t.id === state.activeTabId);
@@ -149,6 +192,18 @@ function FormatControls() {
       >
         🖼
       </button>
+
+      <span className="ribbon-divider" role="separator" />
+
+      <button
+        className="ribbon-btn"
+        aria-label="Add a voice comment"
+        title="Add a voice comment on the current line"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={addVoiceCommentAtCaret}
+      >
+        💬
+      </button>
     </div>
   );
 }
@@ -185,8 +240,6 @@ function ReaderControls() {
         A+
       </button>
 
-      <span className="ribbon-divider" role="separator" />
-
       <button
         className="ribbon-btn"
         aria-label="Reset zoom"
@@ -196,12 +249,31 @@ function ReaderControls() {
       >
         ⟲
       </button>
+
+      <span className="ribbon-divider" role="separator" />
+
+      <button
+        className="ribbon-btn"
+        aria-label="Voice comments"
+        title="Voice comments — view, play, or add"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={openVoiceComments}
+      >
+        💬
+      </button>
     </div>
   );
 }
 
 export function Ribbon() {
+  const activeTabId = useTabsStore((s) => s.activeTabId);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode ?? 'raw');
+  // Back appears only while browsing a followed link in the active tab's preview
+  // (read/split). It sits with the chrome, so full screen (which hides the
+  // ribbon) uses the floating cluster's Back instead — no in-pane bar either way.
+  const canGoBack = usePreviewNav(
+    (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
+  );
   return (
     <div className="ribbon">
       <div className="ribbon-left">
@@ -223,6 +295,21 @@ export function Ribbon() {
         >
           ⚙
         </button>
+        {canGoBack && (
+          <button
+            className="ribbon-btn ribbon-btn-lg"
+            aria-label="Back"
+            title="Back to the previous page"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (activeTabId) {
+                goBackPreview(activeTabId);
+              }
+            }}
+          >
+            ←
+          </button>
+        )}
       </div>
 
       {mode === 'read' ? <ReaderControls /> : <FormatControls />}
@@ -230,8 +317,8 @@ export function Ribbon() {
       <div className="ribbon-right">
         <button
           className="ribbon-btn"
-          aria-label="Full window"
-          title={`Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`}
+          aria-label={isAndroid() ? 'Full screen' : 'Full window'}
+          title={FULLSCREEN_TITLE}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setFullscreen('window')}
         >

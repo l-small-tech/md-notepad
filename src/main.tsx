@@ -38,8 +38,10 @@ import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/700.css';
 import './styles/base.css';
+import './styles/themes.css';
 import './styles/app.css';
 import './styles/preview.css';
+import './styles/voice-comments.css';
 import { App } from './ui/App';
 import type { Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
@@ -62,13 +64,21 @@ import {
 import { uiStore } from './ui/stores/ui';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
-import { resolveDocsDir, resolvePaths } from './ipc/paths';
+import { initProviders } from './ipc/provider';
+import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
+import { themeRegistryStore } from './ui/stores/theme-registry';
+import { importFilters } from './core/import/registry';
+import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
+import { isAndroid } from './ui/platform';
 import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
-const MARKDOWN_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }];
+const MARKDOWN_FILTERS = [
+  { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+  ...importFilters,
+];
 const IMAGE_FILTERS = [
   { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'] },
 ];
@@ -80,10 +90,13 @@ const IMAGE_FILTERS = [
 /* ---- Settings → DOM (theme, ligatures, fonts, editor font size) --------- */
 
 function applyDomSettings(): void {
-  const { ligatures, fontSize, editorFont, uiFont, readerMargins, cursorStyle } =
+  const { ligatures, fontSize, editorFont, uiFont, readerMargins, cursorStyle, colorScheme } =
     settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
+  // Palette family — themes.css maps each value (paired with data-theme) to the
+  // ten color variables; 'default' has no block and falls through to base.css.
+  root.dataset.colorScheme = colorScheme;
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
   // Editor/content typeface; the UI chrome either follows it ('match', the
@@ -105,6 +118,24 @@ applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
 // Follow the OS live while the setting is "system".
 subscribeDark(applyDomSettings);
+
+/* ---- Pluggable themes → injected <style> -------------------------------- */
+
+// The loaded theme plugins are rendered to one <style id="theme-plugins"> whose
+// `:root[data-color-scheme='<id>']` blocks work exactly like the old built-in
+// styles/themes.css. Re-run on every registry change (e.g. "Reload themes"),
+// mirroring how applyDomSettings tracks the settings store. CSP allows this
+// inline <style> (style-src 'unsafe-inline'); a linked file would be blocked.
+function injectThemeStyles(): void {
+  const css = themePluginsToCss(themeRegistryStore.getState().plugins);
+  let style = document.getElementById('theme-plugins');
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement('style');
+    style.id = 'theme-plugins';
+    document.head.appendChild(style);
+  }
+  style.textContent = css;
+}
 
 /* ---- Settings persistence (tauri-plugin-store, debounced) ---------------- */
 
@@ -177,9 +208,15 @@ async function spawnTabWindow(
 
 let lastWindowTitle = '';
 
+// A dev run (`npm run tauri:dev`) serves the frontend from Vite, so import.meta
+// .env.DEV is true here but false in the built release. Tag the window/taskbar
+// title so a dev instance is obvious next to an installed release (the amber
+// icon from tauri.dev.conf.json is the other half of that distinction).
+const APP_NAME = import.meta.env.DEV ? 'MD Notepad Dev' : 'MD Notepad';
+
 function applyWindowTitle(): void {
   const active = tabsStore.getState().activeTab();
-  const title = active ? `${tabDisplayTitle(active)} — MD Notepad` : 'MD Notepad';
+  const title = active ? `${tabDisplayTitle(active)} — ${APP_NAME}` : APP_NAME;
   if (title === lastWindowTitle) {
     return;
   }
@@ -232,7 +269,7 @@ const pickFileDialog: PickFileDialog = async (kind) => {
   try {
     const selected = await open({
       multiple: false,
-      filters: kind === 'image' ? IMAGE_FILTERS : undefined,
+      filters: kind === 'image' ? IMAGE_FILTERS : kind === 'import' ? importFilters : undefined,
     });
     return typeof selected === 'string' ? selected : null;
   } catch {
@@ -362,6 +399,17 @@ async function boot(): Promise<void> {
   // write; every subsequent field edit persists.
   settingsStore.subscribe(persistSettingsDebounced);
 
+  // Install the platform storage provider BEFORE the controller captures
+  // currentProvider(): on Android this routes local + synced (SAF) workspaces;
+  // desktop stays on the plain local FS.
+  initProviders();
+
+  // Load pluggable themes and inject their CSS before mount so the first paint
+  // uses the saved color scheme. Seeds the built-in examples on first run.
+  await themeRegistryStore.getState().load(await resolveThemesDir());
+  injectThemeStyles();
+  themeRegistryStore.subscribe(injectThemeStyles);
+
   const paths = await resolvePaths(settingsStore.getState().settings);
 
   // M8: a freshly torn-off window carries its one-tab manifest in the URL
@@ -439,6 +487,21 @@ async function boot(): Promise<void> {
       .then((files) => (files.length > 0 ? controller.openPaths(files) : undefined))
       .catch(() => {});
   }
+
+  // Android: files from an "Open with"/"Share" intent arrive as content:// URIs
+  // held in the androidfs plugin. Drain them at boot (cold-start intent) and on
+  // window focus (warm start — a new intent resumes the app). copyInExternal
+  // copies each into the notes dir and opens the local copy.
+  const drainIncomingUris = (): void => {
+    if (!isAndroid()) {
+      return;
+    }
+    void ipc
+      .takeIncomingUris()
+      .then((uris) => (uris.length > 0 ? controller.openIncoming(uris) : undefined))
+      .catch(() => {});
+  };
+  drainIncomingUris();
 
   // Second-instance argv (user opens a .md while the app runs). Windows close
   // independently, so main may be gone by then — the Rust single-instance
@@ -530,6 +593,8 @@ async function boot(): Promise<void> {
     .onFocusChanged(({ payload: focused }) => {
       if (focused) {
         void controller.checkAllFileConflicts();
+        // A warm-start "Open with"/"Share" intent refocuses the window.
+        drainIncomingUris();
       } else {
         void controller.flushNow();
       }
@@ -544,7 +609,11 @@ async function boot(): Promise<void> {
     await controller.flushNow();
     await delay(600); // give the other windows a beat to finish their flush
   });
-  if (IS_MAIN_WINDOW) {
+  // The updater/process plugins are desktop-only (mobile updates via the store),
+  // so skip the check on Android — otherwise it logs "updater.check not allowed".
+  // Also skip in a dev run: it points at the release's endpoint (different
+  // identifier) and a "restart to update" prompt makes no sense for `cargo run`.
+  if (IS_MAIN_WINDOW && !isAndroid() && !import.meta.env.DEV) {
     setTimeout(() => void checkForUpdate({ manual: false }), 3000);
   }
 

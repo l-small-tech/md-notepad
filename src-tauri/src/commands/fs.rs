@@ -92,6 +92,11 @@ pub struct DirEntryMeta {
 /// mirror in `src/core/images.ts` (both sides filter; Rust is the gatekeeper).
 const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 
+// Foreign documents the app can offer to import as markdown. Mirrors the TS
+// import registry (src/core/import/registry.ts) — the SAF (Android) listing
+// filters with that registry; this desktop `list_dir` path keeps its own copy.
+const IMPORT_EXTENSIONS: [&str; 2] = ["pdf", "docx"];
+
 fn has_extension(path: &Path, wanted: &str) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -100,6 +105,10 @@ fn has_extension(path: &Path, wanted: &str) -> bool {
 
 fn is_image_path(path: &Path) -> bool {
     IMAGE_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+fn is_importable_path(path: &Path) -> bool {
+    IMPORT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
@@ -261,7 +270,9 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
         };
         if meta.is_dir() {
             dirs.push(item);
-        } else if meta.is_file() && (has_extension(&path, "md") || is_image_path(&path)) {
+        } else if meta.is_file()
+            && (has_extension(&path, "md") || is_image_path(&path) || is_importable_path(&path))
+        {
             files.push(item);
         }
     }
@@ -292,6 +303,29 @@ pub async fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
     }
     manifests.sort();
     Ok(manifests)
+}
+
+/// List theme-plugin files (`*.json`) inside the themes folder. `list_dir`
+/// filters to md/images for the explorer and would hide these (or leak them if
+/// widened), so the pluggable-themes loader gets its own listing. Returns full
+/// paths, sorted; a missing dir is an empty list, like the other listings.
+#[tauri::command]
+pub async fn list_theme_files(dir: PathBuf) -> FsResult<Vec<String>> {
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.starts_with('.') && name.ends_with(".json") && entry.metadata()?.is_file() {
+            files.push(entry.path().to_string_lossy().into_owned());
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 /// Read a binary file as base64 (image tabs). The frontend builds a data URL;
@@ -344,6 +378,272 @@ pub async fn stat_path(path: PathBuf) -> FsResult<PathStat> {
         }),
         Err(e) => Err(e.into()),
     }
+}
+
+/// The app-specific EXTERNAL files dir on Android
+/// (`/storage/emulated/0/Android/data/<pkg>/files`) — a real POSIX path our
+/// `std::fs` commands can use, visible in file managers, needing no runtime
+/// permission. Tauri's `appDataDir()` only exposes the INTERNAL files dir, and
+/// pure-Rust JNI can't reach the Context in Tauri, so we delegate to the local
+/// `androidfs` mobile plugin (Kotlin has the Context). Returns `None` when
+/// external storage is unavailable (e.g. removable volume unmounted); callers
+/// fall back to internal.
+///
+/// Errors are plain strings (not `FsError`): the sole caller `resolvePaths`
+/// treats any failure as "no external dir" and falls back, so a rich code is moot.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn external_files_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().external_files_dir().map_err(|e| e.to_string())
+}
+
+/// Extract the bundled `docs` asset folder to a real filesystem path and return
+/// it. On Android the guide ships as compressed APK assets (`resolveResource`
+/// would yield an `asset://` URI), but the explorer's list/read commands all use
+/// `std::fs`, so Settings "Open docs" needs a POSIX copy. Delegates to the
+/// `androidfs` plugin (Kotlin holds the AssetManager). Errors are plain strings
+/// (not `FsError`): the sole caller `resolveDocsDir` treats any failure as "docs
+/// unavailable" and shows a notice, so a rich code is moot.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn extract_docs_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().extract_docs_dir().map_err(|e| e.to_string())
+}
+
+/// Read a `content://` URI's bytes (base64) + display name — for copy-into-app
+/// open of an external file chosen via the Android picker (Stage 2) or delivered
+/// by an incoming intent (Stage 3). Delegates to the `androidfs` plugin.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn read_content_uri(
+    app: tauri::AppHandle,
+    uri: String,
+) -> Result<tauri_plugin_androidfs::ContentPayload, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .read_content_uri(uri)
+        .map_err(|e| e.to_string())
+}
+
+/// Drain content:// URIs from incoming "Open with"/"Share" intents (Stage 3).
+/// The frontend calls this at boot and on window focus, then copies each in.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn take_incoming_uris(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .take_incoming_uris()
+        .map_err(|e| e.to_string())
+}
+
+/* ---- Storage Access Framework (synced-folder workspaces) --------------- */
+//
+// These delegate to the androidfs plugin's SAF ops (Kotlin holds the
+// ContentResolver). The Kotlin side rejects with a code-prefixed message
+// ("NOT_FOUND: …", "EXISTS: …", "IO: …"); `map_saf_err` turns that back into
+// the app's `{ code, message }` contract so TS `IpcError` semantics hold, the
+// same way the std::fs commands above do.
+
+/// Map an androidfs plugin error (a flat string) onto an `FsError` code by
+/// inspecting the Kotlin reject prefix. Anything unrecognized is IO.
+#[cfg(target_os = "android")]
+fn map_saf_err(e: tauri_plugin_androidfs::Error) -> FsError {
+    let msg = e.to_string();
+    if msg.contains("NOT_FOUND") {
+        FsError::NotFound(PathBuf::from(msg))
+    } else if msg.contains("EXISTS") {
+        FsError::Exists(PathBuf::from(msg))
+    } else {
+        FsError::Io(std::io::Error::new(std::io::ErrorKind::Other, msg))
+    }
+}
+
+/// Launch the SAF folder picker and return the picked tree URI + display name.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn pick_synced_tree(
+    app: tauri::AppHandle,
+) -> FsResult<tauri_plugin_androidfs::PickTreeResponse> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().pick_synced_tree().map_err(map_saf_err)
+}
+
+/// List one directory level of a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_list(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafList> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_list(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Force a synced directory to re-fetch from its backend (picks up remote
+/// changes the provider was serving from cache — see the plugin's safRefresh).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_refresh(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_refresh(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Read a synced document's bytes as base64.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_read(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafRead> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_read(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Create-or-truncate write of base64 bytes into a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_write(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+    base64: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_write(tree_uri, rel_path, base64)
+        .map_err(map_saf_err)
+}
+
+/// Create a directory in a synced tree.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_create_dir(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_create_dir(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Same-parent display rename of a synced document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_rename(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+    new_name: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_rename(tree_uri, rel_path, new_name)
+        .map_err(map_saf_err)
+}
+
+/// Delete a synced document (idempotent).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_delete(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_delete(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Existence + type/size/mtime of a synced document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn saf_stat(
+    app: tauri::AppHandle,
+    tree_uri: String,
+    rel_path: String,
+) -> FsResult<tauri_plugin_androidfs::SafStat> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .saf_stat(tree_uri, rel_path)
+        .map_err(map_saf_err)
+}
+
+/// Release a persisted folder permission (workspace removal).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn release_synced_tree(app: tauri::AppHandle, tree_uri: String) -> FsResult<()> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .release_synced_tree(tree_uri)
+        .map_err(map_saf_err)
+}
+
+/* ---- On-device speech-to-text (voice comments) ------------------------- */
+//
+// Delegates to the androidfs plugin (Kotlin drives SpeechRecognizer). Errors are
+// plain strings: the frontend treats any failure as "STT unavailable" and the
+// capture UI aborts with a notice, so a rich FsError code is moot here.
+
+/// Whether on-device speech recognition is available on this device.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_available(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_available().map_err(|e| e.to_string())
+}
+
+/// Current RECORD_AUDIO grant, without prompting.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_permission().map_err(|e| e.to_string())
+}
+
+/// Prompt for RECORD_AUDIO if needed; resolves the resulting grant.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_request_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .stt_request_permission()
+        .map_err(|e| e.to_string())
+}
+
+/// Start listening; resolves the final transcript text.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_start(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .stt_start()
+        .map(|r| r.text)
+        .map_err(|e| e.to_string())
+}
+
+/// Stop listening (the final transcript still resolves the pending start).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn stt_stop(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().stt_stop().map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -499,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn list_dir_returns_dirs_then_md_and_images_only() {
+    fn list_dir_returns_dirs_then_md_images_and_importable_docs() {
         let dir = tmpdir();
         fs::create_dir(dir.path().join("zeta")).unwrap();
         fs::create_dir(dir.path().join("Alpha")).unwrap();
@@ -508,6 +808,9 @@ mod tests {
         fs::write(dir.path().join("photo.PNG"), "2").unwrap();
         fs::write(dir.path().join("ignored.txt"), "3").unwrap();
         fs::write(dir.path().join(".dotfile.md"), "4").unwrap();
+        // Importable documents (any case) are listed so the user can import them.
+        fs::write(dir.path().join("report.pdf"), "5").unwrap();
+        fs::write(dir.path().join("Memo.DOCX"), "6").unwrap();
 
         let entries = block_on(list_dir(dir.path().to_path_buf())).unwrap();
         let names: Vec<_> = entries
@@ -525,7 +828,10 @@ mod tests {
         assert_eq!(&names[..2], &["Alpha", "zeta"]);
         let mut file_names = names[2..].to_vec();
         file_names.sort();
-        assert_eq!(file_names, vec!["note.md", "photo.PNG"]);
+        assert_eq!(
+            file_names,
+            vec!["Memo.DOCX", "note.md", "photo.PNG", "report.pdf"]
+        );
     }
 
     #[test]

@@ -1,6 +1,11 @@
 mod commands;
 
 use std::sync::Mutex;
+// Only the single-instance closure below uses these traits (emit_to /
+// get_webview_window), and that closure is release-desktop-only: gated out on
+// mobile (no second process) and in debug builds (so a dev instance can coexist
+// with an installed release instead of folding into it).
+#[cfg(all(desktop, not(debug_assertions)))]
 use tauri::{Emitter, Manager};
 
 /// File paths passed on the command line at first launch.
@@ -31,28 +36,45 @@ fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_files = file_args(&std::env::args().collect::<Vec<_>>());
 
-    tauri::Builder::default()
-        // single-instance must be the FIRST plugin registered (its docs) so it
-        // can bail out before any other plugin does work in a doomed instance.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // Windows close independently, so "main" may be gone while the app
-            // still runs — fall back to any surviving window. Target the event
-            // at that one window only (every window listens on its own label),
-            // so the files open exactly once.
-            let target = app
-                .get_webview_window("main")
-                .or_else(|| app.webview_windows().into_values().next());
-            if let Some(window) = target {
-                let _ = window.set_focus();
-                let files = file_args(&args);
-                if !files.is_empty() {
-                    let _ = app.emit_to(window.label(), "open-files", files);
+    let builder = tauri::Builder::default();
+
+    // Desktop-only plugins. On mobile there is no second process to fold in, no
+    // native window geometry to persist, no self-updater (the store handles
+    // updates), and no process restart/exit — and single-instance does not even
+    // compile for Android/iOS. See the target-gated deps in Cargo.toml.
+    #[cfg(desktop)]
+    let builder = {
+        // single-instance is release-only. Debug builds share the release's app
+        // identifier, so the plugin's lock is shared too: launching `tauri dev`
+        // while an installed release runs would fold the dev instance into the
+        // release (focus it, forward args) and immediately exit the dev process —
+        // no window. Skipping it in debug lets a dev build coexist with release.
+        #[cfg(not(debug_assertions))]
+        let builder = builder
+            // single-instance must be the FIRST plugin registered (its docs) so it
+            // can bail out before any other plugin does work in a doomed instance.
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                // Windows close independently, so "main" may be gone while the app
+                // still runs — fall back to any surviving window. Target the event
+                // at that one window only (every window listens on its own label),
+                // so the files open exactly once.
+                let target = app
+                    .get_webview_window("main")
+                    .or_else(|| app.webview_windows().into_values().next());
+                if let Some(window) = target {
+                    let _ = window.set_focus();
+                    let files = file_args(&args);
+                    if !files.is_empty() {
+                        let _ = app.emit_to(window.label(), "open-files", files);
+                    }
                 }
-            }
-        }))
+            }));
+
+        builder
         // Restore only geometry. The default flags also restore DECORATIONS /
         // FULLSCREEN / VISIBLE, and a state file saved by an older (decorated)
         // build resurrects the native titlebar over the config's
@@ -66,10 +88,18 @@ pub fn run() {
                 )
                 .build(),
         )
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+    };
+
+    // Android-only: native Context APIs (external files dir now; content:// reads
+    // and incoming intents later) that pure-Rust JNI can't reach in Tauri.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_androidfs::init());
+
+    builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::default().build())
         .manage(StartupFiles(Mutex::new(startup_files)))
@@ -80,6 +110,7 @@ pub fn run() {
             commands::fs::list_notes,
             commands::fs::list_dir,
             commands::fs::list_session_manifests,
+            commands::fs::list_theme_files,
             commands::fs::read_file_base64,
             commands::fs::write_file_base64,
             commands::fs::copy_path,
@@ -87,6 +118,44 @@ pub fn run() {
             commands::fs::rename_path,
             commands::fs::delete_path,
             commands::fs::stat_path,
+            #[cfg(target_os = "android")]
+            commands::fs::extract_docs_dir,
+            #[cfg(target_os = "android")]
+            commands::fs::external_files_dir,
+            #[cfg(target_os = "android")]
+            commands::fs::read_content_uri,
+            #[cfg(target_os = "android")]
+            commands::fs::take_incoming_uris,
+            #[cfg(target_os = "android")]
+            commands::fs::pick_synced_tree,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_list,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_refresh,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_read,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_write,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_create_dir,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_rename,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_delete,
+            #[cfg(target_os = "android")]
+            commands::fs::saf_stat,
+            #[cfg(target_os = "android")]
+            commands::fs::release_synced_tree,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_available,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_permission,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_request_permission,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_start,
+            #[cfg(target_os = "android")]
+            commands::fs::stt_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

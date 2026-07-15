@@ -22,9 +22,23 @@ base64 = "0.22"
 tempfile = "3"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
+
+# Desktop-only plugins. These crates either don't compile for mobile
+# (single-instance) or have no meaning there (window geometry, the
+# self-updater, process restart/exit). Keep them out of the Android/iOS
+# dependency graph entirely; lib.rs gates their registration on #[cfg(desktop)].
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-tauri-plugin-opener = "2"
-tauri-plugin-log = "2"
+
+# Android-only. Native Context APIs Tauri's path API can't resolve (the
+# app-specific EXTERNAL files dir, content:// reads, incoming intents) live in a
+# local mobile plugin whose Kotlin holds the Activity/Context — pure-Rust JNI
+# can't reach the Context in Tauri (ndk-context is unpopulated). See
+# plugins/tauri-plugin-androidfs.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-androidfs = { path = "plugins/tauri-plugin-androidfs" }

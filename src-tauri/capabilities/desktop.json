@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Permissions for plugins that only exist on desktop (self-updater, process restart, window-state). The matching plugins are gated out of the mobile build in Cargo.toml / lib.rs, so their permissions must be too — otherwise the Android/iOS build fails capability validation with 'permission not found'.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main", "w-*"],
+  "permissions": ["updater:default", "process:allow-restart", "window-state:default"]
+}

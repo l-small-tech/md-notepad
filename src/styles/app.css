@@ -17,8 +17,15 @@
   display: flex;
   align-items: stretch;
   background: var(--bg-alt);
-  height: 34px;
   flex: 0 0 auto;
+  /* On Android the app draws edge-to-edge under the status bar (enableEdgeToEdge).
+     Pad the titlebar down by the top inset so tabs clear the clock/icons; the
+     env() values are 0 on desktop, so height resolves to 34px there. box-sizing
+     is border-box globally, so the tab row keeps its 34px content height. */
+  height: calc(34px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* No scrolling: the TabBar only renders as many whole tabs as fit (the rest
@@ -358,22 +365,59 @@
   display: none;
 }
 
-/* Floating stage controls in the top-right corner (expand ⛶ / step back) —
-   faint until hovered so they never compete with the content. */
-.fullscreen-controls {
+/* A small cluster tucked just above the top-center edge that slides down when
+   summoned — by the pointer nearing the top (desktop) or a pull-down from the
+   top edge (Android). Reveal is JS-driven (App toggles `is-revealed`) so the
+   cluster survives the pointer overshooting the top edge and lingers before
+   hiding; `:focus-within` also holds it open for the keyboard. Nothing spans
+   the full width. */
+.fullscreen-topcenter {
   position: fixed;
-  top: 10px;
-  right: 14px;
-  z-index: 40;
+  top: 8px;
+  left: 50%;
+  z-index: 42;
   display: flex;
   gap: 6px;
-  opacity: 0.35;
-  transition: opacity 120ms ease;
+  /* Tucked fully above the top edge until revealed. */
+  transform: translate(-50%, calc(-100% - 16px));
+  transition: transform 160ms ease;
 }
 
-.fullscreen-controls:hover,
-.fullscreen-controls:focus-within {
-  opacity: 1;
+.fullscreen-topcenter .fullscreen-btn {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.fullscreen-topcenter.is-revealed,
+.fullscreen-topcenter:focus-within {
+  transform: translate(-50%, 0);
+}
+
+/* 'window' stage: an invisible strip over the top of the view that grabs-to-move
+   the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
+   so those controls stay clickable. Titlebar-height by default (so it doesn't
+   swallow the first editor lines in edit modes); taller in Read mode to cover
+   the reading column's top whitespace (~3 lines). */
+.fullscreen-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.25rem;
+  z-index: 39;
+  cursor: grab;
+}
+
+.fullscreen-drag-strip-read {
+  height: 4.5rem;
+}
+
+/* The conflict banner sits at the top of the editor host, exactly where the
+   'window'-stage drag strip (z 39) lies. Lift it above the strip so its
+   Reload / Keep mine buttons take clicks instead of the drag region swallowing
+   them to move the window. Below the top-center exit cluster (z 42). */
+.app-fullscreen .conflict-banner {
+  position: relative;
+  z-index: 40;
 }
 
 .fullscreen-btn {
@@ -447,6 +491,16 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--fg-muted);
+  /* Absorb the free space to the title's right so the (Android-only) back
+     button and title stay grouped on the left and the actions sit far right. */
+  margin-right: auto;
+}
+
+/* The back button (Android) leads the header; nudge it left to the edge and
+   give the title a little breathing room after it. */
+.file-explorer-back {
+  margin-left: -2px;
+  margin-right: 4px;
 }
 
 .file-explorer-actions {
@@ -473,6 +527,56 @@
 .file-explorer-action:hover {
   color: var(--fg);
   background: var(--bg-hover);
+}
+
+.file-explorer-action:disabled {
+  cursor: default;
+}
+
+/* Spin the refresh glyph while a re-fetch is in flight (Drive can take a few
+   seconds). The <svg> is the button's only child, so rotate that. */
+.file-explorer-refresh.is-spinning svg {
+  animation: file-explorer-spin 0.8s linear infinite;
+}
+
+@keyframes file-explorer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Explicit "a refresh is underway" strip below the header — an indeterminate
+   sliding bar plus a label, so it reads as active progress (not a frozen app)
+   even on a tablet where the small header glyph is easy to miss. */
+.file-explorer-refreshing {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  overflow: hidden;
+}
+
+.file-explorer-refreshing-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 40%;
+  background: var(--accent, currentColor);
+  border-radius: 2px;
+  animation: file-explorer-refreshing-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes file-explorer-refreshing-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
 }
 
 .file-explorer-list {
@@ -654,8 +758,22 @@
   text-overflow: ellipsis;
 }
 
+/* Cloud glyph marking a synced (SAF) workspace, after its name. */
+.workspace-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: var(--fg-muted, var(--fg));
+  opacity: 0.7;
+}
+
+/* A flex row so a recognized file's type badge stays pinned right while the
+   name ellipsizes. Names carry the ellipsis on their own span (below). */
 .file-explorer-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
   border: none;
@@ -665,8 +783,13 @@
   font-size: 13px;
   padding: 4px 10px 4px 22px; /* left is overridden per tree depth inline */
   cursor: pointer;
-  white-space: nowrap;
   overflow: hidden;
+}
+
+.file-explorer-item-name {
+  min-width: 0; /* let the name shrink so it can ellipsize beside the badge */
+  overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
@@ -755,6 +878,41 @@ body.explorer-dragging * {
 /* ...and the active tab's file, one step stronger (still subtle). */
 .file-explorer-item.is-active {
   background: var(--bg-hover);
+}
+
+/* Importable documents (PDF/DOCX): muted to read as "not a note, but you can
+   bring it in". Layout is the shared flex row above. */
+.file-explorer-item.is-importable {
+  color: var(--fg-muted);
+}
+
+/* Right-pinned file-type badge (md / PNG / PDF …). Neutral by default; the
+   md variant below picks up the accent blue. */
+.file-badge {
+  flex: none;
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border, var(--bg-hover));
+}
+
+/* Markdown — the notes' native format — reads in the accent blue. */
+.file-badge[data-kind='md'] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.file-explorer-item.is-importable:hover,
+.file-explorer-item.is-importable.is-active {
+  color: var(--fg);
 }
 
 .file-explorer-empty {
@@ -849,6 +1007,87 @@ body.explorer-dragging * {
   font-size: 13px;
 }
 
+/* ---- Import tabs (PDF/DOCX card) ---------------------------------------- */
+
+/* A read-mode-like surface hosting a single centered card. */
+.import-view {
+  flex: 1 1 auto;
+  display: flex;
+  overflow: auto;
+  padding: 24px;
+  outline: none;
+}
+
+/* The card itself: a quiet panel, sized to its text, centered in the pane. */
+.import-card {
+  margin: auto;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.import-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Format chip (PDF/DOCX), styled like the explorer's file badge. */
+.import-card-badge {
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 3px 5px;
+  border-radius: 3px;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border, var(--bg-hover));
+}
+
+.import-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.import-card-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+/* Primary action — the accent-tinted button used across the card's states. */
+.import-card-btn {
+  align-self: flex-start;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 5px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  cursor: pointer;
+}
+
+.import-card-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.import-card-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ---- Conflict banner (M3) ------------------------------------------------ */
 
 .conflict-banner {
@@ -929,6 +1168,17 @@ body.explorer-dragging * {
 
 .mode-segment-active {
   color: var(--accent);
+}
+
+/* Dev-build indicator — shown only under `tauri dev` (Vite dev mode). */
+.statusbar-dev {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.85;
 }
 
 .statusbar-notice {
@@ -1106,6 +1356,19 @@ body.explorer-dragging * {
   border-radius: 3px;
   padding: 3px 6px;
   background: var(--bg-alt);
+}
+
+.settings-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.settings-theme-buttons {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 .settings-footer {
