@@ -92,6 +92,11 @@ pub struct DirEntryMeta {
 /// mirror in `src/core/images.ts` (both sides filter; Rust is the gatekeeper).
 const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 
+// Foreign documents the app can offer to import as markdown. Mirrors the TS
+// import registry (src/core/import/registry.ts) — the SAF (Android) listing
+// filters with that registry; this desktop `list_dir` path keeps its own copy.
+const IMPORT_EXTENSIONS: [&str; 2] = ["pdf", "docx"];
+
 fn has_extension(path: &Path, wanted: &str) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -100,6 +105,10 @@ fn has_extension(path: &Path, wanted: &str) -> bool {
 
 fn is_image_path(path: &Path) -> bool {
     IMAGE_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+fn is_importable_path(path: &Path) -> bool {
+    IMPORT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
@@ -261,7 +270,9 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
         };
         if meta.is_dir() {
             dirs.push(item);
-        } else if meta.is_file() && (has_extension(&path, "md") || is_image_path(&path)) {
+        } else if meta.is_file()
+            && (has_extension(&path, "md") || is_image_path(&path) || is_importable_path(&path))
+        {
             files.push(item);
         }
     }
@@ -788,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn list_dir_returns_dirs_then_md_and_images_only() {
+    fn list_dir_returns_dirs_then_md_images_and_importable_docs() {
         let dir = tmpdir();
         fs::create_dir(dir.path().join("zeta")).unwrap();
         fs::create_dir(dir.path().join("Alpha")).unwrap();
@@ -797,6 +808,9 @@ mod tests {
         fs::write(dir.path().join("photo.PNG"), "2").unwrap();
         fs::write(dir.path().join("ignored.txt"), "3").unwrap();
         fs::write(dir.path().join(".dotfile.md"), "4").unwrap();
+        // Importable documents (any case) are listed so the user can import them.
+        fs::write(dir.path().join("report.pdf"), "5").unwrap();
+        fs::write(dir.path().join("Memo.DOCX"), "6").unwrap();
 
         let entries = block_on(list_dir(dir.path().to_path_buf())).unwrap();
         let names: Vec<_> = entries
@@ -814,7 +828,10 @@ mod tests {
         assert_eq!(&names[..2], &["Alpha", "zeta"]);
         let mut file_names = names[2..].to_vec();
         file_names.sort();
-        assert_eq!(file_names, vec!["note.md", "photo.PNG"]);
+        assert_eq!(
+            file_names,
+            vec!["Memo.DOCX", "note.md", "photo.PNG", "report.pdf"]
+        );
     }
 
     #[test]

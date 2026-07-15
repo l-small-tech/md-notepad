@@ -60,6 +60,16 @@ export function localImageToInline(docDir: string | null, rawSrc: string): strin
  * screenshots run to megabytes, so encode in 32 KiB windows. Shared by the
  * clipboard-paste paths in the explorer and the editors.
  */
+/** Inverse of {@link bytesToBase64}: decode base64 to raw bytes. */
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export function bytesToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
   let binary = '';

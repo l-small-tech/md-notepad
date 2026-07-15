@@ -158,8 +158,11 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
 type SessionModule = typeof import('../session');
 type TabsModule = typeof import('../stores/tabs');
 
+type UiModule = typeof import('../stores/ui');
+
 let session: SessionModule;
 let tabs: TabsModule;
+let ui: UiModule;
 
 beforeEach(async () => {
   // Fake timers so the debounced flusher's trailing/maxWait timers never fire
@@ -169,6 +172,7 @@ beforeEach(async () => {
   IpcError = (await import('../../ipc/commands')).IpcError;
   session = await import('../session');
   tabs = await import('../stores/tabs');
+  ui = await import('../stores/ui');
 });
 
 afterEach(() => {
@@ -1849,5 +1853,34 @@ describe('closeAllTabsInteractive', () => {
     await controller.closeAllTabsInteractive();
 
     expect(tabs.tabsStore.getState().tabs.some((t) => t.id === fileTab.id)).toBe(true);
+  });
+});
+
+describe('openPaths — importable documents', () => {
+  test('a recognized document opens no tab; it prompts to import instead', async () => {
+    const fs = makeFakeFs({ '/notes/report.pdf': 'fake-pdf' });
+    const confirm = vi.fn(async () => false); // decline: don't run the real converter
+    const controller = makeController(fs, () => 111, { confirm });
+    const before = tabs.tabsStore.getState().tabs.length;
+
+    await controller.openPaths(['/notes/report.pdf']);
+
+    // The document is never opened as a tab, and a declined confirm imports nothing.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(tabs.tabsStore.getState().tabs.length).toBe(before);
+    expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
+  });
+
+  test('a not-yet-supported format (DOCX) reports unavailable without prompting', async () => {
+    const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
+    const confirm = vi.fn(async () => true);
+    const controller = makeController(fs, () => 111, { confirm });
+
+    await controller.openPaths(['/notes/memo.docx']);
+
+    // No conversion is offered, nothing is written, and the user is told why.
+    expect(confirm).not.toHaveBeenCalled();
+    expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
+    expect(ui.uiStore.getState().notice).toMatch(/Word document import isn't available yet/);
   });
 });

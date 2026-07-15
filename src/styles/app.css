@@ -837,6 +837,40 @@ body.explorer-dragging * {
   background: var(--bg-hover);
 }
 
+/* Importable documents (PDF/DOCX): a flex row so the format badge stays
+   pinned right while the filename ellipsizes. Muted to read as "not a note,
+   but you can bring it in". */
+.file-explorer-item.is-importable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+}
+
+.file-explorer-item.is-importable .file-explorer-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-import-badge {
+  flex: none;
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border, var(--bg-hover));
+}
+
+.file-explorer-item.is-importable:hover,
+.file-explorer-item.is-importable.is-active {
+  color: var(--fg);
+}
+
 .file-explorer-empty {
   padding: 4px 10px 4px 22px;
   font-size: 13px;

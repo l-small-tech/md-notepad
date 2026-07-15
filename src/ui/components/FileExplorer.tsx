@@ -45,6 +45,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
+import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
 import { currentProvider } from '../../ipc/provider';
@@ -55,6 +56,7 @@ import {
   appendImagesToMd,
   createNewFileIn,
   createNewFolderIn,
+  importDocumentInto,
   deleteExplorerEntry,
   getDefaultWorkspacePath,
   listNoteFiles,
@@ -526,6 +528,19 @@ export function FileExplorer() {
             New folder
           </button>
         )}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              setMenuFor(null);
+              setSelectedDir(dir);
+              void importDocumentInto(dir);
+            }}
+          >
+            Import document…
+          </button>
+        )}
         {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
         {wsColor !== undefined && (
           <div className="context-menu-swatches" aria-label="Workspace color">
@@ -643,20 +658,28 @@ export function FileExplorer() {
                 'file-explorer-item' +
                 (openFileKeys.has(fileKey(entry.path)) ? ' is-open' : '') +
                 (fileKey(entry.path) === activeFileKey ? ' is-active' : '') +
+                (isImportablePath(entry.path) ? ' is-importable' : '') +
                 (entry.path === dropTargetDir ? ' is-drop-target' : '')
               }
               style={indent}
               title={
                 readOnly
                   ? `${entry.path}\nRead-only`
-                  : isImagePath(entry.path)
-                    ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
-                    : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
+                  : isImportablePath(entry.path)
+                    ? `${entry.path}\nClick to import as Markdown · Drag into a folder to move · Right-click: rename, delete`
+                    : isImagePath(entry.path)
+                      ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
+                      : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
               }
               data-drop-dir={readOnly ? undefined : dirPath}
               // md files double as an image-drop target (embed at end of file);
-              // main.tsx hit-tests this against OS drags. Images aren't targets.
-              data-drop-file={readOnly || isImagePath(entry.path) ? undefined : entry.path}
+              // main.tsx hit-tests this against OS drags. Images and importable
+              // documents hold no markdown, so they aren't embed targets.
+              data-drop-file={
+                readOnly || isImagePath(entry.path) || isImportablePath(entry.path)
+                  ? undefined
+                  : entry.path
+              }
               onPointerDown={readOnly ? undefined : (e) => startFileDrag(e, entry.path)}
               onClick={() => {
                 if (dragConsumedClick.current) {
@@ -679,7 +702,14 @@ export function FileExplorer() {
                 }
               }}
             >
-              {entry.name}
+              <span className="file-explorer-item-name">{entry.name}</span>
+              {isImportablePath(entry.path) && (
+                <span className="file-import-badge" aria-hidden="true">
+                  {stripExtension(entry.name) === entry.name
+                    ? ''
+                    : entry.name.slice(entry.name.lastIndexOf('.') + 1).toUpperCase()}
+                </span>
+              )}
             </button>
           )}
           {menuFor === entry.path &&

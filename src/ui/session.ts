@@ -40,6 +40,7 @@ import { imageMimeType, isImagePath } from '../core/images';
 import { commentsPathFor, isCommentsPath } from '../core/comments';
 import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
+import { converterFor, replaceImagePlaceholders } from '../core/import/registry';
 import { pickUnusedColor } from '../core/settings';
 import {
   deriveImportName,
@@ -94,8 +95,9 @@ export type SaveDiscardCancelDialog = (
 ) => Promise<'save' | 'discard' | 'cancel'>;
 /** Native folder-picker for the M6 notes-dir change flow. Null if cancelled. */
 export type PickDirectoryDialog = () => Promise<string | null>;
-/** Native single-file picker for link insertion. `image` narrows the filter. */
-export type PickFileDialog = (kind: 'any' | 'image') => Promise<string | null>;
+/** Native single-file picker for link insertion. `image` narrows the filter
+ *  to image types, `import` to convertible document types (registry.ts). */
+export type PickFileDialog = (kind: 'any' | 'image' | 'import') => Promise<string | null>;
 
 export interface SessionControllerDeps {
   paths: SessionPaths;
@@ -305,6 +307,7 @@ let readImageDispatch: (path: string) => Promise<string> = async () => {
   throw new Error('not booted');
 };
 let importFilesDispatch: (dir: string, paths: string[]) => Promise<void> = async () => {};
+let importDocumentDispatch: (dir: string, srcPath?: string) => Promise<void> = async () => {};
 let appendImagesDispatch: (mdPath: string, paths: string[]) => Promise<void> = async () => {};
 let savePastedImageDispatch: (
   tabId: string,
@@ -396,6 +399,14 @@ export function loadImageDataUrl(path: string): Promise<string> {
  *  (non-md/image paths are skipped). */
 export function importFilesInto(dir: string, paths: string[]): Promise<void> {
   return importFilesDispatch(dir, paths);
+}
+/**
+ * FileExplorer context menu / open flow → controller: convert a foreign
+ * document (e.g. a PDF) into a new .md in `dir`. Without `srcPath` a native
+ * picker filtered to importable formats asks for the source file.
+ */
+export function importDocumentInto(dir: string, srcPath?: string): Promise<void> {
+  return importDocumentDispatch(dir, srcPath);
 }
 /**
  * Drag-drop (main.tsx) → controller: embed dropped image files into an existing
@@ -1058,6 +1069,23 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   async function openPaths(paths: string[], opts: { preview?: boolean } = {}): Promise<void> {
     const preview = opts.preview ?? false;
     for (const path of paths) {
+      // A recognized document (a PDF via Ctrl+O, an explorer click, or a drop on
+      // the editor area) can't be opened as a tab — offer to import it as
+      // markdown instead, beside the source file. Guard on openingPaths so a
+      // double-click (onClick + onDoubleClick both reach here) doesn't stack
+      // multiple confirm dialogs for the same file.
+      if (converterFor(extName(path))) {
+        const key = pathKey(path);
+        if (!openingPaths.has(key)) {
+          openingPaths.add(key);
+          try {
+            await promptImport(path);
+          } finally {
+            openingPaths.delete(key);
+          }
+        }
+        continue;
+      }
       const lower = pathKey(path);
       // Focus the created/existing tab, and pin it when this open wasn't a
       // preview (or a concurrent pinned request asked for it while it opened).
@@ -1163,6 +1191,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       try {
         const { base64, displayName } = await nativeIpc.readContentUri(uri);
         const { base, ext } = deriveImportName(displayName);
+        if (converterFor(ext)) {
+          // A convertible document (e.g. a PDF opened/shared from Drive) —
+          // import it as markdown instead of copying the raw bytes in.
+          await importDocumentBytes(notesDir, base64, `${base}${ext}`);
+          continue;
+        }
         const target = await uniquePathIn(notesDir, base, ext);
         await ipc.writeFileBase64(target, base64);
         targets.push(target);
@@ -1588,10 +1622,17 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     let copied = 0;
     let skipped = 0;
     let failed = 0;
+    let converted = 0;
     for (const path of paths) {
       const ext = extName(path);
       if (ext.toLowerCase() !== '.md' && !isImagePath(path)) {
-        skipped += 1;
+        if (converterFor(ext)) {
+          // A convertible document (e.g. a PDF) — import it as markdown.
+          await importDocument(dir, path);
+          converted += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
       if (pathKey(dirName(path)) === pathKey(dir)) {
@@ -1619,8 +1660,112 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     if (parts.length > 0) {
       uiStore.getState().showNotice(`${parts.join(', ')}.`);
     }
-    if (copied > 0) {
+    if (copied > 0 || converted > 0) {
       uiStore.getState().refreshExplorer();
+    }
+  }
+
+  /**
+   * Explorer click / Ctrl+O / editor-area drop of a recognized document: ask
+   * for confirmation, then import it as markdown beside the source file. A
+   * recognized-but-not-yet-implemented format (e.g. DOCX) reports that it isn't
+   * available yet rather than prompting for a conversion it can't do.
+   */
+  async function promptImport(path: string): Promise<void> {
+    const conv = converterFor(extName(path));
+    if (!conv) {
+      return;
+    }
+    const name = baseName(path);
+    if (conv.available === false) {
+      uiStore.getState().showNotice(`${conv.label} import isn't available yet.`);
+      return;
+    }
+    const ok = await confirm(
+      `Import "${name}" as a Markdown note? Formatting is approximated (best-effort).`,
+      'Import document',
+    );
+    if (ok) {
+      await importDocument(dirName(path), path);
+    }
+  }
+
+  /**
+   * Import a foreign document (registry.ts converter, e.g. PDF) into `dir` as
+   * a new markdown file: read the source bytes, convert (lossy, best effort),
+   * save any extracted images through the standard image placement, write the
+   * .md, and open it. Without `srcPath` the user picks the file via a native
+   * dialog filtered to importable formats.
+   */
+  async function importDocument(dir: string, srcPath?: string): Promise<void> {
+    if (refuseReadOnly(dir)) {
+      return;
+    }
+    const src = srcPath ?? (await pickFile('import'));
+    if (!src) {
+      return;
+    }
+    // An Android picker hands back a content:// URI whose tail is an opaque
+    // document id (no extension) — the real filename and bytes come from the
+    // androidfs native bridge, like copyInExternal. Local paths read directly.
+    let name: string;
+    let bytes: string;
+    try {
+      if (/^content:\/\//i.test(src)) {
+        const { base64, displayName } = await nativeIpc.readContentUri(src);
+        const derived = deriveImportName(displayName);
+        name = `${derived.base}${derived.ext}`;
+        bytes = base64;
+      } else {
+        name = baseName(src);
+        bytes = await ipc.readFileBase64(src);
+      }
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not read "${baseName(src)}".`);
+      deps.onError?.(error);
+      return;
+    }
+    await importDocumentBytes(dir, bytes, name);
+  }
+
+  /** Convert already-read document bytes into a new .md in `dir` and open it. */
+  async function importDocumentBytes(dir: string, bytes: string, name: string): Promise<void> {
+    const conv = converterFor(extName(name));
+    if (!conv) {
+      uiStore.getState().showNotice(`No importer for "${name}".`);
+      return;
+    }
+    if (conv.available === false) {
+      // Recognized (drop/share of e.g. a DOCX) but its converter isn't built.
+      uiStore.getState().showNotice(`${conv.label} import isn't available yet.`);
+      return;
+    }
+    uiStore.getState().showNotice(`Importing "${name}"…`);
+    try {
+      const result = await conv.convert(bytes, name);
+      const base = sanitizeFileBaseName(stripExtension(name)) || 'imported';
+      const target = await uniquePathIn(dir, base, '.md');
+      // Save extracted images via the standard placement (settings-driven
+      // location) and swap their placeholders for real markdown links.
+      const links: (string | null)[] = [];
+      for (const image of result.images) {
+        const ref = await placeImage(target, image);
+        links.push(ref ? `![${ref.alt}](${markdownDest(ref.src)})` : null);
+      }
+      const markdown = replaceImagePlaceholders(result.markdown, links);
+      await ipc.atomicWriteText(target, markdown);
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      const dropped = links.filter((l) => l === null).length;
+      uiStore
+        .getState()
+        .showNotice(
+          `Imported "${name}" → "${baseName(target)}".` +
+            (dropped > 0 ? ` (${dropped} image(s) could not be saved.)` : ''),
+        );
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not import "${name}".`);
+      deps.onError?.(error);
     }
   }
 
@@ -2290,6 +2435,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   removeSyncedWorkspaceDispatch = (path) => void removeSyncedWorkspace(path);
   openDocsDispatch = () => void openDocsWorkspace();
   importFilesDispatch = importFiles;
+  importDocumentDispatch = importDocument;
   appendImagesDispatch = appendImagesToMarkdown;
   savePastedImageDispatch = savePastedImage;
   savePastedFileDispatch = savePastedFile;
