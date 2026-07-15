@@ -36,6 +36,7 @@ import {
 } from './commands';
 import { isAndroid } from '../ui/platform';
 import { isImagePath } from '../core/images';
+import { isImportablePath } from '../core/import/registry';
 
 export interface StorageCapabilities {
   /** Can the user pick an arbitrary folder as a root/workspace? (No on Android/cloud.) */
@@ -183,12 +184,16 @@ function isMarkdown(name: string): boolean {
   return name.toLowerCase().endsWith('.md');
 }
 
-/** Explorer-visible entry: a subfolder, .md file, or image; no dot-files. */
+/**
+ * Explorer-visible entry: a subfolder, .md file, an image, or an importable
+ * document (PDF/DOCX — see the import registry); no dot-files. The desktop
+ * (local FS) listing applies the equivalent filter in Rust `list_dir`.
+ */
 function isListed(name: string, isDir: boolean): boolean {
   if (name.startsWith('.')) {
     return false;
   }
-  return isDir || isMarkdown(name) || isImagePath(name);
+  return isDir || isMarkdown(name) || isImagePath(name) || isImportablePath(name);
 }
 
 /**

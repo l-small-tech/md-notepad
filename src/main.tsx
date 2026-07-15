@@ -67,6 +67,7 @@ import { ipc } from './ipc/commands';
 import { initProviders } from './ipc/provider';
 import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
 import { themeRegistryStore } from './ui/stores/theme-registry';
+import { importFilters } from './core/import/registry';
 import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
 import { isAndroid } from './ui/platform';
@@ -74,7 +75,10 @@ import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
-const MARKDOWN_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }];
+const MARKDOWN_FILTERS = [
+  { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+  ...importFilters,
+];
 const IMAGE_FILTERS = [
   { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'] },
 ];
@@ -265,7 +269,7 @@ const pickFileDialog: PickFileDialog = async (kind) => {
   try {
     const selected = await open({
       multiple: false,
-      filters: kind === 'image' ? IMAGE_FILTERS : undefined,
+      filters: kind === 'image' ? IMAGE_FILTERS : kind === 'import' ? importFilters : undefined,
     });
     return typeof selected === 'string' ? selected : null;
   } catch {
