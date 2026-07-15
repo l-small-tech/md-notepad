@@ -10,6 +10,7 @@
  * flow (folder picker → optional move) via the module-level dispatcher.
  */
 
+import { Fragment } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
@@ -21,7 +22,7 @@ import { settingsStore, useSettingsStore } from '../stores/settings';
 import {
   themeRegistryStore,
   useThemeRegistry,
-  APPEARANCE_MODES,
+  themePickerGroups,
   themePluginOptions,
   isAppearanceMode,
 } from '../stores/theme-registry';
@@ -117,6 +118,7 @@ export function SettingsDialog() {
   }
 
   const pluginOptions = themePluginOptions(plugins);
+  const themeGroups = themePickerGroups(plugins);
   const canReveal = currentProvider().capabilities.isLocalFs;
 
   // Unified Theme picker: System/Light/Dark drive the built-in default palette;
@@ -171,16 +173,17 @@ export function SettingsDialog() {
               value={themeValue}
               onChange={(e) => onThemeChange(e.target.value)}
             >
-              {APPEARANCE_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-              {pluginOptions.length > 0 && <option disabled>──────────</option>}
-              {pluginOptions.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
+              {/* System + green themes, then other plugins, then plain
+                  Light/Dark — one divider between each non-empty group. */}
+              {themeGroups.map((group, gi) => (
+                <Fragment key={gi}>
+                  {gi > 0 && <option disabled>──────────</option>}
+                  {group.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Fragment>
               ))}
               {/* A saved theme whose file is missing still shows as the current
                   value (falls back to the default palette visually). */}
