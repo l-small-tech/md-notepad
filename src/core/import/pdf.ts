@@ -88,15 +88,32 @@ async function imageToPngBase64(pdfjs: Pdfjs, obj: PdfImageObj): Promise<string 
   return comma >= 0 ? dataUrl.slice(comma + 1) : null;
 }
 
-/** Await a named object from page.objs / page.commonObjs (callback API). */
+/** Max time to wait for one image XObject before giving up on it. */
+const OBJ_TIMEOUT_MS = 5000;
+
+/**
+ * Await a named object from page.objs / page.commonObjs (callback API). The
+ * callback API can register a listener that pdf.js never invokes on a broken or
+ * partial page, so the Promise is raced against a timeout: a stuck object
+ * resolves to null (skip its image) instead of hanging the whole import.
+ */
 function getPageObj(page: PdfPage, name: string): Promise<PdfImageObj | null> {
   const store = name.startsWith('g_') ? page.commonObjs : page.objs;
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (obj: PdfImageObj | null) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(obj);
+      }
+    };
+    const timer = setTimeout(() => done(null), OBJ_TIMEOUT_MS);
     try {
-      store.get(name, (obj: PdfImageObj | null) => resolve(obj));
+      store.get(name, (obj: PdfImageObj | null) => done(obj));
     } catch {
-      // Object never resolved (broken/partial page) — skip the image.
-      resolve(null);
+      // Synchronous throw (broken/partial page) — skip the image.
+      done(null);
     }
   });
 }
@@ -151,7 +168,10 @@ async function pageImages(
     const fn = ops.fnArray[i];
     const args = ops.argsArray[i];
     if (fn === OPS.transform && Array.isArray(args) && args.length >= 6) {
-      currentY = Number(args[5]) || currentY;
+      // ty === 0 is a legitimate anchor (image at the page origin); only fall
+      // back to the previous transform when the value isn't a real number.
+      const ty = Number(args[5]);
+      currentY = Number.isFinite(ty) ? ty : currentY;
       continue;
     }
     const isRef = fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat;

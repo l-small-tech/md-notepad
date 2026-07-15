@@ -59,10 +59,14 @@ function toFileJson(plugin: ThemePlugin): string {
 /**
  * Read the `version` stamp of an existing theme file. Returns:
  *  - the number, when the file is valid JSON carrying a finite `version`;
- *  - `0` for valid JSON with no stamp (a legacy seed, written before versioning
- *    or by an older build) — old enough to refresh;
+ *  - `null` for valid JSON with NO `version` field — a user-authored file
+ *    (the built-ins we write always carry a stamp), so the caller must PRESERVE
+ *    it and never overwrite, even when its id happens to slug to a built-in;
  *  - `null` when the file can't be read or parsed, so the caller leaves it
  *    alone rather than risk clobbering a locked or hand-broken file.
+ *
+ * The refresh path only fires for a file that actually carries a `version`
+ * older than SEED_VERSION (a genuine built-in copy from an earlier build).
  */
 async function readSeededVersion(path: string): Promise<number | null> {
   try {
@@ -74,7 +78,7 @@ async function readSeededVersion(path: string): Promise<number | null> {
         return v;
       }
     }
-    return 0;
+    return null;
   } catch {
     return null;
   }

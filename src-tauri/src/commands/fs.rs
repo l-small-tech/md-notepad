@@ -201,10 +201,21 @@ pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if to.exists() {
         return Err(FsError::Exists(to));
     }
-    if let Some(dir) = to.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(dir)?;
+    let dir = to
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| FsError::InvalidPath(format!("{} has no parent directory", to.display())))?;
+    fs::create_dir_all(dir)?;
+    // Copy into a temp file in the destination's own directory, then atomically
+    // rename into place — same invariant as `atomic_write_bytes`, so a crash
+    // mid-copy can't leave a half-written file at `to`.
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    {
+        let mut src = fs::File::open(&from).map_err(|e| not_found_or_io(e, &from))?;
+        std::io::copy(&mut src, tmp.as_file_mut())?;
     }
-    fs::copy(&from, &to)?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(&to).map_err(|e| FsError::Io(e.error))?;
     Ok(())
 }
 
@@ -219,7 +230,10 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
     };
     let mut notes = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         let is_md = path
             .extension()
@@ -228,7 +242,10 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
         if !is_md {
             continue;
         }
-        let meta = entry.metadata()?;
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
         if !meta.is_file() {
             continue;
         }
@@ -256,12 +273,18 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         if entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
-        let meta = entry.metadata()?;
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
         let item = DirEntryMeta {
             path: path.to_string_lossy().into_owned(),
             is_dir: meta.is_dir(),
@@ -295,9 +318,13 @@ pub async fn list_session_manifests(dir: PathBuf) -> FsResult<Vec<String>> {
     };
     let mut manifests = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("session-") && name.ends_with(".json") && entry.metadata()?.is_file() {
+        let is_file = matches!(entry.metadata(), Ok(m) if m.is_file());
+        if name.starts_with("session-") && name.ends_with(".json") && is_file {
             manifests.push(entry.path().to_string_lossy().into_owned());
         }
     }
@@ -318,9 +345,13 @@ pub async fn list_theme_files(dir: PathBuf) -> FsResult<Vec<String>> {
     };
     let mut files = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let name = entry.file_name().to_string_lossy().to_lowercase();
-        if !name.starts_with('.') && name.ends_with(".json") && entry.metadata()?.is_file() {
+        let is_file = matches!(entry.metadata(), Ok(m) if m.is_file());
+        if !name.starts_with('.') && name.ends_with(".json") && is_file {
             files.push(entry.path().to_string_lossy().into_owned());
         }
     }

@@ -1910,6 +1910,18 @@ describe('openPaths — importable documents', () => {
     });
   });
 
+  test('checkImportStatus does not derive a name-based status from a content:// id', async () => {
+    // A content:// URI's tail is an opaque document id, not a filename, so the
+    // "already exists" check would be meaningless — report not-imported/no name.
+    const fs = makeFakeFs({});
+    makeController(fs);
+
+    expect(await session.checkImportStatus('content://com.android.providers/doc/1234')).toEqual({
+      mdPath: '',
+      imported: false,
+    });
+  });
+
   test('importing is skipped when a note with the same basename already exists', async () => {
     // report.md is already present; importing report.pdf must not create a
     // suffixed duplicate (report-2.md) — the real converter is never even

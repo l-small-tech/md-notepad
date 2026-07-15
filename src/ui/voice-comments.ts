@@ -181,11 +181,12 @@ export async function openComment(tabId: string, id: string, line: number): Prom
   if (!notePath) {
     return;
   }
-  let comments: VoiceComment[] = [];
+  let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
     uiStore.getState().showNotice('Could not read voice comments.');
+    return;
   }
   voiceStore.setState({
     phase: 'viewing',
@@ -211,11 +212,12 @@ export async function openAllComments(tabId: string): Promise<void> {
     uiStore.getState().showNotice('Save the note before adding voice comments.');
     return;
   }
-  let comments: VoiceComment[] = [];
+  let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
     uiStore.getState().showNotice('Could not read voice comments.');
+    return;
   }
   voiceStore.setState({
     phase: 'viewing',
@@ -263,7 +265,12 @@ export async function addCommentAtLine(tabId: string, line: number): Promise<voi
   try {
     existing = await loadComments(notePath);
   } catch {
-    existing = [];
+    uiStore
+      .getState()
+      .showNotice(
+        'Could not read existing voice comments; not adding one to avoid overwriting them.',
+      );
+    return;
   }
   const used = new Set<string>([...anchoredIdsFor(tabId), ...existing.map((c) => c.id)]);
   captureId = newCommentId(used);

@@ -46,7 +46,10 @@ const MARKER = new VoiceMarker();
  * (deduped — several anchors on one line still show a single bubble). Markers
  * are keyed to the line's start offset, which RangeSet requires be ascending.
  */
-function buildMarkers(doc: { toString(): string; lineAt(pos: number): { from: number } }): RangeSet<GutterMarker> {
+function buildMarkers(doc: {
+  toString(): string;
+  lineAt(pos: number): { from: number };
+}): RangeSet<GutterMarker> {
   const builder = new RangeSetBuilder<GutterMarker>();
   const text = doc.toString();
   let lastLineStart = -1;
@@ -149,6 +152,10 @@ function longPressHandler(options: VoiceGutterOptions) {
       clear();
       timer = setTimeout(() => {
         timer = null;
+        // The view may have been destroyed mid-hold; touching a dead view throws.
+        if (!view.dom.isConnected) {
+          return;
+        }
         const pos = view.posAtCoords({ x: startX, y: startY });
         if (pos === null) {
           return;
@@ -174,6 +181,10 @@ function longPressHandler(options: VoiceGutterOptions) {
       return false;
     },
     pointercancel() {
+      clear();
+      return false;
+    },
+    pointerleave() {
       clear();
       return false;
     },

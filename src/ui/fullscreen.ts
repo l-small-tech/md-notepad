@@ -40,15 +40,32 @@ import { isAndroid } from './platform';
 let preFullscreen: { position: PhysicalPosition; size: PhysicalSize; maximized: boolean } | null =
   null;
 
+/**
+ * Serializes the OS-fullscreen enter/exit transitions. Each `apply` that
+ * touches the OS window chains its transition onto this promise so the next
+ * can't start until the previous has fully settled. Without this, a rapid
+ * toggle could let an `exit`'s `setFullscreen(false)` land BEFORE an in-flight
+ * `enter`'s `setFullscreen(true)` (which awaits geometry reads first) — leaving
+ * the window stuck fullscreen while the UI shows chrome — or let two calls race
+ * on the single `preFullscreen` global. Serialized, the last-requested state
+ * always wins because the chain preserves request order.
+ */
+let opChain: Promise<void> = Promise.resolve();
+
 /** Enter OS fullscreen, remembering where the window was first. */
 async function enterOsFullscreen(): Promise<void> {
   const win = getCurrentWindow();
   try {
-    preFullscreen = {
-      position: await win.outerPosition(),
-      size: await win.innerSize(),
-      maximized: await win.isMaximized(),
-    };
+    // Guard: only snapshot when we don't already hold a saved geometry, so an
+    // enter can never clobber a position captured by an earlier (still-pending)
+    // enter with the already-fullscreen geometry.
+    if (!preFullscreen) {
+      preFullscreen = {
+        position: await win.outerPosition(),
+        size: await win.innerSize(),
+        maximized: await win.isMaximized(),
+      };
+    }
     await win.setFullscreen(true);
   } catch {
     // No-op outside a Tauri webview (plain `vite`): the chrome still hides via
@@ -106,10 +123,20 @@ function apply(requested: FullscreenStage): void {
   // CSS. Save the geometry on the way into fullscreen and restore it on the
   // way out so Windows can't strand the window on the wrong monitor/side.
   if (stage === 'screen') {
-    void enterOsFullscreen();
+    scheduleOsTransition(true);
   } else if (previous === 'screen') {
-    void exitOsFullscreen();
+    scheduleOsTransition(false);
   }
+}
+
+/**
+ * Queue an OS-fullscreen transition behind any already-pending one. Enter and
+ * exit swallow their own errors, so the chain never rejects and later
+ * transitions always run — the final applied OS state matches the latest
+ * requested UI stage.
+ */
+function scheduleOsTransition(target: boolean): void {
+  opChain = opChain.then(() => (target ? enterOsFullscreen() : exitOsFullscreen()));
 }
 
 /**

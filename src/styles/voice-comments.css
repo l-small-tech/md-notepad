@@ -102,8 +102,15 @@
   animation: vc-pulse 1.3s ease-in-out infinite;
 }
 @keyframes vc-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.65; }
-  50% { transform: scale(1.12); opacity: 1; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
 }
 .vc-capture-label {
   color: var(--fg-muted);

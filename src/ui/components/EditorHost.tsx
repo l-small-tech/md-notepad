@@ -187,6 +187,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     });
     registerPreviewGoBack(tabId, () => pane.goBack());
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
+    // A freshly-created untitled note has no path yet; the flusher assigns one
+    // later. Keep the pane's docDir in sync so in-pane relative links/images
+    // resolve once the note is saved — WITHOUT re-keying this effect (which
+    // would remount the pane and lose scroll). setDocPath no-ops when the dir
+    // is unchanged, so firing on every store tick is cheap.
+    const unsubscribePath = tabsStore.subscribe(() => {
+      const t = tabsStore.getState().tabs.find((t) => t.id === tabId);
+      pane.setDocPath(t ? (t.filePath ?? t.notePath) : null);
+    });
     // Read mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.
     if (mode === 'read' && tabsStore.getState().activeTabId === tabId) {
@@ -194,6 +203,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     return () => {
       unsubscribeDark();
+      unsubscribePath();
       unregisterPreviewGoBack(tabId);
       previewNavStore.getState().clear(tabId);
       pane.dispose();

@@ -185,6 +185,53 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 
+  test('setDocPath makes relative images resolve for a note that gets a path later', async () => {
+    // An untitled note starts with no path, so its relative image is left as-is.
+    const model = createDocModel('![shot](images/shot.png)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: null });
+    await vi.runOnlyPendingTimersAsync();
+    expect(readFileBase64Mock).not.toHaveBeenCalled();
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('images/shot.png');
+
+    // The flusher assigns a path — the pane re-resolves relative refs against it.
+    pane.setDocPath('/ws/note.md');
+    await vi.runOnlyPendingTimersAsync();
+    expect(readFileBase64Mock).toHaveBeenCalledWith('/ws/images/shot.png');
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,QUJD');
+    pane.dispose();
+  });
+
+  test('setDocPath is a no-op re-render when the directory is unchanged', async () => {
+    const model = createDocModel('# Hi');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+    renderMermaidBlocksMock.mockClear();
+
+    // A sibling rename keeps the same directory — nothing to re-render.
+    pane.setDocPath('/ws/renamed.md');
+    await vi.runOnlyPendingTimersAsync();
+    expect(renderMermaidBlocksMock).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
+  test('setDocPath followed links resolve against the new directory after assignment', async () => {
+    const model = createDocModel('[go](other.md)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: null });
+    await vi.runOnlyPendingTimersAsync();
+
+    pane.setDocPath('/ws/note.md');
+    await vi.runOnlyPendingTimersAsync();
+
+    readTextFileMock.mockResolvedValue({ text: '# Linked', mtimeMs: 1 });
+    click(el.querySelector('a')!);
+    await vi.runOnlyPendingTimersAsync();
+    expect(readTextFileMock).toHaveBeenCalledWith('/ws/other.md');
+    pane.dispose();
+  });
+
   test('dispose stops further renders and removes the click listener', async () => {
     const model = createDocModel('one');
     const el = host();

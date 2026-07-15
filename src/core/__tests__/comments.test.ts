@@ -97,10 +97,7 @@ describe('parse/serialize round-trip', () => {
       },
     ];
     const text = serializeCommentsFile(comments);
-    expect(parseCommentsFile(text)).toEqual([
-      { ...comments[0], audio: null },
-      comments[1],
-    ]);
+    expect(parseCommentsFile(text)).toEqual([{ ...comments[0], audio: null }, comments[1]]);
   });
 
   test('preserves a multi-line transcript with dashes and list markers', () => {
@@ -132,5 +129,21 @@ describe('parse/serialize round-trip', () => {
 
   test('an empty comment list serializes to just the header and parses back empty', () => {
     expect(parseCommentsFile(serializeCommentsFile([]))).toEqual([]);
+  });
+
+  test('preserves a transcript whose first body line looks like metadata', () => {
+    // The blank separator ends the meta run, so a body line matching META_RE
+    // (`- time:`/`- audio:`) must survive rather than being swallowed as meta.
+    const comments: VoiceComment[] = [
+      {
+        id: 'cmeta',
+        time: '2026-07-13T10:00:00.000Z',
+        transcript: '- audio: something\nand more text',
+        audio: null,
+      },
+    ];
+    const parsed = parseCommentsFile(serializeCommentsFile(comments));
+    expect(parsed).toEqual(comments);
+    expect(parsed[0]!.transcript).toBe('- audio: something\nand more text');
   });
 });

@@ -173,6 +173,7 @@ export function parseCommentsFile(text: string): VoiceComment[] {
         continue;
       }
       if (line.trim() === '') {
+        inMeta = false; // the blank separator ends the meta run; body follows
         continue; // blank line between metadata and transcript
       }
       inMeta = false; // first real content line ends the metadata run

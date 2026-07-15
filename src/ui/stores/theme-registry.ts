@@ -19,6 +19,7 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { ThemePlugin } from '../../core/theme-plugins';
 import { loadThemePlugins } from '../../ipc/theme-loader';
+import { DEFAULT_COLOR_SCHEME } from '../../core/types';
 
 export interface ThemeOption {
   value: string;
@@ -65,7 +66,13 @@ export const APPEARANCE_MODES: ThemeOption[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
-const RESERVED_IDS = new Set(APPEARANCE_MODES.map((m) => m.value));
+const APPEARANCE_MODE_IDS = new Set(APPEARANCE_MODES.map((m) => m.value));
+
+/** Ids a user theme file may never claim: the picker's built-in modes plus
+ *  `default`, the id main.tsx always sets for the built-in base.css palette. A
+ *  file slugging to any of these is filtered out so it can neither override the
+ *  built-in palette nor show up as a redundant, unreachable picker entry. */
+const RESERVED_IDS = new Set<string>([...APPEARANCE_MODE_IDS, DEFAULT_COLOR_SCHEME]);
 
 /** Built-in green themes, headed up with `System` because the default palette
  *  (base.css) is itself green-tinted — so these are the "system default" family.
@@ -102,5 +109,5 @@ export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeOption[
 
 /** True when `value` selects a built-in light/dark mode (vs a plugin id). */
 export function isAppearanceMode(value: string): value is 'system' | 'light' | 'dark' {
-  return RESERVED_IDS.has(value);
+  return APPEARANCE_MODE_IDS.has(value);
 }

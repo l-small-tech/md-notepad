@@ -75,4 +75,11 @@ describe('pagesToMarkdown', () => {
   test('joins pages with a blank line and drops empty pages', () => {
     expect(pagesToMarkdown(['one', '', 'two'])).toBe('one\n\ntwo\n');
   });
+
+  test('returns empty string (not "\\n") when nothing was extracted', () => {
+    // A PDF with no text/images must read as empty so the caller can decline to
+    // write a blank note, mirroring docx's empty '' result.
+    expect(pagesToMarkdown([])).toBe('');
+    expect(pagesToMarkdown(['', '  ', '\n'])).toBe('');
+  });
 });
