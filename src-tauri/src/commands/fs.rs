@@ -445,7 +445,9 @@ pub async fn stat_path(path: PathBuf) -> FsResult<PathStat> {
 #[tauri::command]
 pub async fn external_files_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_androidfs::AndroidfsExt;
-    app.androidfs().external_files_dir().map_err(|e| e.to_string())
+    app.androidfs()
+        .external_files_dir()
+        .map_err(|e| e.to_string())
 }
 
 /// Extract the bundled `docs` asset folder to a real filesystem path and return
@@ -459,7 +461,9 @@ pub async fn external_files_dir(app: tauri::AppHandle) -> Result<Option<String>,
 #[tauri::command]
 pub async fn extract_docs_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_androidfs::AndroidfsExt;
-    app.androidfs().extract_docs_dir().map_err(|e| e.to_string())
+    app.androidfs()
+        .extract_docs_dir()
+        .map_err(|e| e.to_string())
 }
 
 /// Read a `content://` URI's bytes (base64) + display name — for copy-into-app
@@ -610,11 +614,7 @@ pub async fn saf_rename(
 /// Delete a synced document (idempotent).
 #[cfg(target_os = "android")]
 #[tauri::command]
-pub async fn saf_delete(
-    app: tauri::AppHandle,
-    tree_uri: String,
-    rel_path: String,
-) -> FsResult<()> {
+pub async fn saf_delete(app: tauri::AppHandle, tree_uri: String, rel_path: String) -> FsResult<()> {
     use tauri_plugin_androidfs::AndroidfsExt;
     app.androidfs()
         .saf_delete(tree_uri, rel_path)

@@ -75,21 +75,21 @@ pub fn run() {
             }));
 
         builder
-        // Restore only geometry. The default flags also restore DECORATIONS /
-        // FULLSCREEN / VISIBLE, and a state file saved by an older (decorated)
-        // build resurrects the native titlebar over the config's
-        // decorations: false (the TabBar is the titlebar now).
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-                )
-                .build(),
-        )
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+            // Restore only geometry. The default flags also restore DECORATIONS /
+            // FULLSCREEN / VISIBLE, and a state file saved by an older (decorated)
+            // build resurrects the native titlebar over the config's
+            // decorations: false (the TabBar is the titlebar now).
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::SIZE
+                            | tauri_plugin_window_state::StateFlags::POSITION
+                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                    )
+                    .build(),
+            )
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
     };
 
     // Android-only: native Context APIs (external files dir now; content:// reads

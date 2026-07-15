@@ -117,6 +117,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ github.ref_name }}
+      # secrets.* is not usable in step `if:`, so mirror it into env.
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -136,7 +138,7 @@ jobs:
       - run: npm ci
 
       - name: Configure release signing
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
