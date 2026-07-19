@@ -20,6 +20,7 @@ import {
   editorViewOptionsCtx,
   nodeViewCtx,
   parserCtx,
+  remarkStringifyOptionsCtx,
   serializerCtx,
 } from '@milkdown/kit/core';
 import { Slice, type Node as ProseNode } from '@milkdown/kit/prose/model';
@@ -238,6 +239,12 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
     const getDocPath = options.getDocPath ?? (() => null);
 
     crepe.editor.config((ctx) => {
+      // Serialize bullet lists with `-`, matching what the raw editor's
+      // auto-bullet/Tab handling writes (cm6.ts) — remark-stringify's default
+      // is `*`, which would silently rewrite every bullet marker on the first
+      // rich-mode edit.
+      ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
+
       // Render local images inline (see createImageNodeView). Registered through
       // nodeViewCtx — Milkdown merges these entries into the view's nodeViews
       // (last wins), so we add `image` without clobbering the node views Crepe's

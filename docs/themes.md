@@ -4,14 +4,14 @@ A **theme** sets the colors the app uses — the background, the text, the accen
 on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
-Pick a theme in **Settings → Theme**. That one dropdown starts with **System /
-Light / Dark** (the app's built-in palette, following your computer's light/dark
-setting), then — below a divider — every theme: seven ready-made examples ship
-with the app — five popular community schemes (**Solarized**, **Nord**,
-**Gruvbox**, **Everforest**, and **Rosé Pine**) plus two originals, **Light
-Green** and **Dark Green** (a fresh, forest-green pair). Each theme comes in both
-a light and a dark version, and the app automatically uses the right one based on
-your computer's light/dark setting.
+Pick a theme in **Settings → Theme**. That one dropdown starts with **System**
+(the app's built-in palette, following your computer's light/dark setting),
+then — below a divider — every theme: six ready-made examples ship with the
+app — four popular community schemes (**Solarized**, **Nord**, **Dracula**,
+and **Monokai**) plus two originals, **Light Green** and **Dark Green** (a
+fresh, forest-green pair). Each community theme comes in both a light and a
+dark version, and the app automatically uses the right one based on your
+computer's light/dark setting.
 
 The best part: **themes are just small files you can edit or create yourself** —
 no programming needed, and an AI assistant can write a whole theme for you in
@@ -29,7 +29,7 @@ the **Themes folder** row (just under the Theme dropdown) has three buttons:
 - **Reload** — re-reads the folder after you've edited or added files, so your
   changes show up right away.
 
-The seven example themes live here too — open any of them to see exactly how a
+The six example themes live here too — open any of them to see exactly how a
 theme is built, or copy one as a starting point.
 
 ## What a theme file looks like

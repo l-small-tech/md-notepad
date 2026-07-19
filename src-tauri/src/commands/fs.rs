@@ -97,6 +97,10 @@ const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "svg",
 // filters with that registry; this desktop `list_dir` path keeps its own copy.
 const IMPORT_EXTENSIONS: [&str; 2] = ["pdf", "docx"];
 
+/// Editable text notes the explorer lists and the editor opens directly.
+/// Mirrors the TS definition in `src/core/text-files.ts`.
+const TEXT_EXTENSIONS: [&str; 3] = ["md", "markdown", "txt"];
+
 fn has_extension(path: &Path, wanted: &str) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -109,6 +113,10 @@ fn is_image_path(path: &Path) -> bool {
 
 fn is_importable_path(path: &Path) -> bool {
     IMPORT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+fn is_text_path(path: &Path) -> bool {
+    TEXT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
@@ -264,8 +272,9 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
     Ok(notes)
 }
 
-/// List one directory level for the file explorer: subdirectories plus `.md`
-/// and image files (no recursion — the frontend expands folders lazily).
+/// List one directory level for the file explorer: subdirectories plus text
+/// notes (`.md`/`.txt`) and image files (no recursion — the frontend expands
+/// folders lazily).
 /// Hidden (dot-prefixed) entries are skipped. Order: directories A→Z, then
 /// files newest first (matching `list_notes`). Missing dir = empty list.
 #[tauri::command]
@@ -313,7 +322,7 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
         if is_dir {
             dirs.push(item);
         } else if is_file
-            && (has_extension(&path, "md") || is_image_path(&path) || is_importable_path(&path))
+            && (is_text_path(&path) || is_image_path(&path) || is_importable_path(&path))
         {
             files.push(item);
         }
@@ -856,7 +865,8 @@ mod tests {
         fs::create_dir(dir.path().join(".hidden")).unwrap();
         fs::write(dir.path().join("note.md"), "1").unwrap();
         fs::write(dir.path().join("photo.PNG"), "2").unwrap();
-        fs::write(dir.path().join("ignored.txt"), "3").unwrap();
+        fs::write(dir.path().join("plain.txt"), "3").unwrap();
+        fs::write(dir.path().join("ignored.exe"), "3").unwrap();
         fs::write(dir.path().join(".dotfile.md"), "4").unwrap();
         // Importable documents (any case) are listed so the user can import them.
         fs::write(dir.path().join("report.pdf"), "5").unwrap();
@@ -880,7 +890,13 @@ mod tests {
         file_names.sort();
         assert_eq!(
             file_names,
-            vec!["Memo.DOCX", "note.md", "photo.PNG", "report.pdf"]
+            vec![
+                "Memo.DOCX",
+                "note.md",
+                "photo.PNG",
+                "plain.txt",
+                "report.pdf"
+            ]
         );
     }
 

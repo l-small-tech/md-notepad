@@ -136,6 +136,13 @@ export function SettingsDialog() {
   const pluginMissing =
     settings.colorScheme !== DEFAULT_COLOR_SCHEME &&
     !pluginOptions.some((p) => p.value === settings.colorScheme);
+  // The forced plain Light/Dark picker entries are gone, but a device that
+  // saved one keeps working — surface the saved mode as a current-value-only
+  // option so the select doesn't render blank until a new theme is chosen.
+  const legacyForcedMode =
+    settings.colorScheme === DEFAULT_COLOR_SCHEME && settings.theme !== 'system'
+      ? settings.theme
+      : null;
 
   const close = () => uiStore.getState().closeSettings();
 
@@ -173,8 +180,8 @@ export function SettingsDialog() {
               value={themeValue}
               onChange={(e) => onThemeChange(e.target.value)}
             >
-              {/* System + green themes, then other plugins, then plain
-                  Light/Dark — one divider between each non-empty group. */}
+              {/* System + green themes, then other plugins — one divider
+                  between each non-empty group. */}
               {themeGroups.map((group, gi) => (
                 <Fragment key={gi}>
                   {gi > 0 && <option disabled>──────────</option>}
@@ -189,6 +196,11 @@ export function SettingsDialog() {
                   value (falls back to the default palette visually). */}
               {pluginMissing && (
                 <option value={settings.colorScheme}>{settings.colorScheme} (missing)</option>
+              )}
+              {legacyForcedMode && (
+                <option value={legacyForcedMode}>
+                  {legacyForcedMode === 'light' ? 'Light' : 'Dark'}
+                </option>
               )}
             </select>
           </label>

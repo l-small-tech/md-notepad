@@ -22,6 +22,7 @@ const lgPath = `${DIR}/light-green.json`;
 function mockThemesFolder(initial: Record<string, string>) {
   const fs = new Map(Object.entries(initial));
   const writes: { path: string; text: string }[] = [];
+  const deletes: string[] = [];
   vi.spyOn(ipc, 'createDir').mockResolvedValue(undefined);
   vi.spyOn(ipc, 'listThemeFiles').mockImplementation(async () => [...fs.keys()]);
   vi.spyOn(ipc, 'readTextFile').mockImplementation(async (path: string) => {
@@ -35,7 +36,11 @@ function mockThemesFolder(initial: Record<string, string>) {
     fs.set(path, text);
     writes.push({ path, text });
   });
-  return { fs, writes };
+  vi.spyOn(ipc, 'deletePath').mockImplementation(async (path: string) => {
+    fs.delete(path);
+    deletes.push(path);
+  });
+  return { fs, writes, deletes };
 }
 
 /** The on-disk JSON a current-build seed would have written for light-green. */
@@ -127,6 +132,41 @@ describe('loadThemePlugins — built-in refresh', () => {
     await loadThemePlugins(DIR);
 
     expect(writes.find((w) => w.path === userPath)).toBeUndefined();
+  });
+
+  test('deletes a seeded copy of a retired built-in (carries a version stamp)', async () => {
+    // A device seeded by an earlier build still has gruvbox.json with our
+    // stamp — the retired theme must disappear, not linger in the picker.
+    const retired = JSON.stringify({
+      name: 'Gruvbox',
+      version: 1,
+      light: { bg: '#fbf1c7' },
+      dark: { bg: '#282828' },
+    });
+    const path = `${DIR}/gruvbox.json`;
+    const { deletes } = mockThemesFolder({ [path]: retired });
+
+    const plugins = await loadThemePlugins(DIR);
+
+    expect(deletes).toContain(path);
+    expect(plugins.some((p) => p.id === 'gruvbox')).toBe(false);
+  });
+
+  test('preserves a version-less user theme at a retired built-in id', async () => {
+    // No `version` stamp = user-authored (or user-adopted) — never delete it.
+    const user = JSON.stringify({
+      name: 'My Gruvbox',
+      light: { bg: '#111111' },
+      dark: { bg: '#222222' },
+    });
+    const path = `${DIR}/gruvbox.json`;
+    const { deletes } = mockThemesFolder({ [path]: user });
+
+    const plugins = await loadThemePlugins(DIR);
+
+    expect(deletes).toHaveLength(0);
+    const kept = plugins.find((p) => p.id === 'gruvbox');
+    expect(kept?.name).toBe('My Gruvbox');
   });
 
   test('seeds every built-in on a first run (empty folder)', async () => {

@@ -149,17 +149,18 @@ describe('SafProvider', () => {
     expect(calls).toContain('delete:a.md');
   });
 
-  test('filters listings to md/images/importable docs and drops dot-files', async () => {
+  test('filters listings to text notes/images/importable docs and drops dot-files', async () => {
     const { files, ops } = makeFakeSaf();
     files.set('keep.md', 'x');
+    files.set('keep.txt', 'x');
     files.set('pic.png', 'x');
     files.set('report.pdf', 'x');
     files.set('memo.docx', 'x');
-    files.set('ignore.txt', 'x');
+    files.set('ignore.exe', 'x');
     files.set('.hidden.md', 'x');
     const saf = createSafProvider(ops);
     const names = (await saf.listDir(ROOT)).map((e) => e.path.slice(ROOT.length + 1)).sort();
-    expect(names).toEqual(['keep.md', 'memo.docx', 'pic.png', 'report.pdf']);
+    expect(names).toEqual(['keep.md', 'keep.txt', 'memo.docx', 'pic.png', 'report.pdf']);
   });
 
   test('round-trips UTF-8 text through base64 without corruption', async () => {

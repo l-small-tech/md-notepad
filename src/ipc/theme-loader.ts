@@ -23,7 +23,7 @@ import {
   type Palette,
   type SyntaxColors,
 } from '../core/theme-plugins';
-import { BUILT_IN_THEMES } from '../core/theme-seeds';
+import { BUILT_IN_THEMES, RETIRED_THEME_IDS } from '../core/theme-seeds';
 
 /** Filename slug (no extension), lowercased and reduced to a safe id. */
 function slugFromPath(path: string): string {
@@ -118,6 +118,33 @@ async function seedBuiltIns(themesDir: string, existingById: Map<string, string>
 }
 
 /**
+ * Delete themes-folder copies of RETIRED built-ins (ids we used to seed but no
+ * longer ship). Only a file still carrying our seed `version` stamp is removed
+ * — a stamp-less file is user-authored (or a seeded copy the user adopted by
+ * dropping the stamp) and must survive. Returns the number of files deleted.
+ */
+async function removeRetiredSeeds(existingById: Map<string, string>): Promise<number> {
+  let removed = 0;
+  for (const id of RETIRED_THEME_IDS) {
+    const path = existingById.get(id);
+    if (!path) {
+      continue;
+    }
+    if ((await readSeededVersion(path)) === null) {
+      continue; // user-authored or unreadable — leave it alone
+    }
+    try {
+      await ipc.deletePath(path);
+      existingById.delete(id);
+      removed += 1;
+    } catch {
+      // A locked/undeletable file is non-fatal: it just keeps showing up.
+    }
+  }
+  return removed;
+}
+
+/**
  * Ensure the themes folder exists, seed missing built-ins and refresh stale
  * ones, then read and validate every `*.json` into a `ThemePlugin`. Duplicate
  * ids resolve to the first (sorted) file. Never throws for a missing folder or a
@@ -144,11 +171,12 @@ export async function loadThemePlugins(themesDir: string): Promise<ThemePlugin[]
       existingById.set(id, path);
     }
   }
+  const removed = await removeRetiredSeeds(existingById);
   const seeded = await seedBuiltIns(themesDir, existingById);
 
-  // Re-list only if we wrote files this run (a fresh seed adds new paths; a
-  // refresh rewrites an existing one, which the read loop already re-reads).
-  if (seeded > 0) {
+  // Re-list only if we wrote or deleted files this run (a fresh seed adds new
+  // paths; a refresh rewrites an existing one, which the read loop re-reads).
+  if (seeded > 0 || removed > 0) {
     paths = await ipc.listThemeFiles(themesDir).catch(() => paths);
   }
 

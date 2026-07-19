@@ -21,6 +21,14 @@ which are the same everywhere).
 | Ctrl+S | Save (on a note tab: Save As) |
 | Ctrl+Shift+S | Save As |
 
+## Editing (Raw and Split modes)
+
+| Shortcut | What it does |
+| --- | --- |
+| Enter (on a list line) | Continue the list with a new bullet/number |
+| Tab (on a bullet line) | Indent the bullet one level (marker becomes `-`) |
+| Shift+Tab (on a bullet line) | Un-indent the bullet one level |
+
 ## Viewing modes
 
 | Shortcut | What it does |

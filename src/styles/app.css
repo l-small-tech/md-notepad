@@ -628,6 +628,11 @@
 
 .workspace-section[data-color] {
   border-left-color: var(--ws-accent);
+  /* The accent also washes subtly over the whole section: a translucent tint
+     of the workspace color over whatever the theme's pane background is, so
+     the section reads as "this color's area" without shouting. Explorer-pane
+     only — tabs and editor are untouched. */
+  background: color-mix(in srgb, var(--ws-accent) 7%, transparent);
 }
 
 /* Each workspace title sits on a quiet band so it reads as a section header,

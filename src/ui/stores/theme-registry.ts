@@ -59,6 +59,13 @@ export const useThemeRegistry = <T>(selector: (s: ThemeRegistryState) => T): T =
  * uses the default palette (`colorScheme = 'default'`); selecting a plugin uses
  * that scheme and follows the OS light/dark (`theme = 'system'`). See
  * `themePickerGroups` for the on-screen ordering.
+ *
+ * Only `system` is offered in the picker now — the forced plain Light/Dark
+ * entries were dropped (the adaptive themes cover both looks, and the
+ * mode-locked greens force a mood on purpose). `light`/`dark` stay in this
+ * list so a previously saved forced mode keeps working (`isAppearanceMode`)
+ * and so no theme file can claim those ids (`RESERVED_IDS`); they are simply
+ * filtered out of the on-screen groups.
  */
 export const APPEARANCE_MODES: ThemeOption[] = [
   { value: 'system', label: 'System' },
@@ -92,8 +99,8 @@ export function themePluginOptions(plugins: readonly ThemePlugin[]): ThemeOption
  * divider between groups:
  *   1. `System` + the green themes (the green-tinted system defaults)
  *   2. every other plugin (Solarized, Nord, …), in folder order
- *   3. the plain `Light` / `Dark` forced modes
- * Empty groups are dropped so no stray divider is drawn.
+ * Empty groups are dropped so no stray divider is drawn. The forced plain
+ * Light/Dark modes are deliberately absent (see APPEARANCE_MODES).
  */
 export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeOption[][] {
   const pluginOptions = themePluginOptions(plugins);
@@ -103,8 +110,7 @@ export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeOption[
   );
   const others = pluginOptions.filter((o) => !GREEN_THEME_IDS.includes(o.value));
   const system = APPEARANCE_MODES.filter((m) => m.value === 'system');
-  const forced = APPEARANCE_MODES.filter((m) => m.value !== 'system');
-  return [[...system, ...green], others, forced].filter((group) => group.length > 0);
+  return [[...system, ...green], others].filter((group) => group.length > 0);
 }
 
 /** True when `value` selects a built-in light/dark mode (vs a plugin id). */

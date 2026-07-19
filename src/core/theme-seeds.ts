@@ -17,7 +17,16 @@
 import type { ThemePlugin } from './theme-plugins';
 
 /** Bump when any built-in definition below changes (see module comment). */
-export const SEED_VERSION = 1;
+export const SEED_VERSION = 2;
+
+/**
+ * Built-ins we used to seed but no longer ship (dropped for looking too much
+ * alike — Gruvbox/Everforest/Rosé Pine all read as another warm-cream light
+ * over earthy dark). The loader DELETES a themes-folder copy of these ids,
+ * but only when the file still carries our seed `version` stamp — a stamp-less
+ * file is user-authored (or user-adopted) and is left alone.
+ */
+export const RETIRED_THEME_IDS: readonly string[] = ['gruvbox', 'everforest', 'rose-pine'];
 
 const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   {
@@ -76,88 +85,115 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       selection: '#434c5e',
     },
   },
+  // Dracula (draculatheme.com): a vivid purple-and-pink dark on cool navy —
+  // nothing else in the set lives in this hue range. The light half is a
+  // lavender-tinted paper with the purple darkened enough to read as ink.
   {
-    id: 'gruvbox',
-    name: 'Gruvbox',
+    id: 'dracula',
+    name: 'Dracula',
     light: {
-      bg: '#fbf1c7',
-      editorBg: '#f4e8c1',
-      bgAlt: '#ebdbb2',
-      bgHover: '#e0d3a8',
-      fg: '#3c3836',
-      fgMuted: '#7c6f64',
-      accent: '#d65d0e',
-      border: '#e6d5a8',
-      danger: '#cc241d',
-      selection: '#e8c99a',
+      bg: '#f3f1fa',
+      editorBg: '#fdfcff',
+      bgAlt: '#eae6f5',
+      bgHover: '#ded7ee',
+      fg: '#2a2540',
+      fgMuted: '#6f6a8a',
+      accent: '#7c4dcc',
+      border: '#e0daf0',
+      danger: '#d63f5e',
+      selection: '#dccef5',
     },
     dark: {
-      bg: '#282828',
-      editorBg: '#1d2021',
-      bgAlt: '#3c3836',
-      bgHover: '#504945',
-      fg: '#ebdbb2',
-      fgMuted: '#a89984',
-      accent: '#fe8019',
-      border: '#3c3836',
-      danger: '#fb4934',
-      selection: '#504945',
+      bg: '#282a36',
+      editorBg: '#21222c',
+      bgAlt: '#343746',
+      bgHover: '#44475a',
+      fg: '#f8f8f2',
+      fgMuted: '#8b91b0',
+      accent: '#bd93f9',
+      border: '#343746',
+      danger: '#ff5555',
+      selection: '#44475a',
+    },
+    syntax: {
+      // The canonical Dracula accents: pink headings, orange bold, yellow
+      // italic, cyan links, green code. Light mode darkens each to ink weight.
+      light: {
+        heading: '#7c4dcc',
+        bold: '#b3551a',
+        italic: '#8a7a1a',
+        strikethrough: '#9a95b3',
+        link: '#0f7fa8',
+        code: '#1f9151',
+        quote: '#6f6a8a',
+        list: '#c2367f',
+      },
+      dark: {
+        heading: '#bd93f9',
+        bold: '#ffb86c',
+        italic: '#f1fa8c',
+        strikethrough: '#6272a4',
+        link: '#8be9fd',
+        code: '#50fa7b',
+        quote: '#6272a4',
+        list: '#ff79c6',
+      },
     },
   },
+  // Monokai (the classic TextMate/Sublime palette): warm charcoal with
+  // high-energy magenta/green/yellow pops — the most saturated scheme in the
+  // set, unmistakable next to Solarized's muted beige or Nord's frost. The
+  // light half is a clean near-white with the magenta as its accent.
   {
-    id: 'everforest',
-    name: 'Everforest',
+    id: 'monokai',
+    name: 'Monokai',
     light: {
-      bg: '#fdf6e3',
-      editorBg: '#f2efdf',
-      bgAlt: '#f4f0d9',
-      bgHover: '#efebd4',
-      fg: '#5c6a72',
-      fgMuted: '#939f91',
-      accent: '#8da101',
-      border: '#eae5cf',
-      danger: '#f85552',
-      selection: '#dfe6c8',
+      bg: '#f7f6f3',
+      editorBg: '#fffffc',
+      bgAlt: '#efede8',
+      bgHover: '#e5e2da',
+      fg: '#2c292d',
+      fgMuted: '#7a767c',
+      accent: '#d61d6e',
+      border: '#e4e1d9',
+      danger: '#cc4a1d',
+      selection: '#f7cade',
     },
     dark: {
-      bg: '#2d353b',
-      editorBg: '#232a2e',
-      bgAlt: '#343f44',
-      bgHover: '#3d484d',
-      fg: '#d3c6aa',
-      fgMuted: '#859289',
-      accent: '#a7c080',
-      border: '#3d484d',
-      danger: '#e67e80',
-      selection: '#475258',
+      bg: '#272822',
+      editorBg: '#1e1f1c',
+      bgAlt: '#34352f',
+      bgHover: '#3e3d32',
+      fg: '#f8f8f2',
+      fgMuted: '#90918b',
+      accent: '#f92672',
+      border: '#3e3d32',
+      danger: '#ff7043',
+      selection: '#49483e',
     },
-  },
-  {
-    id: 'rose-pine',
-    name: 'Rosé Pine',
-    light: {
-      bg: '#faf4ed',
-      editorBg: '#f2ece3',
-      bgAlt: '#f2e9e1',
-      bgHover: '#e9dfd6',
-      fg: '#575279',
-      fgMuted: '#797593',
-      accent: '#907aa9',
-      border: '#ece3d8',
-      danger: '#b4637a',
-      selection: '#dfdad9',
-    },
-    dark: {
-      bg: '#191724',
-      editorBg: '#16151f',
-      bgAlt: '#1f1d2e',
-      bgHover: '#26233a',
-      fg: '#e0def4',
-      fgMuted: '#908caa',
-      accent: '#c4a7e7',
-      border: '#26233a',
-      danger: '#eb6f92',
-      selection: '#403d52',
+    syntax: {
+      // Monokai's syntax spread: green headings, orange bold, purple italic,
+      // cyan links, yellow code, magenta list markers.
+      light: {
+        heading: '#5a9b00',
+        bold: '#c46a00',
+        italic: '#7c4dbc',
+        strikethrough: '#8a877a',
+        link: '#0f7f9e',
+        code: '#a08000',
+        quote: '#8a877a',
+        list: '#d61d6e',
+      },
+      dark: {
+        heading: '#a6e22e',
+        bold: '#fd971f',
+        italic: '#ae81ff',
+        strikethrough: '#75715e',
+        link: '#66d9ef',
+        code: '#e6db74',
+        quote: '#75715e',
+        list: '#f92672',
+      },
     },
   },
   // Two originals drawn straight from the University of the Fraser Valley's live

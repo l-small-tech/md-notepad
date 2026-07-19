@@ -44,9 +44,11 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
+import { isEditableTextPath, isMarkdownPath } from '../../core/text-files';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
 import { currentProvider } from '../../ipc/provider';
 import { isAndroid } from '../platform';
@@ -106,6 +108,9 @@ function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' 
   const ext = name.slice(dot).toLowerCase();
   if (ext === '.md' || ext === '.markdown') {
     return { label: 'md', kind: 'md' };
+  }
+  if (ext === '.txt') {
+    return { label: 'txt', kind: 'md' };
   }
   if (isImportablePath(name)) {
     return { label: name.slice(dot + 1), kind: 'doc' };
@@ -361,7 +366,7 @@ export function FileExplorer() {
       }
     }
     const usable = files.filter(
-      (f) => f.type in MIME_EXT || isImagePath(f.name) || f.name.toLowerCase().endsWith('.md'),
+      (f) => f.type in MIME_EXT || isImagePath(f.name) || isEditableTextPath(f.name),
     );
     if (usable.length === 0) {
       return;
@@ -560,6 +565,29 @@ export function FileExplorer() {
         }}
       >
         Rename
+      </button>
+    );
+  }
+
+  /**
+   * "Reveal in explorer" menu item — shows the file in the OS file manager.
+   * Desktop, real-filesystem paths only: Android has no file manager to target
+   * and `saf://` ids aren't OS paths, so those rows just omit the item.
+   */
+  function renderRevealItem(entry: ExplorerEntry): ReactNode {
+    if (isAndroid() || entry.path.startsWith('saf://')) {
+      return null;
+    }
+    return (
+      <button
+        className="context-menu-item"
+        role="menuitem"
+        onClick={() => {
+          setMenuFor(null);
+          void revealItemInDir(entry.path).catch(() => {});
+        }}
+      >
+        Reveal in explorer
       </button>
     );
   }
@@ -788,19 +816,16 @@ export function FileExplorer() {
                   ? `${entry.path}\nRead-only`
                   : isImportablePath(entry.path)
                     ? `${entry.path}\nClick to preview and import as Markdown · Drag into a folder to move · Right-click: rename, delete`
-                    : isImagePath(entry.path)
-                      ? `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
-                      : `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
+                    : isMarkdownPath(entry.path)
+                      ? `${entry.path}\nDrag into a folder to move · Drop an image to embed it · Right-click: rename, delete`
+                      : `${entry.path}\nDrag into a folder to move · Right-click: rename, delete`
               }
               data-drop-dir={readOnly ? undefined : dirPath}
               // md files double as an image-drop target (embed at end of file);
-              // main.tsx hit-tests this against OS drags. Images and importable
-              // documents hold no markdown, so they aren't embed targets.
-              data-drop-file={
-                readOnly || isImagePath(entry.path) || isImportablePath(entry.path)
-                  ? undefined
-                  : entry.path
-              }
+              // main.tsx hit-tests this against OS drags. Images, importable
+              // documents, and plain .txt hold no markdown, so they aren't
+              // embed targets.
+              data-drop-file={readOnly || !isMarkdownPath(entry.path) ? undefined : entry.path}
               onPointerDown={readOnly ? undefined : (e) => startFileDrag(e, entry.path)}
               onClick={() => {
                 if (dragConsumedClick.current) {
@@ -844,6 +869,7 @@ export function FileExplorer() {
             menuShell(
               <>
                 {renderRenameItem(entry)}
+                {renderRevealItem(entry)}
                 {renderDeleteItem(entry)}
               </>,
             )}

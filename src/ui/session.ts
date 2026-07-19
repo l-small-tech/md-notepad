@@ -37,6 +37,7 @@ import {
 } from '../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { imageMimeType, isImagePath } from '../core/images';
+import { isEditableTextPath } from '../core/text-files';
 import { commentsPathFor, isCommentsPath } from '../core/comments';
 import { appendMentions } from '../core/link-mentions';
 import { imageTargetDir } from '../core/image-insert';
@@ -1660,7 +1661,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     let converted = 0;
     for (const path of paths) {
       const ext = extName(path);
-      if (ext.toLowerCase() !== '.md' && !isImagePath(path)) {
+      if (!isEditableTextPath(path) && !isImagePath(path)) {
         if (converterFor(ext)) {
           // A convertible document (e.g. a PDF) — import it as markdown.
           await importDocument(dir, path);

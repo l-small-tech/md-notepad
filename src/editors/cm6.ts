@@ -19,7 +19,7 @@
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
@@ -205,6 +205,60 @@ const baseTheme = EditorView.theme({
 function fontSizeTheme(fontSize: string) {
   return EditorView.theme({ '.cm-content': { fontSize }, '.cm-gutters': { fontSize } });
 }
+
+/** A bullet-list line: indent, marker (`-`/`*`/`+`), at least one space. */
+const BULLET_LINE = /^(\s*)([-*+])(\s+)/;
+
+/**
+ * Tab / Shift+Tab on bullet-list lines: change the indentation one level
+ * (two spaces) and normalize the marker to `-` — so tabbing a `* item` yields
+ * a nested `- item`. Applies to every line the selection spans, but only when
+ * ALL of them are bullets; otherwise the command reports "not handled" and Tab
+ * keeps its default behavior (focus navigation), which also keeps plain text
+ * out of harm's way. Raw (CM6) mode only — the WYSIWYG editor has its own
+ * list handling.
+ */
+function changeBulletIndent(view: EditorView, delta: 1 | -1): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  const startLine = state.doc.lineAt(range.from).number;
+  const endLine = state.doc.lineAt(range.to).number;
+
+  const changes = [];
+  for (let n = startLine; n <= endLine; n++) {
+    const line = state.doc.line(n);
+    const match = BULLET_LINE.exec(line.text);
+    if (!match) {
+      return false;
+    }
+    const [, indent, marker] = match as unknown as [string, string, string];
+    if (delta === 1) {
+      changes.push({ from: line.from, insert: '  ' });
+    } else if (indent.length > 0) {
+      changes.push({ from: line.from, to: line.from + Math.min(2, indent.length) });
+    }
+    if (marker !== '-') {
+      const markerAt = line.from + indent.length;
+      changes.push({ from: markerAt, to: markerAt + 1, insert: '-' });
+    }
+  }
+  if (changes.length === 0) {
+    return true; // all bullets, nothing to do (e.g. Shift+Tab at column 0)
+  }
+  const changeSet = state.changes(changes);
+  view.dispatch({
+    changes: changeSet,
+    selection: state.selection.map(changeSet, 1),
+    userEvent: delta === 1 ? 'input.indent' : 'delete.dedent',
+  });
+  return true;
+}
+
+/** Keymap for the bullet Tab behavior (see {@link changeBulletIndent}). */
+const bulletIndentKeymap = keymap.of([
+  { key: 'Tab', run: (view) => changeBulletIndent(view, 1) },
+  { key: 'Shift-Tab', run: (view) => changeBulletIndent(view, -1) },
+]);
 
 /**
  * Toggle an inline markdown wrapper (`**` / `*`) around the main selection.
@@ -570,7 +624,11 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
       selection,
       extensions: [
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+        // Order matters: the bullet Tab handler and the markdown keymap (Enter
+        // continues a list item — "auto bullets"; Backspace deletes markup)
+        // must win over the default keymap's own Enter/Backspace.
+        bulletIndentKeymap,
+        keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         markdown({ base: markdownLanguage }),
         search({ top: true }),
         imagePasteHandler,
