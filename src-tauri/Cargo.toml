@@ -30,6 +30,10 @@ tauri-plugin-log = "2"
 # self-updater, process restart/exit). Keep them out of the Android/iOS
 # dependency graph entirely; lib.rs gates their registration on #[cfg(desktop)].
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Workspace file-watching (explorer auto-refresh). Desktop-only: SAF trees on
+# Android have no inotify-style API, so mobile keeps the manual refresh button.
+notify = "8"
+notify-debouncer-mini = "0.6"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"

@@ -1,8 +1,11 @@
 /**
  * Ribbon — a toolbar between the tabs and the editor.
  *
- * Layout: explorer + settings buttons on the left, a mode-dependent center
- * cluster, and a copy-raw-text button on the right. Its background is
+ * Layout: the panel toggles bookend the row on the side their panel opens —
+ * explorer (◧) leftmost, outline (◨) rightmost. Next to the explorer sits the
+ * ☰ app menu (search / palette / export / copy raw / settings), keeping the
+ * one-shot commands out of the toolbar. The center is a mode-dependent
+ * cluster; fullscreen stays as a direct button on the right. Its background is
  * `var(--bg)`, matching the active tab, so the selected tab appears to flow
  * down into the ribbon as one continuous surface (the tabbar drops its bottom
  * border for this to read).
@@ -16,6 +19,7 @@
  * own inline toolbar there).
  */
 
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { appendMentions } from '../../core/link-mentions';
@@ -33,8 +37,10 @@ import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
 
+const IS_MAC = detectPlatform(navigator.platform) === 'mac';
+
 /** Platform-correct shortcut hint for the fullscreen tooltips. */
-const FULLSCREEN_KEY = detectPlatform(navigator.platform) === 'mac' ? '⌃⌘F' : 'F11';
+const FULLSCREEN_KEY = IS_MAC ? '⌃⌘F' : 'F11';
 
 /**
  * Tooltip for the ribbon's fullscreen button. Desktop has two stages (hide
@@ -126,6 +132,115 @@ function copyRawText(): void {
     .writeText(text)
     .then(() => uiStore.getState().showNotice(done))
     .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
+}
+
+/** One row of the ☰ app menu: glyph + label, optional right-aligned shortcut. */
+function RibbonMenuItem({
+  glyph,
+  label,
+  shortcut,
+  title,
+  onPick,
+  onClose,
+}: {
+  glyph: string;
+  label: string;
+  shortcut?: string;
+  title?: string;
+  onPick: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <button
+      className="tab-menu-item ribbon-menu-item"
+      role="menuitem"
+      title={title}
+      onClick={() => {
+        onClose();
+        onPick();
+      }}
+    >
+      <span>
+        <span className="ribbon-menu-glyph">{glyph}</span>
+        {label}
+      </span>
+      {shortcut && <span className="ribbon-menu-shortcut">{shortcut}</span>}
+    </button>
+  );
+}
+
+/**
+ * The ☰ app menu — one-shot commands that don't earn a toolbar slot. Same
+ * fixed-position popover pattern as the tab bar's OverflowMenu, but
+ * left-aligned under its trigger (the button sits near the window's left edge).
+ */
+function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="tab-menu ribbon-menu"
+      role="menu"
+      style={{ left: anchor.left, top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <RibbonMenuItem
+        glyph="🔍"
+        label="Search workspaces"
+        shortcut={IS_MAC ? '⇧⌘F' : 'Ctrl+Shift+F'}
+        onPick={() => searchStore.getState().openSearch()}
+        onClose={onClose}
+      />
+      {/* The menu is the palette's only entry point on Android (no Ctrl+K
+          there), and a discoverable one on desktop. */}
+      <RibbonMenuItem
+        glyph="»"
+        label="Command palette"
+        shortcut={IS_MAC ? '⌘K' : 'Ctrl+K'}
+        onPick={() => uiStore.getState().togglePalette()}
+        onClose={onClose}
+      />
+      <RibbonMenuItem
+        glyph="⇩"
+        label="Export as HTML"
+        title="Export as HTML (a standalone file; Print / Save as PDF is in the command palette)"
+        onPick={() => exportActiveTabHtml()}
+        onClose={onClose}
+      />
+      <RibbonMenuItem
+        glyph="⧉"
+        label="Copy all raw text"
+        title="Copy raw text (+ @path mentions for linked files, for the Claude Code CLI)"
+        onPick={copyRawText}
+        onClose={onClose}
+      />
+      <div className="ribbon-menu-divider" role="separator" />
+      <RibbonMenuItem
+        glyph="⚙"
+        label="Settings"
+        shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
+        onPick={() => uiStore.getState().openSettings()}
+        onClose={onClose}
+      />
+    </div>
+  );
 }
 
 function RibbonButton({
@@ -275,9 +390,12 @@ export function Ribbon() {
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
   );
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   return (
     <div className="ribbon">
       <div className="ribbon-left">
+        {/* A folder reads as "files"; the outline button uses a heading-list
+            icon so the two panel toggles aren't mirror images of each other. */}
         <button
           className="ribbon-btn ribbon-btn-lg"
           aria-label="Toggle file explorer"
@@ -285,45 +403,34 @@ export function Ribbon() {
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => uiStore.getState().toggleExplorer()}
         >
+          <svg
+            className="ribbon-icon"
+            viewBox="0 0 20 20"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinejoin="round"
+          >
+            <path d="M2.7 15.3V4.7h4.6l1.7 2.2h8.3v8.4z" />
+            <path d="M2.7 6.9h14.6" />
+          </svg>
+        </button>
+        <button
+          className="ribbon-btn ribbon-btn-lg"
+          aria-label="Menu"
+          aria-haspopup="menu"
+          aria-expanded={menuAnchor != null}
+          title="Menu"
+          onMouseDown={(e) => e.preventDefault()}
+          // Keep the window pointerdown dismiss handler from instantly
+          // re-closing the menu this click opens.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) =>
+            setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect())
+          }
+        >
           ☰
-        </button>
-        <button
-          className="ribbon-btn ribbon-btn-lg"
-          aria-label="Settings"
-          title="Settings (Ctrl+,)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => uiStore.getState().openSettings()}
-        >
-          ⚙
-        </button>
-        {/* Command palette — the only entry point on Android (no Ctrl+K there),
-            and a discoverable one on desktop. */}
-        <button
-          className="ribbon-btn ribbon-btn-lg"
-          aria-label="Command palette"
-          title="Command palette (Ctrl/Cmd+K)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => uiStore.getState().togglePalette()}
-        >
-          »
-        </button>
-        <button
-          className="ribbon-btn ribbon-btn-lg"
-          aria-label="Toggle outline"
-          title="Outline (Ctrl/Cmd+Shift+O)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => uiStore.getState().toggleOutline()}
-        >
-          ≣
-        </button>
-        <button
-          className="ribbon-btn ribbon-btn-lg"
-          aria-label="Search in workspaces"
-          title="Search in workspaces (Ctrl/Cmd+Shift+F)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => searchStore.getState().openSearch()}
-        >
-          🔍
         </button>
         {canGoBack && (
           <button
@@ -355,24 +462,28 @@ export function Ribbon() {
           ⤢
         </button>
         <button
-          className="ribbon-btn"
-          aria-label="Export as HTML"
-          title="Export as HTML (a standalone file; Print / Save as PDF is in the command palette)"
+          className="ribbon-btn ribbon-btn-lg"
+          aria-label="Toggle outline"
+          title="Outline (Ctrl/Cmd+Shift+O)"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => exportActiveTabHtml()}
+          onClick={() => uiStore.getState().toggleOutline()}
         >
-          ⇩
-        </button>
-        <button
-          className="ribbon-btn"
-          aria-label="Copy all raw text"
-          title="Copy raw text (+ @path mentions for linked files, for the Claude Code CLI)"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={copyRawText}
-        >
-          ⧉
+          <svg
+            className="ribbon-icon"
+            viewBox="0 0 20 20"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          >
+            <path d="M3 5h14" />
+            <path d="M6.5 10h10.5" />
+            <path d="M10 15h7" />
+          </svg>
         </button>
       </div>
+      {menuAnchor && <RibbonMenu anchor={menuAnchor} onClose={() => setMenuAnchor(null)} />}
     </div>
   );
 }

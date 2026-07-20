@@ -92,6 +92,10 @@ pub fn run() {
             .plugin(tauri_plugin_process::init())
     };
 
+    // Desktop-only: workspace file-watcher state (explorer auto-refresh).
+    #[cfg(desktop)]
+    let builder = builder.manage(commands::watch::WatchState::default());
+
     // Android-only: native Context APIs (external files dir now; content:// reads
     // and incoming intents later) that pure-Rust JNI can't reach in Tauri.
     #[cfg(target_os = "android")]
@@ -119,6 +123,8 @@ pub fn run() {
             commands::fs::delete_path,
             commands::fs::stat_path,
             commands::search::search_notes,
+            #[cfg(desktop)]
+            commands::watch::watch_dirs,
             #[cfg(target_os = "android")]
             commands::android::extract_docs_dir,
             #[cfg(target_os = "android")]

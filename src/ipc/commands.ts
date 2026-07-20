@@ -119,6 +119,11 @@ export const ipc = {
    *  `saf://` roots never come here — the frontend walks those itself. */
   searchNotes: (dir: string, query: string, maxResults: number) =>
     call<SearchHit[]>('search_notes', { dir, query, maxResults }),
+  /** Desktop only: replace the set of recursively-watched workspace roots.
+   *  Rust emits a debounced `fs-changed` event (payload: affected roots) when
+   *  anything under them changes. Not registered on Android — only call
+   *  behind a platform check. */
+  watchDirs: (dirs: string[]) => call<void>('watch_dirs', { dirs }),
   renamePath: (from: string, to: string) => call<void>('rename_path', { from, to }),
   deletePath: (path: string) => call<void>('delete_path', { path }),
   statPath: (path: string) => call<PathStat>('stat_path', { path }),

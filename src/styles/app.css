@@ -251,6 +251,34 @@
   background: var(--bg-hover);
 }
 
+/* The ribbon's ☰ app menu — a .tab-menu widened for shortcut hints. */
+.ribbon-menu {
+  min-width: 220px;
+}
+
+.ribbon-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.ribbon-menu-glyph {
+  display: inline-block;
+  min-width: 22px;
+}
+
+.ribbon-menu-shortcut {
+  opacity: 0.55;
+  font-size: 12px;
+}
+
+.ribbon-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
 /* ---- Ribbon ------------------------------------------------------------- */
 
 /* Shares the active tab's background (--bg) with no divider above it, so the
@@ -321,6 +349,13 @@
 .ribbon-btn-lg {
   font-size: 24px;
   padding: 0 6px;
+}
+
+/* SVG ribbon glyphs (panel toggles) — sized to match the 24px text glyphs
+   around them. */
+.ribbon-icon {
+  width: 21px;
+  height: 21px;
 }
 
 .ribbon-btn:hover {

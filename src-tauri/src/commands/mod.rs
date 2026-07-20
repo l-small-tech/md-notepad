@@ -2,3 +2,5 @@
 pub mod android;
 pub mod fs;
 pub mod search;
+#[cfg(desktop)]
+pub mod watch;

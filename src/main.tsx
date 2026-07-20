@@ -49,6 +49,7 @@ import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
   appendImagesToMd,
   createSessionController,
+  getDefaultWorkspacePath,
   importFilesInto,
   type ConfirmDialog,
   type OpenFilesDialog,
@@ -461,6 +462,48 @@ async function boot(): Promise<void> {
       .catch(() => {});
   };
   drainIncomingUris();
+
+  // Watch local workspace roots with OS file events (debounced in Rust) so the
+  // explorer refreshes when other apps or sync tools touch a workspace — no
+  // polling, no manual refresh needed. Synced (SAF) workspaces can't be
+  // watched and keep the manual button; Android skips all of this (the watch
+  // command isn't registered there). Re-armed whenever the workspace set or
+  // the notes dir changes.
+  if (!isAndroid()) {
+    let watchedSignature = '';
+    const syncWatchedDirs = (): void => {
+      const defaultPath = getDefaultWorkspacePath();
+      const roots = [
+        ...(defaultPath === null ? [] : [defaultPath]),
+        ...settingsStore
+          .getState()
+          .settings.workspaces.filter((w) => w.kind !== 'synced')
+          .map((w) => w.path),
+      ];
+      const signature = JSON.stringify(roots);
+      if (signature === watchedSignature) {
+        return;
+      }
+      watchedSignature = signature;
+      void ipc.watchDirs(roots).catch(() => {});
+    };
+    syncWatchedDirs();
+    settingsStore.subscribe(syncWatchedDirs);
+
+    // Trailing debounce on top of Rust's: a long burst (sync tool writing many
+    // files) still collapses into few re-lists. refreshExplorer is idempotent
+    // and cheap when the drawer is closed (the list effect early-returns).
+    let fsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    void listen('fs-changed', () => {
+      if (fsRefreshTimer !== null) {
+        clearTimeout(fsRefreshTimer);
+      }
+      fsRefreshTimer = setTimeout(() => {
+        fsRefreshTimer = null;
+        uiStore.getState().refreshExplorer();
+      }, 300);
+    }).catch(() => {});
+  }
 
   // Second-instance argv (user opens a .md while the app runs). Windows close
   // independently, so main may be gone by then — the Rust single-instance
