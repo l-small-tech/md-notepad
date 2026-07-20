@@ -4,8 +4,9 @@
  * global keydown listener in main.tsx); the body is a separate component so
  * its state mounts fresh on every open, like CommandPalette's.
  *
- * Layout: a toolbar (format segmented control · theme picker · light/dark
- * toggle) over a live preview iframe. The iframe renders the same standalone
+ * Layout: a toolbar (format segmented control · theme picker) over a live
+ * preview iframe. The light/dark mode isn't a control — it follows the app's
+ * current appearance (the `dark` seed), which picks each theme's palette mode. The iframe renders the same standalone
  * HTML the HTML export writes (sanitized preview render, inline styles, data:
  * images — CSP-safe via srcdoc, exactly like the old print path), rebuilt with
  * a short debounce whenever the theme selection changes. The preview is the
@@ -114,11 +115,18 @@ function ExportPreviewBody() {
             ))}
           </div>
 
-          <label className="export-theme-label">
+          {/* DOCX keeps standard Word styles, so the theme can't apply there. */}
+          <label
+            className={`export-theme-label${format === 'docx' ? ' export-theme-disabled' : ''}`}
+            title={
+              format === 'docx' ? 'DOCX uses standard Word styles — themes do not apply' : undefined
+            }
+          >
             Theme
             <select
               className="settings-control export-theme-select"
               value={themeId}
+              disabled={format === 'docx'}
               onChange={(e) => exportPreviewStore.getState().setThemeId(e.target.value)}
             >
               {!known && <option value={themeId}>Default</option>}
@@ -133,23 +141,6 @@ function ExportPreviewBody() {
               ))}
             </select>
           </label>
-
-          <div className="export-formats" role="group" aria-label="Light or dark">
-            <button
-              className={`export-segment${dark ? '' : ' export-segment-active'}`}
-              aria-pressed={!dark}
-              onClick={() => exportPreviewStore.getState().setDark(false)}
-            >
-              Light
-            </button>
-            <button
-              className={`export-segment${dark ? ' export-segment-active' : ''}`}
-              aria-pressed={dark}
-              onClick={() => exportPreviewStore.getState().setDark(true)}
-            >
-              Dark
-            </button>
-          </div>
         </div>
 
         {html === null ? (

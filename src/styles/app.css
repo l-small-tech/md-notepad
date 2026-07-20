@@ -1616,6 +1616,15 @@ body.explorer-dragging * {
   min-width: 160px;
 }
 
+/* Theme picker while DOCX is selected — themes don't apply to Word styles. */
+.export-theme-disabled {
+  opacity: 0.5;
+}
+
+.export-theme-select:disabled {
+  cursor: not-allowed;
+}
+
 /* The preview itself. White canvas behind the iframe so a short document
    doesn't show the app background through a transparent body. */
 .export-preview-frame {
