@@ -74,6 +74,10 @@ tab strip — while the tab strip keeps switching the first pane as usual.
 Both panes are full editors: you can type in either one.
 
 - **Resize**: drag the divider between the panes.
+- **Per-pane modes**: while split, right-click a tab to set that tab's mode
+  (**Raw**, **Rich**, or **Read**) — handy for editing in one pane while
+  reading in the other. (The mode buttons in the status bar always apply to
+  the first pane's tab.)
 - **Bring the pinned tab back**: click it in the tab strip — the two panes
   swap, so your click always wins.
 - **Back to one pane**: right-click any tab → **Close split** (closing the

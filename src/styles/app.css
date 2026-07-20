@@ -257,6 +257,19 @@
   background: var(--bg-hover);
 }
 
+.tab-menu-separator {
+  margin: 4px 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* Checkmark column for the mode radio group (split view): fixed width so
+   checked and unchecked labels stay aligned. */
+.tab-menu-check {
+  display: inline-block;
+  width: 1.1em;
+  color: var(--accent);
+}
+
 /* ---- Ribbon ------------------------------------------------------------- */
 
 /* Shares the active tab's background (--bg) with no divider above it, so the

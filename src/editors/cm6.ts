@@ -20,9 +20,9 @@ import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
-import { tags } from '@lezer/highlight';
+import { highlightStyle, listMarkStyling } from './markdown-highlight';
 import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
@@ -106,48 +106,6 @@ export interface Cm6Adapter extends EditorAdapter {
   /** Remove the anchor token for `id` (and one leading space), if present. */
   removeAnchor(id: string): void;
 }
-
-/**
- * Colors come from CSS variables so themes switch without touching CM6. The
- * markdown elements a theme plugin can recolor read a `--md-*` var (core/
- * theme-plugins.ts) with a fallback to their previous palette color, so an
- * unset key looks exactly as before. Per-level headings cascade
- * `--md-heading{n}` → `--md-heading` → `--fg`; the base `tags.heading` rule
- * keeps the bold weight and colors the `#` marker. Every fallback here matches
- * the Read pane's (preview.css) so raw and read stay the same colors even for
- * a theme with no `syntax` block.
- */
-const HEADING_TAGS = [
-  tags.heading1,
-  tags.heading2,
-  tags.heading3,
-  tags.heading4,
-  tags.heading5,
-  tags.heading6,
-];
-const highlightStyle = HighlightStyle.define([
-  // heading1..6 inherit `heading`, and CM6 applies only the most-specific
-  // matching rule — so each level must carry `fontWeight` itself (a bare
-  // `heading` rule wouldn't reach them). The base rule stays for any generic
-  // heading token and to document intent.
-  { tag: tags.heading, fontWeight: 'bold', color: 'var(--md-heading, var(--fg))' },
-  ...HEADING_TAGS.map((tag, i) => ({
-    tag,
-    fontWeight: 'bold',
-    color: `var(--md-heading${i + 1}, var(--md-heading, var(--fg)))`,
-  })),
-  { tag: tags.strong, fontWeight: 'bold', color: 'var(--md-bold, var(--fg))' },
-  { tag: tags.emphasis, fontStyle: 'italic', color: 'var(--md-italic, var(--fg))' },
-  { tag: tags.strikethrough, textDecoration: 'line-through', color: 'var(--md-strike, var(--fg))' },
-  { tag: [tags.monospace, tags.content], color: 'var(--md-code, var(--fg))' },
-  { tag: tags.link, color: 'var(--md-link, var(--accent))', textDecoration: 'underline' },
-  { tag: tags.url, color: 'var(--md-link, var(--accent))' },
-  // Read-pane list markers inherit the text color, so match that fallback.
-  { tag: tags.list, color: 'var(--md-list, var(--fg))' },
-  { tag: tags.quote, color: 'var(--md-quote, var(--fg-muted))' },
-  { tag: [tags.processingInstruction, tags.meta], color: 'var(--fg-muted)' },
-  { tag: tags.keyword, color: 'var(--accent)' },
-]);
 
 const baseTheme = EditorView.theme({
   '&': {
@@ -632,7 +590,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         // must win over the default keymap's own Enter/Backspace.
         bulletIndentKeymap,
         keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
-        markdown({ base: markdownLanguage }),
+        markdown({ base: markdownLanguage, extensions: [listMarkStyling] }),
         search({ top: true }),
         imagePasteHandler,
         copyEnrichHandler,
