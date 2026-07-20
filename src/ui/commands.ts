@@ -18,15 +18,13 @@ import {
   addWorkspace,
   closeAllTabs,
   closeTab,
-  exportActiveTabHtml,
   openDocs,
+  openExportPreview,
   openFile,
-  printActiveTab,
   saveActiveTab,
   saveActiveTabAs,
 } from './session';
 import { cycleFullscreen } from './fullscreen';
-import { isAndroid } from './platform';
 import { searchStore } from './stores/search';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
@@ -197,20 +195,11 @@ export function buildCommands(): AppCommand[] {
       { shortcut: modKey('S', { shift: true }), enabled: hasActiveTab },
     ),
     {
-      id: 'export-html',
-      title: 'Export as HTML',
-      keywords: ['standalone', 'share', 'web', 'save'],
+      id: 'export',
+      title: 'Export…',
+      keywords: ['pdf', 'docx', 'html', 'word', 'share', 'save', 'print', 'standalone', 'theme'],
       enabled: hasActiveTextTab,
-      run: () => exportActiveTabHtml(),
-    },
-    {
-      id: 'print-pdf',
-      title: 'Print / Save as PDF',
-      keywords: ['printer', 'pdf', 'paper', 'export'],
-      // Desktop only: Tauri 2 has no print API and Android's WebView offers no
-      // print dialog — Android users export as HTML instead.
-      enabled: () => !isAndroid() && hasActiveTextTab(),
-      run: () => printActiveTab(),
+      run: () => openExportPreview(),
     },
     // View modes
     ...MODE_ENTRIES.map(({ id, title, mode, key }) =>

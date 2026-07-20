@@ -29,7 +29,7 @@ import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
-import { exportActiveTabHtml, insertFileLink } from '../session';
+import { insertFileLink, openExportPreview } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
@@ -219,9 +219,9 @@ function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
       />
       <RibbonMenuItem
         glyph="⇩"
-        label="Export as HTML"
-        title="Export as HTML (a standalone file; Print / Save as PDF is in the command palette)"
-        onPick={() => exportActiveTabHtml()}
+        label="Export…"
+        title="Export as PDF, DOCX or HTML — opens a themed preview"
+        onPick={() => openExportPreview()}
         onClose={onClose}
       />
       <RibbonMenuItem

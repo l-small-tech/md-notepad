@@ -192,6 +192,16 @@ function modeDeclarations(palette: Palette, syntax: SyntaxPalette | undefined): 
 }
 
 /**
+ * Bare `--x: value;` declarations (palette + syntax) for one mode of a plugin —
+ * for injecting a chosen theme into the standalone export stylesheet, where no
+ * `data-theme`/`data-color-scheme` attributes exist to scope against. The
+ * caller wraps them in its own `:root { … }` block.
+ */
+export function themeModeDeclarations(plugin: ThemePlugin, mode: 'light' | 'dark'): string {
+  return modeDeclarations(plugin[mode], plugin.syntax?.[mode]);
+}
+
+/**
  * Render a plugin to the CSS the app injects: a light block scoped
  * `:not([data-theme='dark'])` plus a `[data-theme='dark']` block, then the
  * verbatim `css`. base.css signals dark with `data-theme='dark'` on <html> and

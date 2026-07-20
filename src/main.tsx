@@ -59,6 +59,7 @@ import {
   type SaveFileDialog,
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
+import { exportPreviewStore } from './ui/stores/export-preview';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { initProviders } from './ipc/provider';
@@ -313,6 +314,13 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 const platform = detectPlatform(navigator.platform);
 
 window.addEventListener('keydown', (event) => {
+  // Escape closes the export-preview modal (same custom-DOM-modal contract as
+  // the settings dialog below).
+  if (event.key === 'Escape' && exportPreviewStore.getState().open) {
+    event.preventDefault();
+    exportPreviewStore.getState().close();
+    return;
+  }
   // Escape closes the settings modal when it's open (standard modal behavior;
   // the dialog itself is custom DOM, so the one global listener owns this).
   if (event.key === 'Escape' && uiStore.getState().settingsOpen) {

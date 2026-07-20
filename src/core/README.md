@@ -16,6 +16,9 @@ do not rewrite them.
 | `settings.ts` | reference | defaults + `normalizeSettings` |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
 | `session/plan-flush.ts` | reference | pure flush planner + executor (I3, I4) |
+| `export/doc-source.ts` | feature | shared export vocabulary (`DocSource`, `ExportFormat`) |
+| `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |
+| `export/pdf.ts` | feature | markdown → .pdf via a pure pdfmake doc-definition (same parse/degrades as docx.ts; theme colors via `pdfThemeFromPlugin`; no print dialog) |
 | `session/debounce.ts` | reference | idle+maxWait debouncer with drain semantics |
 
 ## Contracts you must not break

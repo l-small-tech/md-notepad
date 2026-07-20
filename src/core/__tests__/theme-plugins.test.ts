@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { parseThemePlugin, themePluginToCss, themePluginsToCss } from '../theme-plugins';
+import {
+  parseThemePlugin,
+  themeModeDeclarations,
+  themePluginToCss,
+  themePluginsToCss,
+} from '../theme-plugins';
 import { BUILT_IN_THEMES } from '../theme-seeds';
 
 describe('parseThemePlugin', () => {
@@ -169,5 +174,35 @@ describe('themePluginToCss', () => {
     for (const theme of BUILT_IN_THEMES) {
       expect(css).toContain(`data-color-scheme='${theme.id}'`);
     }
+  });
+});
+
+describe('themeModeDeclarations', () => {
+  const plugin = parseThemePlugin('exp', {
+    light: { bg: '#fff', accent: '#00703c' },
+    dark: { bg: '#000' },
+    syntax: { light: { heading: '#123123', link: '#0000ff' }, dark: {} },
+  })!;
+
+  test('emits bare declarations (no selector) for the requested mode', () => {
+    const light = themeModeDeclarations(plugin, 'light');
+    expect(light).toContain('--bg: #fff;');
+    expect(light).toContain('--accent: #00703c;');
+    expect(light).toContain('--md-heading: #123123;');
+    expect(light).toContain('--md-link: #0000ff;');
+    expect(light).not.toContain(':root');
+    expect(light).not.toContain('{');
+  });
+
+  test('modes are independent; missing keys are simply absent', () => {
+    const dark = themeModeDeclarations(plugin, 'dark');
+    expect(dark).toContain('--bg: #000;');
+    expect(dark).not.toContain('--accent');
+    expect(dark).not.toContain('--md-heading');
+  });
+
+  test('an empty mode yields an empty string', () => {
+    const bare = parseThemePlugin('bare', { light: { bg: '#eee' }, dark: {} })!;
+    expect(themeModeDeclarations(bare, 'dark')).toBe('');
   });
 });

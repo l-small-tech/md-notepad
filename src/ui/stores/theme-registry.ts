@@ -113,6 +113,22 @@ export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeOption[
   return [[...system, ...green], others].filter((group) => group.length > 0);
 }
 
+/**
+ * Theme groups for the export-preview dialog: the green built-ins first, then
+ * every other plugin — same partitioning as `themePickerGroups` but WITHOUT
+ * the System entry (an export must name a concrete plugin; the dialog's own
+ * Light/Dark toggle picks the mode).
+ */
+export function exportThemeGroups(plugins: readonly ThemePlugin[]): ThemeOption[][] {
+  const pluginOptions = themePluginOptions(plugins);
+  const byId = new Map(pluginOptions.map((o) => [o.value, o]));
+  const green = GREEN_THEME_IDS.map((id) => byId.get(id)).filter(
+    (o): o is ThemeOption => o !== undefined,
+  );
+  const others = pluginOptions.filter((o) => !GREEN_THEME_IDS.includes(o.value));
+  return [green, others].filter((group) => group.length > 0);
+}
+
 /** True when `value` selects a built-in light/dark mode (vs a plugin id). */
 export function isAppearanceMode(value: string): value is 'system' | 'light' | 'dark' {
   return APPEARANCE_MODE_IDS.has(value);

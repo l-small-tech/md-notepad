@@ -7,6 +7,7 @@
  * `createSessionController` wires to the real implementations.
  */
 
+import type { DocSource } from '../../core/export/doc-source';
 import { dirName } from '../../core/session/plan-flush';
 import type { PersistedTab } from '../../core/session/plan-flush';
 import { appendMentions } from '../../core/link-mentions';
@@ -154,17 +155,33 @@ let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
 let changeNotesDirDispatch: () => void = () => {};
 
-let exportHtmlDispatch: () => void = () => {};
-let printDispatch: () => void = () => {};
+let openExportPreviewDispatch: () => void = () => {};
+let openExportPreviewForFileDispatch: (path: string) => void = () => {};
+let runExportFromPreviewDispatch: () => Promise<void> = async () => {};
+let buildExportPreviewHtmlDispatch: (
+  source: DocSource,
+  themeId: string,
+  dark: boolean,
+) => Promise<string> = async () => {
+  throw new Error('not booted');
+};
 
 export function setOpenFileDispatch(fn: () => void): void {
   openFileDispatch = fn;
 }
-export function setExportActiveTabHtmlDispatch(fn: () => void): void {
-  exportHtmlDispatch = fn;
+export function setOpenExportPreviewDispatch(fn: () => void): void {
+  openExportPreviewDispatch = fn;
 }
-export function setPrintActiveTabDispatch(fn: () => void): void {
-  printDispatch = fn;
+export function setOpenExportPreviewForFileDispatch(fn: (path: string) => void): void {
+  openExportPreviewForFileDispatch = fn;
+}
+export function setRunExportFromPreviewDispatch(fn: () => Promise<void>): void {
+  runExportFromPreviewDispatch = fn;
+}
+export function setBuildExportPreviewHtmlDispatch(
+  fn: (source: DocSource, themeId: string, dark: boolean) => Promise<string>,
+): void {
+  buildExportPreviewHtmlDispatch = fn;
 }
 export function setSaveDispatch(fn: () => void): void {
   saveDispatch = fn;
@@ -346,14 +363,28 @@ export function setRenameTabDispatch(fn: (id: string, newName: string) => void):
 export function openFile(): void {
   openFileDispatch();
 }
-/** Ribbon / palette → controller: export the active tab as a standalone .html. */
-export function exportActiveTabHtml(): void {
-  exportHtmlDispatch();
+/** Ribbon / palette → controller: open the export preview on the active tab. */
+export function openExportPreview(): void {
+  openExportPreviewDispatch();
 }
-/** Palette → controller: print the active tab (the WebView2 print dialog,
- *  which includes Save as PDF). Desktop only. */
-export function printActiveTab(): void {
-  printDispatch();
+/** FileExplorer context menu → controller: open the export preview on a .md
+ *  file by path (an open tab's live text wins over the on-disk content). */
+export function openExportPreviewForFile(path: string): void {
+  openExportPreviewForFileDispatch(path);
+}
+/** ExportPreviewDialog → controller: run the dialog's current selection.
+ *  Resolves when the export finished (the dialog closes itself on success). */
+export function runExportFromPreview(): Promise<void> {
+  return runExportFromPreviewDispatch();
+}
+/** ExportPreviewDialog → controller: the themed standalone HTML for the
+ *  preview iframe. */
+export function buildExportPreviewHtml(
+  source: DocSource,
+  themeId: string,
+  dark: boolean,
+): Promise<string> {
+  return buildExportPreviewHtmlDispatch(source, themeId, dark);
 }
 export function saveActiveTab(): void {
   saveDispatch();

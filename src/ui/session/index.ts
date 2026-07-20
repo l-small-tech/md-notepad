@@ -40,13 +40,13 @@ import {
   setAddCloudWorkspaceDispatch,
   setAddWorkspaceDispatch,
   setAppendImagesDispatch,
+  setBuildExportPreviewHtmlDispatch,
   setChangeNotesDirDispatch,
   setCloseAllTabsDispatch,
   setCreateNewFileDispatch,
   setCreateNewFolderDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
-  setExportActiveTabHtmlDispatch,
   setImportDocumentDispatch,
   setImportFilesDispatch,
   setImportStatusDispatch,
@@ -57,16 +57,18 @@ import {
   setMoveEntryDispatch,
   setMoveTabToNewWindowDispatch,
   setOpenDocsDispatch,
+  setOpenExportPreviewDispatch,
+  setOpenExportPreviewForFileDispatch,
   setOpenFileDispatch,
   setOpenNotePathDispatch,
   setOpenNotePathPinnedDispatch,
-  setPrintActiveTabDispatch,
   setReadImageDispatch,
   setReloadDispatch,
   setRefreshWorkspacesDispatch,
   setRemoveSyncedWorkspaceDispatch,
   setRenameEntryDispatch,
   setRenameTabDispatch,
+  setRunExportFromPreviewDispatch,
   setSaveAsDispatch,
   setSaveDispatch,
   setSavePastedFileDispatch,
@@ -90,8 +92,8 @@ export {
   createNewFileIn,
   createNewFolderIn,
   deleteExplorerEntry,
+  buildExportPreviewHtml,
   enrichCopiedText,
-  exportActiveTabHtml,
   getCursor,
   getDefaultWorkspacePath,
   importDocumentInto,
@@ -105,18 +107,20 @@ export {
   moveTabToNewWindow,
   noteCursor,
   openDocs,
+  openExportPreview,
+  openExportPreviewForFile,
   openFile,
   openNotePath,
   openNotePathAtLine,
   openNotePathPinned,
   pathKey,
-  printActiveTab,
   refreshWorkspaces,
   reloadTab,
   removeWorkspace,
   renameExplorerEntry,
   renameTab,
   requestChangeNotesDir,
+  runExportFromPreview,
   saveActiveTab,
   saveActiveTabAs,
   savePastedFileInto,
@@ -272,8 +276,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setMoveTabToNewWindowDispatch((id, pos) => void windows.moveTabOut(id, pos));
   }
   setOpenFileDispatch(() => void openSave.openFileDialog());
-  setExportActiveTabHtmlDispatch(() => void exporter.exportActiveTabHtml());
-  setPrintActiveTabDispatch(() => void exporter.printActiveTab());
+  setOpenExportPreviewDispatch(() => exporter.openExportPreview());
+  setOpenExportPreviewForFileDispatch((path) => void exporter.openExportPreviewForFile(path));
+  setRunExportFromPreviewDispatch(exporter.runExportFromPreview);
+  setBuildExportPreviewHtmlDispatch(exporter.buildPreviewHtml);
   setSaveDispatch(() => void openSave.saveActive());
   setSaveAsDispatch(() => void openSave.saveAsActive());
   setReloadDispatch((id) => void openSave.reloadFromDisk(id));

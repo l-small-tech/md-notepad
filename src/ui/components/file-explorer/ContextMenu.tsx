@@ -10,12 +10,14 @@
 
 import { type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { isMarkdownPath } from '../../../core/text-files';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import {
   createNewFolderIn,
   deleteExplorerEntry,
   importDocumentInto,
+  openExportPreviewForFile,
   removeWorkspace,
   setWorkspaceColor,
   type ExplorerEntry,
@@ -130,6 +132,21 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
       <>
         {renderRenameItem(props.entry)}
         {renderRevealItem(props.entry)}
+        {/* Export works on markdown only — other rows (.txt, images) omit it.
+            Opens the preview dialog (format + theme picked there); the file
+            need not be open — an open tab's live text wins over disk. */}
+        {isMarkdownPath(props.entry.name) && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              openExportPreviewForFile(props.entry.path);
+            }}
+          >
+            Export…
+          </button>
+        )}
         {renderDeleteItem(props.entry)}
       </>,
     );

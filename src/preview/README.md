@@ -9,6 +9,7 @@ tested — build `pipeline.ts` beside it.
 | --- | --- |
 | `pipeline.ts` | the unified processor (`renderMarkdownToHtml`) + `createRenderSequence`, the pure stale-completion guard |
 | `mermaid.ts` | lazy mermaid rendering (reference impl, M1-era) |
+| `export.ts` + `export.css` | standalone HTML export (`buildStandaloneHtml`): the same sanitized pipeline rendered into one self-contained file (inline stylesheet, images as data: URLs, mermaid pre-rendered to SVG). `export.css` only **consumes** theme variables (`var(--x, fallback)`, fallbacks = the built-in greens) and never defines one — the exporter (`ui/session/export.ts`) appends a generated `:root { --x: v; … }` block for the chosen theme+mode, which therefore always wins. Keep new rules on that pattern. |
 | `pane.ts` | wires the two together into one live pane: debounced re-render on model change, the render-sequence guard, and the link-click policy. `EditorHost` (`src/ui/components/EditorHost.tsx`) calls `attachPreviewPane(host, model, { dark })` when a tab enters `split` mode and `dispose()`s it on the way out — same attach/dispose shape as an `EditorAdapter`, but it is not one: the preview never becomes a source of truth, so it needs no write-back guard and never participates in `ModeSync`. |
 
 ## Pipeline (build exactly this)
