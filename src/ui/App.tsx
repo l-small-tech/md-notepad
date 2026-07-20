@@ -40,9 +40,18 @@ export function App() {
     }
     let cancelled = false;
     void sync.whenIdle().then(() => {
-      if (!cancelled && tabsStore.getState().activeTabId === activeTabId) {
-        sync.focus();
+      if (cancelled || tabsStore.getState().activeTabId !== activeTabId) {
+        return;
       }
+      // Never yank focus out of an open text field. Opening a tab is async, so
+      // this can resolve after an inline rename input has taken focus (the
+      // explorer's "New file" does exactly that) — stealing it there would fire
+      // the input's blur-commit and cancel the rename the user never got to type.
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        return;
+      }
+      sync.focus();
     });
     return () => {
       cancelled = true;

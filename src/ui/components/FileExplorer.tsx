@@ -102,6 +102,11 @@ export function FileExplorer() {
   /** Entry whose context menu is open (workspace root, subfolder, or file), or null. */
   const [menuFor, setMenuFor] = useState<string | null>(null);
   /** Entry being renamed inline (its row shows an input instead), or null. */
+  // Path of the row being inline-renamed. Matched against rows by key, never by
+  // raw string: `createNewFileIn` builds its path with core's joinPath (`/`)
+  // while the listing comes back from the backend with `\` on Windows, so a
+  // raw compare would silently never match and the rename input would never
+  // appear on a freshly created file.
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Paste destination; null = the default workspace. */
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
@@ -125,6 +130,7 @@ export function FileExplorer() {
   const fileKey = (p: string) => p.replaceAll('\\', '/').toLowerCase();
   const openFileKeys = new Set((JSON.parse(openFilesSignature) as string[]).map(fileKey));
   const activeFileKey = activeFilePath === null ? null : fileKey(activeFilePath);
+  const isRenaming = (p: string) => renaming !== null && fileKey(renaming) === fileKey(p);
 
   const defaultPath = getDefaultWorkspacePath();
   const workspaces: WorkspaceView[] = [
@@ -358,7 +364,7 @@ export function FileExplorer() {
       entry.isDir ? (
         <div key={entry.path}>
           <div className="file-explorer-dir-row">
-            {renaming === entry.path ? (
+            {isRenaming(entry.path) ? (
               <div className="file-explorer-dir" style={{ paddingLeft: `${dirIndent(depth)}px` }}>
                 <span className="workspace-caret">{expandedDirs.has(entry.path) ? '▾' : '▸'}</span>
                 <RenameInput initial={entry.name} onDone={(v) => commitRename(entry, v)} />
@@ -404,7 +410,7 @@ export function FileExplorer() {
         </div>
       ) : (
         <div key={entry.path} className="file-explorer-dir-row">
-          {renaming === entry.path ? (
+          {isRenaming(entry.path) ? (
             <div className="file-explorer-item" style={indent}>
               <RenameInput
                 initial={stripExtension(entry.name)}
