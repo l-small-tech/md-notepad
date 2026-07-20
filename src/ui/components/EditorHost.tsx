@@ -53,10 +53,7 @@ function clampSplitRatio(ratio: number): number {
   return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, ratio));
 }
 
-/** Which work-area pane a host renders in, or null when hidden (see WorkSplit). */
-export type HostPane = 'primary' | 'secondary' | null;
-
-function EditorHostImpl({ tabId, pane }: { tabId: string; pane: HostPane }) {
+function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const previewHostRef = useRef<HTMLDivElement>(null);
@@ -219,9 +216,8 @@ function EditorHostImpl({ tabId, pane }: { tabId: string; pane: HostPane }) {
   return (
     <div
       className="editor-host"
-      style={{ display: pane !== null ? 'flex' : 'none' }}
+      style={{ display: active ? 'flex' : 'none' }}
       data-mode={mode satisfies EditorMode}
-      data-pane={pane ?? undefined}
     >
       <ConflictBanner tabId={tabId} />
       <div ref={rowRef} className="editor-row">

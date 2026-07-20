@@ -14,9 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../session';
 import { detectPlatform } from '../keymap';
 import { computeTabWindow } from '../tab-overflow';
-import type { EditorMode } from '../../core/types';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
-import { splitTab, uiStore, useUiStore } from '../stores/ui';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
 
@@ -93,9 +91,6 @@ function Tab({
   onMenu: (tabId: string, x: number, y: number) => void;
 }) {
   const renaming = useTabsStore((s) => s.renamingTabId === tab.id);
-  // Pinned into the secondary work-area pane (tab menu → Split) — marked so
-  // the strip shows where that pane's content lives.
-  const pinnedSplit = useUiStore((s) => s.workSplit?.tabId === tab.id);
   const store = tabsStore.getState;
   const label = tabDisplayTitle(tab);
   // Long-press (touch) opens the same menu right-click does on the desktop.
@@ -110,9 +105,7 @@ function Tab({
 
   return (
     <div
-      className={`tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}${
-        pinnedSplit ? ' tab-split' : ''
-      }`}
+      className={`tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}`}
       role="tab"
       aria-selected={active}
       title={tab.filePath ?? label}
@@ -215,29 +208,9 @@ function Tab({
   );
 }
 
-/**
- * The mode group shown in the context menu while the work area is split (the
- * status-bar segments only reach the ACTIVE tab, so this is how the pinned
- * pane's mode is changed). Source+preview is deliberately absent: it's cramped
- * in a half pane and its "Split" name would collide with the split items
- * right above.
- */
-const MENU_MODES: { mode: EditorMode; label: string }[] = [
-  { mode: 'raw', label: 'Raw' },
-  { mode: 'wysiwyg', label: 'Rich' },
-  { mode: 'read', label: 'Read' },
-];
-
 function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
   // Transient menu — a one-shot store read is fine (it closes on any change).
-  const tab = tabsStore.getState().tabs.find((t) => t.id === menu.tabId);
-  const isPreview = tab?.preview ?? false;
-  // Splitting needs a second tab to pair with; with one tab the items hide.
-  const canSplit = tabsStore.getState().tabs.length >= 2;
-  const isSplit = uiStore.getState().workSplit !== null;
-  // Per-tab mode while split — only for tabs that have modes at all.
-  const showModes =
-    isSplit && tab !== undefined && tab.kind !== 'image' && tab.kind !== 'import' && !tab.readOnly;
+  const isPreview = tabsStore.getState().tabs.find((t) => t.id === menu.tabId)?.preview ?? false;
   useEffect(() => {
     const close = () => onClose();
     // Any outside interaction, Escape, or scroll dismisses the menu.
@@ -298,63 +271,6 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Move to new window
       </button>
-      {canSplit && (
-        <button
-          className="tab-menu-item"
-          role="menuitem"
-          onClick={() => {
-            splitTab(menu.tabId, 'right');
-            onClose();
-          }}
-        >
-          Split right
-        </button>
-      )}
-      {canSplit && (
-        <button
-          className="tab-menu-item"
-          role="menuitem"
-          onClick={() => {
-            splitTab(menu.tabId, 'down');
-            onClose();
-          }}
-        >
-          Split down
-        </button>
-      )}
-      {isSplit && (
-        <button
-          className="tab-menu-item"
-          role="menuitem"
-          onClick={() => {
-            uiStore.getState().setWorkSplit(null);
-            onClose();
-          }}
-        >
-          Close split
-        </button>
-      )}
-      {showModes && (
-        <>
-          <div className="tab-menu-separator" role="separator" />
-          {MENU_MODES.map(({ mode, label }) => (
-            <button
-              key={mode}
-              className="tab-menu-item"
-              role="menuitemradio"
-              aria-checked={tab.mode === mode}
-              onClick={() => {
-                tabsStore.getState().setMode(menu.tabId, mode);
-                onClose();
-              }}
-            >
-              <span className="tab-menu-check">{tab.mode === mode ? '✓' : ''}</span>
-              {label}
-            </button>
-          ))}
-          <div className="tab-menu-separator" role="separator" />
-        </>
-      )}
       <button
         className="tab-menu-item"
         role="menuitem"

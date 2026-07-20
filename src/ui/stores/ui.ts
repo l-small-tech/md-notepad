@@ -22,18 +22,6 @@ export interface CursorReadout {
 /** Full-screen view stage — see `fullscreenView` below. */
 export type FullscreenStage = 'normal' | 'window' | 'screen';
 
-/**
- * Work-area split (tab context menu → Split right / Split down). `tabId` is
- * the tab PINNED into the secondary pane; the tab strip keeps driving the
- * primary pane exactly as before. `'right'` puts the pinned pane beside the
- * primary (vertical divider), `'down'` below it (horizontal divider).
- * Session-only, like the explorer width — not persisted.
- */
-export interface WorkSplit {
-  tabId: string;
-  orientation: 'right' | 'down';
-}
-
 export interface UiState {
   notice: string | null;
   cursor: CursorReadout | null;
@@ -56,8 +44,6 @@ export interface UiState {
    * owned by `../fullscreen`, which is the only writer.
    */
   fullscreenView: FullscreenStage;
-  /** Work-area split, or null when the work area is a single pane. */
-  workSplit: WorkSplit | null;
   /** Show a status-bar notice that auto-clears after `ms` (default 6s). */
   showNotice: (message: string, ms?: number) => void;
   clearNotice: () => void;
@@ -69,7 +55,6 @@ export interface UiState {
   setDropTarget: (dir: string | null) => void;
   refreshExplorer: () => void;
   setFullscreenView: (stage: FullscreenStage) => void;
-  setWorkSplit: (split: WorkSplit | null) => void;
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -82,7 +67,6 @@ export const uiStore = createStore<UiState>()((set) => ({
   dropTargetDir: null,
   explorerRefresh: 0,
   fullscreenView: 'normal',
-  workSplit: null,
 
   showNotice(message, ms = 6000) {
     if (noticeTimer !== null) {
@@ -134,59 +118,6 @@ export const uiStore = createStore<UiState>()((set) => ({
   setFullscreenView(stage) {
     set({ fullscreenView: stage });
   },
-
-  setWorkSplit(split) {
-    set({ workSplit: split });
-  },
 }));
-
-/**
- * Split a tab into the secondary work-area pane. If the tab is currently the
- * active (primary) one, the primary hands off to a neighbor first — one tab
- * can never show in both panes (each tab has exactly one mounted editor, I7).
- * With a single open tab there is nothing to pair it with, so this no-ops
- * (the menu hides the Split items in that case too).
- */
-export function splitTab(tabId: string, orientation: WorkSplit['orientation']): void {
-  const ts = tabsStore.getState();
-  const idx = ts.tabs.findIndex((t) => t.id === tabId);
-  if (idx < 0) {
-    return;
-  }
-  if (ts.activeTabId === tabId) {
-    const neighbor = ts.tabs[idx + 1] ?? ts.tabs[idx - 1];
-    if (!neighbor) {
-      return;
-    }
-    ts.activateTab(neighbor.id);
-  }
-  uiStore.getState().setWorkSplit({ tabId, orientation });
-}
-
-/**
- * Keep the split coherent as tabs come and go:
- *  - the pinned tab was closed/detached → drop the split;
- *  - the pinned tab became the ACTIVE tab (tab-strip click, Ctrl+Tab, …) →
- *    swap panes, pinning the previously active tab instead, so the selection
- *    is honored in the primary pane without ever double-mounting a tab. If
- *    the previous active tab is gone too, drop the split.
- */
-let lastActiveTabId = tabsStore.getState().activeTabId;
-tabsStore.subscribe((ts) => {
-  const prevActive = lastActiveTabId;
-  lastActiveTabId = ts.activeTabId;
-  const split = uiStore.getState().workSplit;
-  if (!split) {
-    return;
-  }
-  if (!ts.tabs.some((t) => t.id === split.tabId)) {
-    uiStore.getState().setWorkSplit(null);
-    return;
-  }
-  if (ts.activeTabId === split.tabId) {
-    const prevStillOpen = prevActive !== split.tabId && ts.tabs.some((t) => t.id === prevActive);
-    uiStore.getState().setWorkSplit(prevStillOpen ? { ...split, tabId: prevActive } : null);
-  }
-});
 
 export const useUiStore = <T>(selector: (s: UiState) => T): T => useStore(uiStore, selector);

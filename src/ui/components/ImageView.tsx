@@ -12,7 +12,7 @@ import { memo, useEffect, useState } from 'react';
 import { loadImageDataUrl } from '../session';
 import { useTabsStore } from '../stores/tabs';
 
-function ImageViewImpl({ tabId, pane }: { tabId: string; pane: 'primary' | 'secondary' | null }) {
+function ImageViewImpl({ tabId, active }: { tabId: string; active: boolean }) {
   const filePath = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.filePath ?? null);
   // Keyed by the path it was loaded for, so a rename shows "Loading…" (a
   // stale-path entry) instead of the previous image; url null = load failed.
@@ -42,11 +42,7 @@ function ImageViewImpl({ tabId, pane }: { tabId: string; pane: 'primary' | 'seco
   const src = loaded !== null && loaded.path === filePath ? loaded.url : undefined;
 
   return (
-    <div
-      className="editor-host image-host"
-      style={{ display: pane !== null ? 'flex' : 'none' }}
-      data-pane={pane ?? undefined}
-    >
+    <div className="editor-host image-host" style={{ display: active ? 'flex' : 'none' }}>
       <div className="image-view" tabIndex={0}>
         {src === undefined ? (
           <div className="image-view-status">Loading…</div>
