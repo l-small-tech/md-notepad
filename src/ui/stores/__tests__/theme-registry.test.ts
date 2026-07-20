@@ -21,29 +21,32 @@ const plugin = (id: string, name = id): ThemePlugin => ({
 const PLUGINS = [
   plugin('light-green', 'Light Green'),
   plugin('dark-green', 'Dark Green'),
-  plugin('nord', 'Nord'),
-  plugin('solarized', 'Solarized'),
+  plugin('nord-light', 'Nord Light'),
+  plugin('monokai', 'Monokai'),
+  plugin('my-theme', 'My Theme'),
 ];
 
 describe('exportThemeGroups', () => {
-  test('greens first, then the other plugins — no System entry', () => {
+  test('labeled Light / Dark / Custom groups, seed order first — no System entry', () => {
     const groups = exportThemeGroups(PLUGINS);
-    expect(groups).toHaveLength(2);
-    expect(groups[0]!.map((o) => o.value)).toEqual(['light-green', 'dark-green']);
-    expect(groups[1]!.map((o) => o.value)).toEqual(['nord', 'solarized']);
-    expect(groups.flat().some((o) => o.value === 'system')).toBe(false);
+    expect(groups.map((g) => g.label)).toEqual(['Light', 'Dark', 'Custom']);
+    expect(groups[0]!.options.map((o) => o.value)).toEqual(['light-green', 'nord-light']);
+    expect(groups[1]!.options.map((o) => o.value)).toEqual(['dark-green', 'monokai']);
+    expect(groups[2]!.options.map((o) => o.value)).toEqual(['my-theme']);
+    expect(groups.some((g) => g.options.some((o) => o.value === 'system'))).toBe(false);
   });
 
   test('reserved ids are filtered; empty groups are dropped', () => {
-    const groups = exportThemeGroups([plugin('nord'), plugin('dark')]);
+    const groups = exportThemeGroups([plugin('monokai'), plugin('dark')]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.map((o) => o.value)).toEqual(['nord']);
+    expect(groups[0]!.label).toBe('Dark');
+    expect(groups[0]!.options.map((o) => o.value)).toEqual(['monokai']);
     expect(exportThemeGroups([])).toEqual([]);
   });
 
   test('mirrors themePickerGroups minus the System entry', () => {
-    const picker = themePickerGroups(PLUGINS).flat();
-    const exportable = exportThemeGroups(PLUGINS).flat();
+    const picker = themePickerGroups(PLUGINS).flatMap((g) => g.options);
+    const exportable = exportThemeGroups(PLUGINS).flatMap((g) => g.options);
     expect(picker.filter((o) => o.value !== 'system')).toEqual(exportable);
   });
 });

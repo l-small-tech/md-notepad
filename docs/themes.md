@@ -8,12 +8,17 @@ Pick a theme in the **☰ menu → Themes** — every installed theme is listed
 there, with a ✓ on the one you're using, and picking one applies it instantly.
 (The same list is also in **Settings → Theme**.) It starts with **System**
 (**Light Green** when your computer is in light mode, **Dark Green** in dark
-mode, switching live when it changes), then — below a divider — every theme: six ready-made examples ship with the
-app — four popular community schemes (**Solarized**, **Nord**, **Dracula**,
-and **Monokai**) plus two originals, **Light Green** and **Dark Green** (a
-fresh, forest-green pair). Each community theme comes in both a light and a
-dark version, and the app automatically uses the right one based on your
-computer's light/dark setting.
+mode, switching live when it changes), then the themes in three groups:
+
+- **Light** — **Light Green**, **Paper** (warm sepia stationery),
+  **Solarized Light**, and **Nord Light**.
+- **Dark** — **Dark Green**, **Solarized Dark**, **Nord Dark**, **Dracula**,
+  and **Monokai**.
+- **Custom** — any theme you add or create yourself.
+
+Unlike **System**, each named theme keeps its one look — light stays light and
+dark stays dark, whatever your computer's light/dark setting. You pick the
+mood, not the machine.
 
 The best part: **themes are just small files you can edit or create yourself** —
 no programming needed, and an AI assistant can write a whole theme for you in
@@ -32,7 +37,7 @@ theme list in **☰ menu → Themes** are the buttons for managing it:
   changes show up right away.
 - **Help** — opens this page.
 
-The six example themes live here too — open any of them to see exactly how a
+The nine example themes live here too — open any of them to see exactly how a
 theme is built, or copy one as a starting point.
 
 ## What a theme file looks like

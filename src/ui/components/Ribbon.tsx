@@ -205,7 +205,8 @@ function ThemesSubmenu({ onBack, onClose }: { onBack: () => void; onClose: () =>
       {groups.map((group, gi) => (
         <Fragment key={gi}>
           {gi > 0 && <div className="ribbon-menu-divider" role="separator" />}
-          {group.map((option) => (
+          {group.label !== null && <div className="ribbon-menu-heading">{group.label}</div>}
+          {group.options.map((option) => (
             <RibbonMenuItem
               key={option.value}
               // The ✓ column is the glyph slot, so checked and unchecked rows

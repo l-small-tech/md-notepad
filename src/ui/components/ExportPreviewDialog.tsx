@@ -81,7 +81,7 @@ function ExportPreviewBody() {
 
   // An id the registry no longer knows still needs a visible entry, or the
   // select would silently show (but not apply) the first option.
-  const known = groups.some((group) => group.some((o) => o.value === themeId));
+  const known = groups.some((group) => group.options.some((o) => o.value === themeId));
 
   return (
     <div
@@ -131,8 +131,8 @@ function ExportPreviewBody() {
             >
               {!known && <option value={themeId}>Default</option>}
               {groups.map((group, i) => (
-                <optgroup key={i} label={i === 0 ? 'Built-in' : 'Themes'}>
-                  {group.map((o) => (
+                <optgroup key={i} label={group.label ?? 'Themes'}>
+                  {group.options.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>

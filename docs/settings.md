@@ -9,11 +9,12 @@ remembered. Press Esc or click outside the panel to close it.
 - **Theme** — one list that combines the light/dark mode and the color scheme:
   - **System** follows your computer's light/dark setting, switching live
     when it changes: **Light Green** in light mode, **Dark Green** in dark.
-  - Below the divider are the **themes**: **Solarized**, **Nord**, **Dracula**,
-    **Monokai**, **Light Green**, and **Dark Green** ship as example *theme
-    files* you can edit — and you can add your own. Each theme has both a light
-    and a dark version and **follows your computer's light/dark setting
-    automatically**.
+  - Below it the themes are grouped **Light** (**Light Green**, **Paper**,
+    **Solarized Light**, **Nord Light**), **Dark** (**Dark Green**,
+    **Solarized Dark**, **Nord Dark**, **Dracula**, **Monokai**), and
+    **Custom** (themes you add yourself). They all ship as example *theme
+    files* you can edit, and each keeps its one look — light or dark —
+    whatever your computer's light/dark setting.
 
   See **[Themes](themes.md)** for how to make your own (an AI can write one for
   you in seconds) — a theme can set the whole palette *and* recolor individual

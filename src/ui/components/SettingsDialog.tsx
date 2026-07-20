@@ -146,18 +146,21 @@ export function SettingsDialog() {
               value={themeValue}
               onChange={(e) => selectTheme(e.target.value)}
             >
-              {/* System + green themes, then other plugins — one divider
-                  between each non-empty group. */}
-              {themeGroups.map((group, gi) => (
-                <Fragment key={gi}>
-                  {gi > 0 && <option disabled>──────────</option>}
-                  {group.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Fragment>
-              ))}
+              {/* System, then the labeled Light / Dark / Custom sections. */}
+              {themeGroups.map((group, gi) => {
+                const options = group.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ));
+                return group.label === null ? (
+                  <Fragment key={gi}>{options}</Fragment>
+                ) : (
+                  <optgroup key={gi} label={group.label}>
+                    {options}
+                  </optgroup>
+                );
+              })}
               {/* A saved theme whose file is missing still shows as the current
                   value (falls back to the default palette visually). */}
               {pluginMissing && (

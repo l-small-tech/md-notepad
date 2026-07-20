@@ -20,6 +20,7 @@ import { useStore } from 'zustand';
 import type { ThemePlugin } from '../../core/theme-plugins';
 import { loadThemePlugins } from '../../ipc/theme-loader';
 import { DEFAULT_COLOR_SCHEME } from '../../core/types';
+import { DARK_THEME_IDS, LIGHT_THEME_IDS } from '../../core/theme-seeds';
 
 export interface ThemeOption {
   value: string;
@@ -81,11 +82,6 @@ const APPEARANCE_MODE_IDS = new Set(APPEARANCE_MODES.map((m) => m.value));
  *  built-in palette nor show up as a redundant, unreachable picker entry. */
 const RESERVED_IDS = new Set<string>([...APPEARANCE_MODE_IDS, DEFAULT_COLOR_SCHEME]);
 
-/** Built-in green themes, headed up with `System` because the default palette
- *  (base.css) is itself green-tinted — so these are the "system default" family.
- *  Order here is the on-screen order: Light Green, then Dark Green. */
-export const GREEN_THEME_IDS: readonly string[] = ['light-green', 'dark-green'];
-
 /** Plugin options for the Theme picker; skips ids that collide with the
  *  built-in system/light/dark modes (they'd be unreachable in the dropdown). */
 export function themePluginOptions(plugins: readonly ThemePlugin[]): ThemeOption[] {
@@ -94,39 +90,49 @@ export function themePluginOptions(plugins: readonly ThemePlugin[]): ThemeOption
     .map((p) => ({ value: p.id, label: p.name }));
 }
 
-/**
- * Partitioned option groups for the Theme picker, top → bottom, rendered with a
- * divider between groups:
- *   1. `System` + the green themes (the green-tinted system defaults)
- *   2. every other plugin (Solarized, Nord, …), in folder order
- * Empty groups are dropped so no stray divider is drawn. The forced plain
- * Light/Dark modes are deliberately absent (see APPEARANCE_MODES).
- */
-export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeOption[][] {
-  const pluginOptions = themePluginOptions(plugins);
+/** A labeled section of the Theme picker; `label: null` renders as a plain,
+ *  heading-less group (used for the lone System entry). */
+export interface ThemeGroup {
+  label: string | null;
+  options: ThemeOption[];
+}
+
+/** Split picker options into the labeled Light / Dark / Custom sections: the
+ *  built-in ids in their seeded order, then everything else (user-authored
+ *  themes) in folder order. Empty groups are dropped. */
+function partitionByAppearance(pluginOptions: ThemeOption[]): ThemeGroup[] {
   const byId = new Map(pluginOptions.map((o) => [o.value, o]));
-  const green = GREEN_THEME_IDS.map((id) => byId.get(id)).filter(
-    (o): o is ThemeOption => o !== undefined,
-  );
-  const others = pluginOptions.filter((o) => !GREEN_THEME_IDS.includes(o.value));
-  const system = APPEARANCE_MODES.filter((m) => m.value === 'system');
-  return [[...system, ...green], others].filter((group) => group.length > 0);
+  const pick = (ids: readonly string[]) =>
+    ids.map((id) => byId.get(id)).filter((o): o is ThemeOption => o !== undefined);
+  const builtIn = new Set([...LIGHT_THEME_IDS, ...DARK_THEME_IDS]);
+  return [
+    { label: 'Light', options: pick(LIGHT_THEME_IDS) },
+    { label: 'Dark', options: pick(DARK_THEME_IDS) },
+    { label: 'Custom', options: pluginOptions.filter((o) => !builtIn.has(o.value)) },
+  ].filter((group) => group.options.length > 0);
 }
 
 /**
- * Theme groups for the export-preview dialog: the green built-ins first, then
- * every other plugin — same partitioning as `themePickerGroups` but WITHOUT
- * the System entry (an export must name a concrete plugin; the dialog's own
- * Light/Dark toggle picks the mode).
+ * Labeled option groups for the Theme picker, top → bottom:
+ *   1. `System` (the built-in default palette, following the OS mode)
+ *   2. `Light` — the built-in light themes
+ *   3. `Dark` — the built-in dark themes
+ *   4. `Custom` — user-authored themes, in folder order
+ * Empty groups are dropped. The forced plain Light/Dark modes are deliberately
+ * absent (see APPEARANCE_MODES).
  */
-export function exportThemeGroups(plugins: readonly ThemePlugin[]): ThemeOption[][] {
-  const pluginOptions = themePluginOptions(plugins);
-  const byId = new Map(pluginOptions.map((o) => [o.value, o]));
-  const green = GREEN_THEME_IDS.map((id) => byId.get(id)).filter(
-    (o): o is ThemeOption => o !== undefined,
-  );
-  const others = pluginOptions.filter((o) => !GREEN_THEME_IDS.includes(o.value));
-  return [green, others].filter((group) => group.length > 0);
+export function themePickerGroups(plugins: readonly ThemePlugin[]): ThemeGroup[] {
+  const system = APPEARANCE_MODES.filter((m) => m.value === 'system');
+  return [{ label: null, options: system }, ...partitionByAppearance(themePluginOptions(plugins))];
+}
+
+/**
+ * Theme groups for the export-preview dialog: same Light / Dark / Custom
+ * partitioning as `themePickerGroups` but WITHOUT the System entry (an export
+ * must name a concrete plugin; the app's current appearance picks the mode).
+ */
+export function exportThemeGroups(plugins: readonly ThemePlugin[]): ThemeGroup[] {
+  return partitionByAppearance(themePluginOptions(plugins));
 }
 
 /** True when `value` selects a built-in light/dark mode (vs a plugin id). */
