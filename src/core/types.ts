@@ -229,4 +229,15 @@ export interface Settings {
    * (ignored by 'sameFolder'). Default 'images'.
    */
   imageFolderName: string;
+  /**
+   * Explorer tree shape, persisted so the drawer reopens (and the app relaunches)
+   * looking exactly as it was left. Not user-facing settings — no dialog field —
+   * they just ride along on the same persisted store.
+   *
+   * Note the inverted polarity, which mirrors the defaults: workspaces start
+   * EXPANDED so this holds the collapsed ones; subfolders start COLLAPSED so
+   * `explorerExpandedDirs` holds the open ones.
+   */
+  explorerCollapsedWorkspaces: string[];
+  explorerExpandedDirs: string[];
 }

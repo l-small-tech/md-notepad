@@ -43,7 +43,16 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultWorkspaceColor: null,
   imagePasteLocation: 'subfolder',
   imageFolderName: 'images',
+  explorerCollapsedWorkspaces: [],
+  explorerExpandedDirs: [],
 };
+
+/**
+ * Upper bound on a persisted explorer path list. Folders the user expanded and
+ * then deleted (or renamed) leave entries nothing prunes, so without a cap the
+ * list would grow forever across sessions. Oldest entries fall off first.
+ */
+export const MAX_EXPLORER_PATHS = 200;
 
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 40;
@@ -105,6 +114,21 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
     });
   }
   return out;
+}
+
+/** Non-empty strings only, de-duplicated, newest-last, capped. */
+export function normalizePathList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  for (const value of raw) {
+    if (typeof value === 'string' && value.length > 0) {
+      seen.add(value);
+    }
+  }
+  const out = [...seen];
+  return out.length > MAX_EXPLORER_PATHS ? out.slice(out.length - MAX_EXPLORER_PATHS) : out;
 }
 
 /** Per-field validation; every invalid field falls back to its default. */
@@ -171,5 +195,7 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.imageFolderName === 'string' && r.imageFolderName.trim().length > 0
         ? r.imageFolderName.trim()
         : d.imageFolderName,
+    explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
+    explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
   };
 }

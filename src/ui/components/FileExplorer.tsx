@@ -47,7 +47,7 @@
  * component never holds a controller reference.
  */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
@@ -67,7 +67,7 @@ import {
   savePastedFileInto,
   type ExplorerEntry,
 } from '../session';
-import { useSettingsStore } from '../stores/settings';
+import { settingsStore, useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { uiStore, useUiStore } from '../stores/ui';
 import { ExplorerContextMenu } from './file-explorer/ContextMenu';
@@ -94,6 +94,9 @@ interface WorkspaceView {
   synced: boolean;
 }
 
+/** setState-style argument (value or updater) for the two tree sets below. */
+type TreeSetUpdate = ReadonlySet<string> | ((prev: ReadonlySet<string>) => ReadonlySet<string>);
+
 export function FileExplorer() {
   const open = useUiStore((s) => s.explorerOpen);
   const dropTargetDir = useUiStore((s) => s.dropTargetDir);
@@ -107,8 +110,29 @@ export function FileExplorer() {
   // Dirs whose last listing failed or timed out — a never-loaded one (no entry
   // in entriesByDir) shows a Retry affordance instead of an endless "Loading…".
   const [failedDirs, setFailedDirs] = useState<ReadonlySet<string>>(new Set());
-  const [collapsedWs, setCollapsedWs] = useState<ReadonlySet<string>>(new Set());
-  const [expandedDirs, setExpandedDirs] = useState<ReadonlySet<string>>(new Set());
+  // Tree shape lives in the persisted settings store, not component state: the
+  // drawer unmounts whenever it's closed (and the app exits), and either one
+  // would otherwise throw the shape away and reopen fully expanded.
+  const collapsedWsList = useSettingsStore((s) => s.settings.explorerCollapsedWorkspaces);
+  const expandedDirsList = useSettingsStore((s) => s.settings.explorerExpandedDirs);
+  const collapsedWs = useMemo<ReadonlySet<string>>(
+    () => new Set(collapsedWsList),
+    [collapsedWsList],
+  );
+  const expandedDirs = useMemo<ReadonlySet<string>>(
+    () => new Set(expandedDirsList),
+    [expandedDirsList],
+  );
+  const setCollapsedWs = (update: TreeSetUpdate): void => {
+    const prev = new Set(settingsStore.getState().settings.explorerCollapsedWorkspaces);
+    const next = typeof update === 'function' ? update(prev) : update;
+    settingsStore.getState().update({ explorerCollapsedWorkspaces: [...next] });
+  };
+  const setExpandedDirs = (update: TreeSetUpdate): void => {
+    const prev = new Set(settingsStore.getState().settings.explorerExpandedDirs);
+    const next = typeof update === 'function' ? update(prev) : update;
+    settingsStore.getState().update({ explorerExpandedDirs: [...next] });
+  };
   /** Entry whose context menu is open (workspace root, subfolder, or file), or null. */
   const [menuFor, setMenuFor] = useState<string | null>(null);
   /** Entry being renamed inline (its row shows an input instead), or null. */

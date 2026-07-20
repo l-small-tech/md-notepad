@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, normalizeSettings, pickUnusedColor } from '../settings';
+import {
+  DEFAULT_SETTINGS,
+  MAX_EXPLORER_PATHS,
+  normalizePathList,
+  normalizeSettings,
+  pickUnusedColor,
+} from '../settings';
 import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
 
 describe('normalizeSettings', () => {
@@ -52,6 +58,8 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'blue',
       imagePasteLocation: 'workspaceRoot',
       imageFolderName: 'assets',
+      explorerCollapsedWorkspaces: [],
+      explorerExpandedDirs: [],
     });
   });
 
@@ -208,5 +216,36 @@ describe('normalizeSettings', () => {
     const settings = normalizeSettings({ legacyField: true, theme: 'light' });
     expect(settings).not.toHaveProperty('legacyField');
     expect(settings.theme).toBe('light');
+  });
+});
+
+describe('normalizePathList (persisted explorer tree shape)', () => {
+  test('drops non-strings and empties, de-duplicates, preserves order', () => {
+    expect(normalizePathList(['D:/a', 42, '', 'D:/b', null, 'D:/a'])).toEqual(['D:/a', 'D:/b']);
+  });
+
+  test('a non-array (missing/garbage key) yields an empty list', () => {
+    expect(normalizePathList(undefined)).toEqual([]);
+    expect(normalizePathList('D:/a')).toEqual([]);
+  });
+
+  test('keeps the newest entries when over the cap', () => {
+    const many = Array.from({ length: MAX_EXPLORER_PATHS + 5 }, (_, i) => `D:/d${i}`);
+    const kept = normalizePathList(many);
+    expect(kept).toHaveLength(MAX_EXPLORER_PATHS);
+    expect(kept.at(-1)).toBe(many.at(-1));
+    expect(kept[0]).toBe('D:/d5');
+  });
+
+  test('round-trips through normalizeSettings', () => {
+    expect(
+      normalizeSettings({
+        explorerCollapsedWorkspaces: ['D:/work'],
+        explorerExpandedDirs: ['D:/work/sub', 7],
+      }),
+    ).toMatchObject({
+      explorerCollapsedWorkspaces: ['D:/work'],
+      explorerExpandedDirs: ['D:/work/sub'],
+    });
   });
 });
