@@ -11,11 +11,14 @@ import { useEffect, useState } from 'react';
 import { TabBar } from './components/TabBar';
 import { Ribbon } from './components/Ribbon';
 import { FileExplorer } from './components/FileExplorer';
+import { OutlinePanel } from './components/OutlinePanel';
 import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
 import { ImportView } from './components/ImportView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
+import { CommandPalette } from './components/CommandPalette';
+import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
@@ -64,9 +67,12 @@ export function App() {
             ),
           )}
         </div>
+        <OutlinePanel />
       </div>
       <StatusBar />
       <SettingsDialog />
+      <CommandPalette />
+      <SearchPanel />
       <VoiceComments />
       {fullscreenView !== 'normal' && <FullscreenControls stage={fullscreenView} />}
       {/* The 'window' stage hides all chrome and leaves the OS window in place, so

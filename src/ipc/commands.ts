@@ -81,6 +81,14 @@ export interface DirEntryMeta {
   size: number;
 }
 
+/** One workspace-search hit (mirrors `SearchHit` in commands/search.rs). */
+export interface SearchHit {
+  path: string;
+  line: number;
+  col: number;
+  lineText: string;
+}
+
 /** One raw entry from a synced-folder listing (name only, not a full id). */
 export interface SafEntry {
   name: string;
@@ -107,6 +115,10 @@ export const ipc = {
   copyPath: (from: string, to: string) => call<void>('copy_path', { from, to }),
   /** Create a directory; refuses to clobber (EXISTS). */
   createDir: (path: string) => call<void>('create_dir', { path }),
+  /** Recursive case-insensitive substring search under a LOCAL root (capped).
+   *  `saf://` roots never come here — the frontend walks those itself. */
+  searchNotes: (dir: string, query: string, maxResults: number) =>
+    call<SearchHit[]>('search_notes', { dir, query, maxResults }),
   renamePath: (from: string, to: string) => call<void>('rename_path', { from, to }),
   deletePath: (path: string) => call<void>('delete_path', { path }),
   statPath: (path: string) => call<PathStat>('stat_path', { path }),

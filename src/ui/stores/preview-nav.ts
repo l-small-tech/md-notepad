@@ -54,5 +54,29 @@ export function goBackPreview(tabId: string): void {
   goBackFns.get(tabId)?.();
 }
 
+/**
+ * Heading reveal (outline panel → read-mode preview), same module-map pattern
+ * as goBack: the callback has the pane's lifetime, not reactive state.
+ */
+const revealFns = new Map<string, (index: number) => void>();
+
+export function registerPreviewReveal(tabId: string, reveal: (index: number) => void): void {
+  revealFns.set(tabId, reveal);
+}
+
+export function unregisterPreviewReveal(tabId: string): void {
+  revealFns.delete(tabId);
+}
+
+/** Whether a preview pane with heading reveal is mounted for this tab. */
+export function hasPreviewReveal(tabId: string): boolean {
+  return revealFns.has(tabId);
+}
+
+/** Scroll the tab's preview to its nth (0-based) heading, if registered. */
+export function revealPreviewHeading(tabId: string, index: number): void {
+  revealFns.get(tabId)?.(index);
+}
+
 export const usePreviewNav = <T>(selector: (s: PreviewNavState) => T): T =>
   useStore(previewNavStore, selector);

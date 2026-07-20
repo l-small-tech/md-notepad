@@ -181,6 +181,41 @@ sibling `session/` folder).
 - [ ] Linux: drag-out gesture does nothing; the context-menu item still
       opens a new window.
 
+## QoL — Palette, outline, search, export
+
+- [ ] Ctrl+K opens the command palette; typing filters fuzzily ("nwt" finds
+      "New tab"); ArrowUp/Down wrap; Enter runs and closes; Esc closes;
+      Ctrl+K again while open closes. While open, global shortcuts
+      (Ctrl+N, Ctrl+W…) do NOT fire.
+- [ ] Palette shows platform-correct shortcut hints; commands needing an
+      active tab (Save, Rename tab…) are absent/disabled on an image tab.
+- [ ] Ctrl+Shift+O toggles the outline panel; headings indent by level;
+      headings inside ``` fences and YAML frontmatter do NOT appear.
+- [ ] Outline click in raw/split → editor scrolls to the heading line
+      (centered, focused). In read mode → preview scrolls. In wysiwyg →
+      rendered heading scrolls. Editing a heading updates the outline
+      ≤ ~300ms after the pause.
+- [ ] Ctrl+Shift+F opens workspace search (Ctrl+F still opens CM6's
+      in-document search). Two chars minimum; results grouped by file with
+      line numbers; footer shows match count.
+- [ ] Search click on a closed file → file opens AND jumps to the line;
+      on an already-open tab → jumps without reopening. Results from a
+      second workspace open correctly.
+- [ ] Search a workspace containing a `.comments.md` sidecar and a dotfile
+      → neither appears in results.
+- [ ] Palette → "Export as HTML" on a note with a table, code block,
+      image, and mermaid diagram → save dialog suggests `<title>.html`;
+      the file opens standalone in a browser: styles present, image
+      embedded (works offline), diagram rendered. Dark theme active at
+      export time → dark page.
+- [ ] `<script>alert(1)</script>` in the source note → inert in the
+      exported HTML (sanitizer applies to exports).
+- [ ] Palette → "Print / Save as PDF" → the system print dialog appears
+      over the app; Save-as-PDF produces a readable PDF; app usable after
+      closing the dialog.
+- [ ] Android: ribbon buttons open palette / outline / search; "Print /
+      Save as PDF" is not offered; "Export as HTML" works via SAF save.
+
 ## Mobile (Android)
 
 - [ ] Tap the editor text → the soft keyboard opens and the caret lands where

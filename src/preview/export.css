@@ -1,0 +1,241 @@
+/*
+ * Standalone stylesheet for exported HTML (src/preview/export.ts). Derived
+ * from the app's preview/read-mode rules (styles/preview.css) with every app
+ * CSS variable resolved to a concrete value — the exported file must render
+ * with no access to the app's stylesheets. Light palette matches the app's
+ * built-in Light Green theme; `body.dark` matches Dark Green.
+ */
+
+body {
+  margin: 0;
+  background: #fbfdf8;
+  color: #17241b;
+  /* The app renders markdown in a monospace voice; exports keep it. */
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace;
+  font-size: 14px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+.export-body {
+  max-width: 88ch;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.export-body > :first-child {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: #17241b;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+h1 {
+  border-bottom: 1px solid #d2e0c9;
+  padding-bottom: 0.3em;
+}
+
+a {
+  color: #00703c;
+}
+
+blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 1em;
+  border-left: 3px solid #00703c;
+  color: #586a5b;
+}
+
+table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+
+th,
+td {
+  border: 1px solid #d2e0c9;
+  padding: 4px 10px;
+}
+
+th {
+  background: #e0ebd8;
+  font-weight: 700;
+}
+
+code {
+  font-family: inherit;
+  background: #e0ebd8;
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+
+pre {
+  background: #e0ebd8;
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+}
+
+img {
+  max-width: 100%;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #d2e0c9;
+}
+
+/* GFM task lists — checkboxes without list bullets. */
+ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.5em;
+}
+
+li.task-list-item {
+  list-style: none;
+}
+
+li.task-list-item input[type='checkbox'] {
+  margin-right: 0.4em;
+}
+
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 0.8em 0;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+}
+
+.mermaid-error {
+  color: #c62828;
+  margin: 0.8em 0;
+}
+
+.mermaid-error-message {
+  font-weight: 700;
+  margin-bottom: 0.4em;
+}
+
+.mermaid-error pre {
+  color: #17241b;
+}
+
+/* ---- Dark palette (body.dark) — the app's Dark Green values ------------- */
+
+body.dark {
+  background: #0c150f;
+  color: #eef4ef;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #eef4ef;
+}
+
+.dark h1 {
+  border-bottom-color: #223529;
+}
+
+.dark a {
+  color: #56c07a;
+}
+
+.dark blockquote {
+  border-left-color: #56c07a;
+  color: #7d9585;
+}
+
+.dark th,
+.dark td {
+  border-color: #223529;
+}
+
+.dark th,
+.dark code,
+.dark pre {
+  background: #18261c;
+}
+
+.dark pre code {
+  background: none;
+}
+
+.dark hr {
+  border-top-color: #223529;
+}
+
+.dark .mermaid-error {
+  color: #e5766a;
+}
+
+.dark .mermaid-error pre {
+  color: #eef4ef;
+}
+
+/* ---- Print (the desktop Print / Save-as-PDF path) ----------------------- */
+
+@media print {
+  body,
+  body.dark {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  /* Paper stays light regardless of the on-screen palette. */
+  code,
+  pre,
+  th,
+  .dark code,
+  .dark pre,
+  .dark th {
+    background: #f0f0f0;
+    color: #000000;
+  }
+
+  .dark h1,
+  .dark h2,
+  .dark h3,
+  .dark h4,
+  .dark h5,
+  .dark h6,
+  .dark blockquote {
+    color: #000000;
+  }
+
+  .export-body {
+    max-width: none;
+    padding: 0;
+  }
+
+  pre,
+  table,
+  blockquote,
+  .mermaid-diagram {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  a {
+    color: inherit;
+  }
+}

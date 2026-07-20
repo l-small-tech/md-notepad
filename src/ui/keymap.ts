@@ -31,7 +31,10 @@ export type ShortcutAction =
   | { type: 'font-inc' }
   | { type: 'font-dec' }
   | { type: 'font-reset' }
-  | { type: 'toggle-fullscreen' };
+  | { type: 'toggle-fullscreen' }
+  | { type: 'open-palette' }
+  | { type: 'toggle-outline' }
+  | { type: 'global-search' };
 
 /** The subset of KeyboardEvent this function reads (so tests need no DOM). */
 export interface KeyDescriptor {
@@ -89,6 +92,20 @@ export function keyEventToAction(e: KeyDescriptor, platform: Platform): Shortcut
     return e.shiftKey ? { type: 'save-as' } : { type: 'save' };
   }
 
+  // mod+Shift+O toggles the outline panel (plain mod+O below is open-file;
+  // neither CM6's keymaps nor Crepe bind Shift-Mod-O, so this is free).
+  if (e.key.toLowerCase() === 'o' && e.shiftKey) {
+    return { type: 'toggle-outline' };
+  }
+
+  // mod+Shift+F opens global workspace search. Plain mod+F stays UN-intercepted
+  // (the fall-through below) — CM6's own search keymap owns it in the editor.
+  // The mac fullscreen chord (Ctrl+Cmd+F) was matched earlier, before the
+  // wrongMod guard, and holds no Shift, so there is no collision.
+  if (e.key.toLowerCase() === 'f' && e.shiftKey) {
+    return { type: 'global-search' };
+  }
+
   // Font size (mod += / - / 0). "mod+=" often arrives as '+' (Shift held on a
   // US layout), and "mod+-" as '_', so these must be checked BEFORE the
   // no-Shift guard below and tolerate either form.
@@ -114,6 +131,10 @@ export function keyEventToAction(e: KeyDescriptor, platform: Platform): Shortcut
       return { type: 'close-tab' };
     case 'o':
       return { type: 'open-file' };
+    // mod+K opens the command palette. Plain mod+K only — CM6 binds
+    // Shift-Mod-k (deleteLine), which the Shift guard above already excludes.
+    case 'k':
+      return { type: 'open-palette' };
     case ',':
       return { type: 'open-settings' };
     case '1':

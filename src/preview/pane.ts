@@ -60,6 +60,12 @@ export interface PreviewPane {
   setDocPath(docPath: string | null | undefined): void;
   /** Pop the current followed-link page (same as the in-pane Back button). */
   goBack(): void;
+  /**
+   * Scroll the nth rendered heading (0-based, document order across h1–h6)
+   * into view — the outline panel's read-mode jump. No-op when the index is
+   * out of range or the last render hasn't landed in the DOM yet.
+   */
+  scrollToHeading(index: number): void;
   dispose(): void;
 }
 
@@ -283,6 +289,13 @@ export function attachPreviewPane(
       }
     },
     goBack,
+    scrollToHeading(index) {
+      if (disposed || index < 0) {
+        return;
+      }
+      const heading = host.querySelectorAll('h1,h2,h3,h4,h5,h6')[index];
+      heading?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    },
     dispose() {
       disposed = true;
       clearTimer();

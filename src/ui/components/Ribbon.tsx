@@ -25,8 +25,9 @@ import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
-import { insertFileLink } from '../session';
+import { exportActiveTabHtml, insertFileLink } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
+import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -295,6 +296,35 @@ export function Ribbon() {
         >
           ⚙
         </button>
+        {/* Command palette — the only entry point on Android (no Ctrl+K there),
+            and a discoverable one on desktop. */}
+        <button
+          className="ribbon-btn ribbon-btn-lg"
+          aria-label="Command palette"
+          title="Command palette (Ctrl/Cmd+K)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => uiStore.getState().togglePalette()}
+        >
+          »
+        </button>
+        <button
+          className="ribbon-btn ribbon-btn-lg"
+          aria-label="Toggle outline"
+          title="Outline (Ctrl/Cmd+Shift+O)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => uiStore.getState().toggleOutline()}
+        >
+          ≣
+        </button>
+        <button
+          className="ribbon-btn ribbon-btn-lg"
+          aria-label="Search in workspaces"
+          title="Search in workspaces (Ctrl/Cmd+Shift+F)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => searchStore.getState().openSearch()}
+        >
+          🔍
+        </button>
         {canGoBack && (
           <button
             className="ribbon-btn ribbon-btn-lg"
@@ -323,6 +353,15 @@ export function Ribbon() {
           onClick={() => setFullscreen('window')}
         >
           ⤢
+        </button>
+        <button
+          className="ribbon-btn"
+          aria-label="Export as HTML"
+          title="Export as HTML (a standalone file; Print / Save as PDF is in the command palette)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exportActiveTabHtml()}
+        >
+          ⇩
         </button>
         <button
           className="ribbon-btn"

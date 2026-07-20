@@ -5,7 +5,7 @@ import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWind
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
-import { normalizeSettings, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_SETTINGS } from './core/settings';
+import { normalizeSettings } from './core/settings';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
@@ -48,12 +48,8 @@ import { settingsStore } from './ui/stores/settings';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
   appendImagesToMd,
-  closeTab,
   createSessionController,
   importFilesInto,
-  openFile,
-  saveActiveTab,
-  saveActiveTabAs,
   type ConfirmDialog,
   type OpenFilesDialog,
   type PickDirectoryDialog,
@@ -69,9 +65,11 @@ import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
 import { themeRegistryStore } from './ui/stores/theme-registry';
 import { importFilters } from './core/import/registry';
 import { themePluginsToCss } from './core/theme-plugins';
-import { detectPlatform, keyEventToAction, type ShortcutAction } from './ui/keymap';
+import { detectPlatform, keyEventToAction } from './ui/keymap';
+import { runShortcutAction } from './ui/commands';
+import { searchStore } from './ui/stores/search';
 import { isAndroid } from './ui/platform';
-import { cycleFullscreen, stepBackFullscreen } from './ui/fullscreen';
+import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
 
@@ -260,9 +258,9 @@ const openFilesDialog: OpenFilesDialog = async () => {
   }
 };
 
-const saveFileDialog: SaveFileDialog = async (suggestedName) => {
+const saveFileDialog: SaveFileDialog = async (suggestedName, filters) => {
   try {
-    return await save({ defaultPath: suggestedName, filters: MARKDOWN_FILTERS });
+    return await save({ defaultPath: suggestedName, filters: filters ?? MARKDOWN_FILTERS });
   } catch {
     return null;
   }
@@ -313,64 +311,6 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 
 const platform = detectPlatform(navigator.platform);
 
-function clampFontSize(px: number): number {
-  return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, px));
-}
-
-function dispatchShortcut(action: ShortcutAction): void {
-  const store = tabsStore.getState();
-  switch (action.type) {
-    case 'new-tab':
-      store.newTab();
-      break;
-    case 'close-tab':
-      closeTab(store.activeTabId);
-      break;
-    case 'next-tab':
-      store.activateAdjacent(1);
-      break;
-    case 'prev-tab':
-      store.activateAdjacent(-1);
-      break;
-    case 'rename-tab':
-      store.beginRename(store.activeTabId);
-      break;
-    case 'set-mode':
-      store.setMode(store.activeTabId, action.mode);
-      break;
-    case 'open-file':
-      openFile();
-      break;
-    case 'save':
-      saveActiveTab();
-      break;
-    case 'save-as':
-      saveActiveTabAs();
-      break;
-    case 'open-settings':
-      uiStore.getState().openSettings();
-      break;
-    case 'font-inc':
-      settingsStore
-        .getState()
-        .update({ fontSize: clampFontSize(settingsStore.getState().settings.fontSize + 1) });
-      break;
-    case 'font-dec':
-      settingsStore
-        .getState()
-        .update({ fontSize: clampFontSize(settingsStore.getState().settings.fontSize - 1) });
-      break;
-    case 'font-reset':
-      settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
-      break;
-    case 'toggle-fullscreen':
-      // Advances the full-screen view one stage (normal → window → screen →
-      // normal), available in every editor mode.
-      cycleFullscreen();
-      break;
-  }
-}
-
 window.addEventListener('keydown', (event) => {
   // Escape closes the settings modal when it's open (standard modal behavior;
   // the dialog itself is custom DOM, so the one global listener owns this).
@@ -392,8 +332,15 @@ window.addEventListener('keydown', (event) => {
     // Not ours — let CM6 (mod+F search) and the browser handle it.
     return;
   }
+  // While the command palette or the search panel is open it owns the
+  // keyboard: its input stops propagation for the keys it handles, and
+  // anything that still bubbles here must not trigger a global shortcut
+  // underneath the overlay.
+  if (uiStore.getState().paletteOpen || searchStore.getState().open) {
+    return;
+  }
   event.preventDefault();
-  dispatchShortcut(action);
+  runShortcutAction(action);
 });
 
 /* ---- Boot: settings → paths → restore session → mount → wire lifecycle --- */

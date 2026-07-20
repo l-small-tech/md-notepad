@@ -348,5 +348,15 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
     focus() {
       view?.focus();
     },
+    revealHeading(index) {
+      // The outline indexes headings in document order; the rendered DOM lists
+      // them in the same order, so the nth h1–h6 in the ProseMirror root is the
+      // one. Out-of-range (outline a debounce behind the doc) is a no-op.
+      if (!view || index < 0) {
+        return;
+      }
+      const heading = view.dom.querySelectorAll('h1,h2,h3,h4,h5,h6')[index];
+      heading?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    },
   };
 }

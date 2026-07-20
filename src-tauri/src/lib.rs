@@ -118,44 +118,45 @@ pub fn run() {
             commands::fs::rename_path,
             commands::fs::delete_path,
             commands::fs::stat_path,
+            commands::search::search_notes,
             #[cfg(target_os = "android")]
-            commands::fs::extract_docs_dir,
+            commands::android::extract_docs_dir,
             #[cfg(target_os = "android")]
-            commands::fs::external_files_dir,
+            commands::android::external_files_dir,
             #[cfg(target_os = "android")]
-            commands::fs::read_content_uri,
+            commands::android::read_content_uri,
             #[cfg(target_os = "android")]
-            commands::fs::take_incoming_uris,
+            commands::android::take_incoming_uris,
             #[cfg(target_os = "android")]
-            commands::fs::pick_synced_tree,
+            commands::android::pick_synced_tree,
             #[cfg(target_os = "android")]
-            commands::fs::saf_list,
+            commands::android::saf_list,
             #[cfg(target_os = "android")]
-            commands::fs::saf_refresh,
+            commands::android::saf_refresh,
             #[cfg(target_os = "android")]
-            commands::fs::saf_read,
+            commands::android::saf_read,
             #[cfg(target_os = "android")]
-            commands::fs::saf_write,
+            commands::android::saf_write,
             #[cfg(target_os = "android")]
-            commands::fs::saf_create_dir,
+            commands::android::saf_create_dir,
             #[cfg(target_os = "android")]
-            commands::fs::saf_rename,
+            commands::android::saf_rename,
             #[cfg(target_os = "android")]
-            commands::fs::saf_delete,
+            commands::android::saf_delete,
             #[cfg(target_os = "android")]
-            commands::fs::saf_stat,
+            commands::android::saf_stat,
             #[cfg(target_os = "android")]
-            commands::fs::release_synced_tree,
+            commands::android::release_synced_tree,
             #[cfg(target_os = "android")]
-            commands::fs::stt_available,
+            commands::android::stt_available,
             #[cfg(target_os = "android")]
-            commands::fs::stt_permission,
+            commands::android::stt_permission,
             #[cfg(target_os = "android")]
-            commands::fs::stt_request_permission,
+            commands::android::stt_request_permission,
             #[cfg(target_os = "android")]
-            commands::fs::stt_start,
+            commands::android::stt_start,
             #[cfg(target_os = "android")]
-            commands::fs::stt_stop,
+            commands::android::stt_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

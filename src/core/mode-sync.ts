@@ -47,6 +47,16 @@ export interface EditorAdapter {
   /** MUST synchronously flush any pending write-back before tearing down. */
   detach(): void;
   focus(): void;
+  /**
+   * Scroll the given 1-based source line into view (outline jump). Optional:
+   * source editors (CM6) implement it; rendered editors have no line concept.
+   */
+  revealLine?(line: number): void;
+  /**
+   * Scroll the nth rendered heading (0-based, document order) into view.
+   * Optional: rendered editors (Milkdown) implement it.
+   */
+  revealHeading?(index: number): void;
 }
 
 /** Factories may lazy-import their chunk (invariant I8: milkdown loads on demand). */
@@ -70,6 +80,11 @@ export interface ModeSync {
   /** Resolves once the initial attach finished. */
   whenIdle(): Promise<void>;
   focus(): void;
+  /**
+   * The currently attached adapter, or null mid-transition. Optional so store
+   * tests can keep stubbing ModeSync with the five core members.
+   */
+  getActiveAdapter?(): EditorAdapter | null;
   /** Detach the active editor (flushing write-back). The instance is dead afterwards. */
   dispose(): Promise<void>;
 }
@@ -155,6 +170,7 @@ export function createModeSync(options: ModeSyncOptions): ModeSync {
     setMode: (target) => enqueueTransition(target),
     whenIdle: () => chain,
     focus: () => active?.focus(),
+    getActiveAdapter: () => active,
     dispose() {
       chain = chain.then(() => {
         disposed = true;

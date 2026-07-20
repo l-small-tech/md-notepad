@@ -27,8 +27,12 @@ export interface UiState {
   cursor: CursorReadout | null;
   /** The settings dialog (Ctrl+,) is open (M6). Transient, never persisted. */
   settingsOpen: boolean;
+  /** The command palette (Ctrl+K) is open. Transient, never persisted. */
+  paletteOpen: boolean;
   /** The left-side file explorer drawer is open. Transient, never persisted. */
   explorerOpen: boolean;
+  /** The right-side outline (headings) panel is open. Transient, never persisted. */
+  outlineOpen: boolean;
   /**
    * Directory currently hovered by an OS file drag (main.tsx hit-tests the
    * Tauri drag-drop events), or null. Drives the explorer's drop highlight.
@@ -51,7 +55,11 @@ export interface UiState {
   reportCursor: (tabId: string, cursor: CursorReadout) => void;
   openSettings: () => void;
   closeSettings: () => void;
+  openPalette: () => void;
+  closePalette: () => void;
+  togglePalette: () => void;
   toggleExplorer: () => void;
+  toggleOutline: () => void;
   setDropTarget: (dir: string | null) => void;
   refreshExplorer: () => void;
   setFullscreenView: (stage: FullscreenStage) => void;
@@ -63,7 +71,9 @@ export const uiStore = createStore<UiState>()((set) => ({
   notice: null,
   cursor: null,
   settingsOpen: false,
+  paletteOpen: false,
   explorerOpen: false,
+  outlineOpen: false,
   dropTargetDir: null,
   explorerRefresh: 0,
   fullscreenView: 'normal',
@@ -102,8 +112,24 @@ export const uiStore = createStore<UiState>()((set) => ({
     set({ settingsOpen: false });
   },
 
+  openPalette() {
+    set({ paletteOpen: true });
+  },
+
+  closePalette() {
+    set({ paletteOpen: false });
+  },
+
+  togglePalette() {
+    set((s) => ({ paletteOpen: !s.paletteOpen }));
+  },
+
   toggleExplorer() {
     set((s) => ({ explorerOpen: !s.explorerOpen }));
+  },
+
+  toggleOutline() {
+    set((s) => ({ outlineOpen: !s.outlineOpen }));
   },
 
   setDropTarget(dir) {

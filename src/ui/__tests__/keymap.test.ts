@@ -90,9 +90,24 @@ describe('keyEventToAction — the M3 table', () => {
       type: 'save-as',
     });
   });
+});
 
-  test('mod+Shift+O (not in the table) is ignored', () => {
-    expect(keyEventToAction(key({ key: 'o', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
+describe('keyEventToAction — outline panel', () => {
+  test('mod+Shift+O toggles the outline on both platforms', () => {
+    expect(keyEventToAction(key({ key: 'O', ctrlKey: true, shiftKey: true }), 'other')).toEqual({
+      type: 'toggle-outline',
+    });
+    expect(keyEventToAction(key({ key: 'O', metaKey: true, shiftKey: true }), 'mac')).toEqual({
+      type: 'toggle-outline',
+    });
+  });
+
+  test('plain mod+O stays open-file; bare/wrong-modifier Shift+O is ignored', () => {
+    expect(keyEventToAction(key({ key: 'o', ctrlKey: true }), 'other')).toEqual({
+      type: 'open-file',
+    });
+    expect(keyEventToAction(key({ key: 'O', shiftKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'O', metaKey: true, shiftKey: true }), 'other')).toBeNull();
   });
 });
 
@@ -134,6 +149,28 @@ describe('keyEventToAction — the M6 table', () => {
   });
 });
 
+describe('keyEventToAction — command palette', () => {
+  test('mod+K opens the palette on both platforms', () => {
+    expect(keyEventToAction(key({ key: 'k', ctrlKey: true }), 'other')).toEqual({
+      type: 'open-palette',
+    });
+    expect(keyEventToAction(key({ key: 'k', metaKey: true }), 'mac')).toEqual({
+      type: 'open-palette',
+    });
+  });
+
+  test('mod+Shift+K is NOT the palette (CM6 deleteLine owns it)', () => {
+    expect(keyEventToAction(key({ key: 'k', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'K', metaKey: true, shiftKey: true }), 'mac')).toBeNull();
+  });
+
+  test('bare K and wrong-modifier K are ignored', () => {
+    expect(keyEventToAction(key({ key: 'k' }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'k', metaKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'k', ctrlKey: true }), 'mac')).toBeNull();
+  });
+});
+
 describe('keyEventToAction — reader full screen', () => {
   test('bare F11 toggles fullscreen on any platform', () => {
     expect(keyEventToAction(key({ key: 'F11' }), 'other')).toEqual({ type: 'toggle-fullscreen' });
@@ -153,9 +190,32 @@ describe('keyEventToAction — reader full screen', () => {
   });
 });
 
+describe('keyEventToAction — global workspace search', () => {
+  test('mod+Shift+F opens global search on both platforms', () => {
+    expect(keyEventToAction(key({ key: 'F', ctrlKey: true, shiftKey: true }), 'other')).toEqual({
+      type: 'global-search',
+    });
+    expect(keyEventToAction(key({ key: 'F', metaKey: true, shiftKey: true }), 'mac')).toEqual({
+      type: 'global-search',
+    });
+  });
+
+  test('bare/wrong-modifier Shift+F is ignored', () => {
+    expect(keyEventToAction(key({ key: 'F', shiftKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'F', metaKey: true, shiftKey: true }), 'other')).toBeNull();
+  });
+
+  test('the mac fullscreen chord (Ctrl+Cmd+F) still wins without Shift', () => {
+    expect(keyEventToAction(key({ key: 'f', ctrlKey: true, metaKey: true }), 'mac')).toEqual({
+      type: 'toggle-fullscreen',
+    });
+  });
+});
+
 describe('keyEventToAction — non-interception', () => {
   test('mod+F is NOT intercepted (CM6 search owns it)', () => {
     expect(keyEventToAction(key({ key: 'f', ctrlKey: true }), 'other')).toBeNull();
+    expect(keyEventToAction(key({ key: 'f', metaKey: true }), 'mac')).toBeNull();
   });
 
   test('a bare letter is not a shortcut', () => {

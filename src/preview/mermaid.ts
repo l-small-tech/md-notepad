@@ -62,30 +62,40 @@ export async function renderMermaidBlocks(
     initializedDark = options.dark;
   }
 
+  // Replacement nodes are created in the container's OWN document: the HTML
+  // exporter (src/preview/export.ts) runs this against a detached DOMParser
+  // document, and nodes from the live document would need adopting there.
+  const doc = container.ownerDocument;
   for (const code of blocks) {
     const host = code.parentElement;
-    if (!host || !host.isConnected) {
-      continue; // a newer render cycle already replaced this subtree
+    // "Still part of the subtree we were asked to render?" — checked against
+    // `container` rather than `isConnected` so a detached root (the exporter's
+    // DOMParser document) renders too. For the live pane the meaning is
+    // unchanged: a newer render cycle replaces the pane's whole subtree, so a
+    // stale block is no longer under `container` and is skipped.
+    if (!host || !container.contains(host)) {
+      continue;
     }
     const source = code.textContent ?? '';
     const id = `mermaid-${renderSeq++}`;
     try {
       const { svg } = await mermaid.render(id, source);
-      const wrap = document.createElement('div');
+      const wrap = doc.createElement('div');
       wrap.className = 'mermaid-diagram';
       wrap.innerHTML = svg; // mermaid output under securityLevel 'strict'
       host.replaceWith(wrap);
     } catch (error) {
-      // Mermaid can leave a temp element with the render id behind on
-      // parse errors — remove it or they accumulate invisibly.
+      // Mermaid can leave a temp element with the render id behind on parse
+      // errors — remove it or they accumulate invisibly. It appends the temp
+      // node to the LIVE document regardless of where our container lives.
       document.getElementById(id)?.remove();
 
-      const wrap = document.createElement('div');
+      const wrap = doc.createElement('div');
       wrap.className = 'mermaid-error';
-      const message = document.createElement('div');
+      const message = doc.createElement('div');
       message.className = 'mermaid-error-message';
       message.textContent = error instanceof Error ? error.message : String(error);
-      const pre = document.createElement('pre');
+      const pre = doc.createElement('pre');
       pre.textContent = source;
       wrap.append(message, pre);
       host.replaceWith(wrap);

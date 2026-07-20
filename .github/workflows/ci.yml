@@ -79,3 +79,141 @@ jobs:
       - name: cargo build (link smoke test)
         run: cargo build
         working-directory: src-tauri
+
+  # Compiles the #[cfg(target_os = "android")] half of the crate (saf_*/stt_*
+  # commands, tauri-plugin-androidfs) — nothing else in CI touches that code.
+  android-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          key: android-check
+
+      - run: npm ci
+
+      # generate_context! embeds ../dist even for `cargo check`.
+      - run: npm run build
+
+      # cargo check rarely links, but cc-based build scripts probe these;
+      # pointing them at the runner's preinstalled NDK prevents flake.
+      - name: Export NDK toolchain env
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+
+      - name: cargo check (aarch64-linux-android)
+        run: cargo check --target aarch64-linux-android
+        working-directory: src-tauri
+        env:
+          RUSTFLAGS: -D warnings
+
+  # EXPERIMENTAL, NON-GATING e2e smoke test: WebdriverIO drives the real debug
+  # exe through tauri-driver (launch → type → relaunch → session restore).
+  # continue-on-error because tauri-driver is pre-alpha and the WebDriver +
+  # WebView2 stack can flake on hosted runners — a red run here must never
+  # block a merge. If this job flakes for ~2 weeks straight, delete it.
+  # The smoke test persists real session state to the runner's appdata dir;
+  # that's acceptable only because CI runners are throwaway.
+  e2e-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          key: e2e-windows # distinct from rust-and-build's windows cache
+
+      - run: npm ci
+
+      # generate_context! embeds ../dist at compile time — the frontend build
+      # must precede any cargo command (CLAUDE.md "Build order").
+      - run: npm run build
+
+      # Builds the exe the wdio capabilities point tauri-driver at:
+      # src-tauri/target/debug/md-notepad.exe (see e2e/wdio.conf.ts).
+      - name: cargo build (app under test)
+        run: cargo build
+        working-directory: src-tauri
+
+      # rust-cache caches target/, not cargo-installed binaries, so cache the
+      # tauri-driver exe separately. The fixed key pins whatever version was
+      # cached first — acceptable staleness for a non-gating job vs. paying
+      # the ~2 min `cargo install` compile every run. Bump the -v1 suffix to
+      # force a fresh install (e.g. to pick up a new tauri-driver release).
+      - name: Cache tauri-driver
+        id: cache-tauri-driver
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/tauri-driver.exe
+          key: tauri-driver-${{ runner.os }}-v1
+
+      - name: Install tauri-driver
+        if: steps.cache-tauri-driver.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --locked
+
+      # tauri-driver proxies to a native WebDriver server; on Windows that is
+      # msedgedriver, which must match the installed Edge (WebView2) major
+      # version. Read the version off the Edge exe shipped in the runner image
+      # and download the matching driver, falling back to the newest published
+      # driver of the same major if that exact build was never published.
+      # TAURI_NATIVE_DRIVER is consumed by e2e/wdio.conf.ts when it spawns
+      # tauri-driver (--native-driver).
+      - name: Download matching msedgedriver
+        shell: pwsh
+        run: |
+          $edgeExe = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+          if (-not (Test-Path $edgeExe)) {
+            $edgeExe = "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+          }
+          $version = (Get-Item $edgeExe).VersionInfo.ProductVersion
+          Write-Host "Edge version: $version"
+          $dir = Join-Path $env:RUNNER_TEMP 'edgedriver'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $zip = Join-Path $dir 'edgedriver_win64.zip'
+          try {
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+          } catch {
+            # No driver published for that exact build; ask the LATEST_RELEASE
+            # endpoint for the same major. It answers UTF-16LE text with a BOM.
+            $major = $version.Split('.')[0]
+            $resp = Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_${major}_WINDOWS"
+            if ($resp.Content -is [byte[]]) {
+              $fallback = [System.Text.Encoding]::Unicode.GetString($resp.Content)
+            } else {
+              $fallback = [string]$resp.Content
+            }
+            $fallback = $fallback.Trim([char]0xFEFF).Trim()
+            Write-Host "Exact $version not published; falling back to $fallback"
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$fallback/edgedriver_win64.zip" -OutFile $zip
+          }
+          Expand-Archive $zip -DestinationPath $dir -Force
+          $driver = Join-Path $dir 'msedgedriver.exe'
+          if (-not (Test-Path $driver)) { throw "msedgedriver.exe missing after extraction" }
+          "TAURI_NATIVE_DRIVER=$driver" >> $env:GITHUB_ENV
+
+      # wdio's onPrepare hook spawns tauri-driver itself (and kills it in
+      # onComplete), so this one command is the whole test run.
+      - run: npm run e2e

@@ -91,6 +91,8 @@ export type FormatAction =
 
 /** The concrete adapter type — superset of EditorAdapter with M2/M6 hooks. */
 export interface Cm6Adapter extends EditorAdapter {
+  /** Center the given 1-based line, put the caret at its start, and focus. */
+  revealLine(line: number): void;
   getSelection(): CursorPos;
   setSelection(anchor: number, head: number): void;
   setWordWrap(on: boolean): void;
@@ -658,6 +660,18 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     detach,
     focus() {
       view?.focus();
+    },
+    revealLine(line) {
+      if (!view) {
+        return;
+      }
+      // Clamp: the outline may be a debounce behind a doc that just shrank.
+      const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+      view.dispatch({
+        selection: { anchor: target.from },
+        effects: EditorView.scrollIntoView(target.from, { y: 'center' }),
+      });
+      view.focus();
     },
     getSelection() {
       const sel = view?.state.selection.main;

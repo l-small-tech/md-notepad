@@ -33,7 +33,8 @@
  * needs) swallows webview-internal HTML5 drags on Windows — `dragstart` never
  * fires and the OS shows a forbidden cursor. Pointer events are untouched by
  * that interception; targets are hit-tested against the same `data-drop-dir`
- * attributes the OS-drop path in main.tsx uses.
+ * attributes the OS-drop path in main.tsx uses. The drag machinery lives in
+ * `file-explorer/useFileDrag.ts`.
  *
  * The drawer is resizable via the divider on its right edge; the width is
  * session-only (module scope), like EditorHost's split ratio.
@@ -43,38 +44,33 @@
  * component never holds a controller reference.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { useEffect, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
 import { isEditableTextPath, isMarkdownPath } from '../../core/text-files';
-import { WORKSPACE_COLORS, type WorkspaceColor } from '../../core/types';
+import { type WorkspaceColor } from '../../core/types';
 import { currentProvider } from '../../ipc/provider';
 import { isAndroid } from '../platform';
 import {
   addCloudWorkspace,
   addWorkspace,
-  appendImagesToMd,
   createNewFileIn,
-  createNewFolderIn,
-  importDocumentInto,
-  deleteExplorerEntry,
   getDefaultWorkspacePath,
-  listNoteFiles,
-  moveExplorerEntryInto,
   openNotePath,
   openNotePathPinned,
   refreshWorkspaces,
-  removeWorkspace,
   renameExplorerEntry,
   savePastedFileInto,
-  setWorkspaceColor,
   type ExplorerEntry,
 } from '../session';
 import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { uiStore, useUiStore } from '../stores/ui';
+import { ExplorerContextMenu } from './file-explorer/ContextMenu';
+import { dirIndent, fileBadge, listWithTimeout, MIME_EXT } from './file-explorer/helpers';
+import { RenameInput } from './file-explorer/RenameInput';
+import { useFileDrag } from './file-explorer/useFileDrag';
 
 interface WorkspaceView {
   path: string;
@@ -86,127 +82,6 @@ interface WorkspaceView {
   readOnly: boolean;
   /** Synced (SAF) workspace — gets a cloud glyph so it's distinguishable. */
   synced: boolean;
-}
-
-/** Indentation per tree depth; file rows add the caret column's width. */
-function dirIndent(depth: number): number {
-  return 8 + depth * 12;
-}
-
-/**
- * The right-pinned type badge for a recognized file, or null for anything
- * else (which then keeps its full name, extension included). Recognized files
- * show their name WITHOUT the extension plus this badge: 'md' for markdown
- * (rendered in the accent blue), the uppercased extension for images and
- * importable documents (PDF/DOCX).
- */
-function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' } | null {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0) {
-    return null;
-  }
-  const ext = name.slice(dot).toLowerCase();
-  if (ext === '.md' || ext === '.markdown') {
-    return { label: 'md', kind: 'md' };
-  }
-  if (ext === '.txt') {
-    return { label: 'txt', kind: 'md' };
-  }
-  if (isImportablePath(name)) {
-    return { label: name.slice(dot + 1), kind: 'doc' };
-  }
-  if (isImagePath(name)) {
-    return { label: name.slice(dot + 1), kind: 'image' };
-  }
-  return null;
-}
-
-/** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
-const DRAG_THRESHOLD_PX = 5;
-
-/**
- * Drawer width in px — module scope, not React state: dragging fires on every
- * pointermove and must not re-render; session-only, like the split ratio.
- */
-let explorerWidth = 220;
-const MIN_EXPLORER_WIDTH = 160;
-const MAX_EXPLORER_WIDTH = 480;
-
-function clampExplorerWidth(px: number): number {
-  return Math.min(MAX_EXPLORER_WIDTH, Math.max(MIN_EXPLORER_WIDTH, px));
-}
-
-/**
- * Inline rename field for an explorer row — same interaction contract as the
- * TabBar's rename input: Enter/blur commit, Escape cancels (onDone(null)).
- * Rendered in place of the row's button so row clicks can't fire mid-edit.
- */
-function RenameInput({
-  initial,
-  onDone,
-}: {
-  initial: string;
-  onDone: (value: string | null) => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
-  const commit = () => onDone(ref.current?.value ?? null);
-  return (
-    <input
-      ref={ref}
-      className="explorer-rename-input"
-      defaultValue={initial}
-      aria-label="Rename"
-      onBlur={commit}
-      onKeyDown={(e) => {
-        // Keep these off the global shortcut listener.
-        e.stopPropagation();
-        if (e.key === 'Enter') {
-          commit();
-        } else if (e.key === 'Escape') {
-          onDone(null);
-        }
-      }}
-    />
-  );
-}
-
-const MIME_EXT: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-  'image/svg+xml': '.svg',
-  'image/bmp': '.bmp',
-  'image/avif': '.avif',
-};
-
-/**
- * A directory listing that outruns this is treated as failed, so a cloud folder
- * (Google Drive / OneDrive) whose backend never responds surfaces a Retry
- * affordance instead of sitting on "Loading…" forever. Generous, because a cold
- * synced-folder fetch is legitimately slow.
- */
-const LISTING_TIMEOUT_MS = 20_000;
-
-/** `listNoteFiles`, but rejects if the backend hasn't answered in time. */
-function listWithTimeout(dir: string): Promise<ExplorerEntry[]> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('listing timed out')), LISTING_TIMEOUT_MS);
-    listNoteFiles(dir).then(
-      (list) => {
-        clearTimeout(timer);
-        resolve(list);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
 }
 
 export function FileExplorer() {
@@ -232,9 +107,8 @@ export function FileExplorer() {
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
   /** True while a manual refresh is in flight (Drive re-fetch can take seconds). */
   const [refreshing, setRefreshing] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  /** True for the single click event that trails a completed row drag. */
-  const dragConsumedClick = useRef(false);
+  const { rootRef, dragConsumedClick, explorerWidth, startResizeDrag, startFileDrag } =
+    useFileDrag();
   // Re-list whenever the drawer opens, or a tab is added/removed/saved (which
   // may have created or graduated a note file on disk).
   const tabSignature = useTabsStore((s) => s.tabs.map((t) => `${t.notePath ?? t.filePath}`).join());
@@ -328,30 +202,6 @@ export function FileExplorer() {
 
   const pasteDir = selectedDir ?? defaultPath;
 
-  function startResizeDrag(event: React.PointerEvent<HTMLDivElement>): void {
-    event.preventDefault();
-    const drawer = rootRef.current;
-    if (!drawer) {
-      return;
-    }
-    const left = drawer.getBoundingClientRect().left;
-    function onMove(moveEvent: PointerEvent): void {
-      explorerWidth = clampExplorerWidth(moveEvent.clientX - left);
-      drawer!.style.width = `${explorerWidth}px`;
-    }
-    function cleanup(): void {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', cleanup);
-      // A pointercancel mid-resize (touch/pen, or the OS stealing the pointer)
-      // must tear down the same listeners — otherwise they leak and the drawer
-      // keeps resizing on every later move. Mirrors startFileDrag's cleanup.
-      window.removeEventListener('pointercancel', cleanup);
-    }
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', cleanup);
-    window.addEventListener('pointercancel', cleanup);
-  }
-
   function handlePaste(event: React.ClipboardEvent<HTMLDivElement>): void {
     if (!pasteDir || isReadOnlyDir(pasteDir)) {
       return;
@@ -414,87 +264,6 @@ export function FileExplorer() {
     return next;
   };
 
-  /**
-   * Pointer-based file move (see the file header for why not HTML5 DnD).
-   * A press on a file row becomes a drag once the pointer travels past the
-   * threshold; while dragging, the hovered `data-drop-dir` gets the same
-   * highlight OS drops use, and releasing over one hands the move to the
-   * controller (which confirms, guards collisions, and retargets tabs).
-   */
-  function startFileDrag(event: React.PointerEvent, sourcePath: string): void {
-    if (event.button !== 0) {
-      return;
-    }
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let dragging = false;
-
-    function targetDirAt(x: number, y: number): string | null {
-      const el = document.elementFromPoint(x, y)?.closest('[data-drop-dir]');
-      return el?.getAttribute('data-drop-dir') ?? null;
-    }
-    // An md file row under the pointer, but only relevant when dragging an
-    // image — that combination embeds the image instead of moving the file.
-    function targetMdFileAt(x: number, y: number): string | null {
-      if (!isImagePath(sourcePath)) {
-        return null;
-      }
-      const el = document.elementFromPoint(x, y)?.closest('[data-drop-file]');
-      return el?.getAttribute('data-drop-file') ?? null;
-    }
-    function cleanup(): void {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      document.body.classList.remove('explorer-dragging');
-      uiStore.getState().setDropTarget(null);
-    }
-    function onMove(e: PointerEvent): void {
-      if (!dragging) {
-        if (Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY) < DRAG_THRESHOLD_PX) {
-          return;
-        }
-        dragging = true;
-        document.body.classList.add('explorer-dragging');
-      }
-      // Prefer the md-file target (image embed) over its containing folder.
-      uiStore
-        .getState()
-        .setDropTarget(targetMdFileAt(e.clientX, e.clientY) ?? targetDirAt(e.clientX, e.clientY));
-    }
-    function onUp(e: PointerEvent): void {
-      const wasDrag = dragging;
-      cleanup();
-      if (!wasDrag) {
-        return; // a plain click — the row's onClick opens the file
-      }
-      // Swallow the click that fires right after this pointerup when the
-      // pointer is released back over the source row; self-reset in case the
-      // release happened elsewhere and no click follows.
-      dragConsumedClick.current = true;
-      setTimeout(() => {
-        dragConsumedClick.current = false;
-      }, 0);
-      // Dropping an image onto an md file embeds it (with confirmation);
-      // anything else is an in-workspace move into the hovered folder.
-      const mdFile = targetMdFileAt(e.clientX, e.clientY);
-      if (mdFile) {
-        void appendImagesToMd(mdFile, [sourcePath]);
-        return;
-      }
-      const dir = targetDirAt(e.clientX, e.clientY);
-      if (dir) {
-        void moveExplorerEntryInto(sourcePath, dir);
-      }
-    }
-    function onCancel(): void {
-      cleanup();
-    }
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onCancel);
-  }
-
   const rowClass = (base: string, dir: string): string => {
     let cls = base;
     if (dir === pasteDir) {
@@ -538,174 +307,6 @@ export function FileExplorer() {
     if (created) {
       setRenaming(created);
     }
-  }
-
-  /** Overlay + popover shared by every context menu in the drawer. */
-  function menuShell(children: ReactNode): ReactNode {
-    return (
-      <>
-        {/* Click-away layer under the menu. */}
-        <div className="context-menu-overlay" onClick={() => setMenuFor(null)} />
-        <div className="context-menu" role="menu">
-          {children}
-        </div>
-      </>
-    );
-  }
-
-  /** "Rename" menu item — starts the inline rename on `entry`'s row. */
-  function renderRenameItem(entry: ExplorerEntry): ReactNode {
-    return (
-      <button
-        className="context-menu-item"
-        role="menuitem"
-        onClick={() => {
-          setMenuFor(null);
-          setRenaming(entry.path);
-        }}
-      >
-        Rename
-      </button>
-    );
-  }
-
-  /**
-   * "Reveal in explorer" menu item — shows the file in the OS file manager.
-   * Desktop, real-filesystem paths only: Android has no file manager to target
-   * and `saf://` ids aren't OS paths, so those rows just omit the item.
-   */
-  function renderRevealItem(entry: ExplorerEntry): ReactNode {
-    if (isAndroid() || entry.path.startsWith('saf://')) {
-      return null;
-    }
-    return (
-      <button
-        className="context-menu-item"
-        role="menuitem"
-        onClick={() => {
-          setMenuFor(null);
-          void revealItemInDir(entry.path).catch(() => {});
-        }}
-      >
-        Reveal in explorer
-      </button>
-    );
-  }
-
-  /** "Delete" menu item — removes a file (the controller confirms first). */
-  function renderDeleteItem(entry: ExplorerEntry): ReactNode {
-    return (
-      <button
-        className="context-menu-item is-danger"
-        role="menuitem"
-        onClick={() => {
-          setMenuFor(null);
-          void deleteExplorerEntry(entry.path);
-        }}
-      >
-        Delete
-      </button>
-    );
-  }
-
-  /**
-   * The right-click menu for a directory: "New file"/"New folder" always;
-   * "Rename" for subfolders (`renameTarget` given); the workspace color
-   * swatches only at workspace level (`wsColor` given = a workspace); a
-   * "Remove workspace" item for removable workspaces (`removableWs`).
-   * Workspace roots aren't renamable here — their path anchors settings.
-   */
-  function renderContextMenu(
-    dir: string,
-    wsColor?: WorkspaceColor | null,
-    renameTarget?: ExplorerEntry,
-    removableWs?: boolean,
-    readOnly?: boolean,
-  ): ReactNode {
-    return menuShell(
-      <>
-        {!readOnly && (
-          <button
-            className="context-menu-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuFor(null);
-              void startNewFile(dir);
-            }}
-          >
-            New file
-          </button>
-        )}
-        {!readOnly && (
-          <button
-            className="context-menu-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuFor(null);
-              setSelectedDir(dir);
-              void createNewFolderIn(dir);
-            }}
-          >
-            New folder
-          </button>
-        )}
-        {!readOnly && (
-          <button
-            className="context-menu-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuFor(null);
-              setSelectedDir(dir);
-              void importDocumentInto(dir);
-            }}
-          >
-            Import document…
-          </button>
-        )}
-        {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
-        {wsColor !== undefined && (
-          <div className="context-menu-swatches" aria-label="Workspace color">
-            <button
-              className="color-swatch"
-              data-color="none"
-              data-active={wsColor === null || undefined}
-              aria-label="No color"
-              title="None"
-              onClick={() => {
-                setWorkspaceColor(dir, null);
-                setMenuFor(null);
-              }}
-            />
-            {WORKSPACE_COLORS.map((color) => (
-              <button
-                key={color}
-                className="color-swatch"
-                data-color={color}
-                data-active={wsColor === color || undefined}
-                aria-label={color}
-                title={color}
-                onClick={() => {
-                  setWorkspaceColor(dir, color);
-                  setMenuFor(null);
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {removableWs && (
-          <button
-            className="context-menu-item is-danger"
-            role="menuitem"
-            onClick={() => {
-              setMenuFor(null);
-              removeWorkspace(dir);
-            }}
-          >
-            Remove workspace
-          </button>
-        )}
-      </>,
-    );
   }
 
   function retryDir(dirPath: string): void {
@@ -788,7 +389,16 @@ export function FileExplorer() {
                 <span className="file-explorer-dir-name">{entry.name}</span>
               </button>
             )}
-            {menuFor === entry.path && renderContextMenu(entry.path, undefined, entry)}
+            {menuFor === entry.path && (
+              <ExplorerContextMenu
+                dir={entry.path}
+                renameTarget={entry}
+                onClose={() => setMenuFor(null)}
+                onRename={setRenaming}
+                onNewFile={startNewFile}
+                onSelectDir={setSelectedDir}
+              />
+            )}
           </div>
           {expandedDirs.has(entry.path) && renderDir(entry.path, depth + 1, readOnly)}
         </div>
@@ -865,14 +475,13 @@ export function FileExplorer() {
               })()}
             </button>
           )}
-          {menuFor === entry.path &&
-            menuShell(
-              <>
-                {renderRenameItem(entry)}
-                {renderRevealItem(entry)}
-                {renderDeleteItem(entry)}
-              </>,
-            )}
+          {menuFor === entry.path && (
+            <ExplorerContextMenu
+              entry={entry}
+              onClose={() => setMenuFor(null)}
+              onRename={setRenaming}
+            />
+          )}
         </div>
       ),
     );
@@ -1059,8 +668,18 @@ export function FileExplorer() {
                       </span>
                     )}
                   </button>
-                  {menuFor === ws.path &&
-                    renderContextMenu(ws.path, ws.color, undefined, ws.removable, ws.readOnly)}
+                  {menuFor === ws.path && (
+                    <ExplorerContextMenu
+                      dir={ws.path}
+                      wsColor={ws.color}
+                      removableWs={ws.removable}
+                      readOnly={ws.readOnly}
+                      onClose={() => setMenuFor(null)}
+                      onRename={setRenaming}
+                      onNewFile={startNewFile}
+                      onSelectDir={setSelectedDir}
+                    />
+                  )}
                 </div>
                 {!isCollapsed && renderDir(ws.path, 0, ws.readOnly)}
               </div>

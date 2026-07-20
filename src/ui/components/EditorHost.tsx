@@ -25,6 +25,7 @@ import {
   noteCursor,
   openNotePath,
   savePastedImageForTab,
+  takePendingReveal,
 } from '../session';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
@@ -32,7 +33,9 @@ import { uiStore } from '../stores/ui';
 import {
   previewNavStore,
   registerPreviewGoBack,
+  registerPreviewReveal,
   unregisterPreviewGoBack,
+  unregisterPreviewReveal,
 } from '../stores/preview-nav';
 import { isDark, subscribeDark } from '../theme';
 import { isAndroid } from '../platform';
@@ -138,6 +141,17 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
 
     tabsStore.getState().registerModeSync(tabId, sync);
 
+    // Search "jump to line": a reveal parked for this tab's path (the file was
+    // opened by search before any editor existed) fires once the initial
+    // attach settles. In wysiwyg/read mode there is no source adapter — the
+    // entry is still consumed and the tab just opens (accepted degrade).
+    const pendingLine = takePendingReveal(tab.filePath ?? tab.notePath);
+    if (pendingLine !== null) {
+      void sync.whenIdle().then(() => {
+        sourceAdapterRef.current?.revealLine(pendingLine);
+      });
+    }
+
     // Live word-wrap: reconfigure the (already-mounted) CM6 editor when the
     // setting flips, instead of re-creating it. No-op while the source editor
     // hasn't been created yet (a tab that opened straight into wysiwyg) — the
@@ -186,6 +200,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onCanGoBackChange: (canGoBack) => previewNavStore.getState().setCanGoBack(tabId, canGoBack),
     });
     registerPreviewGoBack(tabId, () => pane.goBack());
+    registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
     // A freshly-created untitled note has no path yet; the flusher assigns one
     // later. Keep the pane's docDir in sync so in-pane relative links/images
@@ -205,6 +220,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       unsubscribeDark();
       unsubscribePath();
       unregisterPreviewGoBack(tabId);
+      unregisterPreviewReveal(tabId);
       previewNavStore.getState().clear(tabId);
       pane.dispose();
       if (mode === 'split') {

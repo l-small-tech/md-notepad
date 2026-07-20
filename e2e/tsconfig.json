@@ -1,0 +1,23 @@
+{
+  // Standalone tsconfig for the e2e suite. The root tsconfig's `include` is
+  // ["src", "vite.config.ts"], so e2e/ never enters `npm run typecheck`;
+  // check this dir with `npx tsc --noEmit -p e2e/tsconfig.json` instead.
+  // The wdio/mocha ambient types below would pollute the app's type space
+  // (globals like `browser`, `describe`) if they shared a tsconfig.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node", "@wdio/globals/types", "@wdio/mocha-framework"]
+  },
+  "include": ["."]
+}

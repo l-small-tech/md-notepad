@@ -51,9 +51,12 @@ which are the same everywhere).
 
 | Shortcut | What it does |
 | --- | --- |
+| Ctrl+K | Command palette — type to search every command |
+| Ctrl+Shift+O | Toggle the outline panel (jump between headings) |
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
-| Esc | Close Settings / leave full screen |
+| Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
+| Esc | Close Settings / the command palette / leave full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,
 double-click a tab name to rename it, drag tabs to reorder them, and

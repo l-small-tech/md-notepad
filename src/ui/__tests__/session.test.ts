@@ -1381,6 +1381,7 @@ describe('insertFileLink (file/image links)', () => {
       attach() {},
       detach() {},
       focus() {},
+      revealLine() {},
       getSelection: () => ({ anchor: 0, head: 0 }),
       setSelection() {},
       setWordWrap() {},

@@ -27,6 +27,7 @@ Thumbs.db
 
 
 # AI Guidance
+.claude/
 CLAUDE.md
 AGENT_LOCKS.md
 guidance/*
