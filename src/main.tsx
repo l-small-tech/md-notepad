@@ -124,6 +124,13 @@ settingsStore.subscribe(applyDomSettings);
 // Follow the OS live while the setting is "system".
 subscribeDark(applyDomSettings);
 
+// Android: base.css pins the body (position: fixed) under this flag so the
+// root scroller can never pan the app shell off screen. Set once — the
+// runtime never changes.
+if (isAndroid()) {
+  document.documentElement.dataset.android = 'true';
+}
+
 /* ---- Pluggable themes → injected <style> -------------------------------- */
 
 // The loaded theme plugins are rendered to one <style id="theme-plugins"> whose

@@ -69,6 +69,13 @@ body,
   margin: 0;
 }
 
+html,
+body {
+  /* Overscrolling an inner pane must never chain into (or rubber-band) the
+     document — the app shell is not a scroll region. */
+  overscroll-behavior: none;
+}
+
 body {
   font-family: var(--font-ui);
   font-variant-ligatures: contextual;
@@ -78,6 +85,15 @@ body {
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
   overflow: hidden; /* the app owns its own scroll regions */
+}
+
+/* Android (main.tsx stamps data-android): pin the shell so the root scroller
+   can never pan — touch overscroll past the end of an editor pane used to
+   drag the whole UI (status bar included) up off the bottom of the screen. */
+html[data-android] body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
 }
 
 html.no-ligatures body,

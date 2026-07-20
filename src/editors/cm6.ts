@@ -128,6 +128,9 @@ const baseTheme = EditorView.theme({
     fontFamily: 'var(--font-mono)',
     lineHeight: '1.55',
     overflow: 'auto',
+    // Touch overscroll past the end of the document must stop here, not
+    // chain up and pan the app shell (Android).
+    overscrollBehavior: 'contain',
   },
   '.cm-content': {
     caretColor: 'var(--fg)',

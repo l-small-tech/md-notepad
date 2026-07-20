@@ -582,6 +582,7 @@
 .file-explorer-list {
   flex: 1 1 auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 0;
 }
 
@@ -993,6 +994,7 @@ body.explorer-dragging * {
   min-width: 0;
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 /* Read mode hides the (still-mounted) source editor entirely; only the
@@ -1009,6 +1011,7 @@ body.explorer-dragging * {
   flex: 1 1 auto;
   display: flex;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 24px;
   outline: none;
 }
@@ -1034,6 +1037,7 @@ body.explorer-dragging * {
   flex: 1 1 auto;
   display: flex;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 24px;
   outline: none;
 }
@@ -1146,9 +1150,14 @@ body.explorer-dragging * {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 32px;
+  /* Mirror of the tabbar's safe-area handling: edge-to-edge Android draws
+     under the bottom system inset (gesture pill / nav bar), so pad the bar
+     down past it. env() resolves to 0 on desktop → plain 32px. */
+  height: calc(32px + env(safe-area-inset-bottom, 0px));
   flex: 0 0 auto;
-  padding: 0 10px;
+  padding: 0 10px env(safe-area-inset-bottom, 0px);
+  padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-alt);
   border-top: 1px solid var(--border);
   color: var(--fg-muted);
@@ -1411,4 +1420,70 @@ body.explorer-dragging * {
 
 .settings-button:hover {
   background: var(--bg-alt);
+}
+
+/* ---- Narrow screens (phones; also very small desktop windows) -----------
+   640px keeps clear of tablets — a Tab A9+ reports ~800px CSS width even in
+   portrait — so tablet/desktop layouts are untouched. Two goals: the ribbon's
+   center cluster must never push the right-side buttons off screen (it
+   becomes the flexible, horizontally-scrollable region instead), and the
+   status bar must fit without wrapping (drop the caret/char readouts, keep
+   the mode segments + word count). */
+@media (max-width: 640px) {
+  .ribbon {
+    padding: 0 4px;
+  }
+
+  /* Left/right clusters keep their natural size; the center takes what's
+     left and scrolls sideways (scrollbar hidden — it's a swipe surface). */
+  .ribbon-left,
+  .ribbon-right {
+    flex: 0 0 auto;
+  }
+
+  .ribbon-center {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Centered while it fits (read mode's small cluster); 'safe' falls back
+       to flex-start when it overflows so the first buttons stay reachable. */
+    justify-content: safe center;
+  }
+
+  .ribbon-center::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Flex children shrink by default — keep every button/divider full-size so
+     the cluster overflows into the scroll instead of squashing. */
+  .ribbon-center > * {
+    flex: 0 0 auto;
+  }
+
+  .statusbar {
+    gap: 8px;
+    padding-left: calc(6px + env(safe-area-inset-left, 0px));
+    padding-right: calc(6px + env(safe-area-inset-right, 0px));
+  }
+
+  .statusbar-caret,
+  .statusbar-chars {
+    display: none;
+  }
+
+  .mode-segment {
+    padding: 3px 8px;
+  }
+
+  .statusbar-meta {
+    gap: 8px;
+  }
+
+  /* The explorer drawer is inline-width'd (drag-resized on desktop); cap it
+     so it can never swallow the whole screen — max-width beats the inline
+     width. */
+  .file-explorer {
+    max-width: 75vw;
+  }
 }

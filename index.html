@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: the Android soft keyboard shrinks the
+         layout viewport instead of overlaying it, so the app never becomes taller
+         than the visible area (which is what let touch drags pan the whole UI up
+         past the bottom). user-scalable=no stops accidental pinch-zoom pans; the
+         app has its own text-zoom control. Both are no-ops on desktop. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>MD Notepad</title>
   </head>
   <body>

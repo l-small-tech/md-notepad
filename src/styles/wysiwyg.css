@@ -40,9 +40,12 @@
   --crepe-shadow-1: 0 1px 3px 1px rgb(0 0 0 / 12%);
   --crepe-shadow-2: 0 2px 6px 2px rgb(0 0 0 / 14%);
 
-  /* Fill the editor pane and scroll internally, matching the CM6 adapter. */
+  /* Fill the editor pane and scroll internally, matching the CM6 adapter.
+     overscroll-behavior: touch overscroll stops here instead of panning the
+     app shell (Android). */
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
 }
 
