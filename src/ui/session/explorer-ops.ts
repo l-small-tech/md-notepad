@@ -43,18 +43,24 @@ export function createExplorerOps(
     }
   }
 
-  /** Context-menu "New folder": create a uniquely-named subfolder in `dir`. */
-  async function createNewFolder(dir: string): Promise<void> {
+  /**
+   * Context-menu "New folder": create a uniquely-named subfolder in `dir` and
+   * return its path so the caller can begin the inline rename on its explorer
+   * row (same one-motion naming as "New file").
+   */
+  async function createNewFolder(dir: string): Promise<string | null> {
     if (ctx.refuseReadOnly(dir)) {
-      return;
+      return null;
     }
     try {
       const target = await ctx.uniquePathIn(dir, 'new-folder', '');
       await ctx.ipc.createDir(target);
       uiStore.getState().refreshExplorer();
+      return target;
     } catch (error) {
       uiStore.getState().showNotice('Could not create a folder there.');
       ctx.deps.onError?.(error);
+      return null;
     }
   }
 

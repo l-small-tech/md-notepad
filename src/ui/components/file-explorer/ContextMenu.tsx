@@ -3,9 +3,10 @@
  * variants, selected by which props are given:
  * - `entry` — a file row's menu (Rename / Reveal in explorer / Delete);
  * - `dir` — a directory or workspace-root menu (see DirMenuProps).
- * Session-level actions (delete, new folder, import, workspace color/remove)
- * are imported directly — same module dispatch the container used; only the
- * callbacks that touch the container's state arrive as props.
+ * Session-level actions (delete, import, workspace color/remove) are imported
+ * directly — same module dispatch the container used; only the callbacks that
+ * touch the container's state arrive as props (new file/folder among them, so
+ * the created row can jump straight into an inline rename).
  */
 
 import { type ReactNode } from 'react';
@@ -14,7 +15,6 @@ import { isMarkdownPath } from '../../../core/text-files';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import {
-  createNewFolderIn,
   deleteExplorerEntry,
   importDocumentInto,
   openExportPreviewForFile,
@@ -50,6 +50,8 @@ interface DirMenuProps extends CommonProps {
   readOnly?: boolean;
   /** Create a file in `dir` and jump into renaming it (container's startNewFile). */
   onNewFile: (dir: string) => Promise<void>;
+  /** Create a subfolder in `dir` and jump into renaming it (container's startNewFolder). */
+  onNewFolder: (dir: string) => Promise<void>;
   /** Select `dir` as the paste destination (container's setSelectedDir). */
   onSelectDir: (dir: string) => void;
 }
@@ -152,7 +154,8 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     );
   }
 
-  const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onSelectDir } = props;
+  const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onNewFolder, onSelectDir } =
+    props;
   return menuShell(
     <>
       {!readOnly && (
@@ -173,8 +176,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           role="menuitem"
           onClick={() => {
             onClose();
-            onSelectDir(dir);
-            void createNewFolderIn(dir);
+            void onNewFolder(dir);
           }}
         >
           New folder

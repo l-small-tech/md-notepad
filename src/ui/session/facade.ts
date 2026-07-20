@@ -230,7 +230,7 @@ let savePastedImageDispatch: (
 ) => Promise<ImageRef | null> = async () => null;
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
 let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
-let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
+let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -280,7 +280,7 @@ export function setSavePastedFileDispatch(
 export function setCreateNewFileDispatch(fn: (dir: string) => Promise<string | null>): void {
   createNewFileDispatch = fn;
 }
-export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<void>): void {
+export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<string | null>): void {
   createNewFolderDispatch = fn;
 }
 export function setRenameEntryDispatch(
@@ -501,7 +501,7 @@ export function createNewFileIn(dir: string): Promise<string | null> {
   return createNewFileDispatch(dir);
 }
 /** FileExplorer context menu → controller: create a new subfolder in `dir`. */
-export function createNewFolderIn(dir: string): Promise<void> {
+export function createNewFolderIn(dir: string): Promise<string | null> {
   return createNewFolderDispatch(dir);
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk

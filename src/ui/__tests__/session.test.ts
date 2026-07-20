@@ -906,11 +906,14 @@ describe('createNewFolderIn (explorer context menu)', () => {
     const fs = makeFakeFs();
     makeController(fs);
 
-    await session.createNewFolderIn('/ws');
-    await session.createNewFolderIn('/ws');
+    const first = await session.createNewFolderIn('/ws');
+    const second = await session.createNewFolderIn('/ws');
 
     expect(fs.dirs.has('/ws/new-folder')).toBe(true);
     expect(fs.dirs.has('/ws/new-folder-2')).toBe(true);
+    // Returns the created path so the explorer can start an inline rename on it.
+    expect(first).toBe('/ws/new-folder');
+    expect(second).toBe('/ws/new-folder-2');
   });
 });
 

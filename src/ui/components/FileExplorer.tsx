@@ -59,6 +59,7 @@ import {
   addCloudWorkspace,
   addWorkspace,
   createNewFileIn,
+  createNewFolderIn,
   getDefaultWorkspacePath,
   openNotePath,
   openNotePathPinned,
@@ -368,6 +369,29 @@ export function FileExplorer() {
     }
   }
 
+  /**
+   * Context-menu "New folder": mirror {@link startNewFile} — reveal the target
+   * dir, create the subfolder, then jump straight into renaming its row (default
+   * name "new-folder" pre-selected) so it can be named in one motion.
+   */
+  async function startNewFolder(dir: string): Promise<void> {
+    setSelectedDir(dir);
+    const isWorkspaceRoot = workspaces.some((w) => fileKey(w.path) === fileKey(dir));
+    if (isWorkspaceRoot) {
+      setCollapsedWs((prev) => {
+        const next = new Set(prev);
+        next.delete(dir);
+        return next;
+      });
+    } else {
+      setExpandedDirs((prev) => new Set(prev).add(dir));
+    }
+    const created = await createNewFolderIn(dir);
+    if (created) {
+      setRenaming(created);
+    }
+  }
+
   function retryDir(dirPath: string): void {
     // Drop the failure flag (row returns to "Loading…"), then force a re-fetch
     // + re-list. For a synced dir this re-queries the backend; for a local dir
@@ -455,6 +479,7 @@ export function FileExplorer() {
                 onClose={() => setMenuFor(null)}
                 onRename={setRenaming}
                 onNewFile={startNewFile}
+                onNewFolder={startNewFolder}
                 onSelectDir={setSelectedDir}
               />
             )}
@@ -763,6 +788,7 @@ export function FileExplorer() {
                       onClose={() => setMenuFor(null)}
                       onRename={setRenaming}
                       onNewFile={startNewFile}
+                      onNewFolder={startNewFolder}
                       onSelectDir={setSelectedDir}
                     />
                   )}
