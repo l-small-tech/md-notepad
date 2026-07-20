@@ -11,20 +11,18 @@
  */
 
 import { Fragment } from 'react';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { currentProvider } from '../../ipc/provider';
-import { writeThemeTemplate } from '../../ipc/theme-loader';
+import { selectTheme } from '../theme-actions';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import {
-  themeRegistryStore,
   useThemeRegistry,
+  currentThemeValue,
   themePickerGroups,
   themePluginOptions,
-  isAppearanceMode,
 } from '../stores/theme-registry';
 import { DEFAULT_COLOR_SCHEME } from '../../core/types';
 import { uiStore, useUiStore } from '../stores/ui';
@@ -58,30 +56,6 @@ const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[
 
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
-}
-
-/** Reveal the themes folder in the OS file manager so the user can drop in
- *  theme files (desktop only; the button is hidden where reveal is unavailable). */
-async function openThemesFolder(): Promise<void> {
-  const { themesDir } = themeRegistryStore.getState();
-  if (themesDir) {
-    await revealItemInDir(themesDir).catch(() => {});
-  }
-}
-
-/** Write a starter theme file, reload the registry, select it, and reveal it. */
-async function newTheme(): Promise<void> {
-  const { themesDir, plugins, reload } = themeRegistryStore.getState();
-  if (!themesDir) {
-    return;
-  }
-  const existing = new Set(plugins.map((p) => p.id));
-  const { id, path } = await writeThemeTemplate(themesDir, existing);
-  await reload();
-  update({ colorScheme: id });
-  if (currentProvider().capabilities.isLocalFs) {
-    await revealItemInDir(path).catch(() => {});
-  }
 }
 
 /**
@@ -119,20 +93,12 @@ export function SettingsDialog() {
 
   const pluginOptions = themePluginOptions(plugins);
   const themeGroups = themePickerGroups(plugins);
-  const canReveal = currentProvider().capabilities.isLocalFs;
 
   // Unified Theme picker: System/Light/Dark drive the built-in default palette;
   // a plugin id drives that scheme and follows the OS light/dark. The dropdown
-  // shows the mode when on the default palette, else the plugin id.
-  const themeValue =
-    settings.colorScheme === DEFAULT_COLOR_SCHEME ? settings.theme : settings.colorScheme;
-  const onThemeChange = (value: string) => {
-    if (isAppearanceMode(value)) {
-      update({ theme: value, colorScheme: DEFAULT_COLOR_SCHEME });
-    } else {
-      update({ colorScheme: value, theme: 'system' });
-    }
-  };
+  // shows the mode when on the default palette, else the plugin id. The folder
+  // actions (open / new / reload / help) live in ☰ Menu → Themes.
+  const themeValue = currentThemeValue(settings);
   const pluginMissing =
     settings.colorScheme !== DEFAULT_COLOR_SCHEME &&
     !pluginOptions.some((p) => p.value === settings.colorScheme);
@@ -178,7 +144,7 @@ export function SettingsDialog() {
             <select
               className="settings-control"
               value={themeValue}
-              onChange={(e) => onThemeChange(e.target.value)}
+              onChange={(e) => selectTheme(e.target.value)}
             >
               {/* System + green themes, then other plugins — one divider
                   between each non-empty group. */}
@@ -205,29 +171,11 @@ export function SettingsDialog() {
             </select>
           </label>
 
-          <div className="settings-row settings-row-notes">
-            <span className="settings-label">Themes folder</span>
-            <div className="settings-notes-value">
-              <span className="settings-hint">
-                Drop in theme files, or ask your AI to make one (see Open Docs).
-              </span>
-              <div className="settings-theme-buttons">
-                {canReveal && (
-                  <button className="settings-button" onClick={() => void openThemesFolder()}>
-                    Open folder
-                  </button>
-                )}
-                <button className="settings-button" onClick={() => void newTheme()}>
-                  New theme…
-                </button>
-                <button
-                  className="settings-button"
-                  onClick={() => void themeRegistryStore.getState().reload()}
-                >
-                  Reload
-                </button>
-              </div>
-            </div>
+          <div className="settings-row settings-row-hint">
+            <span className="settings-label" />
+            <span className="settings-hint">
+              Add, create, or reload your own themes in ☰ Menu → Themes.
+            </span>
           </div>
 
           <label className="settings-row">

@@ -3,7 +3,12 @@
  * around ipc/theme-loader, covered there).
  */
 import { describe, expect, test } from 'vitest';
-import { exportThemeGroups, themePickerGroups } from '../theme-registry';
+import {
+  currentThemeValue,
+  exportThemeGroups,
+  themePickerGroups,
+  themeSelectionPatch,
+} from '../theme-registry';
 import type { ThemePlugin } from '../../../core/theme-plugins';
 
 const plugin = (id: string, name = id): ThemePlugin => ({
@@ -40,5 +45,26 @@ describe('exportThemeGroups', () => {
     const picker = themePickerGroups(PLUGINS).flat();
     const exportable = exportThemeGroups(PLUGINS).flat();
     expect(picker.filter((o) => o.value !== 'system')).toEqual(exportable);
+  });
+});
+
+describe('currentThemeValue / themeSelectionPatch', () => {
+  test('the default palette shows its appearance mode; a plugin shows its id', () => {
+    expect(currentThemeValue({ theme: 'system', colorScheme: 'default' })).toBe('system');
+    expect(currentThemeValue({ theme: 'dark', colorScheme: 'default' })).toBe('dark');
+    // A plugin carries both modes, so its id wins over the saved mode.
+    expect(currentThemeValue({ theme: 'system', colorScheme: 'nord' })).toBe('nord');
+  });
+
+  test('picking a mode returns to the default palette; picking a plugin follows the OS', () => {
+    expect(themeSelectionPatch('system')).toEqual({ theme: 'system', colorScheme: 'default' });
+    expect(themeSelectionPatch('dark')).toEqual({ theme: 'dark', colorScheme: 'default' });
+    expect(themeSelectionPatch('nord')).toEqual({ theme: 'system', colorScheme: 'nord' });
+  });
+
+  test('round-trips: applying a patch makes that entry the current one', () => {
+    for (const value of ['system', 'dark', 'nord', 'light-green']) {
+      expect(currentThemeValue(themeSelectionPatch(value))).toBe(value);
+    }
   });
 });

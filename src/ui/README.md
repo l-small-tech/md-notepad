@@ -144,6 +144,12 @@ event target).
   so changes apply immediately: theme/ligatures/font size via the DOM
   subscription (`applyDomSettings`), word wrap via EditorHost reconfiguring the
   live CM6 adapter, default mode on the NEXT new tab.
+- Theme picking has two surfaces — the ribbon's ☰ menu → **Themes** (the theme
+  list plus Open folder / New theme… / Reload / Help) and the Settings **Theme**
+  dropdown. Both go through `ui/theme-actions.ts` (side effects) and
+  `stores/theme-registry`'s `currentThemeValue` / `themeSelectionPatch` (the
+  pure "which entry is current / what does this choice mean" pair, unit-tested),
+  so the two can't drift.
 - **Font size is CSS-variable driven** (`--editor-font-size`): CM6, preview,
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor

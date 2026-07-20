@@ -133,3 +133,27 @@ export function exportThemeGroups(plugins: readonly ThemePlugin[]): ThemeOption[
 export function isAppearanceMode(value: string): value is 'system' | 'light' | 'dark' {
   return APPEARANCE_MODE_IDS.has(value);
 }
+
+/**
+ * The picker's current value for a settings pair: the appearance mode while on
+ * the built-in default palette, else the plugin id. Both theme surfaces (the
+ * ☰ menu's Themes submenu and the Settings dropdown) read through this so they
+ * always agree on which entry is checked/selected.
+ */
+export function currentThemeValue(settings: { theme: string; colorScheme: string }): string {
+  return settings.colorScheme === DEFAULT_COLOR_SCHEME ? settings.theme : settings.colorScheme;
+}
+
+/**
+ * The settings patch a picker choice implies. An appearance mode returns to the
+ * built-in palette; a plugin id selects that scheme and follows the OS
+ * light/dark (a plugin carries both modes itself, so forcing one is redundant).
+ */
+export function themeSelectionPatch(value: string): {
+  theme: 'system' | 'light' | 'dark';
+  colorScheme: string;
+} {
+  return isAppearanceMode(value)
+    ? { theme: value, colorScheme: DEFAULT_COLOR_SCHEME }
+    : { theme: 'system', colorScheme: value };
+}

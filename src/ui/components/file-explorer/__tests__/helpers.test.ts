@@ -13,7 +13,14 @@ vi.mock('../../../session', () => ({
   listNoteFiles: vi.fn(() => Promise.resolve([])),
 }));
 
-import { clampExplorerWidth, fileBadge, MAX_EXPLORER_WIDTH, MIN_EXPLORER_WIDTH } from '../helpers';
+import {
+  clampExplorerWidth,
+  fileBadge,
+  isTreeOpen,
+  MAX_EXPLORER_WIDTH,
+  MIN_EXPLORER_WIDTH,
+  toggleTreeAll,
+} from '../helpers';
 
 describe('fileBadge', () => {
   test('markdown extensions get the accent "md" badge', () => {
@@ -64,5 +71,33 @@ describe('clampExplorerWidth', () => {
   test('clamps above the maximum', () => {
     expect(clampExplorerWidth(10_000)).toBe(MAX_EXPLORER_WIDTH);
     expect(clampExplorerWidth(MAX_EXPLORER_WIDTH + 1)).toBe(MAX_EXPLORER_WIDTH);
+  });
+});
+
+describe('isTreeOpen / toggleTreeAll', () => {
+  const WS = ['/notes', '/docs'];
+
+  test('open while any workspace is uncollapsed or any subfolder is expanded', () => {
+    expect(isTreeOpen(WS, new Set(), new Set())).toBe(true);
+    expect(isTreeOpen(WS, new Set(['/notes']), new Set())).toBe(true);
+    expect(isTreeOpen(WS, new Set(WS), new Set())).toBe(false);
+    // All workspaces collapsed but a subfolder still remembered: still open.
+    expect(isTreeOpen(WS, new Set(WS), new Set(['/notes/sub']))).toBe(true);
+    // No workspaces at all — nothing to show.
+    expect(isTreeOpen([], new Set(), new Set())).toBe(false);
+  });
+
+  test('collapsing shuts every workspace and forgets expanded subfolders', () => {
+    const next = toggleTreeAll(WS, true);
+    expect([...next.collapsedWorkspaces].sort()).toEqual(['/docs', '/notes']);
+    expect(next.expandedDirs.size).toBe(0);
+    expect(isTreeOpen(WS, next.collapsedWorkspaces, next.expandedDirs)).toBe(false);
+  });
+
+  test('expanding opens the roots only — subfolders stay lazy', () => {
+    const next = toggleTreeAll(WS, false);
+    expect(next.collapsedWorkspaces.size).toBe(0);
+    expect(next.expandedDirs.size).toBe(0);
+    expect(isTreeOpen(WS, next.collapsedWorkspaces, next.expandedDirs)).toBe(true);
   });
 });

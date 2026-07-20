@@ -41,6 +41,38 @@ export function fileBadge(name: string): { label: string; kind: 'md' | 'image' |
   return null;
 }
 
+/**
+ * The tree is "open" when anything at all is showing: a workspace that isn't
+ * collapsed, or an expanded subfolder. Drives the header's one collapse/expand
+ * button — open means the next press collapses, shut means it expands.
+ */
+export function isTreeOpen(
+  workspacePaths: readonly string[],
+  collapsedWorkspaces: ReadonlySet<string>,
+  expandedDirs: ReadonlySet<string>,
+): boolean {
+  return expandedDirs.size > 0 || workspacePaths.some((p) => !collapsedWorkspaces.has(p));
+}
+
+/**
+ * Next (collapsedWorkspaces, expandedDirs) for the collapse/expand-all button.
+ * Collapsing shuts every workspace AND forgets every expanded subfolder, so a
+ * re-expand starts at the roots rather than restoring the old tree — which also
+ * stops the listing effect from re-fetching subfolders nobody can see.
+ * Expanding only opens the workspace roots: subfolders are listed lazily (one
+ * `list_dir` per level), so "expand everything" would fan out an unbounded
+ * number of calls over a deep tree.
+ */
+export function toggleTreeAll(
+  workspacePaths: readonly string[],
+  open: boolean,
+): { collapsedWorkspaces: ReadonlySet<string>; expandedDirs: ReadonlySet<string> } {
+  return {
+    collapsedWorkspaces: open ? new Set(workspacePaths) : new Set(),
+    expandedDirs: new Set(),
+  };
+}
+
 /** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
 export const DRAG_THRESHOLD_PX = 5;
 

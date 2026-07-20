@@ -307,7 +307,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setAddWorkspaceDispatch(() => void workspaces.addWorkspaceFromDialog());
   setAddCloudWorkspaceDispatch(() => void workspaces.addCloudWorkspaceFromDialog());
   setRemoveSyncedWorkspaceDispatch((path) => void workspaces.removeSyncedWorkspace(path));
-  setOpenDocsDispatch(() => void workspaces.openDocsWorkspace());
+  setOpenDocsDispatch((page) => void workspaces.openDocsWorkspace(page));
   setImportFilesDispatch(importImages.importFiles);
   setImportDocumentDispatch(importImages.importDocument);
   setImportStatusDispatch(importImages.importStatusFor);

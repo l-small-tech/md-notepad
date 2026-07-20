@@ -251,9 +251,13 @@
   background: var(--bg-hover);
 }
 
-/* The ribbon's ☰ app menu — a .tab-menu widened for shortcut hints. */
+/* The ribbon's ☰ app menu — a .tab-menu widened for shortcut hints. The
+   Themes page lists every installed theme, so the popover scrolls rather than
+   running off the bottom of a short window. */
 .ribbon-menu {
   min-width: 220px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
 }
 
 .ribbon-menu-item {
@@ -1519,10 +1523,10 @@ body.explorer-dragging * {
   font-size: 12px;
 }
 
-.settings-theme-buttons {
-  display: flex;
-  gap: 6px;
-  flex: 0 0 auto;
+/* A caption row under a control: no control of its own, just the hint text
+   sitting in the value column (the empty label keeps it aligned). */
+.settings-row-hint {
+  margin-top: -6px;
 }
 
 .settings-footer {

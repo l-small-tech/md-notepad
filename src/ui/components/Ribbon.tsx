@@ -19,7 +19,7 @@
  * own inline toolbar there).
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { appendMentions } from '../../core/link-mentions';
@@ -31,8 +31,17 @@ import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, openExportPreview } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
+import {
+  canRevealThemesFolder,
+  newTheme,
+  openThemesFolder,
+  openThemesHelp,
+  reloadThemes,
+  selectTheme,
+} from '../theme-actions';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
+import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
@@ -142,6 +151,7 @@ function RibbonMenuItem({
   title,
   onPick,
   onClose,
+  keepOpen,
 }: {
   glyph: string;
   label: string;
@@ -149,6 +159,8 @@ function RibbonMenuItem({
   title?: string;
   onPick: () => void;
   onClose: () => void;
+  /** Drill-in / back rows stay open — they navigate within the popover. */
+  keepOpen?: boolean;
 }) {
   return (
     <button
@@ -156,7 +168,9 @@ function RibbonMenuItem({
       role="menuitem"
       title={title}
       onClick={() => {
-        onClose();
+        if (!keepOpen) {
+          onClose();
+        }
         onPick();
       }}
     >
@@ -170,11 +184,84 @@ function RibbonMenuItem({
 }
 
 /**
+ * The Themes submenu — every installed theme (same grouping and order as the
+ * Settings dropdown, ✓ on the current one), then the folder actions that used
+ * to live in Settings: Open folder / New theme… / Reload, plus Help, which
+ * opens the bundled themes guide.
+ *
+ * It's a drill-in page of the ☰ popover rather than a flyout: one panel works
+ * the same under a mouse and a finger (Android has no hover), and the theme
+ * list can be long.
+ */
+function ThemesSubmenu({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+  const plugins = useThemeRegistry((s) => s.plugins);
+  const settings = useSettingsStore((s) => s.settings);
+  const current = currentThemeValue(settings);
+  const groups = themePickerGroups(plugins);
+  return (
+    <>
+      <RibbonMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
+      <div className="ribbon-menu-divider" role="separator" />
+      {groups.map((group, gi) => (
+        <Fragment key={gi}>
+          {gi > 0 && <div className="ribbon-menu-divider" role="separator" />}
+          {group.map((option) => (
+            <RibbonMenuItem
+              key={option.value}
+              // The ✓ column is the glyph slot, so checked and unchecked rows
+              // keep their labels aligned.
+              glyph={option.value === current ? '✓' : ''}
+              label={option.label}
+              onPick={() => selectTheme(option.value)}
+              onClose={onClose}
+              // Picking applies live — staying open lets the user try a few.
+              keepOpen
+            />
+          ))}
+        </Fragment>
+      ))}
+      <div className="ribbon-menu-divider" role="separator" />
+      {canRevealThemesFolder() && (
+        <RibbonMenuItem
+          glyph="📂"
+          label="Open folder"
+          title="Show the themes folder in your file manager"
+          onPick={() => void openThemesFolder()}
+          onClose={onClose}
+        />
+      )}
+      <RibbonMenuItem
+        glyph="✚"
+        label="New theme…"
+        title="Create a starter theme file, select it, and reveal it"
+        onPick={() => void newTheme()}
+        onClose={onClose}
+      />
+      <RibbonMenuItem
+        glyph="⟲"
+        label="Reload"
+        title="Re-read the themes folder after editing or adding files"
+        onPick={() => void reloadThemes()}
+        onClose={onClose}
+      />
+      <RibbonMenuItem
+        glyph="?"
+        label="Help"
+        title="How to create your own theme"
+        onPick={openThemesHelp}
+        onClose={onClose}
+      />
+    </>
+  );
+}
+
+/**
  * The ☰ app menu — one-shot commands that don't earn a toolbar slot. Same
  * fixed-position popover pattern as the tab bar's OverflowMenu, but
  * left-aligned under its trigger (the button sits near the window's left edge).
  */
 function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  const [page, setPage] = useState<'root' | 'themes'>('root');
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener('pointerdown', close);
@@ -201,6 +288,25 @@ function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
       style={{ left: anchor.left, top: anchor.bottom + 4 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {page === 'themes' ? (
+        <ThemesSubmenu onBack={() => setPage('root')} onClose={onClose} />
+      ) : (
+        <RootMenuPage onOpenThemes={() => setPage('themes')} onClose={onClose} />
+      )}
+    </div>
+  );
+}
+
+/** The ☰ menu's top level. */
+function RootMenuPage({
+  onOpenThemes,
+  onClose,
+}: {
+  onOpenThemes: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
       <RibbonMenuItem
         glyph="🔍"
         label="Search workspaces"
@@ -233,13 +339,22 @@ function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
       />
       <div className="ribbon-menu-divider" role="separator" />
       <RibbonMenuItem
+        glyph="🎨"
+        label="Themes"
+        title="Pick a theme, or make your own"
+        shortcut="›"
+        onPick={onOpenThemes}
+        onClose={onClose}
+        keepOpen
+      />
+      <RibbonMenuItem
         glyph="⚙"
         label="Settings"
         shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
         onPick={() => uiStore.getState().openSettings()}
         onClose={onClose}
       />
-    </div>
+    </>
   );
 }
 

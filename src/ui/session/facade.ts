@@ -323,7 +323,7 @@ let defaultWorkspaceDispatch: () => string | null = () => null;
 let addWorkspaceDispatch: () => void = () => {};
 let addCloudWorkspaceDispatch: () => void = () => {};
 let removeSyncedWorkspaceDispatch: (path: string) => void = () => {};
-let openDocsDispatch: () => void = () => {};
+let openDocsDispatch: (page?: string) => void = () => {};
 let insertFileLinkDispatch: (opts: { image: boolean; absolute: boolean }) => void = () => {};
 // Default (pre-boot / tests): a plain label change. The controller swaps in
 // the file-aware variant that also renames a file tab's file on disk.
@@ -348,7 +348,7 @@ export function setAddCloudWorkspaceDispatch(fn: () => void): void {
 export function setRemoveSyncedWorkspaceDispatch(fn: (path: string) => void): void {
   removeSyncedWorkspaceDispatch = fn;
 }
-export function setOpenDocsDispatch(fn: () => void): void {
+export function setOpenDocsDispatch(fn: (page?: string) => void): void {
   openDocsDispatch = fn;
 }
 export function setInsertFileLinkDispatch(
@@ -540,9 +540,13 @@ export function addWorkspace(): void {
 export function addCloudWorkspace(): void {
   addCloudWorkspaceDispatch();
 }
-/** SettingsDialog → controller: open the bundled docs as a read-only workspace. */
-export function openDocs(): void {
-  openDocsDispatch();
+/**
+ * Settings / Themes menu → controller: open the bundled docs as a read-only
+ * workspace. `page` opens one guide directly (e.g. 'themes.md' for the Themes
+ * submenu's Help); omitted, it lands on the start page.
+ */
+export function openDocs(page?: string): void {
+  openDocsDispatch(page);
 }
 /**
  * FileExplorer → settings: forget a workspace. For a local workspace this is

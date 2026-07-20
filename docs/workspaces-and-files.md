@@ -17,7 +17,8 @@ your notes and any other folders you care about.
 Handy things to know:
 
 - Click a section heading to collapse or expand it. Click a folder to see
-  inside it.
+  inside it. The **double chevron** at the top of the drawer shuts the whole
+  tree at once (▲▲); press it again (▼▼) to reopen the workspaces.
 - **Single-click** a file to peek at it: it opens in a *preview* tab (shown
   in italics) that gets reused as you click around, so you don't pile up
   tabs. **Double-click** — or just start editing — to keep it open for

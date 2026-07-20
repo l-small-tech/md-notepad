@@ -17,9 +17,9 @@ remembered. Press Esc or click outside the panel to close it.
 
   See **[Themes](themes.md)** for how to make your own (an AI can write one for
   you in seconds) — a theme can set the whole palette *and* recolor individual
-  markdown elements (headings, bold, links, …). The **Themes folder** row below
-  the dropdown has buttons to **Open folder**, start a **New theme…**, and
-  **Reload** after editing.
+  markdown elements (headings, bold, links, …). The same list — plus the
+  **Open folder**, **New theme…**, **Reload**, and **Help** buttons — lives in
+  the **☰ menu → Themes**.
 - **Font size** — the size of text in the editor and previews. You can also
   change it any time with **Ctrl+=** / **Ctrl+-** (and **Ctrl+0** to
   reset), which is especially handy in Read mode.

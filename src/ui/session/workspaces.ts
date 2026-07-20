@@ -193,9 +193,10 @@ export function createWorkspaces(
    * Settings "Open docs": register the bundled documentation folder as a
    * read-only workspace (idempotent — an existing entry for that path is
    * upgraded to read-only rather than duplicated), reveal it in the explorer,
-   * and open its start page pinned to read mode.
+   * and open a page pinned to read mode — the start page, or `page` when a
+   * caller wants a specific guide (the Themes menu's Help opens 'themes.md').
    */
-  async function openDocsWorkspace(): Promise<void> {
+  async function openDocsWorkspace(page?: string): Promise<void> {
     const docsDir = ctx.deps.docsDir ?? null;
     if (!docsDir) {
       uiStore.getState().showNotice('Documentation is not available in this build.');
@@ -236,9 +237,9 @@ export function createWorkspaces(
     if (!uiStore.getState().explorerOpen) {
       uiStore.getState().toggleExplorer();
     }
-    // The guide's start page; opened AFTER the workspace exists so
-    // isReadOnlyPath pins the tab to read mode.
-    await openPaths([joinPath(docsDir, 'README.md')]);
+    // Opened AFTER the workspace exists so isReadOnlyPath pins the tab to read
+    // mode.
+    await openPaths([joinPath(docsDir, page ?? 'README.md')]);
   }
 
   return {

@@ -36,6 +36,9 @@
  * attributes the OS-drop path in main.tsx uses. The drag machinery lives in
  * `file-explorer/useFileDrag.ts`.
  *
+ * The header carries the drawer-wide actions: add workspace, collapse/expand
+ * the whole tree (one button that flips with `isTreeOpen`), and refresh.
+ *
  * The drawer is resizable via the divider on its right edge; the width is
  * session-only (module scope), like EditorHost's split ratio.
  *
@@ -68,7 +71,14 @@ import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { uiStore, useUiStore } from '../stores/ui';
 import { ExplorerContextMenu } from './file-explorer/ContextMenu';
-import { dirIndent, fileBadge, listWithTimeout, MIME_EXT } from './file-explorer/helpers';
+import {
+  dirIndent,
+  fileBadge,
+  isTreeOpen,
+  listWithTimeout,
+  MIME_EXT,
+  toggleTreeAll,
+} from './file-explorer/helpers';
 import { RenameInput } from './file-explorer/RenameInput';
 import { useFileDrag } from './file-explorer/useFileDrag';
 
@@ -258,6 +268,25 @@ export function FileExplorer() {
     } finally {
       setRefreshing(false);
     }
+  }
+
+  /**
+   * One header button for the whole tree: collapse everything while anything is
+   * open, expand the workspace roots once it's all shut. Subfolders are listed
+   * lazily, so "expand" deliberately stops at the roots (see toggleTreeAll).
+   */
+  const treeOpen = isTreeOpen(
+    workspaces.map((w) => w.path),
+    collapsedWs,
+    expandedDirs,
+  );
+  function toggleAll(): void {
+    const next = toggleTreeAll(
+      workspaces.map((w) => w.path),
+      treeOpen,
+    );
+    setCollapsedWs(next.collapsedWorkspaces);
+    setExpandedDirs(next.expandedDirs);
   }
 
   const toggleSet = (set: ReadonlySet<string>, path: string): ReadonlySet<string> => {
@@ -576,6 +605,33 @@ export function FileExplorer() {
                 </svg>
               </button>
             )}
+            {/* One button for the whole tree: a stacked DOUBLE CHEVRON — both
+                pointing up while something is open (press to fold everything
+                up), both pointing down once it's all shut (press to unfold).
+                Same-direction chevrons on purpose: converging ones read as an
+                ✕ and looked like "close this workspace". */}
+            <button
+              className="file-explorer-action"
+              aria-label={treeOpen ? 'Collapse all' : 'Expand all'}
+              aria-expanded={treeOpen}
+              title={treeOpen ? 'Collapse all' : 'Expand all workspaces'}
+              onClick={toggleAll}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                <path
+                  d={
+                    treeOpen
+                      ? 'M3.3 6.1 6.5 2.9l3.2 3.2M3.3 10.1 6.5 6.9l3.2 3.2'
+                      : 'M3.3 2.9 6.5 6.1l3.2-3.2M3.3 6.9 6.5 10.1l3.2-3.2'
+                  }
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
             {/* Re-fetch every workspace from its backend and re-list. The
                 headline case is a synced (Drive) folder whose remote changes the
                 provider was serving from cache — see refreshWorkspaces. */}
