@@ -43,7 +43,7 @@ import './styles/app.css';
 import './styles/preview.css';
 import './styles/voice-comments.css';
 import { App } from './ui/App';
-import type { Settings } from './core/types';
+import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
@@ -94,9 +94,14 @@ function applyDomSettings(): void {
     settingsStore.getState().settings;
   const root = document.documentElement;
   root.dataset.theme = isDark() ? 'dark' : 'light';
-  // Palette family — themes.css maps each value (paired with data-theme) to the
-  // ten color variables; 'default' has no block and falls through to base.css.
-  root.dataset.colorScheme = colorScheme;
+  // Palette family — each value (paired with data-theme) maps to the ten color
+  // variables via the injected theme-plugin CSS. The built-in System/Light/Dark
+  // modes (`colorScheme === 'default'`) render the green built-ins — Light
+  // Green in light mode, Dark Green in dark — instead of the plain base.css
+  // palette; if those theme files were deleted the id matches no injected
+  // block and falls through to base.css anyway.
+  root.dataset.colorScheme =
+    colorScheme === DEFAULT_COLOR_SCHEME ? (isDark() ? 'dark-green' : 'light-green') : colorScheme;
   root.classList.toggle('no-ligatures', !ligatures);
   root.style.setProperty('--editor-font-size', `${fontSize}px`);
   // Editor/content typeface; the UI chrome either follows it ('match', the

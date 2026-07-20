@@ -65,6 +65,20 @@ you have it open, a banner appears at the top of that tab:
   Rename. Renaming also renames the file on disk, so tab and file always
   match. Rename a note to a blank name to go back to automatic naming.
 
+## Split view
+
+Want two tabs open at once in the same window? Right-click a tab and pick
+**Split right** (side by side) or **Split down** (stacked). That tab is
+pinned into the second pane — marked with a small accent underline in the
+tab strip — while the tab strip keeps switching the first pane as usual.
+Both panes are full editors: you can type in either one.
+
+- **Resize**: drag the divider between the panes.
+- **Bring the pinned tab back**: click it in the tab strip — the two panes
+  swap, so your click always wins.
+- **Back to one pane**: right-click any tab → **Close split** (closing the
+  pinned tab does it too).
+
 ## Multiple windows
 
 Want two documents side by side? Drag a tab out of the window and release

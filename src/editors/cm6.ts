@@ -112,8 +112,10 @@ export interface Cm6Adapter extends EditorAdapter {
  * markdown elements a theme plugin can recolor read a `--md-*` var (core/
  * theme-plugins.ts) with a fallback to their previous palette color, so an
  * unset key looks exactly as before. Per-level headings cascade
- * `--md-heading{n}` → `--md-heading` → `--accent`; the base `tags.heading` rule
- * keeps the bold weight and colors the `#` marker.
+ * `--md-heading{n}` → `--md-heading` → `--fg`; the base `tags.heading` rule
+ * keeps the bold weight and colors the `#` marker. Every fallback here matches
+ * the Read pane's (preview.css) so raw and read stay the same colors even for
+ * a theme with no `syntax` block.
  */
 const HEADING_TAGS = [
   tags.heading1,
@@ -128,11 +130,11 @@ const highlightStyle = HighlightStyle.define([
   // matching rule — so each level must carry `fontWeight` itself (a bare
   // `heading` rule wouldn't reach them). The base rule stays for any generic
   // heading token and to document intent.
-  { tag: tags.heading, fontWeight: 'bold', color: 'var(--md-heading, var(--accent))' },
+  { tag: tags.heading, fontWeight: 'bold', color: 'var(--md-heading, var(--fg))' },
   ...HEADING_TAGS.map((tag, i) => ({
     tag,
     fontWeight: 'bold',
-    color: `var(--md-heading${i + 1}, var(--md-heading, var(--accent)))`,
+    color: `var(--md-heading${i + 1}, var(--md-heading, var(--fg)))`,
   })),
   { tag: tags.strong, fontWeight: 'bold', color: 'var(--md-bold, var(--fg))' },
   { tag: tags.emphasis, fontStyle: 'italic', color: 'var(--md-italic, var(--fg))' },
@@ -140,7 +142,8 @@ const highlightStyle = HighlightStyle.define([
   { tag: [tags.monospace, tags.content], color: 'var(--md-code, var(--fg))' },
   { tag: tags.link, color: 'var(--md-link, var(--accent))', textDecoration: 'underline' },
   { tag: tags.url, color: 'var(--md-link, var(--accent))' },
-  { tag: tags.list, color: 'var(--md-list, var(--fg-muted))' },
+  // Read-pane list markers inherit the text color, so match that fallback.
+  { tag: tags.list, color: 'var(--md-list, var(--fg))' },
   { tag: tags.quote, color: 'var(--md-quote, var(--fg-muted))' },
   { tag: [tags.processingInstruction, tags.meta], color: 'var(--fg-muted)' },
   { tag: tags.keyword, color: 'var(--accent)' },

@@ -16,7 +16,8 @@ import { converterFor } from '../../core/import/registry';
 import { checkImportStatus, importDocumentInto, openNotePath } from '../session';
 import { useTabsStore } from '../stores/tabs';
 
-function ImportViewImpl({ tabId, active }: { tabId: string; active: boolean }) {
+function ImportViewImpl({ tabId, pane }: { tabId: string; pane: 'primary' | 'secondary' | null }) {
+  const active = pane !== null;
   const filePath = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.filePath ?? null);
   // The async "already imported?" result, keyed by the path it was checked for
   // (a stale path renders as "checking", like ImageView's loaded-image guard).
@@ -75,7 +76,11 @@ function ImportViewImpl({ tabId, active }: { tabId: string; active: boolean }) {
   const status = checked !== null && checked.path === filePath ? checked : null;
 
   return (
-    <div className="editor-host import-host" style={{ display: active ? 'flex' : 'none' }}>
+    <div
+      className="editor-host import-host"
+      style={{ display: active ? 'flex' : 'none' }}
+      data-pane={pane ?? undefined}
+    >
       <div className="import-view" tabIndex={0}>
         <div className="import-card">
           <div className="import-card-head">

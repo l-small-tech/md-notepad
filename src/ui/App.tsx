@@ -7,7 +7,7 @@
  * the editor and tab switches keep focus in the right place.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TabBar } from './components/TabBar';
 import { Ribbon } from './components/Ribbon';
 import { FileExplorer } from './components/FileExplorer';
@@ -19,15 +19,61 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { VoiceComments } from './components/VoiceComments';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
-import { useUiStore } from './stores/ui';
+import { useUiStore, type WorkSplit } from './stores/ui';
 import { goBackPreview, usePreviewNav } from './stores/preview-nav';
 import { isAndroid } from './platform';
+
+/**
+ * Work-split divider position, shared by both orientations (module scope, not
+ * React state — dragging fires on every pointermove and must never re-render;
+ * same pattern as EditorHost's splitRatio). Session-only.
+ */
+let workSplitRatio = 0.5;
+const MIN_WORK_SPLIT = 0.15;
+const MAX_WORK_SPLIT = 0.85;
 
 export function App() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
   const fullscreenView = useUiStore((s) => s.fullscreenView);
+  const workSplit = useUiStore((s) => s.workSplit);
+  const stackRef = useRef<HTMLDivElement>(null);
+  // The ui-store subscription guarantees the pinned tab is never the active
+  // one; the guard here just makes render self-sufficient mid-transition.
+  const split = workSplit !== null && workSplit.tabId !== activeTabId ? workSplit : null;
+
+  function paneFor(tabId: string): 'primary' | 'secondary' | null {
+    if (tabId === activeTabId) {
+      return 'primary';
+    }
+    return split !== null && tabId === split.tabId ? 'secondary' : null;
+  }
+
+  function startWorkSplitDrag(event: React.PointerEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    const stack = stackRef.current;
+    if (!stack || split === null) {
+      return;
+    }
+    const vertical = split.orientation === 'down';
+    function onMove(moveEvent: PointerEvent): void {
+      const rect = stack!.getBoundingClientRect();
+      const ratio = vertical
+        ? (moveEvent.clientY - rect.top) / rect.height
+        : (moveEvent.clientX - rect.left) / rect.width;
+      workSplitRatio = Math.min(MAX_WORK_SPLIT, Math.max(MIN_WORK_SPLIT, ratio));
+      stack!.style.setProperty('--work-split', `${workSplitRatio * 100}%`);
+    }
+    function onEnd(): void {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  }
 
   useEffect(() => {
     const sync = tabsStore.getState().tabs.find((t) => t.id === activeTabId)?.modeSync;
@@ -51,17 +97,29 @@ export function App() {
       <Ribbon />
       <div className="editor-area">
         <FileExplorer />
-        <div className="editor-stack">
+        <div
+          ref={stackRef}
+          className="editor-stack"
+          data-split={split?.orientation}
+          style={
+            split !== null
+              ? ({ '--work-split': `${workSplitRatio * 100}%` } as React.CSSProperties)
+              : undefined
+          }
+        >
           {tabs.map((tab) =>
             // A tab's kind never changes to/from 'image' or 'import', so each
             // branch is stable per key and never remounts an editor (I7 holds).
             tab.kind === 'image' ? (
-              <ImageView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+              <ImageView key={tab.id} tabId={tab.id} pane={paneFor(tab.id)} />
             ) : tab.kind === 'import' ? (
-              <ImportView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+              <ImportView key={tab.id} tabId={tab.id} pane={paneFor(tab.id)} />
             ) : (
-              <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+              <EditorHost key={tab.id} tabId={tab.id} pane={paneFor(tab.id)} />
             ),
+          )}
+          {split !== null && (
+            <WorkSplitDivider orientation={split.orientation} onPointerDown={startWorkSplitDrag} />
           )}
         </div>
       </div>
@@ -83,6 +141,26 @@ export function App() {
         />
       )}
     </div>
+  );
+}
+
+/** The draggable boundary between the two work-area panes (see WorkSplit). */
+function WorkSplitDivider({
+  orientation,
+  onPointerDown,
+}: {
+  orientation: WorkSplit['orientation'];
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+}) {
+  return (
+    <div
+      className="work-split-divider"
+      onPointerDown={onPointerDown}
+      role="separator"
+      // aria-orientation describes the divider line itself: a 'right' split
+      // draws a vertical line, a 'down' split a horizontal one.
+      aria-orientation={orientation === 'right' ? 'vertical' : 'horizontal'}
+    />
   );
 }
 

@@ -5,8 +5,8 @@ on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
 Pick a theme in **Settings → Theme**. That one dropdown starts with **System**
-(the app's built-in palette, following your computer's light/dark setting),
-then — below a divider — every theme: six ready-made examples ship with the
+(**Light Green** when your computer is in light mode, **Dark Green** in dark
+mode, switching live when it changes), then — below a divider — every theme: six ready-made examples ship with the
 app — four popular community schemes (**Solarized**, **Nord**, **Dracula**,
 and **Monokai**) plus two originals, **Light Green** and **Dark Green** (a
 fresh, forest-green pair). Each community theme comes in both a light and a

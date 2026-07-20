@@ -7,8 +7,8 @@ remembered. Press Esc or click outside the panel to close it.
 ## Appearance
 
 - **Theme** — one list that combines the light/dark mode and the color scheme:
-  - **System** uses the app's built-in palette and follows your computer's
-    light/dark setting, switching live when it changes.
+  - **System** follows your computer's light/dark setting, switching live
+    when it changes: **Light Green** in light mode, **Dark Green** in dark.
   - Below the divider are the **themes**: **Solarized**, **Nord**, **Dracula**,
     **Monokai**, **Light Green**, and **Dark Green** ship as example *theme
     files* you can edit — and you can add your own. Each theme has both a light

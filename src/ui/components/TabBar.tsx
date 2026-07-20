@@ -15,6 +15,7 @@ import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../sessio
 import { detectPlatform } from '../keymap';
 import { computeTabWindow } from '../tab-overflow';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
+import { splitTab, uiStore, useUiStore } from '../stores/ui';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
 
@@ -91,6 +92,9 @@ function Tab({
   onMenu: (tabId: string, x: number, y: number) => void;
 }) {
   const renaming = useTabsStore((s) => s.renamingTabId === tab.id);
+  // Pinned into the secondary work-area pane (tab menu → Split) — marked so
+  // the strip shows where that pane's content lives.
+  const pinnedSplit = useUiStore((s) => s.workSplit?.tabId === tab.id);
   const store = tabsStore.getState;
   const label = tabDisplayTitle(tab);
   // Long-press (touch) opens the same menu right-click does on the desktop.
@@ -105,7 +109,9 @@ function Tab({
 
   return (
     <div
-      className={`tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}`}
+      className={`tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}${
+        pinnedSplit ? ' tab-split' : ''
+      }`}
       role="tab"
       aria-selected={active}
       title={tab.filePath ?? label}
@@ -211,6 +217,9 @@ function Tab({
 function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
   // Transient menu — a one-shot store read is fine (it closes on any change).
   const isPreview = tabsStore.getState().tabs.find((t) => t.id === menu.tabId)?.preview ?? false;
+  // Splitting needs a second tab to pair with; with one tab the items hide.
+  const canSplit = tabsStore.getState().tabs.length >= 2;
+  const isSplit = uiStore.getState().workSplit !== null;
   useEffect(() => {
     const close = () => onClose();
     // Any outside interaction, Escape, or scroll dismisses the menu.
@@ -271,6 +280,42 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Move to new window
       </button>
+      {canSplit && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            splitTab(menu.tabId, 'right');
+            onClose();
+          }}
+        >
+          Split right
+        </button>
+      )}
+      {canSplit && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            splitTab(menu.tabId, 'down');
+            onClose();
+          }}
+        >
+          Split down
+        </button>
+      )}
+      {isSplit && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            uiStore.getState().setWorkSplit(null);
+            onClose();
+          }}
+        >
+          Close split
+        </button>
+      )}
       <button
         className="tab-menu-item"
         role="menuitem"
