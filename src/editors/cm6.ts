@@ -23,6 +23,7 @@ import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-mar
 import { syntaxHighlighting } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
 import { highlightStyle, listMarkStyling } from './markdown-highlight';
+import { reindentLists } from './list-indent';
 import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
@@ -172,44 +173,35 @@ function fontSizeTheme(fontSize: string) {
   return EditorView.theme({ '.cm-content': { fontSize }, '.cm-gutters': { fontSize } });
 }
 
-/** A bullet-list line: indent, marker (`-`/`*`/`+`), at least one space. */
-const BULLET_LINE = /^(\s*)([-*+])(\s+)/;
-
 /**
- * Tab / Shift+Tab on bullet-list lines: change the indentation one level
- * (two spaces) and normalize the marker to `-` — so tabbing a `* item` yields
- * a nested `- item`. Applies to every line the selection spans, but only when
- * ALL of them are bullets; otherwise the command reports "not handled" and Tab
- * keeps its default behavior (focus navigation), which also keeps plain text
- * out of harm's way. Raw (CM6) mode only — the WYSIWYG editor has its own
- * list handling.
+ * Tab / Shift+Tab on list lines: re-indent one level, cycling bullet markers
+ * with depth and renumbering ordered siblings. All the logic lives in the pure
+ * {@link reindentLists}; this is just the CM6 glue. Applies to every line the
+ * selection spans, but only when ALL of them are list items; otherwise the
+ * command reports "not handled" and Tab keeps its default behavior (focus
+ * navigation), which also keeps plain text out of harm's way. Raw (CM6) mode
+ * only — the WYSIWYG editor has its own list handling.
  */
-function changeBulletIndent(view: EditorView, delta: 1 | -1): boolean {
+function changeListIndent(view: EditorView, delta: 1 | -1): boolean {
   const { state } = view;
   const range = state.selection.main;
   const startLine = state.doc.lineAt(range.from).number;
   const endLine = state.doc.lineAt(range.to).number;
 
+  const lines = state.doc.toString().split('\n');
+  const next = reindentLists(lines, startLine - 1, endLine - 1, delta);
+  if (!next) return false;
+
   const changes = [];
-  for (let n = startLine; n <= endLine; n++) {
+  for (let n = 1; n <= state.doc.lines; n++) {
     const line = state.doc.line(n);
-    const match = BULLET_LINE.exec(line.text);
-    if (!match) {
-      return false;
-    }
-    const [, indent, marker] = match as unknown as [string, string, string];
-    if (delta === 1) {
-      changes.push({ from: line.from, insert: '  ' });
-    } else if (indent.length > 0) {
-      changes.push({ from: line.from, to: line.from + Math.min(2, indent.length) });
-    }
-    if (marker !== '-') {
-      const markerAt = line.from + indent.length;
-      changes.push({ from: markerAt, to: markerAt + 1, insert: '-' });
+    const replacement = next[n - 1] ?? line.text;
+    if (replacement !== line.text) {
+      changes.push({ from: line.from, to: line.to, insert: replacement });
     }
   }
   if (changes.length === 0) {
-    return true; // all bullets, nothing to do (e.g. Shift+Tab at column 0)
+    return true; // all list items, nothing to do (e.g. Shift+Tab at column 0)
   }
   const changeSet = state.changes(changes);
   view.dispatch({
@@ -220,10 +212,10 @@ function changeBulletIndent(view: EditorView, delta: 1 | -1): boolean {
   return true;
 }
 
-/** Keymap for the bullet Tab behavior (see {@link changeBulletIndent}). */
+/** Keymap for the list Tab behavior (see {@link changeListIndent}). */
 const bulletIndentKeymap = keymap.of([
-  { key: 'Tab', run: (view) => changeBulletIndent(view, 1) },
-  { key: 'Shift-Tab', run: (view) => changeBulletIndent(view, -1) },
+  { key: 'Tab', run: (view) => changeListIndent(view, 1) },
+  { key: 'Shift-Tab', run: (view) => changeListIndent(view, -1) },
 ]);
 
 /**

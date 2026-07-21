@@ -26,8 +26,16 @@ which are the same everywhere).
 | Shortcut | What it does |
 | --- | --- |
 | Enter (on a list line) | Continue the list with a new bullet/number |
-| Tab (on a bullet line) | Indent the bullet one level (marker becomes `-`) |
-| Shift+Tab (on a bullet line) | Un-indent the bullet one level |
+| Tab (on a list line) | Indent one level, with any nested items below it |
+| Shift+Tab (on a list line) | Un-indent one level, with any nested items below it |
+
+Indenting works like a word processor. Bullet markers change with depth — `*` at
+the left margin, `-` one level in, `+` two levels in, then repeating — so
+un-indenting a nested `- item` twice brings back `* item` at the margin. Ordered
+lists are renumbered as you go: nesting an item restarts it at `1.` and closes
+the gap it left behind. (Markdown has no letter numbering, so nested ordered
+lists stay numeric.) The first item at any depth has nothing to nest under, so
+Tab leaves it where it is.
 
 ## Viewing modes
 

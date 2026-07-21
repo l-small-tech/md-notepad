@@ -50,6 +50,20 @@ import { tags } from '@lezer/highlight';
   head)` on the adapter (clamp offsets to doc length — a restored cursor
   may exceed a shrunken doc).
 
+### List indentation (Tab / Shift+Tab)
+
+`list-indent.ts` holds the whole rule set as a pure function —
+`reindentLists(lines, startLine, endLine, delta)` takes and returns plain
+string arrays, so it is Vitest-covered without importing CM6. `cm6.ts` only
+splits the doc, calls it, and diffs the result into per-line changes.
+
+Word-like semantics: bullet markers cycle with depth (`*` → `-` → `+`,
+repeating), a moved item takes its descendants with it, ordered runs are
+renumbered across the surrounding block, and an item that would skip a level
+(the first at its depth) does not move. Returning `null` means "not a list
+selection" — the keymap then reports not-handled so Tab falls through to focus
+navigation. Ordered nesting stays numeric: CommonMark has no `a.`/`i.` lists.
+
 ### Syntax highlighting
 
 Define one `HighlightStyle` using CSS variables (not hex values) so themes
