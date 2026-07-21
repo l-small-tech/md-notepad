@@ -413,11 +413,20 @@ pub async fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     Ok(())
 }
 
-/// Delete a file. Idempotent: deleting a missing file succeeds, because the
+/// Delete a file, or a folder and everything inside it (explorer "Delete
+/// folder"). Idempotent: deleting a missing target succeeds, because the
 /// session flusher may retry a plan whose delete already happened.
 #[tauri::command]
 pub async fn delete_path(path: PathBuf) -> FsResult<()> {
-    match fs::remove_file(&path) {
+    // A directory needs a recursive remove; a plain file uses remove_file. The
+    // is_dir check races with concurrent deletion, but both arms treat NotFound
+    // as success, so a lost race still resolves Ok.
+    let result = if path.is_dir() {
+        fs::remove_dir_all(&path)
+    } else {
+        fs::remove_file(&path)
+    };
+    match result {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
@@ -725,6 +734,17 @@ mod tests {
         block_on(delete_path(target.clone())).unwrap();
         assert!(!target.exists());
         block_on(delete_path(target)).unwrap(); // second delete: still Ok
+    }
+
+    #[test]
+    fn delete_removes_folder_and_contents() {
+        let dir = tmpdir();
+        let folder = dir.path().join("sub");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("nested.md"), "x").unwrap();
+        block_on(delete_path(folder.clone())).unwrap();
+        assert!(!folder.exists());
+        block_on(delete_path(folder)).unwrap(); // idempotent for folders too
     }
 
     #[test]

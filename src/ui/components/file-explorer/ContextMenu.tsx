@@ -16,6 +16,7 @@ import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import {
   deleteExplorerEntry,
+  deleteExplorerFolder,
   importDocumentInto,
   openExportPreviewForFile,
   removeWorkspace,
@@ -37,10 +38,11 @@ interface FileMenuProps extends CommonProps {
 
 /**
  * The right-click menu for a directory: "New file"/"New folder" always;
- * "Rename" for subfolders (`renameTarget` given); the workspace color
- * swatches only at workspace level (`wsColor` given = a workspace); a
- * "Remove workspace" item for removable workspaces (`removableWs`).
- * Workspace roots aren't renamable here — their path anchors settings.
+ * "Rename" + "Delete folder" for subfolders (`renameTarget` given); the
+ * workspace color swatches only at workspace level (`wsColor` given = a
+ * workspace); a "Remove workspace" item for removable workspaces
+ * (`removableWs`). Workspace roots are neither renamable nor deletable here —
+ * their path anchors settings, so removal goes through "Remove workspace".
  */
 interface DirMenuProps extends CommonProps {
   dir: string;
@@ -196,6 +198,20 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         </button>
       )}
       {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
+      {/* Delete a subfolder (recursive). Workspace roots omit this — they carry
+          "Remove workspace" instead — so it's gated on a rename target. */}
+      {!readOnly && renameTarget !== undefined && (
+        <button
+          className="context-menu-item is-danger"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            void deleteExplorerFolder(dir);
+          }}
+        >
+          Delete folder
+        </button>
+      )}
       {wsColor !== undefined && (
         <div className="context-menu-swatches" aria-label="Workspace color">
           <button

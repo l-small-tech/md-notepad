@@ -238,6 +238,7 @@ let renameEntryDispatch: (
 ) => Promise<void> = async () => {};
 let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
 let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
+let deleteFolderDispatch: (path: string) => Promise<void> = async () => {};
 let refreshWorkspacesDispatch: (dirs: string[]) => Promise<void> = async () => {};
 
 export function setListNotesDispatch(fn: (dir?: string) => Promise<ExplorerEntry[]>): void {
@@ -295,6 +296,9 @@ export function setMoveEntryDispatch(
 }
 export function setDeleteEntryDispatch(fn: (path: string) => Promise<void>): void {
   deleteEntryDispatch = fn;
+}
+export function setDeleteFolderDispatch(fn: (path: string) => Promise<void>): void {
+  deleteFolderDispatch = fn;
 }
 export function setRefreshWorkspacesDispatch(fn: (dirs: string[]) => Promise<void>): void {
   refreshWorkspacesDispatch = fn;
@@ -523,6 +527,14 @@ export function moveExplorerEntryInto(sourcePath: string, destDir: string): Prom
  */
 export function deleteExplorerEntry(path: string): Promise<void> {
   return deleteEntryDispatch(path);
+}
+/**
+ * FileExplorer context menu → controller: delete a folder and everything inside
+ * it, confirming first. Any tab whose file lives under it is closed so it can't
+ * write the bytes back.
+ */
+export function deleteExplorerFolder(path: string): Promise<void> {
+  return deleteFolderDispatch(path);
 }
 /** FileExplorer → controller: the resolved notes dir (the default workspace). */
 export function getDefaultWorkspacePath(): string | null {

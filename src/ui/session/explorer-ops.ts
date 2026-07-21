@@ -269,5 +269,42 @@ export function createExplorerOps(
     uiStore.getState().refreshExplorer();
   }
 
-  return { createNewFile, createNewFolder, renameEntry, moveEntry, deleteEntry };
+  /**
+   * Context-menu "Delete" for a folder entry. Recursive and unrecoverable (no
+   * trash), so it confirms with an explicit "everything inside it" warning. Any
+   * tab whose file lives anywhere under the folder is closed BEFORE the delete —
+   * same guard as {@link deleteEntry}, widened to the whole subtree so neither
+   * Ctrl+S nor the flusher can recreate a file from a still-open editor. The
+   * backend `delete_path` removes the directory tree (comments sidecars and all).
+   */
+  async function deleteFolder(path: string): Promise<void> {
+    if (ctx.refuseReadOnly(path)) {
+      return;
+    }
+    const ok = await ctx.confirm(
+      `Delete the folder "${baseName(path)}" and everything inside it? This can’t be undone.`,
+      'Delete folder',
+    );
+    if (!ok) {
+      return;
+    }
+    const prefix = `${pathKey(path)}/`;
+    for (const t of tabsStore.getState().tabs) {
+      const owned = t.filePath ?? t.notePath;
+      if (owned && pathKey(owned).startsWith(prefix)) {
+        tabsStore.getState().closeTab(t.id);
+      }
+    }
+    try {
+      await ctx.ipc.deletePath(path);
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not delete "${baseName(path)}".`);
+      ctx.deps.onError?.(error);
+      return;
+    }
+    uiStore.getState().showNotice(`Deleted "${baseName(path)}".`);
+    uiStore.getState().refreshExplorer();
+  }
+
+  return { createNewFile, createNewFolder, renameEntry, moveEntry, deleteEntry, deleteFolder };
 }

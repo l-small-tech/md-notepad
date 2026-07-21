@@ -98,6 +98,23 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
       },
       async deletePath(path) {
         ops.push(`delete:${path}`);
+        if (dirs.has(path)) {
+          // Folder delete: drop the dir plus every file/subdir under it,
+          // mirroring the backend's recursive remove_dir_all.
+          dirs.delete(path);
+          for (const p of [...files.keys()]) {
+            if (p.startsWith(`${path}/`)) {
+              files.delete(p);
+              mtimes.delete(p);
+            }
+          }
+          for (const d of [...dirs]) {
+            if (d.startsWith(`${path}/`)) {
+              dirs.delete(d);
+            }
+          }
+          return;
+        }
         files.delete(path);
         mtimes.delete(path);
       },
@@ -1052,6 +1069,52 @@ describe('deleteExplorerEntry (explorer context menu)', () => {
 
     expect(fs.files.has('/ws/open.md')).toBe(false);
     expect(tabs.tabsStore.getState().tabs.some((t) => t.id === tabId)).toBe(false);
+  });
+});
+
+describe('deleteExplorerFolder (explorer context menu)', () => {
+  test('deletes a folder and everything inside it after confirming', async () => {
+    const fs = makeFakeFs({ '/ws/sub/a.md': 'A', '/ws/sub/nested/b.md': 'B' });
+    fs.dirs.add('/ws/sub');
+    fs.dirs.add('/ws/sub/nested');
+    makeController(fs); // default confirm resolves true
+
+    await session.deleteExplorerFolder('/ws/sub');
+
+    expect(fs.dirs.has('/ws/sub')).toBe(false);
+    expect(fs.files.has('/ws/sub/a.md')).toBe(false);
+    expect(fs.files.has('/ws/sub/nested/b.md')).toBe(false);
+    expect(fs.ops).toContain('delete:/ws/sub');
+  });
+
+  test('does nothing when the user cancels the confirm', async () => {
+    const fs = makeFakeFs({ '/ws/sub/keep.md': 'x' });
+    fs.dirs.add('/ws/sub');
+    makeController(fs, () => 111, { confirm: async () => false });
+
+    await session.deleteExplorerFolder('/ws/sub');
+
+    expect(fs.dirs.has('/ws/sub')).toBe(true);
+    expect(fs.files.get('/ws/sub/keep.md')).toBe('x');
+    expect(fs.ops.some((op) => op.startsWith('delete:'))).toBe(false);
+  });
+
+  test('closes tabs whose files live under the folder so they cannot be recreated', async () => {
+    const fs = makeFakeFs({ '/ws/sub/open.md': 'text', '/ws/other.md': 'keep' });
+    fs.dirs.add('/ws/sub');
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/sub/open.md', '/ws/other.md']);
+    const underFolder = tabs.tabsStore
+      .getState()
+      .tabs.find((t) => t.filePath === '/ws/sub/open.md');
+    const outside = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/ws/other.md');
+
+    await session.deleteExplorerFolder('/ws/sub');
+
+    expect(fs.files.has('/ws/sub/open.md')).toBe(false);
+    // The tab under the deleted folder is gone; the one outside it survives.
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === underFolder!.id)).toBe(false);
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === outside!.id)).toBe(true);
   });
 });
 
