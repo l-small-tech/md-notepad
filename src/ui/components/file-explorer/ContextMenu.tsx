@@ -3,9 +3,10 @@
  * variants, selected by which props are given:
  * - `entry` — a file row's menu (Rename / Reveal in explorer / Delete);
  * - `dir` — a directory or workspace-root menu (see DirMenuProps).
- * Session-level actions (delete, new folder, import, workspace color/remove)
- * are imported directly — same module dispatch the container used; only the
- * callbacks that touch the container's state arrive as props.
+ * Session-level actions (delete, import, workspace color/remove) are imported
+ * directly — same module dispatch the container used; only the callbacks that
+ * touch the container's state arrive as props (new file/folder among them, so
+ * the created row can jump straight into an inline rename).
  */
 
 import { type ReactNode } from 'react';
@@ -14,8 +15,8 @@ import { isMarkdownPath } from '../../../core/text-files';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import {
-  createNewFolderIn,
   deleteExplorerEntry,
+  deleteExplorerFolder,
   importDocumentInto,
   openExportPreviewForFile,
   removeWorkspace,
@@ -37,10 +38,11 @@ interface FileMenuProps extends CommonProps {
 
 /**
  * The right-click menu for a directory: "New file"/"New folder" always;
- * "Rename" for subfolders (`renameTarget` given); the workspace color
- * swatches only at workspace level (`wsColor` given = a workspace); a
- * "Remove workspace" item for removable workspaces (`removableWs`).
- * Workspace roots aren't renamable here — their path anchors settings.
+ * "Rename" + "Delete folder" for subfolders (`renameTarget` given); the
+ * workspace color swatches only at workspace level (`wsColor` given = a
+ * workspace); a "Remove workspace" item for removable workspaces
+ * (`removableWs`). Workspace roots are neither renamable nor deletable here —
+ * their path anchors settings, so removal goes through "Remove workspace".
  */
 interface DirMenuProps extends CommonProps {
   dir: string;
@@ -50,6 +52,8 @@ interface DirMenuProps extends CommonProps {
   readOnly?: boolean;
   /** Create a file in `dir` and jump into renaming it (container's startNewFile). */
   onNewFile: (dir: string) => Promise<void>;
+  /** Create a subfolder in `dir` and jump into renaming it (container's startNewFolder). */
+  onNewFolder: (dir: string) => Promise<void>;
   /** Select `dir` as the paste destination (container's setSelectedDir). */
   onSelectDir: (dir: string) => void;
 }
@@ -152,7 +156,8 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     );
   }
 
-  const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onSelectDir } = props;
+  const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onNewFolder, onSelectDir } =
+    props;
   return menuShell(
     <>
       {!readOnly && (
@@ -173,8 +178,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           role="menuitem"
           onClick={() => {
             onClose();
-            onSelectDir(dir);
-            void createNewFolderIn(dir);
+            void onNewFolder(dir);
           }}
         >
           New folder
@@ -194,6 +198,20 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         </button>
       )}
       {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
+      {/* Delete a subfolder (recursive). Workspace roots omit this — they carry
+          "Remove workspace" instead — so it's gated on a rename target. */}
+      {!readOnly && renameTarget !== undefined && (
+        <button
+          className="context-menu-item is-danger"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            void deleteExplorerFolder(dir);
+          }}
+        >
+          Delete folder
+        </button>
+      )}
       {wsColor !== undefined && (
         <div className="context-menu-swatches" aria-label="Workspace color">
           <button

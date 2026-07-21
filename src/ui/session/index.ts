@@ -47,6 +47,7 @@ import {
   setCreateNewFolderDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
+  setDeleteFolderDispatch,
   setImportDocumentDispatch,
   setImportFilesDispatch,
   setImportStatusDispatch,
@@ -92,6 +93,7 @@ export {
   createNewFileIn,
   createNewFolderIn,
   deleteExplorerEntry,
+  deleteExplorerFolder,
   buildExportPreviewHtml,
   enrichCopiedText,
   getCursor,
@@ -319,6 +321,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
   setDeleteEntryDispatch(explorerOps.deleteEntry);
+  setDeleteFolderDispatch(explorerOps.deleteFolder);
   setRefreshWorkspacesDispatch(async (dirs) => {
     // Best-effort: refresh every dir in parallel; a backend that can't refresh
     // (local FS) or one dir that fails must not block the others or the re-list.

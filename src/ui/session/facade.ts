@@ -230,7 +230,7 @@ let savePastedImageDispatch: (
 ) => Promise<ImageRef | null> = async () => null;
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
 let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
-let createNewFolderDispatch: (dir: string) => Promise<void> = async () => {};
+let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -238,6 +238,7 @@ let renameEntryDispatch: (
 ) => Promise<void> = async () => {};
 let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
 let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
+let deleteFolderDispatch: (path: string) => Promise<void> = async () => {};
 let refreshWorkspacesDispatch: (dirs: string[]) => Promise<void> = async () => {};
 
 export function setListNotesDispatch(fn: (dir?: string) => Promise<ExplorerEntry[]>): void {
@@ -280,7 +281,7 @@ export function setSavePastedFileDispatch(
 export function setCreateNewFileDispatch(fn: (dir: string) => Promise<string | null>): void {
   createNewFileDispatch = fn;
 }
-export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<void>): void {
+export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<string | null>): void {
   createNewFolderDispatch = fn;
 }
 export function setRenameEntryDispatch(
@@ -295,6 +296,9 @@ export function setMoveEntryDispatch(
 }
 export function setDeleteEntryDispatch(fn: (path: string) => Promise<void>): void {
   deleteEntryDispatch = fn;
+}
+export function setDeleteFolderDispatch(fn: (path: string) => Promise<void>): void {
+  deleteFolderDispatch = fn;
 }
 export function setRefreshWorkspacesDispatch(fn: (dirs: string[]) => Promise<void>): void {
   refreshWorkspacesDispatch = fn;
@@ -501,7 +505,7 @@ export function createNewFileIn(dir: string): Promise<string | null> {
   return createNewFileDispatch(dir);
 }
 /** FileExplorer context menu → controller: create a new subfolder in `dir`. */
-export function createNewFolderIn(dir: string): Promise<void> {
+export function createNewFolderIn(dir: string): Promise<string | null> {
   return createNewFolderDispatch(dir);
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk
@@ -523,6 +527,14 @@ export function moveExplorerEntryInto(sourcePath: string, destDir: string): Prom
  */
 export function deleteExplorerEntry(path: string): Promise<void> {
   return deleteEntryDispatch(path);
+}
+/**
+ * FileExplorer context menu → controller: delete a folder and everything inside
+ * it, confirming first. Any tab whose file lives under it is closed so it can't
+ * write the bytes back.
+ */
+export function deleteExplorerFolder(path: string): Promise<void> {
+  return deleteFolderDispatch(path);
 }
 /** FileExplorer → controller: the resolved notes dir (the default workspace). */
 export function getDefaultWorkspacePath(): string | null {
