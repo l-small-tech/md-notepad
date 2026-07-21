@@ -8,7 +8,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | Component | Milestone | Notes |
 | --- | --- | --- |
 | `App` | M1 | layout shell: TabBar / EditorHost / StatusBar stack |
-| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8) |
+| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); Chrome-style tab groups (chip = collapse toggle, right-click = group menu; membership/contiguity rules in core/tab-groups.ts) |
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
@@ -130,8 +130,12 @@ event target).
   confirm dialogs (they match the OS), custom DOM only for SettingsDialog.
 - The window title mirrors the active tab: `<title> — MD Notepad`
   (`getCurrentWindow().setTitle`), updated from a store subscription.
-- Drag-reorder of tabs: pointer-events implementation (~40 lines), no
-  dnd library (dependency freeze).
+- Drag-reorder of tabs: pointer-events implementation, no dnd library
+  (dependency freeze), and NOT HTML5 drag-and-drop — Tauri's OS drag-drop
+  interception swallows webview-internal HTML5 drags on Windows (same
+  constraint as the FileExplorer's useFileDrag). The drag also handles
+  group membership (drop inside a run joins, boundaries leave, chip
+  appends) and hands releases outside the window to the M8 tear-off.
 
 ## Settings (M6)
 

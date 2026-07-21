@@ -47,6 +47,27 @@ export interface TabState {
   mode: EditorMode;
   /** kind='file': disk mtime at last load/save, baseline for conflict detection. */
   savedMtimeMs: number | null;
+  /**
+   * Chrome-style tab group membership: id of a TabGroup in the tabs store, or
+   * null for an ungrouped tab. Members of one group are always CONTIGUOUS in
+   * the tab strip (core/tab-groups.ts owns that invariant).
+   */
+  groupId: string | null;
+}
+
+/**
+ * A Chrome-style tab group: a named, colored, collapsible band around a
+ * contiguous run of tabs. Groups are per-window (they live in that window's
+ * tabs store and session manifest) and vanish when their last member closes.
+ */
+export interface TabGroup {
+  id: string;
+  /** Display name; empty shows the chip as a plain colored dot (Chrome-style). */
+  name: string;
+  /** Accent color token — same palette as workspace accents (data-color CSS). */
+  color: WorkspaceColor;
+  /** Collapsed groups render only their chip; member tabs are hidden. */
+  collapsed: boolean;
 }
 
 /**

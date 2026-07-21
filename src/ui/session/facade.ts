@@ -672,6 +672,7 @@ export function persistedToInit(tab: PersistedTab, text: string, dirty = false):
     customTitle: tab.customTitle,
     mode: tab.mode,
     savedMtimeMs: tab.savedMtimeMs,
+    groupId: tab.groupId ?? null,
     text,
     dirty,
     // Recomputed (not persisted): settings are loaded before restore runs.

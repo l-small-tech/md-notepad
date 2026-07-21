@@ -278,6 +278,30 @@ describe('planFlush — file tabs, deletes, manifest', () => {
     });
     expect(plan.manifestPath).toBe('/session/session.json');
   });
+
+  test('manifest records group membership and only REFERENCED group definitions', () => {
+    const plan = planFlush(
+      view({
+        tabs: [
+          tab({ id: 't1', notePath: '/notes/a.md', title: 'A', text: 'a', groupId: 'g1' }),
+          tab({ id: 't2', notePath: '/notes/b.md', title: 'B', text: 'b' }),
+        ],
+        groups: [
+          { id: 'g1', name: 'Research', color: 'teal', collapsed: true },
+          { id: 'stale', name: 'no members', color: 'red', collapsed: false },
+        ],
+      }),
+    );
+    expect(plan.manifest.tabs.map((t) => t.groupId)).toEqual(['g1', null]);
+    expect(plan.manifest.groups).toEqual([
+      { id: 'g1', name: 'Research', color: 'teal', collapsed: true },
+    ]);
+  });
+
+  test('no groups → no groups key in the manifest', () => {
+    const plan = planFlush(view({ tabs: [tab({ id: 't1', title: 'A', text: 'a' })] }));
+    expect('groups' in plan.manifest).toBe(false);
+  });
 });
 
 describe('executeFlushPlan', () => {
@@ -382,6 +406,40 @@ describe('parseManifest', () => {
     expect(
       parseManifest(JSON.stringify({ schema: 1, tabs: [{ id: 'a', kind: 'nope' }] })),
     ).toBeNull();
+  });
+
+  test('a pre-groups manifest (no groups key) still parses', () => {
+    const parsed = parseManifest(
+      JSON.stringify({ schema: 1, activeTabId: null, tabs: [{ id: 'a', kind: 'note' }] }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.groups).toBeUndefined();
+  });
+
+  test('malformed group entries degrade to "no such group", not a dead manifest', () => {
+    const parsed = parseManifest(
+      JSON.stringify({
+        schema: 1,
+        activeTabId: null,
+        tabs: [{ id: 'a', kind: 'note' }],
+        groups: [
+          { id: 'g1', name: 'ok', color: 'blue', collapsed: false },
+          { id: 'g2', name: 'bad color', color: 'chartreuse', collapsed: false },
+          { id: 'g3', name: 'missing collapsed', color: 'red' },
+          'not even an object',
+        ],
+      }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.groups).toEqual([{ id: 'g1', name: 'ok', color: 'blue', collapsed: false }]);
+  });
+
+  test('a non-array groups value is dropped entirely', () => {
+    const parsed = parseManifest(
+      JSON.stringify({ schema: 1, activeTabId: null, tabs: [], groups: 'nope' }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.groups).toBeUndefined();
   });
 });
 

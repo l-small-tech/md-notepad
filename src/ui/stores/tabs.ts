@@ -35,7 +35,15 @@ import { createDocModel, type DocModel } from '../../core/doc-model';
 import { deriveTitle, slugifyTitle, stripExtension } from '../../core/title';
 import { baseName } from '../../core/session/plan-flush';
 import type { ModeSync } from '../../core/mode-sync';
-import type { EditorMode, TabKind, TabState } from '../../core/types';
+import type { EditorMode, TabGroup, TabKind, TabState, WorkspaceColor } from '../../core/types';
+import {
+  deriveGroupForInsert,
+  nextGroupColor,
+  normalizeGroupContiguity,
+  planTabMove,
+  sanitizeRestoredGroups,
+  type GroupedTab,
+} from '../../core/tab-groups';
 import { settingsStore } from './settings';
 import { requestFlush } from './flush-signal';
 import { isMobile } from '../platform';
@@ -82,6 +90,9 @@ export interface RestoredTabInit {
   customTitle: string | null;
   mode: EditorMode;
   savedMtimeMs: number | null;
+  /** Group membership; only meaningful when the restore payload also carries
+   *  the matching group definition (sanitized in restoreSession). Default null. */
+  groupId?: string | null;
   text: string;
   /**
    * kind='file' restored from its session buffer (unsaved edits survived a
@@ -107,6 +118,14 @@ export interface FlushResultPatch {
 
 export interface TabsState {
   tabs: TabEntry[];
+  /**
+   * Tab groups (Chrome-style). Membership lives on each tab (`groupId`);
+   * this array holds the definitions in no particular order — the strip
+   * order comes from the tabs themselves (members are contiguous, invariant
+   * owned by core/tab-groups.ts). Empty groups are garbage-collected by
+   * every action that removes tabs.
+   */
+  groups: TabGroup[];
   activeTabId: string;
   /** The tab whose label is being edited inline, or null. */
   renamingTabId: string | null;
@@ -126,7 +145,36 @@ export interface TabsState {
   closeTab: (id: string) => void;
   activateTab: (id: string) => void;
   activateAdjacent: (direction: 1 | -1) => void;
+  /**
+   * Drag-reorder without an explicit group target: the tab lands at `toIndex`
+   * and adopts the membership its new neighbors imply (strictly inside a
+   * group's run → that group, else ungrouped — core/tab-groups
+   * deriveGroupForInsert).
+   */
   reorderTab: (id: string, toIndex: number) => void;
+  /**
+   * Group-aware move: place the tab at `toIndex` (index into the array
+   * without it) AS a member of `groupId` (null = ungrouped). Contiguity is
+   * re-normalized afterwards, so an impossible position degrades to the
+   * nearest legal one instead of splitting a group.
+   */
+  moveTab: (id: string, toIndex: number, groupId: string | null) => void;
+  /** Wrap one tab in a brand-new group (auto color). Returns the group id. */
+  addTabToNewGroup: (tabId: string) => string | null;
+  /** Move a tab to the END of an existing group's run and join it. */
+  addTabToGroup: (tabId: string, groupId: string) => void;
+  /** Leave the group: the tab moves just past its group's run, ungrouped. */
+  removeTabFromGroup: (tabId: string) => void;
+  /** Dissolve the group; member tabs stay, in place, ungrouped. */
+  ungroupTabs: (groupId: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  setGroupColor: (groupId: string, color: WorkspaceColor) => void;
+  /**
+   * Collapse/expand. Collapsing a group holding the active tab activates the
+   * nearest tab outside it first (Chrome behavior); when every tab is in the
+   * group there is nowhere to go, so the collapse is refused.
+   */
+  toggleGroupCollapsed: (groupId: string) => void;
   /** Commit an inline rename. Empty/whitespace reverts to auto-derived title. */
   renameTab: (id: string, title: string) => void;
   beginRename: (id: string) => void;
@@ -148,8 +196,13 @@ export interface TabsState {
    * adopted tab is activated.
    */
   adoptTabs: (tabs: RestoredTabInit[]) => void;
-  /** Replace all tabs from a restored session (boot only). */
-  restoreSession: (payload: { tabs: RestoredTabInit[]; activeTabId: string | null }) => void;
+  /** Replace all tabs from a restored session (boot only). Group definitions
+   *  and memberships are sanitized against each other (core/tab-groups). */
+  restoreSession: (payload: {
+    tabs: RestoredTabInit[];
+    activeTabId: string | null;
+    groups?: TabGroup[];
+  }) => void;
   /** Apply the outcome of a completed flush. Never re-requests a flush. */
   applyFlushResult: (patch: FlushResultPatch) => void;
 
@@ -268,6 +321,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       // manifest recorded (the flag itself is recomputed by the caller).
       mode: init?.readOnly ? 'read' : (init?.mode ?? settingsStore.getState().settings.defaultMode),
       savedMtimeMs: init?.savedMtimeMs ?? null,
+      groupId: init?.groupId ?? null,
       model,
       modeSync: null,
       title: customTitle ?? deriveTitle(text),
@@ -333,7 +387,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }
       const displaced = s.tabs[idx]!;
       const tabs = [...s.tabs];
-      tabs[idx] = tab;
+      // Reusing the preview slot in place: inherit the displaced tab's group
+      // membership, otherwise an ungrouped replacement would split the run.
+      tabs[idx] = tab.groupId === displaced.groupId ? tab : { ...tab, groupId: displaced.groupId };
       return {
         tabs,
         activeTabId: tab.id,
@@ -349,10 +405,35 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     });
   }
 
+  /** Drop group definitions whose last member just left. */
+  function gcGroups(tabs: readonly TabEntry[], groups: TabGroup[]): TabGroup[] {
+    const referenced = new Set(tabs.map((t) => t.groupId));
+    const kept = groups.filter((g) => referenced.has(g.id));
+    return kept.length === groups.length ? groups : kept;
+  }
+
+  /** Re-map the store's rich entries onto an id order from core/tab-groups. */
+  function applyOrder(tabs: readonly TabEntry[], order: readonly GroupedTab[]): TabEntry[] {
+    const byId = new Map(tabs.map((t) => [t.id, t]));
+    return order.map((o) => {
+      const tab = byId.get(o.id)!;
+      return tab.groupId === o.groupId ? tab : { ...tab, groupId: o.groupId };
+    });
+  }
+
+  /** Activating a tab hidden in a collapsed group expands the group (Chrome). */
+  function groupsWithExpanded(groups: TabGroup[], groupId: string | null): TabGroup[] {
+    if (groupId === null || !groups.some((g) => g.id === groupId && g.collapsed)) {
+      return groups;
+    }
+    return groups.map((g) => (g.id === groupId ? { ...g, collapsed: false } : g));
+  }
+
   const first = makeTab();
 
   return {
     tabs: [first],
+    groups: [],
     activeTabId: first.id,
     renamingTabId: null,
     closedNotePaths: [],
@@ -391,6 +472,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         const fresh = makeTab();
         set({
           tabs: [fresh],
+          groups: [],
           activeTabId: fresh.id,
           renamingTabId: null,
           closedNotePaths,
@@ -400,14 +482,18 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       let activeTabId = s.activeTabId;
+      let groups = gcGroups(remaining, s.groups);
       if (activeTabId === id) {
         // Prefer the right neighbor, else the left (browser-tab behavior).
         // After removal the old right neighbor sits at `idx` in `remaining`;
         // clamp so closing the last tab falls back to the left neighbor.
-        activeTabId = remaining[Math.min(idx, remaining.length - 1)]!.id;
+        const next = remaining[Math.min(idx, remaining.length - 1)]!;
+        activeTabId = next.id;
+        groups = groupsWithExpanded(groups, next.groupId);
       }
       set({
         tabs: remaining,
+        groups,
         activeTabId,
         renamingTabId: s.renamingTabId === id ? null : s.renamingTabId,
         closedNotePaths,
@@ -427,16 +513,20 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const remaining = s.tabs.filter((t) => t.id !== id);
       if (remaining.length === 0) {
         const fresh = makeTab();
-        set({ tabs: [fresh], activeTabId: fresh.id, renamingTabId: null });
+        set({ tabs: [fresh], groups: [], activeTabId: fresh.id, renamingTabId: null });
         requestFlush();
         return;
       }
       let activeTabId = s.activeTabId;
+      let groups = gcGroups(remaining, s.groups);
       if (activeTabId === id) {
-        activeTabId = remaining[Math.min(idx, remaining.length - 1)]!.id;
+        const next = remaining[Math.min(idx, remaining.length - 1)]!;
+        activeTabId = next.id;
+        groups = groupsWithExpanded(groups, next.groupId);
       }
       set({
         tabs: remaining,
+        groups,
         activeTabId,
         renamingTabId: s.renamingTabId === id ? null : s.renamingTabId,
       });
@@ -447,7 +537,14 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (inits.length === 0) {
         return;
       }
-      const entries = inits.map((t) => makeTab(t));
+      // Group definitions don't travel between windows — membership pointing
+      // at a group this window doesn't know is dropped, not adopted.
+      const entries = inits
+        .map((t) => makeTab(t))
+        .map((e) => {
+          const known = e.groupId !== null && get().groups.some((g) => g.id === e.groupId);
+          return known || e.groupId === null ? e : { ...e, groupId: null };
+        });
       set((s) => {
         // A pristine window (exactly one never-flushed empty Untitled) yields
         // its placeholder to the adopted tabs instead of keeping a stray note.
@@ -468,10 +565,11 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
 
     activateTab(id) {
       const s = get();
-      if (s.activeTabId === id || !s.tabs.some((t) => t.id === id)) {
+      const tab = s.tabs.find((t) => t.id === id);
+      if (s.activeTabId === id || !tab) {
         return;
       }
-      set({ activeTabId: id });
+      set({ activeTabId: id, groups: groupsWithExpanded(s.groups, tab.groupId) });
       requestFlush();
     },
 
@@ -481,25 +579,131 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (idx < 0 || s.tabs.length < 2) {
         return;
       }
-      const nextIdx = (idx + direction + s.tabs.length) % s.tabs.length;
-      set({ activeTabId: s.tabs[nextIdx]!.id });
+      const next = s.tabs[(idx + direction + s.tabs.length) % s.tabs.length]!;
+      set({ activeTabId: next.id, groups: groupsWithExpanded(s.groups, next.groupId) });
       requestFlush();
     },
 
     reorderTab(id, toIndex) {
       const s = get();
-      const from = s.tabs.findIndex((t) => t.id === id);
-      if (from < 0) {
+      const rest = s.tabs.filter((t) => t.id !== id);
+      const clamped = Math.max(0, Math.min(toIndex, rest.length));
+      get().moveTab(id, toIndex, deriveGroupForInsert(rest[clamped - 1], rest[clamped]));
+    },
+
+    moveTab(id, toIndex, groupId) {
+      const s = get();
+      // Only membership in a group that exists counts (defensive).
+      const member = groupId !== null && s.groups.some((g) => g.id === groupId) ? groupId : null;
+      const order = planTabMove(s.tabs, id, toIndex, member);
+      if (!order) {
         return;
       }
-      const arr = [...s.tabs];
-      const [moved] = arr.splice(from, 1);
-      if (!moved) {
+      const tabs = applyOrder(s.tabs, order);
+      set({ tabs, groups: gcGroups(tabs, s.groups) });
+      requestFlush();
+    },
+
+    addTabToNewGroup(tabId) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab) {
+        return null;
+      }
+      const group: TabGroup = {
+        id: nanoid(),
+        name: '',
+        color: nextGroupColor(s.groups),
+        collapsed: false,
+      };
+      // Leaving a previous group can strand contiguity — normalize.
+      const order = normalizeGroupContiguity(
+        s.tabs.map((t) => (t.id === tabId ? { id: t.id, groupId: group.id } : t)),
+      );
+      const tabs = applyOrder(s.tabs, order);
+      set({ tabs, groups: [...gcGroups(tabs, s.groups), group] });
+      requestFlush();
+      return group.id;
+    },
+
+    addTabToGroup(tabId, groupId) {
+      const s = get();
+      if (!s.groups.some((g) => g.id === groupId) || !s.tabs.some((t) => t.id === tabId)) {
         return;
       }
-      const clamped = Math.max(0, Math.min(toIndex, arr.length));
-      arr.splice(clamped, 0, moved);
-      set({ tabs: arr });
+      // Land at the end of the group's run (index into the array without the
+      // moved tab — one past the last remaining member).
+      const rest = s.tabs.filter((t) => t.id !== tabId);
+      const lastMember = rest.map((t) => t.groupId).lastIndexOf(groupId);
+      get().moveTab(tabId, lastMember + 1, groupId);
+    },
+
+    removeTabFromGroup(tabId) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.groupId === null) {
+        return;
+      }
+      // Step out just past the group's run so the tab visibly leaves the band.
+      const rest = s.tabs.filter((t) => t.id !== tabId);
+      const lastMember = rest.map((t) => t.groupId).lastIndexOf(tab.groupId);
+      get().moveTab(tabId, lastMember + 1, null);
+    },
+
+    ungroupTabs(groupId) {
+      const s = get();
+      set({
+        tabs: s.tabs.map((t) => (t.groupId === groupId ? { ...t, groupId: null } : t)),
+        groups: s.groups.filter((g) => g.id !== groupId),
+      });
+      requestFlush();
+    },
+
+    renameGroup(groupId, name) {
+      const s = get();
+      if (!s.groups.some((g) => g.id === groupId)) {
+        return;
+      }
+      set({
+        groups: s.groups.map((g) => (g.id === groupId ? { ...g, name: name.trim() } : g)),
+      });
+      requestFlush();
+    },
+
+    setGroupColor(groupId, color) {
+      const s = get();
+      if (!s.groups.some((g) => g.id === groupId)) {
+        return;
+      }
+      set({ groups: s.groups.map((g) => (g.id === groupId ? { ...g, color } : g)) });
+      requestFlush();
+    },
+
+    toggleGroupCollapsed(groupId) {
+      const s = get();
+      const group = s.groups.find((g) => g.id === groupId);
+      if (!group) {
+        return;
+      }
+      let activeTabId = s.activeTabId;
+      if (!group.collapsed) {
+        const active = s.tabs.find((t) => t.id === s.activeTabId);
+        if (active && active.groupId === groupId) {
+          // Nearest tab outside the group, preferring the right (Chrome).
+          const idx = s.tabs.findIndex((t) => t.id === active.id);
+          const outside =
+            s.tabs.slice(idx + 1).find((t) => t.groupId !== groupId) ??
+            [...s.tabs.slice(0, idx)].reverse().find((t) => t.groupId !== groupId);
+          if (!outside) {
+            return; // every tab is in this group — nowhere to go, refuse
+          }
+          activeTabId = outside.id;
+        }
+      }
+      set({
+        activeTabId,
+        groups: s.groups.map((g) => (g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)),
+      });
       requestFlush();
     },
 
@@ -554,8 +758,12 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       return s.tabs.find((t) => t.id === s.activeTabId);
     },
 
-    restoreSession({ tabs, activeTabId }) {
-      const entries = tabs.length > 0 ? tabs.map((t) => makeTab(t)) : [makeTab()];
+    restoreSession({ tabs, activeTabId, groups = [] }) {
+      const made = tabs.length > 0 ? tabs.map((t) => makeTab(t)) : [makeTab()];
+      // Tolerate anything the manifest recorded: unknown memberships are
+      // dropped, empty groups vanish, contiguity is re-established.
+      const sanitized = sanitizeRestoredGroups(made, groups);
+      const entries = applyOrder(made, sanitized.tabs);
       const active =
         activeTabId && entries.some((e) => e.id === activeTabId) ? activeTabId : entries[0]!.id;
       // Continue flipping in whatever mode the restored active tab was in, so a
@@ -564,6 +772,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const activeEntry = entries.find((e) => e.id === active)!;
       set({
         tabs: entries,
+        groups: groupsWithExpanded(sanitized.groups, activeEntry.groupId),
         activeTabId: active,
         renamingTabId: null,
         closedNotePaths: [],

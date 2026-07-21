@@ -37,6 +37,7 @@
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  position: relative; /* anchors the drag drop-indicator */
 }
 
 .tab {
@@ -82,6 +83,134 @@
 .tab-dirty-dot {
   color: var(--accent);
   font-weight: 700;
+}
+
+/* ---- Tab groups (Chrome-style) ------------------------------------------
+   A group is a colored chip followed by its member tabs. Colors resolve via
+   the same [data-color] → --ws-accent tokens the workspace sections use, so
+   they stay theme-aware for free. */
+
+/* Member tabs: an accent stripe along the top plus a quiet wash. */
+.tab-grouped {
+  box-shadow: inset 0 2px 0 var(--ws-accent);
+  background: color-mix(in srgb, var(--ws-accent) 8%, transparent);
+}
+
+.tab-grouped:hover {
+  background: color-mix(in srgb, var(--ws-accent) 16%, transparent);
+}
+
+/* The active tab keeps its normal readable background; the stripe stays. */
+.tab-grouped.tab-active {
+  background: var(--bg);
+}
+
+/* Members flow together: only the run's outer corners are rounded. */
+.tab-grouped:not(.tab-group-start) {
+  border-top-left-radius: 0;
+}
+
+.tab-grouped:not(.tab-group-end) {
+  border-top-right-radius: 0;
+}
+
+/* The group chip: a colored pill with the group name (or just a dot). */
+.tab-group-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  max-width: 140px;
+  height: 20px;
+  margin: 0 3px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ws-accent) 22%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab-group-chip:hover {
+  background: color-mix(in srgb, var(--ws-accent) 34%, transparent);
+}
+
+/* A dragged tab hovering the chip: "release to join this group". */
+.tab-group-chip.chip-drop {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: 1px;
+}
+
+.tab-group-chip-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ws-accent);
+}
+
+.tab-group-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed chip: member count in place of the hidden tabs. */
+.tab-group-chip-count {
+  color: var(--fg-muted);
+}
+
+/* The tab being pointer-dragged. */
+.tab-dragging {
+  opacity: 0.5;
+}
+
+/* Insertion bar while dragging, positioned by the TabBar (scroller-relative). */
+.tab-drop-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Group context menu: name field above the shared swatch row. */
+.tab-group-menu-name {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.tab-group-menu-name:focus {
+  border-color: var(--accent);
+}
+
+/* "Add to group" menu rows reuse the chip dot as a color cue. */
+.tab-menu-group-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-group-menu .context-menu-swatches {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 2px;
 }
 
 .tab-rename-input {

@@ -524,6 +524,240 @@ describe('detachTab / adoptTabs (M8 multi-window)', () => {
   });
 });
 
+describe('tab groups', () => {
+  /** Three tabs [0,1,2]; returns their ids. */
+  function threeTabs(): string[] {
+    state().newTab();
+    state().newTab();
+    return state().tabs.map((t) => t.id);
+  }
+
+  test('addTabToNewGroup wraps the tab and assigns a fresh color', () => {
+    const [a] = threeTabs();
+    const gid = state().addTabToNewGroup(a!);
+    expect(gid).not.toBeNull();
+    expect(state().groups).toHaveLength(1);
+    expect(state().groups[0]!.id).toBe(gid);
+    expect(state().groups[0]!.collapsed).toBe(false);
+    expect(state().tabs.find((t) => t.id === a)!.groupId).toBe(gid);
+  });
+
+  test('two new groups get different colors', () => {
+    const [a, b] = threeTabs();
+    state().addTabToNewGroup(a!);
+    state().addTabToNewGroup(b!);
+    expect(state().groups[0]!.color).not.toBe(state().groups[1]!.color);
+  });
+
+  test('addTabToGroup moves the tab to the end of the group run', () => {
+    const [a, , c] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().addTabToGroup(c!, gid);
+    // c sits right after a, as a member.
+    expect(state().tabs.map((t) => t.id)[1]).toBe(c);
+    expect(state().tabs.find((t) => t.id === c)!.groupId).toBe(gid);
+  });
+
+  test('removeTabFromGroup steps the tab out just past the run', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().addTabToGroup(b!, gid);
+    state().removeTabFromGroup(a!);
+    expect(state().tabs.find((t) => t.id === a)!.groupId).toBeNull();
+    // b (still grouped) now leads; a sits directly after the run.
+    expect(
+      state()
+        .tabs.map((t) => t.id)
+        .slice(0, 2),
+    ).toEqual([b, a]);
+    expect(state().groups).toHaveLength(1);
+  });
+
+  test('a group vanishes when its last member leaves it', () => {
+    const [a] = threeTabs();
+    state().addTabToNewGroup(a!);
+    state().removeTabFromGroup(a!);
+    expect(state().groups).toEqual([]);
+  });
+
+  test('a group vanishes when its last member closes', () => {
+    const [a] = threeTabs();
+    state().addTabToNewGroup(a!);
+    state().closeTab(a!);
+    expect(state().groups).toEqual([]);
+  });
+
+  test('ungroupTabs dissolves the group but keeps the tabs in place', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().addTabToGroup(b!, gid);
+    const order = state().tabs.map((t) => t.id);
+    state().ungroupTabs(gid);
+    expect(state().tabs.map((t) => t.id)).toEqual(order);
+    expect(state().tabs.every((t) => t.groupId === null)).toBe(true);
+    expect(state().groups).toEqual([]);
+  });
+
+  test('renameGroup and setGroupColor update the definition', () => {
+    const [a] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().renameGroup(gid, '  Research  ');
+    state().setGroupColor(gid, 'pink');
+    expect(state().groups[0]!.name).toBe('Research');
+    expect(state().groups[0]!.color).toBe('pink');
+  });
+
+  test('moveTab into the middle of a group joins it; reorderTab at a boundary leaves it ungrouped', () => {
+    const [a, b, c] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().addTabToGroup(b!, gid);
+    // c between a and b, explicitly as a member.
+    state().moveTab(c!, 1, gid);
+    expect(state().tabs.map((t) => t.id)).toEqual([a, c, b]);
+    expect(state().tabs.find((t) => t.id === c)!.groupId).toBe(gid);
+    // Drag c to the very front (before the group) — boundary → leaves the group.
+    state().reorderTab(c!, 0);
+    expect(state().tabs.map((t) => t.id)[0]).toBe(c);
+    expect(state().tabs.find((t) => t.id === c)!.groupId).toBeNull();
+  });
+
+  test('moveTab with an unknown group id degrades to ungrouped', () => {
+    const [a] = threeTabs();
+    state().moveTab(a!, 2, 'no-such-group');
+    expect(state().tabs.find((t) => t.id === a)!.groupId).toBeNull();
+  });
+
+  test('collapsing the active tab’s group activates the nearest outside tab', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().activateTab(a!);
+    state().toggleGroupCollapsed(gid);
+    expect(state().groups[0]!.collapsed).toBe(true);
+    // Nearest tab to a's right that is outside the group.
+    expect(state().activeTabId).toBe(b);
+  });
+
+  test('collapse is refused when every tab is in the group', () => {
+    const a = tabAt(0).id;
+    const gid = state().addTabToNewGroup(a)!;
+    state().toggleGroupCollapsed(gid);
+    expect(state().groups[0]!.collapsed).toBe(false);
+  });
+
+  test('activating a tab in a collapsed group expands it', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().activateTab(b!);
+    state().toggleGroupCollapsed(gid);
+    expect(state().groups[0]!.collapsed).toBe(true);
+    state().activateTab(a!);
+    expect(state().groups[0]!.collapsed).toBe(false);
+  });
+
+  test('activateAdjacent landing on a collapsed-group tab expands the group', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().activateTab(b!);
+    state().toggleGroupCollapsed(gid);
+    // Walk until the active tab is the grouped one.
+    while (state().activeTabId !== a) {
+      state().activateAdjacent(1);
+    }
+    expect(state().groups[0]!.collapsed).toBe(false);
+  });
+
+  test('restoreSession sanitizes groups: unknown membership dropped, contiguity restored', () => {
+    state().restoreSession({
+      tabs: [
+        {
+          id: 'r1',
+          kind: 'note',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          groupId: 'g1',
+          text: 'one',
+        },
+        {
+          id: 'r2',
+          kind: 'note',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          groupId: 'missing',
+          text: 'two',
+        },
+        {
+          id: 'r3',
+          kind: 'note',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          groupId: 'g1',
+          text: 'three',
+        },
+      ],
+      activeTabId: 'r2',
+      groups: [
+        { id: 'g1', name: 'Docs', color: 'teal', collapsed: false },
+        { id: 'empty', name: '', color: 'red', collapsed: false },
+      ],
+    });
+    // g1 pulled contiguous (r1, r3), unknown membership nulled, empty def dropped.
+    expect(state().tabs.map((t) => t.id)).toEqual(['r1', 'r3', 'r2']);
+    expect(state().tabs.map((t) => t.groupId)).toEqual(['g1', 'g1', null]);
+    expect(state().groups.map((g) => g.id)).toEqual(['g1']);
+  });
+
+  test('adoptTabs strips membership of groups this window does not know', () => {
+    state().adoptTabs([
+      {
+        id: 'adopted-1',
+        kind: 'note',
+        notePath: '/notes/one.md',
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        groupId: 'foreign-group',
+        text: '# One',
+      },
+    ]);
+    expect(state().tabs.find((t) => t.id === 'adopted-1')!.groupId).toBeNull();
+  });
+
+  test('a preview tab replacing a grouped tab inherits its membership (contiguity)', () => {
+    const [a, b] = threeTabs();
+    const gid = state().addTabToNewGroup(a!)!;
+    state().addTabToGroup(b!, gid);
+    // Preview opens ungrouped…
+    const p1 = state().openFileTab({
+      filePath: '/docs/p1.md',
+      text: 'p',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    expect(state().tabs.find((t) => t.id === p1)!.groupId).toBeNull();
+    // …then joins the group; the NEXT preview replaces it in place and must
+    // stay a member, or it would split the run.
+    state().addTabToGroup(p1, gid);
+    state().moveTab(p1, 1, gid); // sit between a and b
+    const p2 = state().openFileTab({
+      filePath: '/docs/p2.md',
+      text: 'q',
+      savedMtimeMs: 1,
+      preview: true,
+    });
+    expect(state().tabs.find((t) => t.id === p2)!.groupId).toBe(gid);
+  });
+});
+
 describe('conflict flags (M3)', () => {
   test('setConflict toggles the per-tab ConflictBanner flag', () => {
     const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
