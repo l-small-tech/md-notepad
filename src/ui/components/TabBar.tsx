@@ -581,6 +581,26 @@ const SPACER_MIN = 32;
 const OVERFLOW_BTN_RESERVE = 34;
 const MAC_INSET = 78; // .tabbar-mac padding-left
 
+/**
+ * Phone-width layout (mirrors app.css's 640px breakpoint). On phones the strip
+ * shows ONLY the active tab, stretched across the row like a mobile browser's
+ * title bar; every other tab is one tap away in the switcher (the overflow
+ * button, which shows a count instead of ⋯). The existing overflow windowing
+ * does all the work — this just caps the visible window at 1.
+ */
+const PHONE_QUERY = '(max-width: 640px)';
+
+function usePhoneLayout(): boolean {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_QUERY);
+    const onChange = () => setPhone(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return phone;
+}
+
 export function TabBar() {
   const tabs = useTabsStore((s) => s.tabs);
   const groups = useTabsStore((s) => s.groups);
@@ -594,6 +614,7 @@ export function TabBar() {
   const [windowStart, setWindowStart] = useState(0);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const dropTargetRef = useRef<DropTarget | null>(null);
+  const phone = usePhoneLayout();
 
   // How many whole items fit: bar width minus everything that isn't a tab
   // (new-tab button, window controls, spacer minimum, ⋯ reserve, mac inset).
@@ -798,14 +819,16 @@ export function TabBar() {
   }
 
   const activeIndex = items.findIndex((it) => it.kind === 'tab' && it.tab.id === activeTabId);
-  const start = computeTabWindow(items.length, capacity, activeIndex, windowStart);
+  // Phones cap the window at the single active tab (see usePhoneLayout).
+  const cap = phone ? 1 : Math.max(1, capacity);
+  const start = computeTabWindow(items.length, cap, activeIndex, windowStart);
   if (start !== windowStart) {
     // Derived state with history: remember the window so it only slides when
     // the active tab leaves it (set-state-during-render, per React docs).
     setWindowStart(start);
   }
-  const visible = items.slice(start, start + Math.max(1, capacity));
-  const hidden = [...items.slice(0, start), ...items.slice(start + Math.max(1, capacity))]
+  const visible = items.slice(start, start + cap);
+  const hidden = [...items.slice(0, start), ...items.slice(start + cap)]
     .filter((it): it is StripItem & { kind: 'tab' } => it.kind === 'tab')
     .map((it) => it.tab);
 
@@ -868,7 +891,9 @@ export function TabBar() {
           // re-closing the menu this click opens.
           onPointerDown={(e) => e.stopPropagation()}
         >
-          ⋯
+          {/* On phones this is the tab switcher: show how many more tabs there
+              are (mobile-browser style) instead of an anonymous ⋯. */}
+          {phone ? `+${hidden.length}` : '⋯'}
         </button>
       )}
       <div className="tabbar-spacer" data-tauri-drag-region="" />

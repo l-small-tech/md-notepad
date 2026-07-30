@@ -114,19 +114,22 @@ export function App() {
  * in the preview — a ← Back that pops the page. Back lives here (not as an
  * in-pane bar) in full screen so it hides with the rest.
  *
- * The cluster is tucked just above the top-CENTER edge and slides down when
- * summoned. Nothing spans the full width (that full-width reveal bar read as
- * cheap/janky). Window dragging in the 'window' stage lives in a separate strip
- * over the top of the view (see App), not here.
+ * Desktop: the cluster is tucked just above the top-CENTER edge and slides down
+ * when summoned. Android: it docks above the BOTTOM edge instead — top-center
+ * is where punch-hole cameras live (a Pixel's lens sat exactly over the ✕), and
+ * the bottom is thumb territory on a phone. Nothing spans the full width (that
+ * full-width reveal bar read as cheap/janky). Window dragging in the 'window'
+ * stage lives in a separate strip over the top of the view (see App), not here.
  *
  * Reveal is JS-driven (not `:hover`) so the behaviour matches the input:
  *  - Desktop: appears while the pointer is in the top reveal zone; once it drops
  *    below, it lingers briefly then hides. Overshooting the top edge fires no
  *    further movement, so the cluster stays put and stays clickable there.
- *  - Android: a DOUBLE-TAP near the top toggles it (a top-edge swipe would fight
- *    the system notification shade); when shown it auto-hides after a few
- *    seconds. In normal (non-full-screen) mode the ribbon is visible, so this
- *    only matters in full screen.
+ *  - Android: a DOUBLE-TAP near the top OR bottom edge toggles it (the top zone
+ *    is the long-standing gesture, the bottom zone is where the buttons now
+ *    appear; an edge swipe would fight the notification shade / gesture nav);
+ *    when shown it auto-hides after a few seconds. In normal (non-full-screen)
+ *    mode the ribbon is visible, so this only matters in full screen.
  * `:focus-within` (CSS) also holds it open so it's reachable by keyboard.
  */
 function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
@@ -166,17 +169,20 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
     };
 
     if (android) {
-      // Double-tap near the top toggles the cluster. Two taps in the top band
-      // within the double-tap window flip it; showing arms an auto-hide. A
-      // top-edge swipe is deliberately NOT used — it collides with Android's
-      // notification shade and obscures these very buttons.
-      const TOP_ZONE = 140; // px band at the top where the double-tap counts
+      // Double-tap near the top or bottom edge toggles the cluster. Two taps
+      // in either band within the double-tap window flip it; showing arms an
+      // auto-hide. An edge swipe is deliberately NOT used — it collides with
+      // Android's notification shade (top) and gesture nav (bottom).
+      const EDGE_ZONE = 140; // px band at each edge where the double-tap counts
       const DOUBLE_MS = 300; // max gap between the two taps
       let lastTap = 0;
       const onTap = (e: TouchEvent) => {
         const t = e.changedTouches[0];
-        if (!t || t.clientY > TOP_ZONE) {
-          lastTap = 0; // a tap outside the zone breaks any pending double-tap
+        const inZone =
+          t !== undefined &&
+          (t.clientY <= EDGE_ZONE || t.clientY >= window.innerHeight - EDGE_ZONE);
+        if (!inZone) {
+          lastTap = 0; // a tap outside the zones breaks any pending double-tap
           return;
         }
         if (e.timeStamp - lastTap < DOUBLE_MS) {
@@ -270,5 +276,6 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
     </>
   );
 
-  return <div className={`fullscreen-topcenter${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
+  const dock = android ? 'fullscreen-bottomcenter' : 'fullscreen-topcenter';
+  return <div className={`${dock}${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
 }

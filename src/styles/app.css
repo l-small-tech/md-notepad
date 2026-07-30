@@ -571,6 +571,38 @@
   transform: translate(-50%, 0);
 }
 
+/* Android: the exit cluster docks above the BOTTOM edge instead. Top-center
+   is exactly where punch-hole cameras sit (edge-to-edge draws under the
+   display cutout, and env(safe-area-inset-top) covers the status BAR, not the
+   deeper camera circle — on a Pixel the ✕ landed under the lens), and the
+   bottom is where a thumb actually is on a phone. Slides up when summoned by
+   the double-tap (App.tsx); auto-hides after a few seconds. */
+.fullscreen-bottomcenter {
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  z-index: 42;
+  display: flex;
+  gap: 10px;
+  /* Tucked fully below the bottom edge until revealed. */
+  transform: translate(-50%, calc(100% + 32px + env(safe-area-inset-bottom, 0px)));
+  transition: transform 160ms ease;
+}
+
+.fullscreen-bottomcenter.is-revealed,
+.fullscreen-bottomcenter:focus-within {
+  transform: translate(-50%, 0);
+}
+
+/* Finger-sized buttons (48px ≈ the Android touch-target guideline). */
+.fullscreen-bottomcenter .fullscreen-btn {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
 /* 'window' stage: an invisible strip over the top of the view that grabs-to-move
    the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
    so those controls stay clickable. Titlebar-height by default (so it doesn't
@@ -2053,11 +2085,12 @@ body.explorer-dragging * {
 
 /* ---- Narrow screens (phones; also very small desktop windows) -----------
    640px keeps clear of tablets — a Tab A9+ reports ~800px CSS width even in
-   portrait — so tablet/desktop layouts are untouched. Two goals: the ribbon's
+   portrait — so tablet/desktop layouts are untouched. Goals: the ribbon's
    center cluster must never push the right-side buttons off screen (it
-   becomes the flexible, horizontally-scrollable region instead), and the
-   status bar must fit without wrapping (drop the caret/char readouts, keep
-   the mode segments + word count). */
+   becomes the flexible, horizontally-scrollable region instead); the status
+   bar must fit without wrapping (drop the caret/char readouts, keep the mode
+   segments + word count) and clear the display's rounded corners; the tab
+   strip collapses to active-tab + switcher; touch targets grow. */
 @media (max-width: 640px) {
   .ribbon {
     padding: 0 4px;
@@ -2092,8 +2125,14 @@ body.explorer-dragging * {
 
   .statusbar {
     gap: 8px;
-    padding-left: calc(6px + env(safe-area-inset-left, 0px));
-    padding-right: calc(6px + env(safe-area-inset-right, 0px));
+    /* Rounded display corners intrude into the bottom bar's left/right ends —
+       and they are NOT part of the safe-area insets, which only cover system
+       bars and cutouts — so give the content real side clearance. Without it
+       the corner radius clips the first mode label ("Raw" losing its R). A
+       taller bar doubles as a proper touch target for the mode segments. */
+    height: calc(40px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(18px + env(safe-area-inset-left, 0px));
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
   }
 
   .statusbar-caret,
@@ -2102,11 +2141,76 @@ body.explorer-dragging * {
   }
 
   .mode-segment {
-    padding: 3px 8px;
+    padding: 10px 12px;
+  }
+
+  /* The desktop flush-left alignment (first-child padding 0) would put the
+     first label right back into the corner-radius zone — keep full padding,
+     which also keeps the whole segment tappable. */
+  .mode-segment:first-child {
+    padding-left: 12px;
   }
 
   .statusbar-meta {
     gap: 8px;
+  }
+
+  /* ---- Phone tab strip -----------------------------------------------
+     TabBar caps the visible window at ONE tab below this breakpoint (like a
+     mobile browser's title bar: the active document full-width, every other
+     tab one tap away in the numbered switcher). The CSS side: let that single
+     tab stretch across the row, and drop desktop-only chrome. */
+  .tabbar {
+    height: calc(40px + env(safe-area-inset-top, 0px));
+  }
+
+  .tabbar-scroller {
+    flex: 1 1 auto;
+  }
+
+  .tab {
+    max-width: none;
+    flex: 1 1 auto;
+    padding-left: 16px; /* clear of the top rounded corner */
+  }
+
+  /* Bigger touch target for closing the current document. */
+  .tab-close {
+    width: 28px;
+    height: 28px;
+    line-height: 26px;
+  }
+
+  /* The tab fills the row, so the spacer's only job (a window-drag grab area)
+     is moot — there is no draggable OS window on a phone anyway. */
+  .tabbar-spacer {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  /* Close-all is desktop convenience; on a phone it's clutter next to the
+     switcher (still reachable via long-press → Close all). */
+  .tab-close-all {
+    display: none;
+  }
+
+  /* The overflow button becomes the tab switcher: a counter pill (TabBar
+     renders the hidden-tab count instead of ⋯ on phones). */
+  .tab-overflow {
+    width: auto;
+    min-width: 30px;
+    align-self: center;
+    height: 26px;
+    padding: 0 9px;
+    margin: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tab-new {
+    width: 38px;
   }
 
   /* The explorer drawer is inline-width'd (drag-resized on desktop); cap it
