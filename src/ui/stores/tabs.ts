@@ -769,6 +769,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       // Continue flipping in whatever mode the restored active tab was in, so a
       // read-mode session stays read-mode across a restart. Read-only tabs are
       // pinned to 'read' regardless, so fall back to the default for those.
+      // Mobile reads first: every session starts back at 'read' no matter what
+      // mode the restored tabs were left in — a phone is primarily a reader,
+      // and one editing session shouldn't flip the device's default for good.
       const activeEntry = entries.find((e) => e.id === active)!;
       set({
         tabs: entries,
@@ -777,11 +780,11 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         renamingTabId: null,
         closedNotePaths: [],
         obsoleteBufferTabIds: [],
-        lastFileMode: activeEntry.readOnly
-          ? isMobile()
-            ? 'read'
-            : settingsStore.getState().settings.defaultMode
-          : activeEntry.mode,
+        lastFileMode: isMobile()
+          ? 'read'
+          : activeEntry.readOnly
+            ? settingsStore.getState().settings.defaultMode
+            : activeEntry.mode,
       });
     },
 

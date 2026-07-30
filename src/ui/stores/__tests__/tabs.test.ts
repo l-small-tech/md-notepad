@@ -1,4 +1,16 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+/**
+ * Controllable platform: the store seeds lastFileMode differently on mobile
+ * (reads first). Default desktop; the mobile cases flip the flag and re-import.
+ */
+const platform = vi.hoisted(() => ({ mobile: false }));
+vi.mock('../../platform', () => ({
+  isMobile: () => platform.mobile,
+  isAndroid: () => platform.mobile,
+  isAndroidUA: (ua: string) => /Android/i.test(ua),
+  detectRuntime: () => (platform.mobile ? 'android' : 'desktop'),
+}));
 
 /**
  * The tabs store is a module singleton that self-creates its first tab at
@@ -782,5 +794,60 @@ describe('conflict flags (M3)', () => {
     // Local edits remain unsaved — "keep mine" defers to the next explicit save.
     expect(after.dirty).toBe(true);
     expect(after.model.isDirty('file')).toBe(true);
+  });
+});
+
+describe('lastFileMode (mobile reads first)', () => {
+  afterEach(() => {
+    platform.mobile = false;
+  });
+
+  const fileInit = (id: string, mode: 'raw' | 'split' | 'wysiwyg' | 'read') => ({
+    id,
+    kind: 'file' as const,
+    notePath: null,
+    filePath: `/docs/${id}.md`,
+    customTitle: null,
+    mode,
+    savedMtimeMs: 1,
+    text: '',
+  });
+
+  test('desktop: restoreSession adopts the active tab mode for later opens', () => {
+    state().restoreSession({ tabs: [fileInit('t1', 'wysiwyg')], activeTabId: 't1' });
+    expect(state().lastFileMode).toBe('wysiwyg');
+    const id = state().openFileTab({ filePath: '/docs/b.md', text: '', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === id)!.mode).toBe('wysiwyg');
+  });
+
+  test('mobile: seeds read at boot and newly opened files adopt it', async () => {
+    platform.mobile = true;
+    vi.resetModules();
+    mod = await import('../tabs');
+    expect(state().lastFileMode).toBe('read');
+    const id = state().openFileTab({ filePath: '/docs/b.md', text: '', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === id)!.mode).toBe('read');
+  });
+
+  test('mobile: restoreSession re-seeds read even when the active tab was left in an edit mode', async () => {
+    platform.mobile = true;
+    vi.resetModules();
+    mod = await import('../tabs');
+    state().restoreSession({ tabs: [fileInit('t1', 'raw')], activeTabId: 't1' });
+    // The restored tab keeps its own mode; only the seed for FUTURE opens resets.
+    expect(state().tabs.find((t) => t.id === 't1')!.mode).toBe('raw');
+    expect(state().lastFileMode).toBe('read');
+    const id = state().openFileTab({ filePath: '/docs/b.md', text: '', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === id)!.mode).toBe('read');
+  });
+
+  test('mobile: an explicit mode switch still wins for subsequent opens', async () => {
+    platform.mobile = true;
+    vi.resetModules();
+    mod = await import('../tabs');
+    const first = state().openFileTab({ filePath: '/docs/a.md', text: '', savedMtimeMs: 1 });
+    state().setMode(first, 'raw');
+    const second = state().openFileTab({ filePath: '/docs/b.md', text: '', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === second)!.mode).toBe('raw');
   });
 });
