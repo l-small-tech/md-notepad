@@ -221,7 +221,7 @@ async function spawnTabWindow(
 
 let lastWindowTitle = '';
 
-// A dev run (`npm run tauri:dev`) serves the frontend from Vite, so import.meta
+// A dev run (`pnpm run tauri:dev`) serves the frontend from Vite, so import.meta
 // .env.DEV is true here but false in the built release. Tag the window/taskbar
 // title so a dev instance is obvious next to an installed release (the amber
 // icon from tauri.dev.conf.json is the other half of that distinction).

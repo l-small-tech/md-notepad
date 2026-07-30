@@ -1,7 +1,7 @@
 # Manual QA checklists
 
 Execute the section for the milestone you just built, on your dev OS, in a
-real `npm run tauri dev` session (release-build checks are called out
+real `pnpm run tauri dev` session (release-build checks are called out
 explicitly). Check every box in the milestone's PR/commit message. The full
 3-OS sweep happens at M7.
 
@@ -136,7 +136,7 @@ sibling `session/` folder).
 
 ## M7 — Packaging & release
 
-- [ ] `npm run tauri build` locally: installer produced, installs, runs,
+- [ ] `pnpm run tauri build` locally: installer produced, installs, runs,
       uninstalls cleanly.
 - [ ] Tag drill (`v0.1.0-rc.*`): draft release contains exe + dmg + deb +
       rpm + AppImage + `latest.json` + `.sig` per updater asset +

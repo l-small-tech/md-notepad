@@ -2,7 +2,7 @@
   <!-- MD Notepad app icon: "M↓" on a Fluent-style blue plate (Windows 11
        Notepad palette). Near-full-bleed so it doesn't render smaller than
        neighboring taskbar icons. Regenerate the platform icon set with:
-       npm run tauri icon assets/icon.svg -->
+       pnpm run tauri icon assets/icon.svg -->
   <defs>
     <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#6fb7f0"/>

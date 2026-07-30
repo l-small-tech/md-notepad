@@ -62,10 +62,10 @@ code that behaves differently per OS.
 ## Build notes
 
 - `tauri::generate_context!` embeds `../dist` at compile time — run
-  `npm run build` once before any `cargo test`/`clippy` on a fresh clone
+  `pnpm run build` once before any `cargo test`/`clippy` on a fresh clone
   (CI does this; the error otherwise is a confusing "frontendDist path
   doesn't exist").
-- Dev loop: `npm run tauri dev` (spawns vite + cargo). Rust-only iteration:
+- Dev loop: `pnpm run tauri dev` (spawns vite + cargo). Rust-only iteration:
   `cargo test` in `src-tauri/` is fast after the first build.
 - Windows needs MSVC Build Tools; Linux needs the webkit2gtk-4.1 stack
   (exact apt list in `.github/workflows/ci.yml`).

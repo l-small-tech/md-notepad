@@ -1,7 +1,7 @@
 {
   // Standalone tsconfig for the e2e suite. The root tsconfig's `include` is
-  // ["src", "vite.config.ts"], so e2e/ never enters `npm run typecheck`;
-  // check this dir with `npx tsc --noEmit -p e2e/tsconfig.json` instead.
+  // ["src", "vite.config.ts"], so e2e/ never enters `pnpm run typecheck`;
+  // check this dir with `pnpm exec tsc --noEmit -p e2e/tsconfig.json` instead.
   // The wdio/mocha ambient types below would pollute the app's type space
   // (globals like `browser`, `describe`) if they shared a tsconfig.
   "compilerOptions": {

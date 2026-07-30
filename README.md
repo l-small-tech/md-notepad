@@ -187,18 +187,19 @@ formatting.
 
 ## Build from source
 
-Prerequisites: Node ≥ 20, Rust (stable, via [rustup](https://rustup.rs)),
+Prerequisites: Node ≥ 20, [pnpm](https://pnpm.io) ≥ 10, Rust (stable, via
+[rustup](https://rustup.rs)),
 plus per-OS Tauri deps — Windows: MSVC Build Tools + WebView2 (in Windows
 11); macOS: Xcode CLT; Linux: `libwebkit2gtk-4.1-dev build-essential curl
 wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
 
 ```sh
-npm ci
-npm run tauri dev      # run the app (vite + cargo, hot reload)
-npm run tauri build    # produce installers for your OS
+pnpm install
+pnpm run tauri dev      # run the app (vite + cargo, hot reload)
+pnpm run tauri build    # produce installers for your OS
 ```
 
-Checks: `npm run check && npm test`, and in `src-tauri/`:
+Checks: `pnpm run check && pnpm test`, and in `src-tauri/`:
 `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.
 
 ## Contributing / architecture

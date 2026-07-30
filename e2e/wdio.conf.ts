@@ -6,9 +6,9 @@
  * and proxies WebDriver commands to the platform's native driver (msedgedriver
  * on Windows, WebKitWebDriver on Linux; macOS is unsupported by tauri-driver).
  *
- * Prerequisites (this config launches tauri-driver itself — `npm run e2e` is
+ * Prerequisites (this config launches tauri-driver itself — `pnpm run e2e` is
  * the only command you need once these exist):
- *   1. A debug build of the app: `npm run build`, then `cargo build` in
+ *   1. A debug build of the app: `pnpm run build`, then `cargo build` in
  *      src-tauri (produces src-tauri/target/debug/md-notepad.exe).
  *   2. tauri-driver: `cargo install tauri-driver --locked`. Found on PATH by
  *      default; override with the TAURI_DRIVER_BIN env var (absolute path).
@@ -121,13 +121,13 @@ export const config: WebdriverIO.Config = {
 
   /**
    * Spawn tauri-driver before the session starts and wait for its port, so
-   * `npm run e2e` is a single command with no orchestration script around it.
+   * `pnpm run e2e` is a single command with no orchestration script around it.
    */
   onPrepare: async (): Promise<void> => {
     if (!existsSync(application)) {
       throw new Error(
         `App binary not found: ${application}\n` +
-          'Build it first: `npm run build`, then `cargo build` in src-tauri.',
+          'Build it first: `pnpm run build`, then `cargo build` in src-tauri.',
       );
     }
 

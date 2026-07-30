@@ -41,10 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install Linux webview dependencies
         if: startsWith(matrix.os, 'ubuntu')
@@ -61,7 +62,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
@@ -122,10 +123,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
@@ -135,7 +137,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Configure release signing
         if: ${{ env.HAS_KEYSTORE == 'true' }}
@@ -155,7 +157,7 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           export JAVA_HOME="$JAVA_HOME_17_X64"
-          npm run tauri android build -- --apk
+          pnpm tauri android build --apk
 
       - name: Upload APK to draft release
         run: |

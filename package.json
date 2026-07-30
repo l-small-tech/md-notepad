@@ -5,6 +5,7 @@
   "description": "A minimal, fast, cross-platform markdown notepad with Notepad-style ephemeral tabs.",
   "license": "GPL-3.0-only",
   "type": "module",
+  "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=20"
   },
@@ -17,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check",
     "format": "prettier --write .",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
