@@ -40,6 +40,13 @@ export interface PreviewPaneOptions {
    * the pane (the fullscreen control cluster) instead of the in-pane bar.
    */
   onCanGoBackChange?: (canGoBack: boolean) => void;
+  /**
+   * A rendered mermaid diagram was clicked; receives the diagram's SVG markup
+   * as rendered (theme colors baked in). Lets the host open a fullscreen
+   * zoomable viewer OUTSIDE the pane (same surface-state-outward shape as
+   * `onCanGoBackChange`). Omit and diagram clicks stay inert.
+   */
+  onOpenDiagram?: (svgMarkup: string) => void;
 }
 
 /** One followed link in the in-pane navigation history: its path + cached text. */
@@ -232,6 +239,15 @@ export function attachPreviewPane(
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
+    // A click anywhere on a rendered diagram opens the fullscreen viewer.
+    // Checked BEFORE the anchor branch: mermaid SVGs can contain <a> elements,
+    // and the viewer takes priority over following a link baked into one.
+    const diagram = el.closest('.mermaid-diagram');
+    if (diagram) {
+      event.preventDefault();
+      options.onOpenDiagram?.(diagram.innerHTML);
+      return;
+    }
     const anchor = el.closest('a');
     if (!anchor) {
       return;

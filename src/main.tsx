@@ -60,6 +60,7 @@ import {
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
 import { exportPreviewStore } from './ui/stores/export-preview';
+import { diagramViewerStore } from './ui/stores/diagram-viewer';
 import { isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { initProviders } from './ipc/provider';
@@ -314,6 +315,13 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 const platform = detectPlatform(navigator.platform);
 
 window.addEventListener('keydown', (event) => {
+  // Escape closes the fullscreen diagram viewer first — it sits on top of
+  // everything else (same custom-DOM-modal contract as the dialogs below).
+  if (event.key === 'Escape' && diagramViewerStore.getState().open) {
+    event.preventDefault();
+    diagramViewerStore.getState().close();
+    return;
+  }
   // Escape closes the export-preview modal (same custom-DOM-modal contract as
   // the settings dialog below).
   if (event.key === 'Escape' && exportPreviewStore.getState().open) {

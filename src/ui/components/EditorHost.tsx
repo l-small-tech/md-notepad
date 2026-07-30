@@ -27,6 +27,7 @@ import {
   savePastedImageForTab,
   takePendingReveal,
 } from '../session';
+import { diagramViewerStore } from '../stores/diagram-viewer';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -101,6 +102,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         source: () => {
           const adapter = createCm6Adapter({
             wordWrap: settingsStore.getState().settings.wordWrap,
+            lineNumbers: settingsStore.getState().settings.lineNumbers,
             initialSelection: getCursor(tabId) ?? undefined,
             onSelection: (pos) => {
               uiStore.getState().reportCursor(tabId, { line: pos.line, col: pos.col });
@@ -157,10 +159,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     // hasn't been created yet (a tab that opened straight into wysiwyg) — the
     // factory reads the current setting when it eventually runs.
     let lastWordWrap = settingsStore.getState().settings.wordWrap;
+    let lastLineNumbers = settingsStore.getState().settings.lineNumbers;
     const unsubscribeSettings = settingsStore.subscribe((s) => {
       if (s.settings.wordWrap !== lastWordWrap) {
         lastWordWrap = s.settings.wordWrap;
         sourceAdapterRef.current?.setWordWrap(lastWordWrap);
+      }
+      if (s.settings.lineNumbers !== lastLineNumbers) {
+        lastLineNumbers = s.settings.lineNumbers;
+        sourceAdapterRef.current?.setLineNumbers(lastLineNumbers);
       }
     });
 
@@ -198,6 +205,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       // Surface Back state so the fullscreen cluster can host the Back button
       // (the in-pane bar is hidden in fullscreen — see preview.css).
       onCanGoBackChange: (canGoBack) => previewNavStore.getState().setCanGoBack(tabId, canGoBack),
+      // A clicked diagram opens the fullscreen zoomable viewer.
+      onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
     });
     registerPreviewGoBack(tabId, () => pane.goBack());
     registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));

@@ -53,6 +53,7 @@ import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
 import { isEditableTextPath, isMarkdownPath } from '../../core/text-files';
 import { type WorkspaceColor } from '../../core/types';
+import { ipc } from '../../ipc/commands';
 import { currentProvider } from '../../ipc/provider';
 import { isAndroid } from '../platform';
 import {
@@ -111,6 +112,10 @@ export function FileExplorer() {
   // Dirs whose last listing failed or timed out — a never-loaded one (no entry
   // in entriesByDir) shows a Retry affordance instead of an endless "Loading…".
   const [failedDirs, setFailedDirs] = useState<ReadonlySet<string>>(new Set());
+  // Subfolders (fileKey'd) whose whole subtree holds nothing the explorer can
+  // open — rendered washed out as a "nothing to find here" hint. Local paths
+  // only; saf:// folders are never checked (no recursive walk over SAF).
+  const [dullDirs, setDullDirs] = useState<ReadonlySet<string>>(new Set());
   // Tree shape lives in the persisted settings store, not component state: the
   // drawer unmounts whenever it's closed (and the app exits), and either one
   // would otherwise throw the shape away and reopen fully expanded.
@@ -196,6 +201,16 @@ export function FileExplorer() {
     const key = fileKey(dir);
     return readOnlyRoots.some((root) => key === root || key.startsWith(`${root}/`));
   };
+  /** Root of the workspace containing `p`, for the menu's "Copy relative path". */
+  const workspaceRootFor = (p: string): string | null => {
+    const key = fileKey(p);
+    return (
+      workspaces.find((w) => {
+        const root = fileKey(w.path);
+        return key === root || key.startsWith(`${root}/`);
+      })?.path ?? null
+    );
+  };
   // JSON, not join(): a path may itself contain the separator character.
   const workspaceSignature = JSON.stringify(workspaces.map((w) => w.path));
   const expandedSignature = JSON.stringify([...expandedDirs].sort());
@@ -212,6 +227,34 @@ export function FileExplorer() {
         .then((list) => {
           if (!cancelled) {
             setEntriesByDir((prev) => ({ ...prev, [path]: list }));
+            // Re-check each subfolder's "anything worth finding?" flag. Cheap:
+            // the walk early-exits on the first supported file it meets.
+            for (const e of list) {
+              if (!e.isDir || e.path.startsWith('saf://')) {
+                continue;
+              }
+              void ipc
+                .dirHasRelevantFiles(e.path)
+                .then((has) => {
+                  if (cancelled) {
+                    return;
+                  }
+                  setDullDirs((prev) => {
+                    const key = fileKey(e.path);
+                    if (prev.has(key) === !has) {
+                      return prev;
+                    }
+                    const next = new Set(prev);
+                    if (has) {
+                      next.delete(key);
+                    } else {
+                      next.add(key);
+                    }
+                    return next;
+                  });
+                })
+                .catch(() => {}); // best-effort styling — never surface an error
+            }
             // A retry (or a slow load that eventually arrived) succeeded — clear
             // any stale failure flag so the row stops offering Retry.
             setFailedDirs((prev) => {
@@ -448,7 +491,10 @@ export function FileExplorer() {
               </div>
             ) : (
               <button
-                className={rowClass('file-explorer-dir', entry.path)}
+                className={
+                  rowClass('file-explorer-dir', entry.path) +
+                  (dullDirs.has(fileKey(entry.path)) ? ' is-dull' : '')
+                }
                 style={{ paddingLeft: `${dirIndent(depth)}px` }}
                 title={
                   readOnly
@@ -562,6 +608,7 @@ export function FileExplorer() {
           {menuFor === entry.path && (
             <ExplorerContextMenu
               entry={entry}
+              workspaceRoot={workspaceRootFor(entry.path)}
               onClose={() => setMenuFor(null)}
               onRename={setRenaming}
             />

@@ -334,6 +334,58 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
     Ok(dirs)
 }
 
+/// Depth cap for the relevance walk below — the same cheap symlink-loop guard
+/// as the search walker's `MAX_DEPTH` (a genuine tree this deep is beyond what
+/// the lazily-expanded explorer can display anyway).
+const RELEVANCE_MAX_DEPTH: usize = 16;
+
+/// Does `dir`'s subtree hold at least one file the explorer would list — a
+/// text note, image, or importable document — or an extension-less file?
+/// Files are checked before descending, so the common case (a folder with
+/// notes right in it) answers on one `read_dir`. Unreadable dirs count as
+/// empty (best-effort, like the search walk).
+fn subtree_has_relevant_file(dir: &Path, depth: usize) -> bool {
+    if depth > RELEVANCE_MAX_DEPTH {
+        return false;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+    let mut subdirs = Vec::new();
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if file_type.is_dir() {
+            subdirs.push(path);
+        } else if file_type.is_file()
+            && (is_text_path(&path)
+                || is_image_path(&path)
+                || is_importable_path(&path)
+                || path.extension().is_none())
+        {
+            return true;
+        }
+    }
+    subdirs
+        .iter()
+        .any(|sub| subtree_has_relevant_file(sub, depth + 1))
+}
+
+/// Whether the explorer should render `dir` normally (true) or washed out
+/// (false = nothing worth finding anywhere in its subtree). Missing dir =
+/// false, matching `list_dir`'s missing-dir-is-empty policy.
+#[tauri::command]
+pub async fn dir_has_relevant_files(dir: PathBuf) -> bool {
+    subtree_has_relevant_file(&dir, 0)
+}
+
 /// List secondary-window session manifests (`session-<label>.json`) inside
 /// `dir`. `list_dir` deliberately filters to md/images for the explorer, so
 /// the multi-window boot path (respawning torn-off windows) needs its own
@@ -503,6 +555,56 @@ mod tests {
         let target = dir.path().join("nested").join("deep").join("note.md");
         block_on(atomic_write_text(target.clone(), "x".into())).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "x");
+    }
+
+    #[test]
+    fn dir_has_relevant_files_true_for_direct_note() {
+        let dir = tmpdir();
+        fs::write(dir.path().join("note.md"), "x").unwrap();
+        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_finds_nested_files() {
+        let dir = tmpdir();
+        let deep = dir.path().join("a").join("b");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("report.pdf"), "x").unwrap();
+        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_counts_extensionless_files() {
+        let dir = tmpdir();
+        fs::write(dir.path().join("README"), "x").unwrap();
+        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_false_for_unsupported_only() {
+        let dir = tmpdir();
+        let sub = dir.path().join("bin");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(dir.path().join("data.zip"), "x").unwrap();
+        fs::write(sub.join("app.exe"), "x").unwrap();
+        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_ignores_hidden_entries() {
+        let dir = tmpdir();
+        let hidden = dir.path().join(".git");
+        fs::create_dir_all(&hidden).unwrap();
+        fs::write(hidden.join("config.md"), "x").unwrap();
+        fs::write(dir.path().join(".secret.md"), "x").unwrap();
+        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_false_for_missing_or_empty_dir() {
+        let dir = tmpdir();
+        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(!block_on(dir_has_relevant_files(dir.path().join("nope"))));
     }
 
     #[test]

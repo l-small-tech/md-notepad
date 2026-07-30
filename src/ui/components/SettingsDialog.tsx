@@ -289,6 +289,15 @@ export function SettingsDialog() {
           <label className="settings-row settings-row-inline">
             <input
               type="checkbox"
+              checked={settings.lineNumbers}
+              onChange={(e) => update({ lineNumbers: e.target.checked })}
+            />
+            <span className="settings-label">Line numbers</span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
               checked={settings.ligatures}
               onChange={(e) => update({ ligatures: e.target.checked })}
             />

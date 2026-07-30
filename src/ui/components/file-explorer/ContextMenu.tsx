@@ -19,10 +19,13 @@ import {
   deleteExplorerFolder,
   importDocumentInto,
   openExportPreviewForFile,
+  openFileInNewWindow,
   removeWorkspace,
   setWorkspaceColor,
   type ExplorerEntry,
 } from '../../session';
+import { uiStore } from '../../stores/ui';
+import { explorerRelativePath } from './helpers';
 
 interface CommonProps {
   /** Close the menu (clears the container's `menuFor`). */
@@ -31,9 +34,12 @@ interface CommonProps {
   onRename: (path: string) => void;
 }
 
-/** File-row menu: rename / reveal / delete for `entry`. */
+/** File-row menu: rename / reveal / open in new window / copy path / delete. */
 interface FileMenuProps extends CommonProps {
   entry: ExplorerEntry;
+  /** Root of the workspace containing `entry` — the base "Copy relative path"
+   *  resolves against. null (unknown root) omits that item. */
+  workspaceRoot?: string | null;
 }
 
 /**
@@ -131,11 +137,50 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     );
   }
 
+  /** Copy `text` to the clipboard, confirming (or failing) via a notice. */
+  function copyToClipboard(text: string): void {
+    onClose();
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => uiStore.getState().showNotice('Path copied.'))
+      .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
+  }
+
   if ('entry' in props) {
+    const relative = explorerRelativePath(props.workspaceRoot, props.entry.path);
     return menuShell(
       <>
         {renderRenameItem(props.entry)}
         {renderRevealItem(props.entry)}
+        {/* Multi-window is desktop-only (Android has a single activity). */}
+        {!isAndroid() && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              openFileInNewWindow(props.entry.path);
+            }}
+          >
+            Open in new window
+          </button>
+        )}
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => copyToClipboard(props.entry.path)}
+        >
+          Copy path
+        </button>
+        {relative !== null && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => copyToClipboard(relative)}
+          >
+            Copy relative path
+          </button>
+        )}
         {/* Export works on markdown only — other rows (.txt, images) omit it.
             Opens the preview dialog (format + theme picked there); the file
             need not be open — an open tab's live text wins over disk. */}

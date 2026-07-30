@@ -113,6 +113,7 @@ pub fn run() {
             commands::fs::atomic_write_text,
             commands::fs::list_notes,
             commands::fs::list_dir,
+            commands::fs::dir_has_relevant_files,
             commands::fs::list_session_manifests,
             commands::fs::list_theme_files,
             commands::fs::read_file_base64,

@@ -16,7 +16,7 @@
  * M6 will drive (font size and word wrap), and to keep the recipe's shape.
  */
 
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
@@ -41,6 +41,8 @@ export interface Cm6Options {
   onSelection?: (pos: { line: number; col: number; anchor: number; head: number }) => void;
   /** Initial soft-wrap state (M6 toggles it via `setWordWrap`). */
   wordWrap?: boolean;
+  /** Initial line-number gutter state (OFF by default — Notepad feel). */
+  lineNumbers?: boolean;
   /** Caret to restore on attach (from the persisted session). Clamped to length. */
   initialSelection?: CursorPos;
   /**
@@ -97,6 +99,7 @@ export interface Cm6Adapter extends EditorAdapter {
   getSelection(): CursorPos;
   setSelection(anchor: number, head: number): void;
   setWordWrap(on: boolean): void;
+  setLineNumbers(on: boolean): void;
   setFontSize(px: number): void;
   /** Apply a ribbon formatting action to the current selection/line, then refocus. */
   format(action: FormatAction): void;
@@ -470,6 +473,7 @@ function applyFormat(view: EditorView, action: FormatAction): void {
 
 export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   const wrapCompartment = new Compartment();
+  const lineNumbersCompartment = new Compartment();
   const fontSizeCompartment = new Compartment();
   const themeCompartment = new Compartment();
 
@@ -480,6 +484,8 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   // cycle — e.g. toggling wrap while in wysiwyg mode, then switching back to
   // raw must show the new value, not the creation-time one.
   let wordWrap = options.wordWrap !== false;
+  // Same detach-survival contract as wordWrap; defaults OFF (Notepad feel).
+  let showLineNumbers = options.lineNumbers === true;
   // Reentrancy flags: `pushingSelf` guards the model→editor path against our
   // own echo; `applyingExternal` guards the editor→model path against changes
   // we are pushing INTO the editor from the model.
@@ -596,6 +602,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         // setFontSize reconfigures this compartment to an explicit px value.
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),
         wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
+        lineNumbersCompartment.of(showLineNumbers ? lineNumbers() : []),
         EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off' }),
         // Voice-comment gutter + mobile long-press gesture, only when the host
         // wires the open callback. Purely presentational/input — never mutates
@@ -683,6 +690,12 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
       wordWrap = on;
       view?.dispatch({
         effects: wrapCompartment.reconfigure(on ? EditorView.lineWrapping : []),
+      });
+    },
+    setLineNumbers(on) {
+      showLineNumbers = on;
+      view?.dispatch({
+        effects: lineNumbersCompartment.reconfigure(on ? lineNumbers() : []),
       });
     },
     setFontSize(px) {

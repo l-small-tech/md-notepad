@@ -103,6 +103,9 @@ export const ipc = {
   listNotes: (dir: string) => call<NoteMeta[]>('list_notes', { dir }),
   /** One explorer level: subdirs + .md/image files (dirs A→Z, files newest first). */
   listDir: (dir: string) => call<DirEntryMeta[]>('list_dir', { dir }),
+  /** Recursive: does `dir`'s subtree hold anything the explorer would list (or
+   *  an extension-less file)? Local paths only — never call with `saf://`. */
+  dirHasRelevantFiles: (dir: string) => call<boolean>('dir_has_relevant_files', { dir }),
   /** Secondary-window manifests (`session-<label>.json`) in the session dir. */
   listSessionManifests: (dir: string) => call<string[]>('list_session_manifests', { dir }),
   /** Theme-plugin files (`*.json`) in the themes folder; full paths, sorted. */

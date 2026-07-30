@@ -181,6 +181,8 @@
   display: flex;
   justify-content: center;
   margin: 0.8em 0;
+  /* Click opens the fullscreen zoomable viewer (pane.ts onOpenDiagram). */
+  cursor: zoom-in;
 }
 
 .preview .mermaid-error {

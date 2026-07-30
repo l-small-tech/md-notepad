@@ -15,12 +15,33 @@ vi.mock('../../../session', () => ({
 
 import {
   clampExplorerWidth,
+  explorerRelativePath,
   fileBadge,
   isTreeOpen,
   MAX_EXPLORER_WIDTH,
   MIN_EXPLORER_WIDTH,
   toggleTreeAll,
 } from '../helpers';
+
+describe('explorerRelativePath', () => {
+  test('a file below the workspace root loses the ./ prefix', () => {
+    expect(explorerRelativePath('C:/ws', 'C:/ws/sub/note.md')).toBe('sub/note.md');
+    expect(explorerRelativePath('C:/ws', 'C:/ws/note.md')).toBe('note.md');
+  });
+
+  test('backslash paths normalize to forward slashes', () => {
+    expect(explorerRelativePath('C:\\ws', 'C:\\ws\\sub\\note.md')).toBe('sub/note.md');
+  });
+
+  test('null/unknown root yields null (menu item omitted)', () => {
+    expect(explorerRelativePath(null, 'C:/ws/note.md')).toBeNull();
+    expect(explorerRelativePath(undefined, 'C:/ws/note.md')).toBeNull();
+  });
+
+  test('a different drive yields null — no relative path exists', () => {
+    expect(explorerRelativePath('C:/ws', 'D:/elsewhere/note.md')).toBeNull();
+  });
+});
 
 describe('fileBadge', () => {
   test('markdown extensions get the accent "md" badge', () => {

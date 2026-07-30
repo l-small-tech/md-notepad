@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiFont: 'match',
   defaultMode: 'raw',
   wordWrap: true,
+  lineNumbers: false,
   ligatures: true,
   readerMargins: 'normal',
   cursorStyle: 'bar',
@@ -170,6 +171,7 @@ export function normalizeSettings(raw: unknown): Settings {
         ? r.defaultMode
         : d.defaultMode,
     wordWrap: typeof r.wordWrap === 'boolean' ? r.wordWrap : d.wordWrap,
+    lineNumbers: typeof r.lineNumbers === 'boolean' ? r.lineNumbers : d.lineNumbers,
     ligatures: typeof r.ligatures === 'boolean' ? r.ligatures : d.ligatures,
     readerMargins:
       r.readerMargins === 'narrow' || r.readerMargins === 'normal' || r.readerMargins === 'wide'

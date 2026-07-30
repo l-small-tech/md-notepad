@@ -1006,6 +1006,13 @@
   color: var(--fg);
 }
 
+/* A folder whose whole subtree holds nothing the explorer can open — washed
+   out as a "nothing to find in here" hint. Hover restores full strength so
+   the row never reads as disabled. */
+.file-explorer-dir.is-dull:not(:hover) {
+  opacity: 0.55;
+}
+
 .file-explorer-dir-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1766,6 +1773,78 @@ body.explorer-dragging * {
 
 .export-theme-select:disabled {
   cursor: not-allowed;
+}
+
+/* ---- Fullscreen diagram viewer ------------------------------------------
+   Opened by clicking a mermaid diagram in the preview. Fills the window (no
+   dialog frame — the diagram IS the content); a floating control cluster
+   bottom-center, above every dialog backdrop (z 100). */
+
+.diagram-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: var(--bg);
+}
+
+.diagram-viewer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  /* The stage owns wheel + drag — never let the browser pan/pinch instead. */
+  touch-action: none;
+}
+
+.diagram-viewer-stage.diagram-viewer-panning {
+  cursor: grabbing;
+}
+
+.diagram-viewer-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  /* Shrink-wrap the SVG so measuring the child reflects the diagram size. */
+  width: max-content;
+}
+
+.diagram-viewer-controls {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+.diagram-viewer-button {
+  font: inherit;
+  font-size: 14px;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  min-width: 28px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.diagram-viewer-button:hover {
+  background: var(--bg-hover);
+}
+
+.diagram-viewer-readout {
+  color: var(--fg-muted);
+  font-size: 12px;
+  min-width: 44px;
+  text-align: center;
 }
 
 /* The preview itself. White canvas behind the iframe so a short document

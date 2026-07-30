@@ -365,6 +365,63 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 
+  test('clicking a rendered diagram hands its SVG markup to onOpenDiagram', async () => {
+    // Simulate mermaid.ts replacing the fence with a rendered diagram.
+    renderMermaidBlocksMock.mockImplementation((container: HTMLElement) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'mermaid-diagram';
+      wrap.innerHTML = '<svg data-id="d1"><g>nodes</g></svg>';
+      container.appendChild(wrap);
+      return Promise.resolve();
+    });
+    const onOpenDiagram = vi.fn();
+    const model = createDocModel('```mermaid\ngraph TD;\n```');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(click(el.querySelector('.mermaid-diagram svg g')!)).toBe(true);
+    expect(onOpenDiagram).toHaveBeenCalledWith('<svg data-id="d1"><g>nodes</g></svg>');
+    pane.dispose();
+  });
+
+  test('a link inside a diagram opens the viewer, never the browser', async () => {
+    renderMermaidBlocksMock.mockImplementation((container: HTMLElement) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'mermaid-diagram';
+      wrap.innerHTML = '<svg><a href="https://example.com">n</a></svg>';
+      container.appendChild(wrap);
+      return Promise.resolve();
+    });
+    const onOpenDiagram = vi.fn();
+    const model = createDocModel('```mermaid\ngraph TD;\n```');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(click(el.querySelector('.mermaid-diagram a')!)).toBe(true);
+    expect(onOpenDiagram).toHaveBeenCalled();
+    expect(openUrlMock).not.toHaveBeenCalled();
+    pane.dispose();
+  });
+
+  test('diagram clicks are inert without an onOpenDiagram callback', async () => {
+    renderMermaidBlocksMock.mockImplementation((container: HTMLElement) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'mermaid-diagram';
+      wrap.innerHTML = '<svg></svg>';
+      container.appendChild(wrap);
+      return Promise.resolve();
+    });
+    const model = createDocModel('```mermaid\ngraph TD;\n```');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(() => click(el.querySelector('.mermaid-diagram')!)).not.toThrow();
+    pane.dispose();
+  });
+
   test('a stale in-flight render is discarded so it never clobbers newer content', async () => {
     const model = createDocModel('first');
     const el = host();

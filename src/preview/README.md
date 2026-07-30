@@ -78,6 +78,12 @@ One delegated `click` listener on the pane. The window must NEVER navigate,
 so every link click is `preventDefault()`ed; what happens next depends on the
 href:
 
+- A click anywhere on a rendered `.mermaid-diagram` (checked BEFORE the
+  anchor branch — mermaid SVGs can contain `<a>`) hands the diagram's SVG
+  markup to `onOpenDiagram` — the host opens the fullscreen zoomable viewer
+  (`ui/components/DiagramViewer`). Same surface-state-outward shape as Back:
+  nothing is injected into the pane. Omit the callback and diagram clicks
+  are inert.
 - `http:`/`https:` → `openUrl(href)` (`@tauri-apps/plugin-opener`) — system browser.
 - A **local file** link (`isLocalLinkTarget`, i.e. a relative/absolute path,
   no URL scheme) is FOLLOWED in the pane — see "In-pane reader nav" below.

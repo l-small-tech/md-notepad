@@ -34,9 +34,10 @@ import { tags } from '@lezer/highlight';
   (`view.destroy()`) in `detach`. Keep the adapter reusable: `attach` after
   `detach` creates a fresh view from the current model text.
 - Extensions: `markdown({ base: markdownLanguage })` (GFM variant),
-  `history()`, `search()`, `lineNumbers()` OFF by default (Notepad feel),
-  `EditorView.lineWrapping` behind a **Compartment** (M6 toggles it),
-  theme + font size each behind their own Compartment.
+  `history()`, `search()`, `lineNumbers()` behind a **Compartment**, OFF by
+  default (Notepad feel) — the "Line numbers" setting toggles it live via
+  `setLineNumbers`, `EditorView.lineWrapping` behind a **Compartment** (M6
+  toggles it), theme + font size each behind their own Compartment.
 - Editor → model: `EditorView.updateListener.of((u) => { if (u.docChanged) pushSelf(u.state.doc.toString()) })`
   where `pushSelf` wraps `model.pushText(text, 'cm6')` in the reentrancy
   flag.

@@ -18,6 +18,7 @@ import { ImportView } from './components/ImportView';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ExportPreviewDialog } from './components/ExportPreviewDialog';
+import { DiagramViewer } from './components/DiagramViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
@@ -82,6 +83,7 @@ export function App() {
       <StatusBar />
       <SettingsDialog />
       <ExportPreviewDialog />
+      <DiagramViewer />
       <CommandPalette />
       <SearchPanel />
       <VoiceComments />

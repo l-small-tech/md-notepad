@@ -1451,6 +1451,7 @@ describe('insertFileLink (file/image links)', () => {
       getSelection: () => ({ anchor: 0, head: 0 }),
       setSelection() {},
       setWordWrap() {},
+      setLineNumbers() {},
       setFontSize() {},
       format() {},
       insertLinkTo: (label, url, image) => calls.push({ label, url, image }),

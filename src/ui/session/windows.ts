@@ -5,12 +5,16 @@
  * last-window-standing manifest fold-back into main.
  */
 
+import { nanoid } from 'nanoid';
+import { isImagePath } from '../../core/images';
+import { isImportablePath } from '../../core/import/registry';
 import {
   joinPath,
   parseManifest,
   type PersistedTab,
   type SessionManifest,
 } from '../../core/session/plan-flush';
+import { settingsStore } from '../stores/settings';
 import { tabsStore, type RestoredTabInit, type TabEntry } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import type { SessionCtx } from './context';
@@ -151,6 +155,47 @@ export function createWindows(
   }
 
   /**
+   * Open a file from the explorer straight into its own OS window (never a tab
+   * here first). If a tab in THIS window already owns the file, this is just a
+   * tear-off — {@link moveTabOut} — preserving its unsaved edits and mode
+   * (one-owner-per-file, applied across windows). Otherwise a fresh descriptor
+   * is spawned: the new window reads the file off disk itself, so no handoff
+   * dance is needed — nothing here owns it yet.
+   */
+  async function openFileInNewWindow(path: string): Promise<void> {
+    const spawn = ctx.deps.spawnTabWindow;
+    if (!spawn) {
+      return;
+    }
+    const owner = ctx.tabOwning(pathKey(path));
+    if (owner) {
+      await moveTabOut(owner.id, null);
+      return;
+    }
+    try {
+      const stat = await ctx.ipc.statPath(path);
+      if (!stat.exists) {
+        throw new Error(`not found: ${path}`);
+      }
+      const descriptor: PersistedTab = {
+        id: nanoid(),
+        kind: isImportablePath(path) ? 'import' : isImagePath(path) ? 'image' : 'file',
+        notePath: null,
+        filePath: path,
+        customTitle: null,
+        mode: settingsStore.getState().settings.defaultMode,
+        savedMtimeMs: stat.mtimeMs,
+        hasBuffer: false,
+        cursor: null,
+      };
+      await spawn({ schema: 1, activeTabId: descriptor.id, tabs: [descriptor] }, null);
+    } catch (error) {
+      uiStore.getState().showNotice('Could not open a new window.');
+      ctx.deps.onError?.(error);
+    }
+  }
+
+  /**
    * Window-close handoff (secondary windows): flush everything, then describe
    * each tab worth keeping. A pristine never-flushed Untitled is dropped —
    * handing an empty placeholder back to main would just add noise.
@@ -220,6 +265,7 @@ export function createWindows(
     closeAllTabsInteractive,
     adoptPersistedTabs,
     moveTabOut,
+    openFileInNewWindow,
     exportTabsForHandoff,
     bequeathTabsToMain,
   };

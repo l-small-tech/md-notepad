@@ -212,6 +212,8 @@ export interface Settings {
   uiFont: UiFontId;
   defaultMode: EditorMode;
   wordWrap: boolean;
+  /** Line-number gutter in the source (CM6) editor. Default off (Notepad feel). */
+  lineNumbers: boolean;
   /**
    * Code ligatures (-> as a single glyph) in fonts that carry them
    * (Fira Code, JetBrains Mono, Cascadia Code, Victor Mono). Default on.

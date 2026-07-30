@@ -59,6 +59,16 @@
   line-height: 1.75;
 }
 
+/* Crepe's virtual cursor (prosemirror-virtual-cursor) hides the native caret
+ * and draws its own, colored by Crepe's cursor.css from --crepe-color-outline
+ * — which we map to --border, a hairline color that's nearly invisible against
+ * the background. Recolor the drawn caret to the foreground, like CM6's
+ * `.cm-cursor { border-left-color: var(--fg) }`. The selector matches Crepe's
+ * own (.milkdown .ProseMirror-focused) so this later-loaded rule wins. */
+.milkdown .ProseMirror-focused {
+  --prosemirror-virtual-cursor-color: var(--fg);
+}
+
 /* ---- Content parity with Read mode --------------------------------------
  * Read and Rich render the same document, so they should read the same.
  * Crepe ships its own content typography (fixed 16px text, 42px

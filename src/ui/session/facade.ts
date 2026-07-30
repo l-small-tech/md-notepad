@@ -143,6 +143,19 @@ export function moveTabToNewWindow(id: string, pos: { x: number; y: number } | n
 }
 
 /**
+ * FileExplorer → controller: open a file in its own OS window (a tab already
+ * owning it tears off instead). No-ops until the controller registers, and
+ * outside the desktop app, where no window spawner exists.
+ */
+let openFileInNewWindowDispatch: (path: string) => void = () => {};
+export function setOpenFileInNewWindowDispatch(fn: (path: string) => void): void {
+  openFileInNewWindowDispatch = fn;
+}
+export function openFileInNewWindow(path: string): void {
+  openFileInNewWindowDispatch(path);
+}
+
+/**
  * Same indirection pattern as {@link closeTab} for the M3 file actions the
  * keyboard dispatcher (mod+O/S/Shift+S) and ConflictBanner need, before any
  * controller exists. No-ops until {@link createSessionController} registers
