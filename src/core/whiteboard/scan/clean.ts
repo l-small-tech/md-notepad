@@ -21,7 +21,7 @@
 import { normalizeIllumination, detectGlare } from './illumination';
 import { binarize } from './binarize';
 import { extractInk, type InkExtraction } from './components';
-import { assignColors, type ColorAssignment } from './color';
+import { assignColors, type ColorAssignment, type ComponentColor } from './color';
 import type { RgbaImage } from './types';
 
 /** How ink components are coloured in the cleaned output. */
@@ -129,14 +129,35 @@ function parseHex(hex: string): readonly [number, number, number] {
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }
 
+export interface ComposeOptions {
+  /**
+   * `'white'` (default) paints the sheet; `'transparent'` leaves the board
+   * showing through — what a themed scan wants, so ink sits directly on the
+   * board surface instead of on a white card.
+   */
+  readonly background?: 'white' | 'transparent';
+  /**
+   * Override the ink RGB per component. The scan panel uses this to paint
+   * themed ink in the RESOLVED app-theme palette (which core cannot read —
+   * it lives in CSS variables), so what lands in the file is what the board
+   * around it looks like. Omitted, ink falls back to the mode's own colour.
+   */
+  readonly inkFor?: (color: ComponentColor) => readonly [number, number, number];
+}
+
 /**
- * Paint the cleaned board: white sheet, one flat colour per ink component.
- * Pure and cheap (one pass), so the review screen switches colour modes
- * without touching the pipeline.
+ * Paint the cleaned board: one flat colour per ink component. Pure and cheap
+ * (one pass), so the review screen switches colour modes without touching
+ * the pipeline.
  */
-export function composeCleaned(result: CleanResult, mode: ScanColorMode): RgbaImage {
+export function composeCleaned(
+  result: CleanResult,
+  mode: ScanColorMode,
+  options: ComposeOptions = {},
+): RgbaImage {
   const { width, height } = result;
   const { labels } = result.extraction;
+  const backgroundAlpha = options.background === 'transparent' ? 0 : 255;
   const data = new Uint8ClampedArray(width * height * 4);
   // Per-label RGB lookup, densely indexed for the hot loop.
   let maxLabel = 0;
@@ -147,7 +168,8 @@ export function composeCleaned(result: CleanResult, mode: ScanColorMode): RgbaIm
   }
   const lut = new Uint8ClampedArray((maxLabel + 1) * 3);
   for (const [label, color] of result.colors.byLabel) {
-    const [r, g, b] = parseHex(mode === 'themed' ? color.snapped : color.measured);
+    const [r, g, b] =
+      options.inkFor?.(color) ?? parseHex(mode === 'themed' ? color.snapped : color.measured);
     lut[label * 3] = r;
     lut[label * 3 + 1] = g;
     lut[label * 3 + 2] = b;
@@ -159,12 +181,13 @@ export function composeCleaned(result: CleanResult, mode: ScanColorMode): RgbaIm
       data[p] = 255;
       data[p + 1] = 255;
       data[p + 2] = 255;
+      data[p + 3] = backgroundAlpha;
     } else {
       data[p] = lut[label * 3]!;
       data[p + 1] = lut[label * 3 + 1]!;
       data[p + 2] = lut[label * 3 + 2]!;
+      data[p + 3] = 255;
     }
-    data[p + 3] = 255;
   }
   return { width, height, data };
 }

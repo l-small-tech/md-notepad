@@ -248,6 +248,20 @@ describe('openFileTab (M3)', () => {
     expect(state().tabs.find((t) => t.id === second)!.mode).toBe('read');
   });
 
+  test('an .svg always opens in Draw, even when the last file mode was raw', () => {
+    // 'raw' is legal for BOTH families, so inheriting lastFileMode would open
+    // a fresh whiteboard as XML source — the phase-5 UAT bug. Draw is the
+    // opening mode for a board; Raw is an explicit per-tab switch.
+    const md = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === md)!.mode).toBe('raw');
+    const svg = state().openFileTab({
+      filePath: '/docs/board.svg',
+      text: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      savedMtimeMs: 2,
+    });
+    expect(state().tabs.find((t) => t.id === svg)!.mode).toBe('draw');
+  });
+
   test('a preview tab reused for another file keeps the last-used mode', () => {
     const first = state().openFileTab({
       filePath: '/docs/a.md',

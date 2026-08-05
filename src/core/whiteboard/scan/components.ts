@@ -89,8 +89,15 @@ const GLARE_RATIO = 0.6;
 /** The i-dot rule's reach, in stroke widths. */
 const IDOT_REACH = 2;
 
+interface Bounds {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
 /** Gap between two bboxes (0 when they touch or overlap). */
-function bboxGap(a: InkComponent, b: InkComponent): number {
+function bboxGap(a: Bounds, b: Bounds): number {
   const dx = Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX));
   const dy = Math.max(0, Math.max(a.minY - b.maxY, b.minY - a.maxY));
   return Math.hypot(dx, dy);
@@ -129,17 +136,15 @@ export function extractInk(
     }
   }
 
-  let ghostRemoved = 0;
   const surviving = new Uint8Array(labelled.components.length + 1);
   for (const component of labelled.components) {
     if (strongCount[component.label]! > 0) {
       surviving[component.label] = 1;
-    } else {
-      ghostRemoved++;
     }
   }
 
-  // The kept-so-far mask, for the stroke-width estimate and the filters.
+  // Strong-anchored ink only, for the stroke-width estimate — a faint smear
+  // must not get a vote in what the page's stroke width is.
   const survivorMask = new Uint8Array(width * height);
   for (let i = 0; i < survivorMask.length; i++) {
     const label = labelled.labels[i]!;
@@ -147,18 +152,25 @@ export function extractInk(
       survivorMask[i] = 1;
     }
   }
-  const distance = distanceTransform(survivorMask, width, height);
-  const w = estimateStrokeWidth(distance, width, height);
+  const anchoredDistance = distanceTransform(survivorMask, width, height);
+  const w = estimateStrokeWidth(anchoredDistance, width, height);
   const w2 = w * w;
 
-  // Perimeter and dtMax per surviving component, one pass each.
+  // The full weak-mask transform supplies shape stats for EVERY component —
+  // the continuity rescue below needs the half-width of components hysteresis
+  // rejected, and colour voting reuses the same values.
+  const distance = distanceTransform(weak, width, height);
+
+  // Perimeter and dtMax per component (kept or not), one pass each. Distinct
+  // 8-connected components are never adjacent, so measuring against the whole
+  // weak mask gives each component its own boundary.
   const perimeter = new Int32Array(labelled.components.length + 1);
   const dtMax = new Float64Array(labelled.components.length + 1);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       const label = labelled.labels[i]!;
-      if (label === 0 || surviving[label] === 0) {
+      if (label === 0) {
         continue;
       }
       if (distance[i]! > dtMax[label]!) {
@@ -169,13 +181,58 @@ export function extractInk(
         x === width - 1 ||
         y === 0 ||
         y === height - 1 ||
-        survivorMask[i - 1] === 0 ||
-        survivorMask[i + 1] === 0 ||
-        survivorMask[i - width] === 0 ||
-        survivorMask[i + width] === 0;
+        weak[i - 1] === 0 ||
+        weak[i + 1] === 0 ||
+        weak[i - width] === 0 ||
+        weak[i + width] === 0;
       if (boundary) {
         perimeter[label]!++;
       }
+    }
+  }
+
+  /*
+   * The CONTINUITY RESCUE. Hysteresis alone has a real failure mode on light
+   * marker: a stroke fades in and out of the strong gate, the weak mask holds
+   * the whole stroke but in DISCONNECTED pieces, and every piece without a
+   * strong pixel dies — a circle comes back as just its darkest arc (phase-5
+   * UAT, on a real photo). So a weak-only component is revived when it
+   * (a) is STROKE-SHAPED — its core half-width fits the page's ink,
+   *     `dtMax ≤ w` — which a wide eraser smear or hand shadow never is, and
+   * (b) CONTINUES kept ink — within the i-dot reach (2·w) of a kept
+   *     component — which an isolated ghost band never does.
+   * Applied to a fixpoint (BFS over newly kept components), so a long faded
+   * tail is recovered piece by piece.
+   */
+  const rescued = new Uint8Array(labelled.components.length + 1);
+  {
+    let frontier = labelled.components.filter((c) => surviving[c.label] !== 0);
+    let pending = labelled.components.filter(
+      (c) => surviving[c.label] === 0 && dtMax[c.label]! <= w,
+    );
+    const reach = IDOT_REACH * w;
+    while (frontier.length > 0 && pending.length > 0) {
+      const found: typeof pending = [];
+      const rest: typeof pending = [];
+      for (const candidate of pending) {
+        if (frontier.some((c) => bboxGap(candidate, c) <= reach)) {
+          found.push(candidate);
+        } else {
+          rest.push(candidate);
+        }
+      }
+      for (const c of found) {
+        surviving[c.label] = 1;
+        rescued[c.label] = 1;
+      }
+      frontier = found;
+      pending = rest;
+    }
+  }
+  let ghostRemoved = 0;
+  for (const component of labelled.components) {
+    if (surviving[component.label] === 0) {
+      ghostRemoved++;
     }
   }
 
@@ -208,9 +265,17 @@ export function extractInk(
   const kept: InkComponent[] = [];
   const speckles: InkComponent[] = [];
   for (const c of candidates) {
+    // A component is STROKE-SHAPED when its core half-width fits the page's
+    // ink and its outline is long relative to its area. Faint ink that keeps
+    // this shape is a light pen stroke (phase-5 UAT: a circle drawn with a
+    // drying marker lost everything but its darkest arc to the faint filter);
+    // eraser ghosting and shadows are diffuse and fail it.
+    const strokeShaped = c.dtMax <= w && c.thinness >= BLOB_THINNESS;
     if (c.glareRatio >= GLARE_RATIO) {
       removed.glare++;
-    } else if (c.strongRatio < FAINT_STRONG_RATIO) {
+    } else if (rescued[c.label] === 0 && c.strongRatio < FAINT_STRONG_RATIO && !strokeShaped) {
+      // The faint filter judges diffuse strong-poor components; a rescued one
+      // was admitted on shape + continuity and is exempt by construction.
       removed.faint++;
     } else if (c.touchesBorder && c.area > BORDER_AREA * w2) {
       removed.border++;

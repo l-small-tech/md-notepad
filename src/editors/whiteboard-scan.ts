@@ -40,6 +40,8 @@ import {
   type CleanResult,
   type ScanColorMode,
 } from '../core/whiteboard/scan/clean';
+import { SCAN_PALETTE, type ComponentColor, type MarkerColor } from '../core/whiteboard/scan/color';
+import { PALETTE } from '../core/whiteboard/tool-settings';
 import { rotate90 } from '../core/whiteboard/scan/image-ops';
 import {
   DEFAULT_SCAN_PRESET,
@@ -227,6 +229,38 @@ function paint(canvas: HTMLCanvasElement, image: RgbaImage): void {
   canvas.width = image.width;
   canvas.height = image.height;
   canvas.getContext('2d')?.putImageData(toImageData(image), 0, 0);
+}
+
+function hexTriple(hex: string): readonly [number, number, number] {
+  const value = parseInt(hex.slice(1), 16);
+  return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+}
+
+/**
+ * The RESOLVED app-theme ink colour per scan bucket. Each canonical scan hex
+ * is a drawing-palette slot; the theme's actual colour for that slot lives in
+ * `--wb-cN` (often a `color-mix()`, which `getPropertyValue` will not
+ * resolve) — so probe it through a real element's `color`, which the browser
+ * must resolve to plain rgb.
+ */
+function resolveThemedInk(
+  host: HTMLElement,
+): (color: ComponentColor) => readonly [number, number, number] {
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  host.append(probe);
+  const resolved = new Map<MarkerColor, readonly [number, number, number]>();
+  for (const [bucket, hex] of Object.entries(SCAN_PALETTE) as [MarkerColor, string][]) {
+    const slot = PALETTE.indexOf(hex);
+    probe.style.color = slot >= 0 ? `var(--wb-c${slot}, ${hex})` : hex;
+    const match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(probe).color);
+    resolved.set(
+      bucket,
+      match ? [Number(match[1]), Number(match[2]), Number(match[3])] : hexTriple(hex),
+    );
+  }
+  probe.remove();
+  return (color) => resolved.get(color.bucket) ?? hexTriple(color.snapped);
 }
 
 /* ================================= the panel ============================== */
@@ -700,7 +734,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     overlay.innerHTML = '';
 
     const showingCleaned = reviewView === 'cleaned' && cleaned !== null;
-    const image = showingCleaned ? composeCleaned(cleaned!, colorMode) : rectified;
+    const image = showingCleaned ? composeCleanedForDisplay() : rectified;
+    // Themed ink lands on a TRANSPARENT sheet; showing the board surface
+    // behind it is what makes the preview honest.
+    photoCanvas.style.background =
+      showingCleaned && colorMode === 'themed' ? 'var(--wb-bg, #ffffff)' : '';
     paint(photoCanvas, image);
     const box = viewport.getBoundingClientRect();
     const scale = Math.min(box.width / image.width, box.height / image.height, 1);
@@ -770,16 +808,34 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     return parts.join(' — ') + '.';
   }
 
+  /**
+   * The cleaned raster as shown AND as inserted (one code path — what you see
+   * is what lands). Themed: ink in the resolved app-theme palette on a
+   * TRANSPARENT sheet, so the scan sits directly on the board surface and a
+   * dark theme shows dark-board ink, not a white card. True colours: the
+   * measured ink on white — the fidelity mode is a document, and measured
+   * colours need the white they were measured against.
+   */
+  function composeCleanedForDisplay(): RgbaImage {
+    if (colorMode === 'themed') {
+      return composeCleaned(cleaned!, 'themed', {
+        background: 'transparent',
+        inkFor: resolveThemedInk(element),
+      });
+    }
+    return composeCleaned(cleaned!, 'true');
+  }
+
   function insert(kind: 'cleaned' | 'photo'): void {
     if (!rectified) {
       return;
     }
-    // The cleaned board is flat colour on white — PNG both compresses that far
-    // better than JPEG and avoids ringing haloes around the ink. The photo
-    // keeps JPEG, which is what photographs want.
+    // The cleaned board is flat colour — PNG both compresses that far better
+    // than JPEG, avoids ringing haloes around the ink, and carries the themed
+    // sheet's alpha. The photo keeps JPEG, which is what photographs want.
     const dataUrl =
       kind === 'cleaned' && cleaned !== null
-        ? encodePng(composeCleaned(cleaned, colorMode))
+        ? encodePng(composeCleanedForDisplay())
         : encodeJpeg(rectified, OUTPUT_QUALITY);
     if (!dataUrl) {
       options.onNotice('The scan could not be encoded.');

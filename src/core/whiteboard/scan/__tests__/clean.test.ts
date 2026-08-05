@@ -77,6 +77,57 @@ function runClean(image: RgbaImage): CleanResult {
   return job.result()!;
 }
 
+describe('light-marker continuity (the phase-5 UAT circle)', () => {
+  /** A small board with one stroke that fades: dark on the left, a gap, then
+   *  a faint weak-only tail — plus optional sparse dark dots on the tail. */
+  function fadingBoard(tailDarkDots: boolean): RgbaImage {
+    const w = 240;
+    const h = 120;
+    const data = new Uint8ClampedArray(w * h * 4);
+    let state = 31;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        const noise = ((state >>> 16) % 5) - 2;
+        let v = 245;
+        if (y >= 56 && y <= 60) {
+          if (x >= 30 && x <= 110) {
+            v = 35; // solid ink
+          } else if (x >= 113 && x <= 200) {
+            // Faint tail, below the strong gate everywhere…
+            v = 190;
+            if (tailDarkDots && x >= 113 && x <= 116) {
+              v = 40; // …except a tiny dark patch: strongRatio ≈ 0.04
+            }
+          }
+        }
+        const p = (y * w + x) * 4;
+        data[p] = v + noise;
+        data[p + 1] = v + noise;
+        data[p + 2] = v + noise;
+        data[p + 3] = 255;
+      }
+    }
+    return { width: w, height: h, data };
+  }
+
+  it('rescues a disconnected faint continuation of kept ink', () => {
+    const result = runClean(fadingBoard(false));
+    // The faint tail is weak-only and 8-disconnected from the solid stroke —
+    // pure hysteresis would kill it (that is what ate the UAT circle).
+    const label = result.extraction.labels[58 * 240 + 160]!;
+    expect(label).not.toBe(0);
+  });
+
+  it('keeps a faint stroke whose strong pixels are sparse', () => {
+    const result = runClean(fadingBoard(true));
+    // strongRatio ≈ 0.04 < 0.15: the faint filter must spare it because it is
+    // stroke-shaped; only DIFFUSE faint components are smears.
+    const label = result.extraction.labels[58 * 240 + 160]!;
+    expect(label).not.toBe(0);
+  });
+});
+
 describe('the clean pipeline (S2–S4)', () => {
   // One run, shared across the assertions below; built lazily so the work
   // happens inside a test, not at collection time.
@@ -180,6 +231,19 @@ describe('the clean pipeline (S2–S4)', () => {
       }
     }
     expect(diff).toBe(0);
+  });
+
+  it('supports a transparent sheet and resolved ink overrides', () => {
+    const result = getResult();
+    const cleaned = composeCleaned(result, 'themed', {
+      background: 'transparent',
+      inkFor: () => [1, 2, 3],
+    });
+    const bg = (20 * W + 20) * 4;
+    expect(cleaned.data[bg + 3]).toBe(0);
+    const ink = (58 * W + 100) * 4;
+    expect(cleaned.data[ink + 3]).toBe(255);
+    expect([cleaned.data[ink], cleaned.data[ink + 1], cleaned.data[ink + 2]]).toEqual([1, 2, 3]);
   });
 
   it('colour-mode switching never changes the ink mask', () => {
