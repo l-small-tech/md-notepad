@@ -4,4 +4,14 @@
          here in the plugin manifest so it merges into the (generated) app
          manifest and survives app-manifest regeneration. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Whiteboard scan: ACTION_IMAGE_CAPTURE hands the shot to the system
+         camera app, which needs no permission of its own — but Android's rule is
+         that an app which DECLARES CAMERA must also have it granted before that
+         intent will run. So the plugin requests it at runtime (alias "camera").
+         The feature is explicitly optional so a camera-less device (an emulator,
+         a Chromebook) can still install the app; capturePhoto rejects with
+         NO_CAMERA there and the scan UI falls back to the file picker. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

@@ -47,6 +47,7 @@ import {
 } from '../stores/preview-nav';
 import { isDark, subscribeDark } from '../theme';
 import { isAndroid } from '../platform';
+import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
 import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
 
@@ -128,6 +129,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                 // file, because panning must not dirty a document.
                 getSavedView: () => whiteboardStore.getState().viewByTab[tabId] ?? null,
                 onViewChange: (view) => whiteboardStore.getState().saveView(tabId, view),
+                // Photo acquisition is INJECTED (phase 4): the camera is an
+                // Android-only IPC bridge and the picker is a native dialog,
+                // and neither belongs inside an editor module. The adapter
+                // just gets two functions and a way to speak to the user.
+                scan: {
+                  capture: isAndroid() ? capturePhotoForScan : null,
+                  pick: isAndroid() ? null : pickPhotoForScan,
+                  onNotice: (message) => uiStore.getState().showNotice(message),
+                },
               });
               registerWhiteboardAdapter(tabId, adapter);
               return adapter;

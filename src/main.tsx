@@ -61,7 +61,7 @@ import {
 import { uiStore } from './ui/stores/ui';
 import { exportPreviewStore } from './ui/stores/export-preview';
 import { diagramViewerStore } from './ui/stores/diagram-viewer';
-import { isImagePath } from './core/images';
+import { imageMimeType, isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
 import { initProviders } from './ipc/provider';
 import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
@@ -590,7 +590,25 @@ async function boot(): Promise<void> {
         const file = dropFileAt(payload.position);
         const dir = dropDirAt(payload.position);
         uiStore.getState().setDropTarget(null);
-        if (file && payload.paths.some(isImagePath)) {
+        // A photo dropped onto an open whiteboard goes to its scan screen
+        // rather than into the workspace. The board advertises itself with
+        // `data-drop-scan`, the same hit-testing trick the explorer uses, and
+        // takes delivery through a custom event so main.tsx needs no handle on
+        // the (lazily loaded) draw adapter.
+        const board = elementAt(payload.position)?.closest('[data-drop-scan]');
+        const photo = payload.paths.find(isImagePath);
+        if (board && photo) {
+          void ipc
+            .readFileBase64(photo)
+            .then((base64) => {
+              board.dispatchEvent(
+                new CustomEvent('wb-drop-photo', {
+                  detail: { dataUrl: `data:${imageMimeType(photo)};base64,${base64}` },
+                }),
+              );
+            })
+            .catch(() => uiStore.getState().showNotice('That image could not be read.'));
+        } else if (file && payload.paths.some(isImagePath)) {
           void appendImagesToMd(file, payload.paths);
         } else if (dir) {
           void importFilesInto(dir, payload.paths);

@@ -26,6 +26,7 @@ import {
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
+import { scanWhiteboardInto } from '../../scan-photo';
 import { explorerRelativePath } from './helpers';
 
 interface CommonProps {
@@ -228,6 +229,21 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           }}
         >
           Document…
+        </button>
+        {/* Creates the board first, then opens its scan screen: a scan has to
+            land somewhere, and "a new whiteboard in this folder" is the answer
+            that needs no further questions. Scanning INTO an existing board is
+            the ribbon's camera button. */}
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onSelectDir(dir);
+            void scanWhiteboardInto(dir);
+          }}
+        >
+          Whiteboard scan…
         </button>
       </>,
     );

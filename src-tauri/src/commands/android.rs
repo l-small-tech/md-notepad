@@ -254,3 +254,21 @@ pub async fn stt_stop(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_androidfs::AndroidfsExt;
     app.androidfs().stt_stop().map_err(|e| e.to_string())
 }
+
+/* ---- Camera capture (whiteboard scan, S0) ------------------------------ */
+
+/// Take a photo with the system camera and return it as base64 JPEG plus its
+/// dimensions. The Kotlin side normalizes EXIF orientation and downscales
+/// before encoding, so what crosses this bridge is a few hundred KB rather
+/// than a raw sensor frame.
+///
+/// Errors are plain strings, like the `stt_*` bridge: the frontend shows the
+/// Kotlin reject text ("PERMISSION_DENIED", "cancelled", "NO_CAMERA") as a
+/// notice and falls back to the file picker, so a rich `FsError` code is moot.
+#[tauri::command]
+pub async fn capture_photo(
+    app: tauri::AppHandle,
+) -> Result<tauri_plugin_androidfs::CapturedPhoto, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs().capture_photo().map_err(|e| e.to_string())
+}

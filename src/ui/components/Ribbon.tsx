@@ -666,6 +666,25 @@ function DrawControls({ tabId }: { tabId: string | null }) {
         </button>
       )}
 
+      {/* Scan (phase 4). Sits next to the destructive/history cluster rather
+          than among the tools because it is not a tool — it is an import, and
+          it does not change what the pen does. */}
+      {adapter?.canScan() && (
+        <button
+          className="ribbon-btn"
+          aria-label="Scan a whiteboard"
+          title={
+            HAS_TOUCH
+              ? 'Scan — photograph a physical whiteboard, straighten it, and add it to this board'
+              : 'Scan — choose a photo of a physical whiteboard, straighten it, and add it to this board. You can also paste or drop an image onto the board.'
+          }
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => adapter.startScan()}
+        >
+          📷
+        </button>
+      )}
+
       <button
         className="ribbon-btn"
         aria-label="Delete selection"

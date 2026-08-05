@@ -10,7 +10,14 @@
  * the list reversed (topmost first), which is the only place that flip lives.
  */
 
-import { createLayer, freshLayerId, type Layer, type SceneDoc, type SceneElement } from './scene';
+import {
+  createLayer,
+  freshLayerId,
+  type Layer,
+  type LayerKind,
+  type SceneDoc,
+  type SceneElement,
+} from './scene';
 
 /** A layer the tools may draw on: visible, unlocked, and ours. */
 export function isEditable(layer: Layer): boolean {
@@ -63,11 +70,29 @@ export function addLayer(doc: SceneDoc, name?: string, random?: () => number): S
   return { ...doc, layers: [...doc.layers, layer] };
 }
 
-/** "Layer N" for the lowest N not already taken, so names never collide. */
-function nextLayerName(doc: SceneDoc): string {
+/**
+ * Append a new layer on top already holding `elements` — one document, so a
+ * whole import lands as ONE undo step and "select all in this layer, delete" is
+ * enough to discard it. Returns the new layer's id so the caller can make it
+ * the active one.
+ */
+export function addLayerWith(
+  doc: SceneDoc,
+  name: string,
+  elements: readonly SceneElement[],
+  kind: LayerKind = 'draw',
+  random?: () => number,
+): { doc: SceneDoc; layerId: string } {
+  const id = freshLayerId(doc, random);
+  const layer = createLayer({ id, name, kind, elements });
+  return { doc: { ...doc, layers: [...doc.layers, layer] }, layerId: id };
+}
+
+/** "<prefix> N" for the lowest N not already taken, so names never collide. */
+export function nextLayerName(doc: SceneDoc, prefix = 'Layer'): string {
   const taken = new Set(doc.layers.map((l) => l.name));
   for (let n = 1; ; n++) {
-    const candidate = `Layer ${n}`;
+    const candidate = `${prefix} ${n}`;
     if (!taken.has(candidate)) {
       return candidate;
     }

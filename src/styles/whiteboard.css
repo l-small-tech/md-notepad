@@ -375,3 +375,152 @@
     width: auto;
   }
 }
+
+/* ---------------------------- the scan screen -----------------------------
+ * A full-cover panel inside .wb-root rather than an app-level modal: the scan
+ * belongs to ONE board, it must not outlive that tab, and the whole thing
+ * lives in the lazy whiteboard chunk. Layered above the layers panel because
+ * while it is up it owns the pane.
+ */
+.wb-scan {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg);
+  outline: none;
+}
+
+.wb-scan[hidden] {
+  display: none;
+}
+
+.wb-scan-title {
+  margin: 0;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.wb-scan-hint {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The photo sits here, absolutely positioned by the panel so the crop overlay
+   can share one coordinate space with it. */
+.wb-scan-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  touch-action: none;
+}
+
+.wb-scan-photo {
+  position: absolute;
+  display: block;
+}
+
+.wb-scan-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wb-scan-quad {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.wb-scan-handle {
+  fill: color-mix(in srgb, var(--accent) 35%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* The magnifier: a finger covers the corner it is placing, which is exactly
+   the corner that needs placing precisely. */
+.wb-scan-loupe {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg);
+  pointer-events: none;
+}
+
+.wb-scan-loupe[hidden] {
+  display: none;
+}
+
+.wb-scan-progress {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+.wb-scan-progress[hidden] {
+  display: none;
+}
+
+.wb-scan-progress-bar {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 80ms linear;
+}
+
+.wb-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.wb-scan-btn,
+.wb-scan-select {
+  /* 44px is the touch minimum the rest of draw mode already uses — this screen
+     is driven with a finger on a tablet more than with a mouse. */
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wb-scan-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wb-scan-btn.is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.wb-scan-btn.is-primary:hover {
+  color: var(--bg);
+  filter: brightness(1.08);
+}

@@ -70,8 +70,10 @@ import { hitTest } from '../core/whiteboard/hit-test';
 import {
   addElement,
   addLayer,
+  addLayerWith,
   ensureDrawLayer,
   moveLayer,
+  nextLayerName,
   removeElements,
   removeLayer,
   renameLayer,
@@ -137,6 +139,13 @@ import {
 import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import { createLayersPanel, type LayersPanel } from './whiteboard-layers';
+import {
+  createScanPanel,
+  type ScanPanel,
+  type ScanPhoto,
+  type ScanResult,
+  type ScanSource,
+} from './whiteboard-scan';
 import '../styles/whiteboard.css';
 
 /** What the ribbon needs to render its draw cluster correctly. */
@@ -173,6 +182,21 @@ export interface WhiteboardAdapterOptions {
    */
   getSavedView?: () => DiagramView | null;
   onViewChange?: (view: DiagramView) => void;
+  /**
+   * Photo acquisition for the scan screen (phase 4). Injected rather than
+   * imported: taking a photo is `ipc.capturePhoto` on Android and a native file
+   * dialog on desktop, and neither of those belongs in an editor module — the
+   * layering contract is `editors → core, ipc`, and dialogs live above that.
+   * Omitted entirely, the Scan button is simply unavailable.
+   */
+  scan?: {
+    /** Take a photo with the device camera; null where there is no camera. */
+    capture: (() => Promise<ScanPhoto>) | null;
+    /** Choose an image file; null where there is no picker. */
+    pick: (() => Promise<ScanPhoto | null>) | null;
+    /** Surface a message (permission denied, decode failure, size warning). */
+    onNotice: (message: string) => void;
+  };
 }
 
 export interface WhiteboardAdapter extends EditorAdapter {
@@ -196,6 +220,14 @@ export interface WhiteboardAdapter extends EditorAdapter {
    * looking at rather than only on the next thing you type.
    */
   applyTextStyle(style: { fontSize?: number; fontFamily?: string }): void;
+  /**
+   * Open the scan screen. Defaults to the camera where there is one and the
+   * file picker otherwise; a {@link ScanPhoto} skips acquisition entirely,
+   * which is how paste and drag-drop arrive. No-op without `options.scan`.
+   */
+  startScan(source?: ScanSource): void;
+  /** Whether the scan screen is available at all (the ribbon's button). */
+  canScan(): boolean;
   uiState(): WhiteboardUiState;
 }
 
@@ -299,6 +331,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let zoomLabel: HTMLSpanElement | null = null;
   let pageButton: HTMLButtonElement | null = null;
   let layersPanel: LayersPanel | null = null;
+  /** Built on first use — a session that never scans never pays for it. */
+  let scanPanel: ScanPanel | null = null;
   let unsubscribe: (() => void) | null = null;
   let model: DocModel | null = null;
 
@@ -1468,6 +1502,122 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     });
   }
 
+  /* ---------------------------------- scan -------------------------------- */
+
+  /**
+   * The scene rectangle currently on screen. A scan lands inside THIS rather
+   * than at the board's origin: the user is looking somewhere, and a photo that
+   * arrives off-screen reads as nothing having happened.
+   */
+  function visibleSceneRect(): Rect {
+    const fallback: Rect = scene
+      ? {
+          x: scene.viewBox[0],
+          y: scene.viewBox[1],
+          width: scene.viewBox[2],
+          height: scene.viewBox[3],
+        }
+      : { x: 0, y: 0, width: 1000, height: 1000 };
+    if (!stage || !scene) {
+      return fallback;
+    }
+    const box = stage.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) {
+      return fallback;
+    }
+    const [vx, vy, vw, vh] = scene.viewBox;
+    const unitX = vw / scene.width / view.scale;
+    const unitY = vh / scene.height / view.scale;
+    return {
+      x: vx - (view.x * vw) / scene.width / view.scale,
+      y: vy - (view.y * vh) / scene.height / view.scale,
+      width: box.width * unitX,
+      height: box.height * unitY,
+    };
+  }
+
+  /** Add a scanned photo as its own layer, fitted into the current view. */
+  function insertScan(result: ScanResult): void {
+    if (!scene) {
+      return;
+    }
+    const area = visibleSceneRect();
+    // 84% of the view, so the board's edges stay visible and it is obvious the
+    // photo is an object on the board rather than the board itself.
+    const maxWidth = area.width * 0.84;
+    const maxHeight = area.height * 0.84;
+    const fit = Math.min(maxWidth / result.width, maxHeight / result.height);
+    const width = result.width * fit;
+    const height = result.height * fit;
+    const element: SceneElement = {
+      kind: 'image',
+      id: null,
+      x: area.x + (area.width - width) / 2,
+      y: area.y + (area.height - height) / 2,
+      width,
+      height,
+      href: result.dataUrl,
+      opacity: null,
+    };
+    // One layer, one undo step — so a scan the user does not want is one
+    // Ctrl+Z, or one "delete this layer", rather than a hunt.
+    const added = addLayerWith(scene, nextLayerName(scene, 'Scan'), [element], 'scan');
+    activeLayerId = added.layerId;
+    selection = [];
+    commit(added.doc);
+  }
+
+  function ensureScanPanel(): ScanPanel | null {
+    if (!options.scan || !root) {
+      return null;
+    }
+    if (!scanPanel) {
+      const config = options.scan;
+      scanPanel = createScanPanel({
+        capture: config.capture,
+        pick: config.pick,
+        onNotice: config.onNotice,
+        onInsert: insertScan,
+        onClose: () => stage?.focus({ preventScroll: true }),
+      });
+      root.append(scanPanel.element);
+    }
+    return scanPanel;
+  }
+
+  /** Clipboard image → the scan screen, skipping acquisition. */
+  function onPaste(event: ClipboardEvent): void {
+    if (!options.scan || scanPanel?.isOpen()) {
+      return;
+    }
+    const item = [...(event.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+    const file = item?.getAsFile();
+    if (!file) {
+      return;
+    }
+    event.preventDefault();
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        adapter.startScan({ dataUrl: reader.result, width: 0, height: 0 });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /**
+   * A file dropped onto the board. Tauri intercepts OS file drags before the
+   * webview sees them (HTML5 `drop` never fires), so main.tsx hit-tests its
+   * physical cursor position, finds the `data-drop-scan` stage and dispatches
+   * this — the same shape the explorer's drop targets use.
+   */
+  function onDropPhoto(event: Event): void {
+    const detail = (event as CustomEvent<{ dataUrl?: string }>).detail;
+    if (typeof detail?.dataUrl === 'string') {
+      adapter.startScan({ dataUrl: detail.dataUrl, width: 0, height: 0 });
+    }
+  }
+
   function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
     const element = document.createElement('button');
     element.className = 'wb-control';
@@ -1514,6 +1664,21 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       if (scene) {
         setSelection(allSelectable(scene));
       }
+    },
+
+    canScan: () => options.scan !== undefined,
+
+    startScan(source) {
+      const panel = ensureScanPanel();
+      if (!panel) {
+        return;
+      }
+      // Whatever was being typed or dragged is finished first: the scan screen
+      // covers the board, and coming back to a half-drawn stroke is worse than
+      // losing it.
+      commitText();
+      cancelGesture();
+      panel.open(source ?? (options.scan?.capture ? 'camera' : 'picker'));
     },
 
     refreshTool() {
@@ -1609,6 +1774,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       stage.addEventListener('keydown', onKeyDown);
       stage.addEventListener('keyup', onKeyUp);
       stage.addEventListener('dblclick', onDoubleClick);
+      if (options.scan) {
+        // Desktop paste and OS drag-drop both land a photo straight on the
+        // crop screen. `data-drop-scan` is what main.tsx hit-tests, exactly
+        // like the explorer's `data-drop-dir`.
+        stage.dataset.dropScan = '';
+        stage.addEventListener('paste', onPaste);
+        stage.addEventListener('wb-drop-photo', onDropPhoto);
+      }
 
       adapter.refreshTool();
       render(doc.getText(), true);
@@ -1687,7 +1860,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.removeEventListener('keydown', onKeyDown);
         stage.removeEventListener('keyup', onKeyUp);
         stage.removeEventListener('dblclick', onDoubleClick);
+        stage.removeEventListener('paste', onPaste);
+        stage.removeEventListener('wb-drop-photo', onDropPhoto);
       }
+      scanPanel?.destroy();
+      scanPanel = null;
       pointers.clear();
       stagePositions.clear();
       selection = [];

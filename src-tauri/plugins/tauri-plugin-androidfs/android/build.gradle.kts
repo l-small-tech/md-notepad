@@ -32,6 +32,9 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.9.0")
+    // Whiteboard scan: EXIF orientation is baked into the captured bitmap on
+    // the Kotlin side, so nothing downstream has to know phones shoot sideways.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.appcompat:appcompat:1.6.0")
     implementation("com.google.android.material:material:1.7.0")
     implementation(project(":tauri-android"))

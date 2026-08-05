@@ -65,6 +65,7 @@ import {
   setOpenFileInNewWindowDispatch,
   setOpenNotePathDispatch,
   setOpenNotePathPinnedDispatch,
+  setPickPhotoDispatch,
   setReadImageDispatch,
   setReloadDispatch,
   setRefreshWorkspacesDispatch,
@@ -119,6 +120,7 @@ export {
   openNotePath,
   openNotePathAtLine,
   openNotePathPinned,
+  pickPhotoForScan,
   pathKey,
   refreshWorkspaces,
   reloadTab,
@@ -144,6 +146,7 @@ export type {
   PickFileDialog,
   SaveDiscardCancelDialog,
   SaveFileDialog,
+  ScanPhotoRef,
 } from './facade';
 export type { SessionController, SessionControllerDeps } from './context';
 
@@ -324,6 +327,16 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCreateNewFileDispatch(explorerOps.createNewFile);
   setCreateNewFolderDispatch(explorerOps.createNewFolder);
   setCreateWhiteboardDispatch(explorerOps.createNewWhiteboard);
+  // Whiteboard scan (desktop): the native picker plus a base64 read, turned
+  // into the self-contained data: URL the scan screen decodes.
+  setPickPhotoDispatch(async () => {
+    const path = await ctx.pickFile('image');
+    if (path === null) {
+      return null;
+    }
+    const base64 = await ipc.readFileBase64(path);
+    return { dataUrl: `data:${imageMimeType(path)};base64,${base64}`, width: 0, height: 0 };
+  });
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
   setDeleteEntryDispatch(explorerOps.deleteEntry);

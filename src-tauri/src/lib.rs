@@ -164,6 +164,8 @@ pub fn run() {
             commands::android::stt_start,
             #[cfg(target_os = "android")]
             commands::android::stt_stop,
+            #[cfg(target_os = "android")]
+            commands::android::capture_photo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

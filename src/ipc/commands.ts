@@ -202,6 +202,17 @@ export const ipc = {
   sttRequestPermission: () => call<boolean>('stt_request_permission'),
   sttStart: () => call<string>('stt_start'),
   sttStop: () => call<void>('stt_stop'),
+  /**
+   * Android only — take a photo with the system camera (whiteboard scan, S0).
+   * Same native-bridge shape as the `stt_*` commands: called directly behind an
+   * `isAndroid()` check, never through a StorageProvider, and not registered on
+   * desktop (which uses the file picker / clipboard instead).
+   *
+   * Resolves a JPEG as base64, already EXIF-upright and downscaled on the
+   * Kotlin side. Rejects (as an `IpcError` with code `IO`) carrying the native
+   * reason: `PERMISSION_DENIED`, `cancelled`, or `NO_CAMERA`.
+   */
+  capturePhoto: () => call<{ base64: string; width: number; height: number }>('capture_photo'),
 };
 
 export type Ipc = typeof ipc;

@@ -245,6 +245,7 @@ let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = a
 let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createWhiteboardDispatch: (dir: string) => Promise<string | null> = async () => null;
+let pickPhotoDispatch: () => Promise<ScanPhotoRef | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -300,6 +301,9 @@ export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<string |
 }
 export function setCreateWhiteboardDispatch(fn: (dir: string) => Promise<string | null>): void {
   createWhiteboardDispatch = fn;
+}
+export function setPickPhotoDispatch(fn: () => Promise<ScanPhotoRef | null>): void {
+  pickPhotoDispatch = fn;
 }
 export function setRenameEntryDispatch(
   fn: (path: string, newName: string, isDir: boolean) => Promise<void>,
@@ -529,6 +533,23 @@ export function createNewFolderIn(dir: string): Promise<string | null> {
  *  `dir` and open it in Draw mode. Resolves with its path (null on failure). */
 export function createWhiteboardIn(dir: string): Promise<string | null> {
   return createWhiteboardDispatch(dir);
+}
+
+/** A photo for the whiteboard scan screen, as a self-contained `data:` URL. */
+export interface ScanPhotoRef {
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Whiteboard scan (desktop) → controller: pick an image file and read it back
+ * as a `data:` URL. Routed through the controller like every other native
+ * dialog, so the draw adapter needs no knowledge of Tauri — it is handed a
+ * function and calls it. Null when the user cancels.
+ */
+export function pickPhotoForScan(): Promise<ScanPhotoRef | null> {
+  return pickPhotoDispatch();
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk
  *  (extension preserved for files; open tabs are retargeted). */

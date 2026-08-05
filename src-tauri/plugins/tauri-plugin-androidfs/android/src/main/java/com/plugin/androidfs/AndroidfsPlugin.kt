@@ -4,10 +4,14 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -16,6 +20,8 @@ import android.util.Base64
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -26,6 +32,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -58,6 +65,7 @@ class SafRenameArgs {
 @TauriPlugin(
     permissions = [
         Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone"),
+        Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
     ],
 )
 class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
@@ -845,4 +853,179 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
 
     private fun firstResult(bundle: Bundle?): String? =
         bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+
+    /* ---- Camera capture (whiteboard scan, S0) --------------------------- */
+    //
+    // ACTION_IMAGE_CAPTURE hands the shot to the system camera app, which writes
+    // full resolution into a FileProvider URI we own (EXTRA_OUTPUT); the thumbnail
+    // in the result Intent is useless for a scan. Everything expensive happens
+    // HERE rather than after the bridge: a 12 MP JPEG is ~8 MB of base64 crossing
+    // IPC and then sitting in a JS string, and the pipeline uses none of it. So
+    // Kotlin normalizes orientation from EXIF, downscales to MAX_CAPTURE_EDGE and
+    // re-encodes before encoding to base64.
+    //
+    // The app DECLARES android.permission.CAMERA (plugin manifest), and Android's
+    // rule is that declaring it makes ACTION_IMAGE_CAPTURE require it to be
+    // GRANTED — so the runtime request below is not optional.
+
+    // Long edge the capture is reduced to. Well above what the pipeline needs
+    // (Detailed rectifies to 2400 px) and far below a modern sensor.
+    private val MAX_CAPTURE_EDGE = 2600
+
+    // The temp file handed to the camera app, held between launch and callback.
+    private var pendingPhoto: File? = null
+
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+
+    // Take a photo. Resolves { base64, width, height } (a JPEG, EXIF-upright,
+    // long edge <= MAX_CAPTURE_EDGE), or rejects "PERMISSION_DENIED" /
+    // "cancelled" / "NO_CAMERA".
+    @Command
+    fun capturePhoto(invoke: Invoke) {
+        if (!hasCameraPermission()) {
+            requestPermissionForAlias("camera", invoke, "cameraPermissionCallback")
+            return
+        }
+        launchCamera(invoke)
+    }
+
+    @PermissionCallback
+    fun cameraPermissionCallback(invoke: Invoke) {
+        if (!hasCameraPermission()) {
+            invoke.reject("PERMISSION_DENIED")
+            return
+        }
+        launchCamera(invoke)
+    }
+
+    private fun launchCamera(invoke: Invoke) {
+        try {
+            val dir = File(activity.cacheDir, "scan").apply { mkdirs() }
+            // One fixed name, overwritten each time: the file is consumed (and
+            // deleted) in the callback, so a capture never accumulates cache.
+            val file = File(dir, "capture.jpg")
+            val uri = FileProvider.getUriForFile(
+                activity,
+                "${activity.packageName}.fileprovider",
+                file,
+            )
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            if (intent.resolveActivity(activity.packageManager) == null) {
+                invoke.reject("NO_CAMERA")
+                return
+            }
+            pendingPhoto = file
+            startActivityForResult(invoke, intent, "onPhotoCaptured")
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "could not start the camera")
+        }
+    }
+
+    @ActivityCallback
+    fun onPhotoCaptured(invoke: Invoke, result: ActivityResult) {
+        val file = pendingPhoto
+        pendingPhoto = null
+        if (result.resultCode != Activity.RESULT_OK) {
+            file?.delete()
+            invoke.reject("cancelled")
+            return
+        }
+        if (file == null || !file.exists() || file.length() == 0L) {
+            invoke.reject("no photo was written")
+            return
+        }
+        try {
+            val bitmap = decodeDownscaled(file, MAX_CAPTURE_EDGE)
+                ?: return invoke.reject("could not decode the photo")
+            val upright = applyExifRotation(file, bitmap)
+            val bytes = ByteArrayOutputStream().use { out ->
+                upright.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                out.toByteArray()
+            }
+            val ret = JSObject()
+            ret.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            ret.put("width", upright.width)
+            ret.put("height", upright.height)
+            upright.recycle()
+            if (upright !== bitmap) {
+                bitmap.recycle()
+            }
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "could not read the photo")
+        } finally {
+            file.delete()
+        }
+    }
+
+    // Decode at most `maxEdge` on the long side. Two stages on purpose:
+    // inSampleSize is a power-of-two decode-time reduction (so the full bitmap
+    // never has to fit in memory — an OOM on a big sensor is otherwise routine),
+    // then one exact scale to land on the target.
+    private fun decodeDownscaled(file: File, maxEdge: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+        if (longEdge <= 0) {
+            return null
+        }
+        var sample = 1
+        while (longEdge / (sample * 2) >= maxEdge) {
+            sample *= 2
+        }
+        val decoded = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return null
+        val decodedEdge = maxOf(decoded.width, decoded.height)
+        if (decodedEdge <= maxEdge) {
+            return decoded
+        }
+        val scale = maxEdge.toDouble() / decodedEdge
+        val scaled = Bitmap.createScaledBitmap(
+            decoded,
+            maxOf(1, Math.round(decoded.width * scale).toInt()),
+            maxOf(1, Math.round(decoded.height * scale).toInt()),
+            true,
+        )
+        if (scaled !== decoded) {
+            decoded.recycle()
+        }
+        return scaled
+    }
+
+    // Bake the EXIF orientation into the pixels. Doing it here means the whole
+    // rest of the stack — bridge, canvas decode, detector — can assume upright
+    // pixels, instead of each layer rediscovering that phones shoot sideways.
+    private fun applyExifRotation(file: File, bitmap: Bitmap): Bitmap {
+        val orientation = try {
+            ExifInterface(file.absolutePath)
+                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
 }

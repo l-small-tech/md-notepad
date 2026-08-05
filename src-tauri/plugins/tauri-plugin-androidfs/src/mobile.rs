@@ -144,6 +144,19 @@ struct SttPermission {
     granted: bool,
 }
 
+/* ---- Camera capture (whiteboard scan) ---------------------------------- */
+
+/// A photo taken with the system camera: a JPEG as base64, already
+/// EXIF-upright and downscaled by the Kotlin side (see `capturePhoto` there —
+/// a raw sensor JPEG would be megabytes of base64 across this bridge for no
+/// benefit), plus its pixel dimensions.
+#[derive(Serialize, Deserialize)]
+pub struct CapturedPhoto {
+    pub base64: String,
+    pub width: u32,
+    pub height: u32,
+}
+
 impl<R: Runtime> Androidfs<R> {
     /// The app-specific EXTERNAL files dir
     /// (`/storage/emulated/0/Android/data/<pkg>/files`), or `None` when external
@@ -327,6 +340,17 @@ impl<R: Runtime> Androidfs<R> {
         self.0
             .run_mobile_plugin::<SafUnit>("stopSpeech", EmptyArgs {})
             .map(|_| ())
+            .map_err(Into::into)
+    }
+
+    /* ---- Camera capture (whiteboard scan) ------------------------------ */
+
+    /// Launch the system camera; resolves the captured photo once the user
+    /// accepts the shot. Errors carry the Kotlin reject text
+    /// ("PERMISSION_DENIED", "cancelled", "NO_CAMERA").
+    pub fn capture_photo(&self) -> crate::Result<CapturedPhoto> {
+        self.0
+            .run_mobile_plugin::<CapturedPhoto>("capturePhoto", EmptyArgs {})
             .map_err(Into::into)
     }
 }

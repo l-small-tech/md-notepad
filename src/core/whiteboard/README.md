@@ -20,6 +20,7 @@ what a whiteboard *is* lives here.
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
+| `scan/` | the photo→SVG pipeline (see below) |
 
 `tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws
 the palette and lives in the eager entry bundle, so importing it from `tools.ts`
@@ -207,6 +208,45 @@ viewBox when raw/foreign content is unmeasurable). A non-null background is a
 **page**: the rect is emitted, the viewBox is the page and is never touched.
 `setBackground` (layers.ts) flips between the two — adding a page pins the
 current content-fitted viewBox.
+
+## `scan/` — photograph a physical whiteboard
+
+Phase 4 ships S0–S1: acquire and rectify. Phases 5–7 add the illumination,
+ink-extraction, vectorizing and OCR stages beside these, in the same shape.
+
+| File | Role |
+| --- | --- |
+| `types.ts` | `RgbaImage`, `Quad`, presets. **A dependency-free leaf** |
+| `image-ops.ts` | downscale/resample, luminance, Otsu, connected components, bilinear sampling, `rotate90` |
+| `quad.ts` | find the board: hull → decimate → maximum-area quadrilateral |
+| `homography.ts` | DLT solve, Zhang & He aspect recovery, the banded inverse warp |
+| `pipeline.ts` | output sizing (`planRectify`) and the resumable `createRectifier` |
+
+Four things here are decisions, not implementation details:
+
+- **Detection is a heuristic and says so.** `detectBoardQuad` returns
+  `source: 'frame'` when nothing board-shaped stood out, and the crop screen
+  always shows draggable corners regardless. The Drive scanner's trick is not
+  perfect detection — it is that fixing a bad guess costs one drag.
+- **The aspect ratio is RECOVERED, not measured.** A board shot at an angle
+  projects to a quad whose side lengths lie about its shape;
+  `quadAspectRatio` inverts the projection (Zhang & He, MSR-TR-2003-39). It
+  returns null on a near-fronto-parallel shot — where there is no perspective
+  to invert — and `sideLengthAspect` is exactly right in that case. A test
+  projects known rectangles through a synthetic camera and asks for their
+  ratios back within 3%.
+- **The warp is destination→source and BANDED.** Inverse mapping because
+  forward mapping leaves holes; banded because 3.2 M bilinear samples in one
+  loop is a frozen tab. A test asserts a banded run is byte-identical to a
+  one-shot one — banding must be invisible.
+- **The output long edge is clamped to what the source resolves.** Upsampling
+  a 900 px quad to 1800 px invents no detail and makes every later stage
+  slower for nothing.
+
+Fixtures are GENERATED in-test, never committed as bytes: a JPEG decoder
+differs across platforms and pixel-exact goldens on photos are a maintenance
+trap. Real-photo fixtures arrive in phase 5, asserted as summary statistics in
+ranges.
 
 ## Error policy
 
