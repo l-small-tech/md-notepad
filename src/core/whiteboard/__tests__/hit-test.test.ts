@@ -127,6 +127,7 @@ describe('elementBounds', () => {
       kind: 'text',
       id: null,
       fontFamily: null,
+      boxWidth: null,
       x: 10,
       y: 100,
       fontSize: 20,

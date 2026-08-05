@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FONT_SIZE,
+  DEFAULT_STROKE_WIDTH,
   fontLabelFor,
   FONT_FAMILIES,
   isShapeTool,
@@ -36,6 +37,13 @@ describe('tool vocabulary', () => {
     expect(PALETTE).toHaveLength(8);
     expect(new Set(PALETTE).size).toBe(8);
     expect(STROKE_WIDTHS.every((w) => w > 0)).toBe(true);
+  });
+
+  it('keeps the nibs thin next to the type sizes they share a board with', () => {
+    // The proportion QA asked for: even the fattest nib is a stroke beside the
+    // default type, not a bar across it.
+    expect(Math.max(...STROKE_WIDTHS)).toBeLessThan(DEFAULT_FONT_SIZE / 2);
+    expect(DEFAULT_STROKE_WIDTH).toBeLessThan(DEFAULT_FONT_SIZE / 8);
   });
 });
 
@@ -100,6 +108,29 @@ describe('makeText', () => {
     expect(makeText(P(0, 0), 'x', '#1a1a1a', 16)!.fontFamily).toBeNull();
     const stack = FONT_FAMILIES[3]!.stack;
     expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, stack)!.fontFamily).toBe(stack);
+  });
+
+  it('records the box it was typed into, and treats a zero width as none', () => {
+    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16)!.boxWidth).toBeNull();
+    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, null, 240)!.boxWidth).toBe(240);
+    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, null, 0)!.boxWidth).toBeNull();
+  });
+
+  it('round-trips a box width, and omits it entirely when there is none', () => {
+    const boxed = makeText(P(10, 20), 'hi', '#1a1a1a', 32, null, 180)!;
+    const source = serializeWhiteboard(
+      addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', boxed),
+    );
+    expect(source).toContain('wb:box-width="180"');
+    expect(parseWhiteboard(source).layers[0]!.elements[0]).toEqual(boxed);
+    expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
+
+    const plain = makeText(P(10, 20), 'hi', '#1a1a1a', 32)!;
+    expect(
+      serializeWhiteboard(
+        addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', plain),
+      ),
+    ).not.toContain('box-width');
   });
 
   it('normalizes CRLF and trims blank lines off both ends', () => {

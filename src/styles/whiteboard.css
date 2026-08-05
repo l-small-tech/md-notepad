@@ -134,7 +134,8 @@
   position: absolute;
   z-index: 2;
   overflow: hidden;
-  min-width: 6ch;
+  /* A dragged box sets its own width, and may legitimately be narrower than
+     this; only the auto-sizing (clicked) box wants a floor. */
   margin: 0;
   padding: 0;
   border: none;

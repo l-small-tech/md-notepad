@@ -262,6 +262,10 @@ export function transformElement(
         x: element.x * sx + tx,
         y: element.y * sy + ty,
         fontSize: element.fontSize * scale,
+        // The box follows the horizontal scale, not the geometric mean: it is
+        // a width, and the already-wrapped lines beside it are the truth for
+        // how the text reads. Rewrapping happens when the box is reopened.
+        boxWidth: element.boxWidth === null ? null : element.boxWidth * Math.abs(sx),
       };
     case 'image':
       return {

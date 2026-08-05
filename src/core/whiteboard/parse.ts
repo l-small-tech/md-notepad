@@ -355,6 +355,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       fontFamily: attr(element, 'font-family') ?? null,
       fill: attr(element, 'fill') ?? '#000000',
       lines,
+      boxWidth: positiveAttr(element, 'wb:box-width'),
     } satisfies TextElement;
   }
 
@@ -398,4 +399,10 @@ function optionalNum(element: XmlElement, name: string): number | null {
   }
   const value = Number.parseFloat(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+/** Like {@link optionalNum}, but a zero or negative value reads as absent. */
+function positiveAttr(element: XmlElement, name: string): number | null {
+  const value = optionalNum(element, name);
+  return value !== null && value > 0 ? value : null;
 }

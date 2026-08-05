@@ -13,7 +13,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { parseWhiteboard, WhiteboardParseError } from '../parse';
-import { createLayer, createScene, elementCount, type SceneDoc } from '../scene';
+import {
+  createLayer,
+  createScene,
+  DEFAULT_BOARD_HEIGHT,
+  DEFAULT_BOARD_WIDTH,
+  elementCount,
+  type SceneDoc,
+} from '../scene';
 import { ARROW_MARKER_ID, num, serializeWhiteboard } from '../serialize';
 
 /** parse → serialize → parse; the second serialization must equal the first. */
@@ -221,7 +228,7 @@ describe('degenerate input', () => {
 
   it('falls back to a default board when the viewBox is missing or degenerate', () => {
     const doc = parseWhiteboard('<svg xmlns="http://www.w3.org/2000/svg"/>');
-    expect(doc.viewBox).toEqual([0, 0, 1600, 1000]);
+    expect(doc.viewBox).toEqual([0, 0, DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT]);
     // No background rect and no metadata background = an infinite board.
     expect(doc.background).toBeNull();
   });
@@ -237,6 +244,7 @@ describe('degenerate input', () => {
               kind: 'text',
               id: null,
               fontFamily: null,
+              boxWidth: null,
               x: 0,
               y: 0,
               fontSize: 12,

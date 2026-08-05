@@ -59,6 +59,7 @@ export function makeText(
   color: string,
   fontSize: number,
   fontFamily: string | null = null,
+  boxWidth: number | null = null,
 ): TextElement | null {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') {
@@ -79,6 +80,9 @@ export function makeText(
     fontFamily,
     fill: color,
     lines,
+    // `lines` is already wrapped by the caller; this only records the box the
+    // wrapping came from, so reopening the text rewraps to the same width.
+    boxWidth: boxWidth !== null && boxWidth > 0 ? boxWidth : null,
   };
 }
 

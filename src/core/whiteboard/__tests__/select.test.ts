@@ -196,6 +196,16 @@ describe('transformElement', () => {
     expect(transformElement(text, 2, 2, 0, 0)).toMatchObject({ x: 20, y: 40, fontSize: 48 });
   });
 
+  it("carries a text box's width on the HORIZONTAL scale, not the mean", () => {
+    const boxed = makeText(P(0, 0), 'hello', '#1a1a1a', 24, null, 100)!;
+    // A width is a width: stretched 3× across and 1× down it is 300, even
+    // though the type size follows the geometric mean of the two.
+    expect(transformElement(boxed, 3, 1, 0, 0)).toMatchObject({ boxWidth: 300 });
+    expect(transformElement(makeText(P(0, 0), 'x', '#1a1a1a', 24)!, 3, 1, 0, 0)).toMatchObject({
+      boxWidth: null,
+    });
+  });
+
   it('never touches raw content', () => {
     const raw: SceneElement = { kind: 'raw', xml: '<circle cx="1" cy="1" r="1"/>' };
     expect(transformElement(raw, 5, 5, 5, 5)).toBe(raw);

@@ -62,6 +62,9 @@ import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
 
 const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 
+/** Whether this machine has a touchscreen — gates the board's touch policy. */
+const HAS_TOUCH = navigator.maxTouchPoints > 0;
+
 /** Platform-correct shortcut hint for the fullscreen tooltips. */
 const FULLSCREEN_KEY = IS_MAC ? '⌃⌘F' : 'F11';
 
@@ -511,7 +514,7 @@ function DrawControls({ tabId }: { tabId: string | null }) {
       {toolButton('pen', '✎', 'Pen')}
       {toolButton('highlighter', '▤', 'Highlighter')}
       {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
-      {toolButton('text', 'T', 'Text — tap to type, Ctrl/Cmd+Enter to finish')}
+      {toolButton('text', 'T', 'Text — drag out a box, or click to type. Ctrl/Cmd+Enter finishes')}
 
       <span className="ribbon-divider" role="separator" />
 
@@ -602,48 +605,62 @@ function DrawControls({ tabId }: { tabId: string | null }) {
         </div>
       ) : null}
 
-      <div className="ribbon-swatches" role="group" aria-label="Stroke width" hidden={typeControls}>
-        {STROKE_WIDTHS.map((size) => (
-          <button
-            key={size}
-            className="ribbon-nib"
-            aria-label={`Width ${size}`}
-            aria-pressed={width === size}
-            data-active={width === size || undefined}
-            title={`Width ${size}`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => whiteboardStore.getState().setWidth(size)}
-          >
-            {/* The dot is the nib at (a readable multiple of) its real size. */}
-            <span style={{ width: 2 + size, height: 2 + size, background: nibColor }} />
-          </button>
-        ))}
-      </div>
+      {/* Not `hidden` — `.ribbon-swatches` sets `display:flex`, which beats the
+          UA sheet's `[hidden]{display:none}`, so the nib row stayed on screen
+          next to the type controls it was supposed to make room for. */}
+      {!typeControls && (
+        <div className="ribbon-swatches" role="group" aria-label="Stroke width">
+          {STROKE_WIDTHS.map((size) => (
+            <button
+              key={size}
+              className="ribbon-nib"
+              aria-label={`Width ${size}`}
+              aria-pressed={width === size}
+              data-active={width === size || undefined}
+              title={`Width ${size}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => whiteboardStore.getState().setWidth(size)}
+            >
+              {/* The dot is the nib at (a readable multiple of) its size. */}
+              <span
+                style={{ width: 3 + size * 1.5, height: 3 + size * 1.5, background: nibColor }}
+              />
+            </button>
+          ))}
+        </div>
+      )}
 
       <span className="ribbon-divider" role="separator" />
 
-      {/* Touch policy. Only meaningful with a touchscreen, but shown always:
-          a hidden toggle is a toggle nobody finds on the device that needs
-          it, and "Auto" explains itself once a pen has been seen. */}
-      <button
-        className="ribbon-btn"
-        aria-label={fingerDraws ? 'Finger draws' : 'Finger pans'}
-        aria-pressed={fingerDraws}
-        data-active={fingerDraws || undefined}
-        title={
-          fingerDrawsPref === null
-            ? penSeen
-              ? 'Finger pans (automatic — a pen was detected). Click to draw with a finger.'
-              : 'Finger draws (automatic — no pen seen yet). Click to pan with a finger instead.'
-            : fingerDraws
-              ? 'Finger draws. Two fingers still pan and pinch. Click to pan with one finger.'
-              : 'Finger pans. Click to draw with a finger.'
-        }
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => whiteboardStore.getState().setFingerDraws(!fingerDraws)}
-      >
-        ✋
-      </button>
+      {/* Touch policy — what ONE FINGER does, and nothing else: a mouse and a
+          pen always draw. Hidden without a touchscreen, because there it
+          governs nothing, and a button that changes nothing you can see is
+          worse than a missing one. The glyph shows the current ANSWER rather
+          than the action, so the board's behaviour is readable at a glance. */}
+      {HAS_TOUCH && (
+        <button
+          className="ribbon-btn"
+          aria-label={fingerDraws ? 'One finger draws' : 'One finger pans'}
+          aria-pressed={fingerDraws}
+          data-active={fingerDraws || undefined}
+          title={
+            (fingerDraws
+              ? 'Touch: one finger draws, two fingers pan and zoom.'
+              : 'Touch: one finger pans and zooms — draw with a pen.') +
+            (fingerDrawsPref === null
+              ? penSeen
+                ? ' (Automatic: a pen was detected.)'
+                : ' (Automatic: no pen seen yet.)'
+              : '') +
+            (fingerDraws ? ' Click to pan instead.' : ' Click to draw instead.') +
+            ' A mouse or pen is unaffected.'
+          }
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => whiteboardStore.getState().setFingerDraws(!fingerDraws)}
+        >
+          {fingerDraws ? '✍' : '✋'}
+        </button>
+      )}
 
       <button
         className="ribbon-btn"

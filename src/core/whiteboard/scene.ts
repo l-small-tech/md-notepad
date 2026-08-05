@@ -22,8 +22,15 @@ export const WB_NAMESPACE = 'urn:md-notepad:whiteboard';
 export const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 export const SCENE_SCHEMA = 1;
 
-export const DEFAULT_BOARD_WIDTH = 1600;
-export const DEFAULT_BOARD_HEIGHT = 1000;
+/**
+ * The default board, in scene units. Deliberately modest: a board is fitted to
+ * the pane on open, so the board's size in units IS the zoom — a bigger default
+ * makes every unit smaller on screen, and 24-unit type reads as fine print.
+ * These numbers are chosen so one scene unit is roughly one board pixel in a
+ * typical window.
+ */
+export const DEFAULT_BOARD_WIDTH = 1200;
+export const DEFAULT_BOARD_HEIGHT = 750;
 export const DEFAULT_BACKGROUND = '#ffffff';
 
 /** A `name="value"` pair we don't own, re-emitted after the ones we do. */
@@ -89,6 +96,14 @@ export interface TextElement {
   readonly fill: string;
   /** One entry per rendered line (serialized as `<tspan>`s). */
   readonly lines: readonly string[];
+  /**
+   * `wb:box-width` — the width, in scene units, of the box the text was typed
+   * into, or null for text that auto-sized to its longest line. SVG has no
+   * automatic wrapping, so `lines` is always already wrapped; this only records
+   * the box so re-editing rewraps to the same width. Editor-only, hence the
+   * `wb:` namespace: a foreign renderer neither needs nor sees it.
+   */
+  readonly boxWidth: number | null;
 }
 
 /** A raster image: a scan's "insert as photo" fallback, or a pasted picture. */

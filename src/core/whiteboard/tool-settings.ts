@@ -105,9 +105,13 @@ export function paletteSlot(color: string): number {
   return PALETTE.indexOf(color);
 }
 
-/** Nib sizes, in scene units, offered by the ribbon. */
-export const STROKE_WIDTHS: readonly number[] = [1.5, 3, 6, 12];
-export const DEFAULT_STROKE_WIDTH = 3;
+/**
+ * Nib sizes, in scene units, offered by the ribbon. Scaled against the type
+ * sizes below: the default nib next to the default 24-unit type should read
+ * like a pen next to handwriting, not a marker next to fine print.
+ */
+export const STROKE_WIDTHS: readonly number[] = [1, 2, 4, 8];
+export const DEFAULT_STROKE_WIDTH = 2;
 export const DEFAULT_COLOR = PALETTE[0]!;
 
 /** The highlighter is a fat, translucent pen — same element, different attrs. */
@@ -123,6 +127,13 @@ export const ERASER_RADIUS = 6;
  */
 export const TEXT_SIZES: readonly number[] = [12, 16, 20, 24, 32, 48, 64, 96];
 export const DEFAULT_FONT_SIZE = 24;
+
+/**
+ * How far the text tool must be dragged, in SCREEN pixels, before the gesture
+ * counts as "I am drawing a box" rather than "I am clicking here". Below it the
+ * text auto-sizes to what gets typed, which is what a tap should do.
+ */
+export const MIN_TEXT_BOX_DRAG = 16;
 
 /** A named font choice. `stack` is what lands in the file's `font-family`. */
 export interface FontOption {

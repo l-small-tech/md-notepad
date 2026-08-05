@@ -11,7 +11,13 @@ import { describe, expect, it } from 'vitest';
 import { CONTENT_MARGIN, contentViewBox, elementBounds } from '../bounds';
 import { setBackground } from '../layers';
 import { parseWhiteboard } from '../parse';
-import { createLayer, createScene, type SceneElement } from '../scene';
+import {
+  createLayer,
+  createScene,
+  DEFAULT_BOARD_HEIGHT,
+  DEFAULT_BOARD_WIDTH,
+  type SceneElement,
+} from '../scene';
 import { serializeWhiteboard } from '../serialize';
 
 const RECT: SceneElement = {
@@ -67,7 +73,12 @@ describe('contentViewBox', () => {
   });
 
   it('falls back to the default board when there is nothing to measure', () => {
-    expect(contentViewBox(createScene())).toEqual([0, 0, 1600, 1000]);
+    expect(contentViewBox(createScene())).toEqual([
+      0,
+      0,
+      DEFAULT_BOARD_WIDTH,
+      DEFAULT_BOARD_HEIGHT,
+    ]);
   });
 
   it('unions in the stored viewBox when unmeasurable raw content exists', () => {
@@ -96,7 +107,7 @@ describe('infinite boards through the serializer', () => {
   it('leaves a page board’s viewBox exactly alone', () => {
     const paged = setBackground(infiniteBoard([RECT]), '#ffffff');
     const out = serializeWhiteboard(paged);
-    expect(out).toContain('viewBox="0 0 1600 1000"');
+    expect(out).toContain(`viewBox="0 0 ${DEFAULT_BOARD_WIDTH} ${DEFAULT_BOARD_HEIGHT}"`);
     expect(out).toContain('<rect wb:role="background" class="wb-bg"');
     expect(serializeWhiteboard(parseWhiteboard(out))).toBe(out);
   });
