@@ -1,10 +1,12 @@
 /**
- * whiteboard-scan.ts — the scan screen (phase 4: S0 acquire + S1 rectify).
+ * whiteboard-scan.ts — the scan screen (phase 4: S0 acquire + S1 rectify;
+ * phase 5: S2–S4 clean + colour).
  *
- * Photograph a physical whiteboard, correct the perspective, and drop the
- * result onto the board. Phase 4 inserts the rectified PHOTO; phases 5–7 keep
- * this same screen and replace what comes out the end of it with cleaned ink,
- * then vector strokes, then recognized text.
+ * Photograph a physical whiteboard, correct the perspective, flat-field the
+ * lighting out, extract the ink and vote its colours, then drop the CLEANED
+ * board onto the whiteboard (the straightened photo stays available as a
+ * fallback). Phases 6–7 keep this same screen and replace what comes out the
+ * end of it with vector strokes, then recognized text.
  *
  * This file, with `whiteboard.ts` and `whiteboard-layers.ts`, is the only DOM in
  * the whiteboard stack. Everything that DECIDES anything — where the board is,
@@ -30,6 +32,14 @@
 
 import { detectBoardQuad, frameQuad, orderQuad } from '../core/whiteboard/scan/quad';
 import { createRectifier } from '../core/whiteboard/scan/pipeline';
+import {
+  composeCleaned,
+  createCleaner,
+  DEFAULT_SCAN_COLOR_MODE,
+  GLARE_HINT_FRACTION,
+  type CleanResult,
+  type ScanColorMode,
+} from '../core/whiteboard/scan/clean';
 import { rotate90 } from '../core/whiteboard/scan/image-ops';
 import {
   DEFAULT_SCAN_PRESET,
@@ -175,6 +185,20 @@ function loadImageElement(dataUrl: string): Promise<HTMLImageElement | null> {
   });
 }
 
+/** Raw RGBA → a PNG `data:` URL — flat colour on white compresses far
+ *  better as PNG than JPEG, and PNG has no ringing haloes around ink. */
+function encodePng(image: RgbaImage): string | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return null;
+  }
+  context.putImageData(toImageData(image), 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
 /** Raw RGBA → a JPEG `data:` URL. */
 function encodeJpeg(image: RgbaImage, quality: number): string | null {
   const canvas = document.createElement('canvas');
@@ -232,6 +256,14 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   let detectedSource: 'detected' | 'frame' = 'frame';
   let preset: ScanPreset = DEFAULT_SCAN_PRESET;
   let rectified: RgbaImage | null = null;
+  /** The phase-5 pipeline output (ink components + colours), once cleaned. */
+  let cleaned: CleanResult | null = null;
+  /** Which colours the cleaned view paints ink in. Themed is the default:
+   *  snapped ink matches the drawing palette and stays themeable when
+   *  phase 6 vectorizes it; "true" keeps the voted measured colours. */
+  let colorMode: ScanColorMode = DEFAULT_SCAN_COLOR_MODE;
+  /** What the review screen is showing: the cleaned board or the photo. */
+  let reviewView: 'cleaned' | 'photo' = 'cleaned';
   /** The band-pumping rAF handle, so cancel really cancels. */
   let pumping: number | null = null;
   /** Bumped on every close/retake; an in-flight acquire checks it before
@@ -298,6 +330,32 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   presetSelect.value = preset;
   presetSelect.addEventListener('change', () => {
     preset = (presetSelect.value as ScanPreset) ?? DEFAULT_SCAN_PRESET;
+  });
+
+  /** Colour handling for the cleaned board. Themed first — it is the default. */
+  const COLOR_MODE_LABELS: readonly (readonly [ScanColorMode, string])[] = [
+    ['themed', 'Theme colours'],
+    ['true', 'True colours'],
+  ];
+
+  const colorSelect = document.createElement('select');
+  colorSelect.className = 'wb-scan-select';
+  colorSelect.title =
+    'Theme colours snap ink to the marker palette, so scanned ink matches drawn ink ' +
+    'and follows themes. True colours keep what the markers actually looked like.';
+  colorSelect.setAttribute('aria-label', 'Ink colours');
+  for (const [value, label] of COLOR_MODE_LABELS) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    colorSelect.append(option);
+  }
+  colorSelect.value = colorMode;
+  colorSelect.addEventListener('change', () => {
+    colorMode = (colorSelect.value as ScanColorMode) ?? DEFAULT_SCAN_COLOR_MODE;
+    if (stage === 'review' && reviewView === 'cleaned') {
+      showReview();
+    }
   });
 
   /* ------------------------------ crop drawing ---------------------------- */
@@ -498,6 +556,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     }
     stage = 'crop';
     rectified = null;
+    cleaned = null;
     title.textContent = 'Frame the board';
     hint.textContent =
       detectedSource === 'detected'
@@ -582,6 +641,42 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         return;
       }
       rectified = job.result();
+      startClean();
+    };
+    pumping = requestAnimationFrame(pump);
+  }
+
+  /**
+   * Phase 5: flat-field the light out, extract the ink, vote the colours.
+   * One pipeline stage per frame — each stage is a bounded pass over typed
+   * arrays, so the bar advances honestly and Cancel lands between stages.
+   */
+  function startClean(): void {
+    if (!rectified) {
+      showCrop();
+      return;
+    }
+    const job = createCleaner(rectified);
+    stage = 'working';
+    title.textContent = 'Cleaning…';
+    hint.textContent = 'Removing shadows, glare and eraser ghosts';
+    progress.hidden = false;
+    progressBar.style.width = '0%';
+    setActions(button('Cancel', 'Stop and go back to the crop', cancelRectify));
+
+    const pump = () => {
+      pumping = null;
+      if (stage !== 'working') {
+        return;
+      }
+      job.step();
+      progressBar.style.width = `${Math.round(job.progress * 100)}%`;
+      if (!job.done) {
+        pumping = requestAnimationFrame(pump);
+        return;
+      }
+      cleaned = job.result();
+      reviewView = 'cleaned';
       showReview();
     };
     pumping = requestAnimationFrame(pump);
@@ -601,32 +696,91 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       return;
     }
     stage = 'review';
-    title.textContent = 'Ready to insert';
-    hint.textContent = `${rectified.width} × ${rectified.height} px — it lands on its own layer, so it can be moved, resized or deleted like anything else.`;
     progress.hidden = true;
-    paint(photoCanvas, rectified);
-    const l = (() => {
-      const box = viewport.getBoundingClientRect();
-      const scale = Math.min(box.width / rectified!.width, box.height / rectified!.height, 1);
-      return { scale, box };
-    })();
-    photoCanvas.style.width = `${rectified.width * l.scale}px`;
-    photoCanvas.style.height = `${rectified.height * l.scale}px`;
-    photoCanvas.style.left = `${(l.box.width - rectified.width * l.scale) / 2}px`;
-    photoCanvas.style.top = `${(l.box.height - rectified.height * l.scale) / 2}px`;
     overlay.innerHTML = '';
+
+    const showingCleaned = reviewView === 'cleaned' && cleaned !== null;
+    const image = showingCleaned ? composeCleaned(cleaned!, colorMode) : rectified;
+    paint(photoCanvas, image);
+    const box = viewport.getBoundingClientRect();
+    const scale = Math.min(box.width / image.width, box.height / image.height, 1);
+    photoCanvas.style.width = `${image.width * scale}px`;
+    photoCanvas.style.height = `${image.height * scale}px`;
+    photoCanvas.style.left = `${(box.width - image.width * scale) / 2}px`;
+    photoCanvas.style.top = `${(box.height - image.height * scale) / 2}px`;
+
+    title.textContent = 'Ready to insert';
+    hint.textContent = reviewHint(showingCleaned);
     setActions(
       button('Back', 'Adjust the crop', showCrop),
+      cleaned !== null
+        ? button(
+            showingCleaned ? 'Show photo' : 'Show cleaned',
+            'Compare the cleaned board with the straightened photo',
+            () => {
+              reviewView = showingCleaned ? 'photo' : 'cleaned';
+              showReview();
+            },
+          )
+        : null,
+      showingCleaned ? colorSelect : null,
       button('Cancel', 'Discard the scan', close),
-      button('Insert', 'Add the board to this whiteboard', insert, true),
+      cleaned !== null && cleaned.extraction.components.length > 0
+        ? button('Insert photo', 'Add the straightened photo instead', () => insert('photo'))
+        : null,
+      cleaned !== null && cleaned.extraction.components.length > 0
+        ? button(
+            'Insert cleaned',
+            'Add the cleaned board to this whiteboard',
+            () => insert('cleaned'),
+            true,
+          )
+        : button(
+            'Insert photo',
+            'Add the straightened photo to this whiteboard',
+            () => insert('photo'),
+            true,
+          ),
     );
   }
 
-  function insert(): void {
+  /** What the review screen says — honest about glare and about empty boards. */
+  function reviewHint(showingCleaned: boolean): string {
+    if (!rectified) {
+      return '';
+    }
+    const parts: string[] = [`${rectified.width} × ${rectified.height} px`];
+    if (cleaned !== null) {
+      const strokes = cleaned.extraction.components.length;
+      if (strokes === 0) {
+        parts.push('no ink stood out — the photo is still available below');
+      } else if (showingCleaned) {
+        const colours = cleaned.colors.tallies.length;
+        parts.push(
+          `${strokes} ink mark${strokes === 1 ? '' : 's'} in ${colours} colour${colours === 1 ? '' : 's'}`,
+        );
+      }
+      if (cleaned.glareFraction > GLARE_HINT_FRACTION) {
+        parts.push('glare detected — some ink may be lost; try shooting from off-axis');
+      }
+    }
+    parts.push(
+      'it lands on its own layer, so it can be moved, resized or deleted like anything else',
+    );
+    return parts.join(' — ') + '.';
+  }
+
+  function insert(kind: 'cleaned' | 'photo'): void {
     if (!rectified) {
       return;
     }
-    const dataUrl = encodeJpeg(rectified, OUTPUT_QUALITY);
+    // The cleaned board is flat colour on white — PNG both compresses that far
+    // better than JPEG and avoids ringing haloes around the ink. The photo
+    // keeps JPEG, which is what photographs want.
+    const dataUrl =
+      kind === 'cleaned' && cleaned !== null
+        ? encodePng(composeCleaned(cleaned, colorMode))
+        : encodeJpeg(rectified, OUTPUT_QUALITY);
     if (!dataUrl) {
       options.onNotice('The scan could not be encoded.');
       return;
@@ -731,6 +885,8 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     photo = null;
     quad = null;
     rectified = null;
+    cleaned = null;
+    reviewView = 'cleaned';
     dragging = null;
     element.hidden = true;
     overlay.innerHTML = '';
@@ -760,6 +916,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       photo = null;
       quad = null;
       rectified = null;
+      cleaned = null;
     },
   };
 }
