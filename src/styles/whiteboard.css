@@ -81,6 +81,16 @@
   pointer-events: none;
 }
 
+/* The overlay joins the board's palette scope (class wb-board, so preview ink
+   themes like committed ink), which also makes it match the file's own
+   `svg.wb-board{background:var(--wb-bg,…)}` surface rule — and an OPAQUE
+   overlay sitting on the board hides every committed stroke the instant the
+   preview clears ("draws, then vanishes on release"). Out-specify that rule
+   (0,2,0 beats its 0,1,1): the overlay is always transparent. */
+.wb-canvas > .wb-live {
+  background: none;
+}
+
 /* ------------------------------- layers panel ----------------------------- */
 
 .wb-layers {

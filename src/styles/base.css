@@ -51,13 +51,13 @@
      (PALETTE / PALETTE_DARK), which foreign renderers see. */
   --wb-bg: var(--editor-bg);
   --wb-c0: var(--fg); /* pen — the theme's ink */
-  --wb-c1: var(--danger); /* alert */
-  --wb-c2: color-mix(in oklab, var(--danger) 55%, var(--accent)); /* warm blend */
-  --wb-c3: color-mix(in oklab, var(--danger) 40%, var(--fg)); /* deep warm */
-  --wb-c4: var(--accent); /* the theme's signature color */
-  --wb-c5: color-mix(in oklab, var(--accent) 55%, var(--fg)); /* deep accent */
-  --wb-c6: color-mix(in oklab, var(--accent) 55%, var(--editor-bg)); /* soft accent */
-  --wb-c7: var(--fg-muted); /* pencil */
+  --wb-c1: var(--accent); /* the theme's signature color */
+  --wb-c2: color-mix(in oklab, var(--accent) 55%, var(--fg)); /* deep accent */
+  --wb-c3: color-mix(in oklab, var(--accent) 55%, var(--editor-bg)); /* soft accent */
+  --wb-c4: var(--fg-muted); /* pencil */
+  --wb-c5: var(--danger); /* alert */
+  --wb-c6: color-mix(in oklab, var(--danger) 55%, var(--accent)); /* warm blend */
+  --wb-c7: color-mix(in oklab, var(--danger) 40%, var(--fg)); /* deep warm */
 }
 
 :root[data-theme='dark'] {

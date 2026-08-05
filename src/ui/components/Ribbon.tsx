@@ -739,8 +739,14 @@ export function Ribbon() {
         >
           ⤢
         </button>
+        {/* A whiteboard has no headings, so hide (not remove) the outline
+            toggle in draw mode — the reserved space keeps the fullscreen
+            button where muscle memory expects it. */}
         <button
           className="ribbon-btn ribbon-btn-lg"
+          style={mode === 'draw' ? { visibility: 'hidden' } : undefined}
+          aria-hidden={mode === 'draw' || undefined}
+          tabIndex={mode === 'draw' ? -1 : undefined}
           aria-label="Toggle outline"
           title="Outline (Ctrl/Cmd+Shift+O)"
           onMouseDown={(e) => e.preventDefault()}

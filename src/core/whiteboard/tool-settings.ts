@@ -26,13 +26,13 @@ export function isShapeTool(tool: DrawTool): tool is ShapeKind {
  */
 export const PALETTE: readonly string[] = [
   '#1a1a1a',
-  '#d02f2f',
-  '#e07b00',
-  '#c9a400',
   '#1f9d55',
   '#0f8f8f',
   '#1f6fd0',
   '#8a3fd1',
+  '#d02f2f',
+  '#e07b00',
+  '#c9a400',
 ];
 
 /**
@@ -45,13 +45,13 @@ export const PALETTE: readonly string[] = [
  */
 export const PALETTE_DARK: readonly string[] = [
   '#e6e6e6',
-  '#ef6363',
-  '#f09b3c',
-  '#d9bc3f',
   '#43c17c',
   '#3ab5b5',
   '#62a0ef',
   '#b07ce8',
+  '#ef6363',
+  '#f09b3c',
+  '#d9bc3f',
 ];
 
 /** Dark-scheme board background (`--wb-bg`); light is the canonical #ffffff. */
@@ -66,13 +66,13 @@ export const BOARD_BACKGROUND_DARK = '#1e1e1e';
  */
 export const STATIC_PALETTE: readonly string[] = [
   'black',
-  'red',
-  'orange',
-  'gold',
   'green',
   'teal',
   'blue',
   'purple',
+  'red',
+  'orange',
+  'gold',
 ];
 
 /**
@@ -84,13 +84,13 @@ export const STATIC_PALETTE: readonly string[] = [
  */
 export const THEMED_SLOT_NAMES: readonly string[] = [
   'Ink',
-  'Alert',
-  'Warm',
-  'Deep warm',
   'Accent',
   'Deep accent',
   'Soft accent',
   'Pencil',
+  'Alert',
+  'Warm',
+  'Deep warm',
 ];
 
 /** Which swatch row the ribbon shows: theme-following slots or fixed colours. */
