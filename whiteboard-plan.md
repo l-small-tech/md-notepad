@@ -193,7 +193,7 @@ Basic marker colours, done at component level so a stroke is never a rainbow.
 - Convert each ink pixel of a component to hue/chroma/value from the **white-balanced** RGB of S2.
 - Vote using **core pixels only** — pixels whose distance-transform value ≥ 0.6·(component max). Anti-aliased stroke edges are desaturated and hue-shifted, and black strokes routinely show blue/purple fringing from demosaicing; core-only voting removes both effects.
 - `chroma < 0.12` → **black**. Otherwise bin the median core hue: red (<20° or >340°), orange (20–45), yellow (45–70), green (70–165), teal (165–200), blue (200–260), purple (260–340). Eight buckets covers every standard marker pack.
-- Snap to a canonical palette (`#1a1a1a`, `#d02f2f`, `#e07b00`, `#c9a400`, `#1f9d55`, `#0f8f8f`, `#1f6fd0`, `#8a3fd1`) so output is clean, consistent and themeable; "preserve measured colour" is an option in the review dialog. Both the snapped and the measured colour go in the metadata.
+- Snap to a canonical palette (`#1a1a1a`, `#d02f2f`, `#e07b00`, `#c9a400`, `#1f9d55`, `#0f8f8f`, `#1f6fd0`, `#8a3fd1`) so output is clean, consistent and themeable (snapped strokes pick up the palette-slot classes of [Themable ink](#themable-ink-palette-slots-as-css-variables) for free); "preserve measured colour" is an option in the review dialog and opts those strokes out of theming. Both the snapped and the measured colour go in the metadata.
 - The review dialog lists detected colours with stroke counts and lets the user remap or merge any of them (e.g. "teal → blue", "everything → black"), which is also the escape hatch when a marker is genuinely ambiguous.
 
 ### S5 — Vectorize
@@ -253,6 +253,23 @@ Gradle: `com.google.mlkit:*` goes in the plugin's `android/build.gradle.kts` `de
 - **Real photos** — a handful of ≤800 px JPEGs committed as fixtures (side-lit, glare, angled, four marker colours, visible eraser ghosting). Assert **summary statistics in ranges** (component count, colours detected, path count, no strokes inside the known-blank region), never byte-exact output — JPEG decode differs across platforms and pixel-exact goldens on photos are a maintenance trap.
 - **Fixture decoding in the node test env**: a ~80-line test-only PNG chunk parser using node's built-in `zlib` (`__tests__/helpers/png.ts`). Keeps fixtures viewable in the repo as PNGs with **zero dependency** and no core-purity violation.
 
+## Themable ink (palette slots as CSS variables)
+
+Goal: a whiteboard follows the viewer's theme — dark app shows a dark board with light ink — while the `.svg` stays a standalone, standard file that renders correctly everywhere, including renderers with no CSS support.
+
+**Mechanism — class + embedded style, literal hex as fallback truth.** `var()` is invalid in presentation attributes, but CSS *overrides* presentation attributes, which is exactly the layering needed:
+
+- An element whose color is one of the 8 palette slots keeps its concrete light-theme hex in the presentation attribute (canonical, deterministic, what a dumb rasterizer uses) **and** gains `class="wb-c6"` (slots `wb-c0…wb-c7`, plus `wb-bg` on the background rect).
+- One serializer-owned `<style wb:role="palette">` block in `<defs>` defines the slot variables with light defaults and `@media (prefers-color-scheme: dark)` overrides, and maps classes to `stroke:/fill: var(--wb-cN, <hex>)`. Any CSS-capable renderer — browser `<img>`, GitHub, the app — themes automatically; everything else falls back to the literal hex. Since the preview inlines images as `data:` URLs in `<img>`, whiteboards embedded in notes flip with the OS scheme for free.
+- **Scoping is load-bearing:** all rules scope to the root `svg` element (attribute-selected, e.g. `svg[wb\:role]` or a root class), never `:root` — the SVG gets inlined into HTML contexts (export, mermaid-style DOM inlining) where `:root` is the page. And the block must carry `wb:role="palette"` so parse recognizes it as tool-owned and regenerates it, instead of the verbatim-prelude rule freezing it as foreign content.
+- Custom (non-palette) colors stay literal and unthemed — no class, no entry in the block. The color picker's 8 swatches are therefore *roles*; a custom hex is an explicit opt-out. Scan S4 already snaps to this same canonical palette, so **scanned strokes are themable with zero extra scan work**; "preserve measured colour" opts a stroke out exactly like a custom hex.
+
+**In-app override.** The app theme can be forced independent of the OS (`src/ui/theme.ts`), and pluggable theme JSONs may want their own board palette. The draw adapter (live DOM) sets `--wb-c0…c7`/`--wb-bg` as inline style on the root `<svg>` from the active theme — inline style beats the embedded block, so forced-dark-on-light-OS renders correctly while editing. Known residual mismatch: `<img>`-based preview only sees the OS media query, not the forced app theme; acceptable for v1, and the documented fix (inline whiteboard SVGs into the preview DOM the way mermaid diagrams are) is an optional follow-on.
+
+**Dark variants** are auto-derived (near-black → near-white; chromatic slots lightened toward their hue's dark-background-legible tone), overridable by a `whiteboard` section in theme JSON files. The 8 derived defaults are constants next to `PALETTE` in `tool-settings.ts` (same eager-bundle leaf constraint).
+
+**Round-trip.** The style block and classes are injected only on a genuine user edit — the same accepted normalize-on-first-edit contract; mount → look → close stays byte-identical. Serializer emits the block deterministically (fixed rule order); format goldens extend to cover it. Additive to schema 1: old builds and foreign renderers ignore the classes and read the presentation attributes. A per-document `"themed": false` in `wb:doc` metadata disables emission entirely.
+
 ## Phases (each independently shippable; worktree workflow per CLAUDE.md)
 
 **Phase 1 — Format, routing, view + raw editing. ✅ SHIPPED** (branch `feat/whiteboard-format`). scene/parse/serialize, doc-family, mode/adapter plumbing, routing, StatusBar/Ribbon gating, adapter that renders + pans/zooms (read-only tools), error card; raw mode fully working.
@@ -277,6 +294,9 @@ Decisions taken during Phase 1 that the spec above did not pin down:
 - **Explorer context menu**: right-click a workspace/folder → the existing "Import document" entry grows a submenu — *Document…* (today's PDF/DOCX picker) and *New whiteboard* (creates the skeleton `.svg` in that folder and opens it in Draw). The *Whiteboard scan…* item lands in the same submenu in Phase 4, so the menu shape should be built now with the scan row disabled/absent rather than restructured later.
 
 *Verify:* check+test (smoothing/hit-test/history/layer goldens & invariants); desktop draw-save-reopen-in-browser renders identically; right-click → New whiteboard creates and opens a board in the clicked folder.
+
+**Phase 2.5 — Themable ink** (small; after Phase 2 QA lands, so it isn't retrofitted into an unmerged branch). Palette-slot classes + serializer-owned scoped `<style wb:role="palette">` block with dark-scheme media query, dark-variant constants beside `PALETTE`, adapter inline-var override from the active theme, theme-JSON `whiteboard` override section, `"themed"` metadata toggle. Spec in [Themable ink](#themable-ink-palette-slots-as-css-variables).
+*Verify:* format goldens for the block + classes; open-without-edit stays byte-identical; saved board in a browser flips with OS dark mode; forced app theme themes the editor correctly; a custom-hex stroke stays untouched in both schemes; export fallback renders the literal hexes.
 
 **Phase 3 — Selection, text, touch polish.** Select/move/resize with baked transforms, text tool, full pointer routing (pinch, palm rejection, finger toggle, pen eraser), phone toolbar layout, viewport persistence.
 *Verify:* classifier truth-table tests; `pnpm run android:deploy` on tablet — palm-resting pen draw, finger pan, pinch; desktop regression.
