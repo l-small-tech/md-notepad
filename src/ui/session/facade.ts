@@ -244,6 +244,7 @@ let savePastedImageDispatch: (
 let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = async () => {};
 let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
+let createWhiteboardDispatch: (dir: string) => Promise<string | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -296,6 +297,9 @@ export function setCreateNewFileDispatch(fn: (dir: string) => Promise<string | n
 }
 export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<string | null>): void {
   createNewFolderDispatch = fn;
+}
+export function setCreateWhiteboardDispatch(fn: (dir: string) => Promise<string | null>): void {
+  createWhiteboardDispatch = fn;
 }
 export function setRenameEntryDispatch(
   fn: (path: string, newName: string, isDir: boolean) => Promise<void>,
@@ -520,6 +524,11 @@ export function createNewFileIn(dir: string): Promise<string | null> {
 /** FileExplorer context menu → controller: create a new subfolder in `dir`. */
 export function createNewFolderIn(dir: string): Promise<string | null> {
   return createNewFolderDispatch(dir);
+}
+/** FileExplorer context menu → controller: write a blank whiteboard (.svg) into
+ *  `dir` and open it in Draw mode. Resolves with its path (null on failure). */
+export function createWhiteboardIn(dir: string): Promise<string | null> {
+  return createWhiteboardDispatch(dir);
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk
  *  (extension preserved for files; open tabs are retargeted). */

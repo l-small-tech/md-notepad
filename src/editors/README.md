@@ -162,20 +162,47 @@ SVG source editor. Nothing about `TabKind` or the session manifest changed:
 build instead of self-healing the session away.
 
 - All logic lives in `src/core/whiteboard/` (read its README first). This file
-  is the only place in the whiteboard stack that touches the DOM.
-- Rendering hands the **original source text** to DOMParser and adopts the
-  resulting `<svg>`, so the pane shows exactly what is on disk — the same
-  pixels a browser or the markdown preview would show. `parseWhiteboard` runs
-  alongside as validation and (from Phase 2) as the edit model; a parse failure
-  is what raises the error card, whose "Open as text" button calls
+  and `whiteboard-layers.ts` are the only places in the whiteboard stack that
+  touch the DOM.
+- Rendering hands **SVG source** to DOMParser and adopts the resulting `<svg>`,
+  so the pane shows exactly what the file says — the same pixels a browser or
+  the markdown preview would show. Before the first edit that source is the
+  file's own bytes; after it, `serializeWhiteboard(scene)`. There is
+  deliberately no second rendering path that could drift from the format. A
+  parse failure raises the error card, whose "Open as text" button calls
   `setMode('raw')`.
+- The in-progress stroke/shape is drawn on a transparent `<svg>` overlay via
+  `serializeElement` — the same function that will write the committed element,
+  so the drag preview cannot disagree with the result. The board itself is not
+  touched until the pointer lifts.
 - Pan/zoom reuses `core/diagram-zoom.ts` unchanged. The stage sets
-  `touch-action: none` and does its own pointer routing: one pointer pans, two
-  pinch-zoom about their midpoint, wheel zooms about the cursor.
-- **Phase 1 never pushes into the DocModel**, so opening a whiteboard cannot
-  dirty it. Once the Phase 2 tools land, that guarantee must be re-established
-  the Milkdown way — a `createWritebackGuard` that serializes only after a real
-  user edit (I2).
+  `touch-action: none` and does its own pointer routing. Phase 2 is **mouse and
+  pen only** for tools: a finger pans (one pointer) or pinch-zooms (two), and a
+  held space bar or non-primary button pans without leaving the tool. A pen's
+  eraser end (`button === 5`) overrides the selected tool while it is down.
+  Full touch routing, palm rejection and the finger-draw toggle are phase 3.
+- **Write-back is guarded** (I2): nothing is pushed into the DocModel until a
+  genuine edit, so mount → look → close is byte-identical and opening a
+  hand-authored or Inkscape SVG never normalizes it. Pushes are debounced
+  150 ms and flushed synchronously in `detach()`, which is what makes a fast
+  Draw→Raw toggle lossless.
+- **Echo suppression is a reentrancy flag**, not a version check: our own
+  `pushText` re-enters the model subscription synchronously (see
+  `doc-model.ts`). Without the flag every stroke would re-parse the board from
+  its own output and reset the undo history.
+- Undo is a snapshot stack (`core/whiteboard/history.ts`), **per adapter
+  instance** — it is lost on a Draw⇄Raw switch, matching the documented
+  raw⇄wysiwyg limitation. An external change (raw edit, file reload, conflict
+  resolution) resets the timeline to the incoming text.
+- The **ribbon is the draw toolbar**: tool, colour and nib live in
+  `ui/stores/whiteboard.ts` (global, not per-tab — the marker you picked stays
+  picked on the next board) and the adapter reads them at each gesture start.
+  Undo depth flows the other way through `onStateChange`. The layers panel and
+  zoom cluster stay in the adapter, so neither side subscribes to the other.
+  Note `core/whiteboard/tool-settings.ts` is a dependency-free leaf **on
+  purpose**: the ribbon is in the eager entry bundle, and importing the palette
+  from `tools.ts` would drag smoothing, serialization and the XML reader into
+  startup, quietly undoing I8.
 
 ## Testing expectations
 

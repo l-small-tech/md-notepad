@@ -17,6 +17,7 @@
 
 import { escapeAttr, escapeText } from './xml';
 import {
+  createScene,
   SCENE_SCHEMA,
   SVG_NAMESPACE,
   WB_NAMESPACE,
@@ -83,6 +84,14 @@ export function serializeWhiteboard(doc: SceneDoc): string {
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * The bytes "New whiteboard" writes to disk: an empty board with one layer.
+ * Deterministic, so a freshly created `.svg` has a stable, reviewable diff.
+ */
+export function blankWhiteboardSource(): string {
+  return serializeWhiteboard(createScene());
+}
+
 /* -------------------------------------------------------------------------- */
 
 function metaJson(doc: SceneDoc): string {
@@ -146,7 +155,12 @@ function serializeLayer(layer: Layer): string[] {
   return [`${open}>`, ...body, `${INDENT}</g>`];
 }
 
-function serializeElement(element: SceneElement): string {
+/**
+ * One element's markup. Exported because the draw adapter renders the
+ * in-progress stroke/shape by serializing the very element it is about to
+ * commit — so what you see while dragging is exactly what lands in the file.
+ */
+export function serializeElement(element: SceneElement): string {
   switch (element.kind) {
     case 'stroke':
       return serializeStroke(element);

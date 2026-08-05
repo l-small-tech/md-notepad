@@ -39,6 +39,8 @@ import {
   reloadThemes,
   selectTheme,
 } from '../theme-actions';
+import { PALETTE, STROKE_WIDTHS, type DrawTool } from '../../core/whiteboard/tool-settings';
+import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
@@ -441,6 +443,127 @@ function FormatControls() {
 }
 
 /**
+ * Center cluster for DRAW mode — the whiteboard's toolbar.
+ *
+ * The ribbon IS the draw toolbar (a Phase 1 QA decision): the same strip that
+ * shows bold/italic for markdown swaps to pen/highlighter/eraser/shapes here,
+ * so there is one toolbar to learn and the whole pane stays board. Tool,
+ * colour and width live in the whiteboard store (global — the marker you picked
+ * is still picked on the next board); undo and the layers panel are per-tab and
+ * go through the adapter registry.
+ */
+function DrawControls({ tabId }: { tabId: string | null }) {
+  const tool = useWhiteboardStore((s) => s.tool);
+  const color = useWhiteboardStore((s) => s.color);
+  const width = useWhiteboardStore((s) => s.width);
+  const tabState = useWhiteboardStore((s) => (tabId !== null ? s.byTab[tabId] : undefined));
+  const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
+
+  function toolButton(id: DrawTool, label: ReactNode, title: string) {
+    return (
+      <button
+        className="ribbon-btn"
+        aria-label={title}
+        aria-pressed={tool === id}
+        data-active={tool === id || undefined}
+        title={title}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => whiteboardStore.getState().setTool(id)}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <div className="ribbon-center">
+      {toolButton('pen', '✎', 'Pen')}
+      {toolButton('highlighter', '▤', 'Highlighter')}
+      {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
+
+      <span className="ribbon-divider" role="separator" />
+
+      {toolButton('rect', '▭', 'Rectangle')}
+      {toolButton('ellipse', '◯', 'Ellipse')}
+      {toolButton('line', '╱', 'Line')}
+      {toolButton('arrow', '➜', 'Arrow')}
+
+      <span className="ribbon-divider" role="separator" />
+
+      <div className="ribbon-swatches" role="group" aria-label="Ink colour">
+        {PALETTE.map((swatch) => (
+          <button
+            key={swatch}
+            className="ribbon-swatch"
+            style={{ background: swatch }}
+            aria-label={`Colour ${swatch}`}
+            aria-pressed={color === swatch}
+            data-active={color === swatch || undefined}
+            title={swatch}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => whiteboardStore.getState().setColor(swatch)}
+          />
+        ))}
+      </div>
+
+      <div className="ribbon-swatches" role="group" aria-label="Stroke width">
+        {STROKE_WIDTHS.map((size) => (
+          <button
+            key={size}
+            className="ribbon-nib"
+            aria-label={`Width ${size}`}
+            aria-pressed={width === size}
+            data-active={width === size || undefined}
+            title={`Width ${size}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => whiteboardStore.getState().setWidth(size)}
+          >
+            {/* The dot is the nib at (a readable multiple of) its real size. */}
+            <span style={{ width: 2 + size, height: 2 + size, background: color }} />
+          </button>
+        ))}
+      </div>
+
+      <span className="ribbon-divider" role="separator" />
+
+      <button
+        className="ribbon-btn"
+        aria-label="Undo"
+        title="Undo (Ctrl/Cmd+Z)"
+        disabled={!tabState?.canUndo}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => adapter?.undo()}
+      >
+        ↶
+      </button>
+      <button
+        className="ribbon-btn"
+        aria-label="Redo"
+        title="Redo (Ctrl/Cmd+Shift+Z)"
+        disabled={!tabState?.canRedo}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => adapter?.redo()}
+      >
+        ↷
+      </button>
+      <button
+        className="ribbon-btn"
+        aria-label="Layers"
+        aria-pressed={tabState?.layersOpen ?? false}
+        data-active={tabState?.layersOpen || undefined}
+        title={
+          tabState?.activeLayerName ? `Layers — drawing on "${tabState.activeLayerName}"` : 'Layers'
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => adapter?.toggleLayers()}
+      >
+        ☰▤
+      </button>
+    </div>
+  );
+}
+
+/**
  * Center cluster for READ mode: a display toolset (text zoom). No text-editing
  * controls — reading is read-only — so the ribbon offers ways to change how the
  * text is shown instead. preventDefault on press keeps focus on the reading
@@ -565,7 +688,13 @@ export function Ribbon() {
         )}
       </div>
 
-      {mode === 'read' ? <ReaderControls /> : <FormatControls />}
+      {mode === 'draw' ? (
+        <DrawControls tabId={activeTabId} />
+      ) : mode === 'read' ? (
+        <ReaderControls />
+      ) : (
+        <FormatControls />
+      )}
 
       <div className="ribbon-right">
         <button

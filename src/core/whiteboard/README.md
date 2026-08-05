@@ -10,6 +10,18 @@ what a whiteboard *is* lives here.
 | `scene.ts` | `SceneDoc` / `Layer` / `SceneElement` — the immutable scene model |
 | `parse.ts` | SVG source → `SceneDoc` |
 | `serialize.ts` | `SceneDoc` → deterministic SVG source |
+| `geometry.ts` | points, rects, path flattening — "what is under this point" |
+| `smoothing.ts` | 1€ filter → RDP → Catmull-Rom Béziers; the pen pipeline |
+| `tool-settings.ts` | tool ids, palette, nib sizes. **A dependency-free leaf** |
+| `tools.ts` | gesture → `SceneElement` (the tools themselves) |
+| `layers.ts` | pure `(doc, …) → doc` layer and element operations |
+| `hit-test.ts` | the eraser's aim, and phase 3's selection base |
+| `history.ts` | the snapshot undo stack |
+
+`tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws
+the palette and lives in the eager entry bundle, so importing it from `tools.ts`
+would pull smoothing, serialization and the XML reader into startup and quietly
+undo invariant I8. Keep that module importing nothing but a type.
 
 ## The one big idea
 
@@ -37,6 +49,17 @@ Two reasons. Core is DOM-free (I9), so the format's golden tests must run in
 the node env with no shims. And the "nothing is ever dropped" guarantee needs
 **source spans**: content we don't model is re-emitted by slicing the original
 text, which `XMLSerializer` cannot do — it reformats.
+
+## Why erasing deletes elements
+
+Whole-element erase, never `<mask>`. Masking looks nicer for about a minute and
+then bloats the file with an ever-growing mask path, breaks the "renders
+identically in a browser" promise, and makes selection meaningless. Deleting
+the element the user touched is the honest operation — and because scanned ink
+will be made of the same `<path wb:tool="pen">` elements, it works there too.
+
+`RawElement`s are invisible to every tool by design: unmodeled content belongs
+to whoever authored it, and that is what makes carrying it safe.
 
 ## The two round-trip guarantees (don't conflate them)
 

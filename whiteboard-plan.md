@@ -104,6 +104,8 @@ cache?</desc>
 
 **Toolbar placement — revised after Phase 1 QA.** The original plan put the draw tools in a dedicated left rail (≥700 px) or bottom bar. The user's call instead: **the existing top ribbon becomes the draw toolbar in Draw mode** — the same strip that shows bold/italic/etc. for markdown swaps to pen/highlighter/eraser/shapes/text/colors. That is one toolbar to learn, not two, and it keeps the full pane for the board. The phone/tablet layout can still collapse it to a bottom bar (Phase 3); the desktop shape is now the ribbon. Phase 1 gates the markdown formatting actions out of Draw mode; Phase 2 replaces them.
 
+Phase 2 shipped the ribbon toolbar: tool buttons latch (`data-active`), the eight-colour palette and four nib sizes are inline swatch groups, and undo/redo/layers sit at the right. Phase 3 owns the phone/tablet collapse to a bottom bar.
+
 **Touch UX:** pointer events, `touch-action:none`, `setPointerCapture`, `getCoalescedEvents`. Pure `routePointer` classifier in `core/whiteboard/input.ts`: pen = tool, 1-finger = pan, 2-finger = pinch, mouse = tool (+wheel zoom, space/middle pan); "draw with finger" toolbar toggle (default on until first pen seen). Palm rejection: ignore touches while pen down +300 ms, oversized contacts, and cancel-undo a touch stroke if pen lands within 150 ms. Toolbar: left rail ≥700 px, bottom bar on phones; ≥44 px targets.
 
 ## Photo → SVG pipeline ("Scan")
@@ -272,11 +274,25 @@ Decisions taken during Phase 1 that the spec above did not pin down:
 - A `.svg` in a **read-only workspace** keeps the old image-viewer behavior; only writable ones route to the whiteboard.
 - The full v1 element vocabulary (stroke / rect / ellipse / line / arrow / text / image) is already parsed and serialized, so Phase 2 only has to *create* elements, not extend the format.
 
-**Phase 2 — Drawing.** Pen/highlighter/eraser/shapes/arrow, undo/redo, layers panel, writeback on first edit, "New whiteboard" entry point (creates skeleton `.svg`, opens it). Mouse+pen input only. Plus, from Phase 1 QA:
-- **Ribbon becomes the draw toolbar** in Draw mode (see toolbar note above) — the single biggest visible gap today, since Draw mode currently shows a markdown toolbar that does nothing.
-- **Explorer context menu**: right-click a workspace/folder → the existing "Import document" entry grows a submenu — *Document…* (today's PDF/DOCX picker) and *New whiteboard* (creates the skeleton `.svg` in that folder and opens it in Draw). The *Whiteboard scan…* item lands in the same submenu in Phase 4, so the menu shape should be built now with the scan row disabled/absent rather than restructured later.
+**Phase 2 — Drawing. ✅ SHIPPED** (branch `feat/whiteboard-draw`). Pen/highlighter/eraser/shapes/arrow, undo/redo, layers panel, write-back on first edit, "New whiteboard" entry point, ribbon-as-toolbar, explorer submenu. Mouse+pen input only.
 
 *Verify:* check+test (smoothing/hit-test/history/layer goldens & invariants); desktop draw-save-reopen-in-browser renders identically; right-click → New whiteboard creates and opens a board in the clicked folder.
+
+Automated verification is green: `pnpm run check`, 888 tests (85 new across geometry/smoothing/tools/layers/hit-test/history), `pnpm run build`, `cargo check`, and `tauri:dev` launches and runs clean.
+
+New pure modules, all colocated-tested: `geometry.ts` (path flattening, distances, rects), `smoothing.ts` (1€ filter → RDP → Catmull-Rom Béziers), `tool-settings.ts` + `tools.ts` (gesture → element), `layers.ts`, `hit-test.ts`, `history.ts`. `serialize.ts` gained `serializeElement` (exported) and `blankWhiteboardSource()`.
+
+Decisions taken during Phase 2 that the spec above did not pin down:
+
+- **The board renders from serialized source, not from a second DOM builder.** After the first edit the adapter renders `serializeWhiteboard(scene)` through the same DOMParser path Phase 1 used for the file's own bytes. One rendering path means the pane physically cannot drift from the format, and it costs a serialize+parse per commit (sub-millisecond at these sizes). The in-progress stroke lives on a transparent overlay drawn with `serializeElement`, so the drag preview is the committed element.
+- **`tool-settings.ts` is a dependency-free leaf, split from `tools.ts`.** The ribbon is in the eager entry bundle and needs the palette; importing it from `tools.ts` would have pulled smoothing, serialization and the XML reader into startup. Verified after the split: the whiteboard is still its own 21.6 KB lazy chunk and only the colour constants reach the entry bundle.
+- **Tool/colour/nib are global, undo is per-tab.** The marker you picked stays picked on the next board (what every drawing app does); undo depth is genuinely per-document and is keyed by tabId in `ui/stores/whiteboard.ts`. The adapter *pulls* tool settings at each gesture start and *pushes* undo state via `onStateChange`, so neither side subscribes to the other.
+- **The layers panel and zoom cluster stay in the adapter**, not the ribbon. That removes all the plumbing a ribbon-hosted panel toggle would need, and keeps the lazy chunk self-contained.
+- **The eraser deletes whole elements** (no masking — see `core/whiteboard/README.md` for why), and a whole drag is **one** undo step. Removals paint immediately; Escape restores from the last committed snapshot.
+- **Menu shape deviates slightly from the plan above.** "New whiteboard" sits beside New file / New folder — that is where it belongs semantically and it is far more discoverable — while "Import document…" became a drill-in **Import ›** page holding *Document…*. Phase 4's *Whiteboard scan…* joins that page with no restructuring, which was the point of the original instruction. Drill-in rather than hover flyout: Android has no hover.
+- **The first stroke on a foreign SVG creates its own layer**, inside the same undo step (`ensureDrawLayer`) — an imported board has only its locked "Imported" layer, and drawing must not require a trip to the layers panel first.
+- **Deleting the last layer empties it** instead of removing it. A board with nowhere to draw is a dead end the UI would then have to explain.
+- **`viewBox` is NOT recomputed on save.** The plan mentions growing it to cover content; doing so would resize the board out from under the user mid-stroke. Deferred to phase 3, where selection makes "fit the board to its content" an explicit command.
 
 **Phase 3 — Selection, text, touch polish.** Select/move/resize with baked transforms, text tool, full pointer routing (pinch, palm rejection, finger toggle, pen eraser), phone toolbar layout, viewport persistence.
 *Verify:* classifier truth-table tests; `pnpm run android:deploy` on tablet — palm-resting pen draw, finger pan, pinch; desktop regression.
