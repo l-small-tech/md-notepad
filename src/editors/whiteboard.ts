@@ -505,22 +505,27 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
   }
 
-  /** The element the current gesture would produce right now, or null. */
-  function previewElement(end: Point): SceneElement | null {
-    if (!gesture) {
-      return null;
+  /**
+   * The element `active` would produce if it ended at `end`.
+   *
+   * The gesture is an explicit ARGUMENT, not read from the closure: `commit` on
+   * pointer-up has to happen after the gesture is cleared (so a stray event
+   * can't extend a finished stroke), and reading `gesture` here meant that call
+   * always saw null — every stroke drew, then vanished on release.
+   */
+  function elementFor(active: Gesture, end: Point): SceneElement | null {
+    if (active.tool === 'pen' || active.tool === 'highlighter') {
+      return makeStroke(active.tool, active.points, active.color, active.width);
     }
-    if (gesture.tool === 'pen' || gesture.tool === 'highlighter') {
-      return makeStroke(gesture.tool, gesture.points, gesture.color, gesture.width);
-    }
-    if (isShapeTool(gesture.tool)) {
-      return makeShape(gesture.tool, gesture.start, end, gesture.color, gesture.width);
+    if (isShapeTool(active.tool)) {
+      return makeShape(active.tool, active.start, end, active.color, active.width);
     }
     return null;
   }
 
-  function updatePreview(end: Point = gesture?.start ?? { x: 0, y: 0 }): void {
-    setPreview(previewElement(end));
+  /** Redraw the overlay for the gesture in flight. No-op when there is none. */
+  function updatePreview(end?: Point): void {
+    setPreview(gesture ? elementFor(gesture, end ?? gesture.start) : null);
   }
 
   /** Remove everything under `point` from the gesture's working document. */
@@ -553,7 +558,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       }
       return;
     }
-    const element = previewElement(end);
+    const element = elementFor(active, end);
     if (!element) {
       return;
     }
