@@ -93,6 +93,30 @@ describe('parseThemePlugin', () => {
       parseThemePlugin('syn3', { light: {}, dark: {}, syntax: { light: { heading: '#0a0' } } }),
     ).toBeNull();
   });
+
+  test('parses an optional per-mode whiteboard block (phase 2.5)', () => {
+    const plugin = parseThemePlugin('wb', {
+      light: { bg: '#fff' },
+      dark: { bg: '#000' },
+      whiteboard: {
+        light: { bg: '#fffdf5', c0: '#221100' },
+        dark: { bg: '#101418', c6: '#88bbff' },
+      },
+    });
+    expect(plugin!.whiteboard).toEqual({
+      light: { bg: '#fffdf5', c0: '#221100' },
+      dark: { bg: '#101418', c6: '#88bbff' },
+    });
+  });
+
+  test('drops unknown/unsafe whiteboard keys and omits the block when empty', () => {
+    const plugin = parseThemePlugin('wb2', {
+      light: { bg: '#fff' },
+      dark: {},
+      whiteboard: { light: { c9: '#000', c0: 'red; }' }, dark: {} },
+    });
+    expect(plugin!.whiteboard).toBeUndefined();
+  });
 });
 
 describe('themePluginToCss', () => {
@@ -167,6 +191,26 @@ describe('themePluginToCss', () => {
     expect(lightBlock).not.toContain('--md-heading:');
     expect(darkBlock).toContain('--md-heading: #66ff66;');
     expect(darkBlock).not.toContain('--md-heading1:');
+  });
+
+  test('emits --wb-* whiteboard vars into the matching mode blocks', () => {
+    const css = themePluginToCss({
+      id: 'wb',
+      name: 'Wb',
+      light: { bg: '#ffffff' },
+      dark: { bg: '#000000' },
+      whiteboard: {
+        light: { bg: '#fffdf5' },
+        dark: { bg: '#101418', c6: '#88bbff' },
+      },
+    });
+    const darkSelector = ":root[data-color-scheme='wb'][data-theme='dark']";
+    const lightBlock = css.slice(0, css.indexOf(darkSelector));
+    const darkBlock = css.slice(css.indexOf(darkSelector));
+    expect(lightBlock).toContain('--wb-bg: #fffdf5;');
+    expect(lightBlock).not.toContain('--wb-c6');
+    expect(darkBlock).toContain('--wb-bg: #101418;');
+    expect(darkBlock).toContain('--wb-c6: #88bbff;');
   });
 
   test('renders every seeded built-in without throwing', () => {

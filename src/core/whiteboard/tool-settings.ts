@@ -35,6 +35,36 @@ export const PALETTE: readonly string[] = [
   '#8a3fd1',
 ];
 
+/**
+ * Dark-scheme variants of the eight slots, index-aligned with {@link PALETTE}:
+ * near-black flips to near-white, chromatic slots are lifted toward a tone
+ * legible on a dark board. These are the DEFAULTS the serializer bakes into a
+ * file's palette `<style>` block and base.css declares as `--wb-c0…c7`; a theme
+ * JSON's `whiteboard` section may override them per scheme.
+ */
+export const PALETTE_DARK: readonly string[] = [
+  '#e6e6e6',
+  '#ef6363',
+  '#f09b3c',
+  '#d9bc3f',
+  '#43c17c',
+  '#3ab5b5',
+  '#62a0ef',
+  '#b07ce8',
+];
+
+/** Dark-scheme board background (`--wb-bg`); light is the canonical #ffffff. */
+export const BOARD_BACKGROUND_DARK = '#1e1e1e';
+
+/**
+ * The palette slot a colour belongs to, or -1 for a custom hex. Exact string
+ * match on purpose: a custom colour — even one letter-case away from a slot —
+ * is an explicit opt-out of theming and stays literal in every scheme.
+ */
+export function paletteSlot(color: string): number {
+  return PALETTE.indexOf(color);
+}
+
 /** Nib sizes, in scene units, offered by the ribbon. */
 export const STROKE_WIDTHS: readonly number[] = [1.5, 3, 6, 12];
 export const DEFAULT_STROKE_WIDTH = 3;

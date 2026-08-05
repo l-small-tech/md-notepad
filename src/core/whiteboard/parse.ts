@@ -114,6 +114,12 @@ export function parseWhiteboard(source: string): SceneDoc {
       continue;
     }
 
+    if (name === 'style' && attr(node, 'wb:role') === 'palette') {
+      // The serializer-owned palette block: tool-owned, regenerated wholesale
+      // on save. Freezing it as prelude would pin a stale palette forever.
+      continue;
+    }
+
     if (name === 'rect' && attr(node, 'wb:role') === 'background') {
       // The rendered backdrop; regenerated from `background` on save.
       background = attr(node, 'fill') ?? background;
@@ -157,7 +163,7 @@ export function parseWhiteboard(source: string): SceneDoc {
     height: Number.isFinite(height) && height > 0 ? height : DEFAULT_BOARD_HEIGHT,
     viewBox,
     background: background ?? DEFAULT_BACKGROUND,
-    rootExtras: extrasOf(root, OWNED_ROOT_ATTRS),
+    rootExtras: rootExtrasOf(root),
     prelude,
     layers,
     meta,
@@ -218,6 +224,25 @@ function extrasOf(element: XmlElement, owned: ReadonlySet<string>): SceneAttr[] 
   return element.attrs
     .filter((a) => !owned.has(a.name))
     .map((a) => ({ name: a.name, value: a.value }));
+}
+
+/**
+ * Root extras, with the serializer's own `wb-board` token removed from any
+ * `class` attribute — serialize re-adds it (merged in front of a foreign
+ * class), so leaving it here would emit the attribute twice and grow a
+ * duplicate token on every round trip.
+ */
+function rootExtrasOf(root: XmlElement): SceneAttr[] {
+  return extrasOf(root, OWNED_ROOT_ATTRS).flatMap((a) => {
+    if (a.name !== 'class') {
+      return [a];
+    }
+    const rest = a.value
+      .split(/\s+/)
+      .filter((token) => token.length > 0 && token !== 'wb-board')
+      .join(' ');
+    return rest.length > 0 ? [{ name: 'class', value: rest }] : [];
+  });
 }
 
 function readLayer(source: string, group: XmlElement): Layer {

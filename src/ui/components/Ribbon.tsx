@@ -39,7 +39,12 @@ import {
   reloadThemes,
   selectTheme,
 } from '../theme-actions';
-import { PALETTE, STROKE_WIDTHS, type DrawTool } from '../../core/whiteboard/tool-settings';
+import {
+  PALETTE,
+  paletteSlot,
+  STROKE_WIDTHS,
+  type DrawTool,
+} from '../../core/whiteboard/tool-settings';
 import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
@@ -458,6 +463,9 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const width = useWhiteboardStore((s) => s.width);
   const tabState = useWhiteboardStore((s) => (tabId !== null ? s.byTab[tabId] : undefined));
   const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
+  // Palette colours preview through their theme slot; a custom hex stays literal.
+  const colorSlot = paletteSlot(color);
+  const nibColor = colorSlot < 0 ? color : `var(--wb-c${colorSlot}, ${color})`;
 
   function toolButton(id: DrawTool, label: ReactNode, title: string) {
     return (
@@ -491,11 +499,13 @@ function DrawControls({ tabId }: { tabId: string | null }) {
       <span className="ribbon-divider" role="separator" />
 
       <div className="ribbon-swatches" role="group" aria-label="Ink colour">
-        {PALETTE.map((swatch) => (
+        {/* Swatches render through the --wb-* slot vars (phase 2.5) so the
+            picker shows the ink the CURRENT theme will actually draw. */}
+        {PALETTE.map((swatch, slot) => (
           <button
             key={swatch}
             className="ribbon-swatch"
-            style={{ background: swatch }}
+            style={{ background: `var(--wb-c${slot}, ${swatch})` }}
             aria-label={`Colour ${swatch}`}
             aria-pressed={color === swatch}
             data-active={color === swatch || undefined}
@@ -519,7 +529,7 @@ function DrawControls({ tabId }: { tabId: string | null }) {
             onClick={() => whiteboardStore.getState().setWidth(size)}
           >
             {/* The dot is the nib at (a readable multiple of) its real size. */}
-            <span style={{ width: 2 + size, height: 2 + size, background: color }} />
+            <span style={{ width: 2 + size, height: 2 + size, background: nibColor }} />
           </button>
         ))}
       </div>

@@ -126,6 +126,26 @@ interface Gesture {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+/**
+ * The themable ink variables (phase 2.5). base.css defines them per app
+ * light/dark and theme-plugin JSONs may override them; the adapter copies the
+ * RESOLVED values onto the board `<svg>` (and the drag-preview overlay) as
+ * inline style. Inline beats the file's embedded palette `<style>` block, so a
+ * forced app theme renders correctly even when the OS scheme disagrees —
+ * exactly the layering the plan's "themable ink" section calls for.
+ */
+const WB_THEME_VARS = [
+  '--wb-bg',
+  '--wb-c0',
+  '--wb-c1',
+  '--wb-c2',
+  '--wb-c3',
+  '--wb-c4',
+  '--wb-c5',
+  '--wb-c6',
+  '--wb-c7',
+];
+
 export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): WhiteboardAdapter {
   let root: HTMLDivElement | null = null;
   let stage: HTMLDivElement | null = null;
@@ -146,6 +166,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   /** True while WE are pushing, so the model subscription ignores the echo. */
   let pushingSelf = false;
   let pendingPush = false;
+
+  let themeObserver: MutationObserver | null = null;
 
   let view: DiagramView = { scale: 1, x: 0, y: 0 };
   /** False until the board has been fitted against a stage with real pixels. */
@@ -301,12 +323,39 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // A DOMParser-created node's scripts never execute on adoption, and the
     // app CSP forbids inline script regardless.
     canvas.replaceChildren(document.importNode(svg, true), live);
+    // The overlay joins the board's palette scope so an in-flight stroke is
+    // themed exactly like it will be once committed.
+    live.classList.toggle('wb-board', parsed.meta.themed !== false);
+    applyInkTheme();
     activeLayerId = targetLayerId(parsed, activeLayerId);
     layersPanel?.render(parsed, activeLayerId);
     if (refit) {
       fitted = fit();
     } else {
       applyView();
+    }
+  }
+
+  /**
+   * Copy the app's resolved `--wb-*` values onto the board and overlay roots.
+   * Reading computed style off <html> keeps this module ignorant of the ui
+   * layer's theme plumbing (I9) while still honouring base.css, `data-theme`
+   * and any theme-plugin `whiteboard` override, all at once.
+   */
+  function applyInkTheme(): void {
+    const resolved = getComputedStyle(document.documentElement);
+    for (const target of [canvas?.firstElementChild, live]) {
+      if (!(target instanceof SVGSVGElement)) {
+        continue;
+      }
+      for (const name of WB_THEME_VARS) {
+        const value = resolved.getPropertyValue(name).trim();
+        if (value.length > 0) {
+          target.style.setProperty(name, value);
+        } else {
+          target.style.removeProperty(name);
+        }
+      }
     }
   }
 
@@ -772,6 +821,15 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       });
       resizeObserver.observe(stage);
 
+      // main.tsx reflects every theme change (setting, OS flip on 'system',
+      // scheme switch) into these <html> attributes — re-resolve the ink vars
+      // when they move so an open board recolours live.
+      themeObserver = new MutationObserver(applyInkTheme);
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme', 'data-color-scheme'],
+      });
+
       unsubscribe = doc.subscribe((change) => {
         if (pushingSelf) {
           return; // our own write-back echoing back through the model
@@ -798,6 +856,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       unsubscribe = null;
       resizeObserver?.disconnect();
       resizeObserver = null;
+      themeObserver?.disconnect();
+      themeObserver = null;
       fitted = false;
       spaceHeld = false;
       if (stage) {

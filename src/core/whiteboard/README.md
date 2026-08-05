@@ -89,6 +89,30 @@ diff readable. Don't introduce output that depends on iteration order or
 `Math.random` — `makeLayerId` takes its randomness by injection for exactly
 this reason.
 
+## Themable ink (phase 2.5)
+
+A saved board follows the viewer's colour scheme without ever depending on it:
+
+- Every element keeps its **concrete light-theme hex** in the presentation
+  attribute (the truth for any CSS-less renderer). An element whose colour is
+  one of the 8 `PALETTE` slots additionally gains `class="wb-cN"`; the white
+  background rect gains `wb-bg`. Classes are **derived from the colour at
+  serialize time, never stored** — that is what keeps the fixed point trivial.
+- One serializer-owned `<style wb:role="palette">` block defines
+  `--wb-bg`/`--wb-c0…c7` (light defaults + a `prefers-color-scheme: dark`
+  override from `PALETTE_DARK`) and maps the classes to `var(--wb-cN, <hex>)`.
+  Parse recognizes the `wb:role` and DROPS the block — it is regenerated on
+  every save, so a stale palette can never freeze into the prelude.
+- All rules scope to `svg.wb-board` (the serializer merges that class into the
+  root, in front of any foreign class; parse strips the token back out).
+  Never `:root` — the file gets inlined into HTML pages.
+- A custom hex gets no class and stays literal in every scheme; a custom
+  background likewise. `"themed": false` in the `wb:doc` metadata turns the
+  whole mechanism off for a document.
+- In the app, the adapter copies the resolved app-theme `--wb-*` values onto
+  the board `<svg>` as inline style (inline beats the embedded block), so a
+  forced app theme wins over the OS scheme while editing.
+
 ## Error policy
 
 Malformed XML throws `WhiteboardParseError`, which the adapter turns into the

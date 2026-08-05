@@ -61,21 +61,51 @@ export const SYNTAX_KEYS = {
   list: '--md-list',
 } as const;
 
+/**
+ * Optional whiteboard ink slots (JSON field → CSS custom property). `bg` is the
+ * board backdrop; `c0`–`c7` are the eight marker slots, index-aligned with
+ * `core/whiteboard/tool-settings.ts` PALETTE. base.css declares defaults for
+ * all nine per mode; the draw adapter copies the resolved values onto the
+ * board's `<svg>` as inline style, so a theme override wins over the file's own
+ * embedded palette block.
+ */
+export const WHITEBOARD_KEYS = {
+  bg: '--wb-bg',
+  c0: '--wb-c0',
+  c1: '--wb-c1',
+  c2: '--wb-c2',
+  c3: '--wb-c3',
+  c4: '--wb-c4',
+  c5: '--wb-c5',
+  c6: '--wb-c6',
+  c7: '--wb-c7',
+} as const;
+
 export type PaletteKey = keyof typeof PALETTE_KEYS;
 export type SyntaxKey = keyof typeof SYNTAX_KEYS;
+export type WhiteboardKey = keyof typeof WHITEBOARD_KEYS;
 
 export const PALETTE_KEY_LIST = Object.keys(PALETTE_KEYS) as PaletteKey[];
 export const SYNTAX_KEY_LIST = Object.keys(SYNTAX_KEYS) as SyntaxKey[];
+export const WHITEBOARD_KEY_LIST = Object.keys(WHITEBOARD_KEYS) as WhiteboardKey[];
 
 /** A light or dark palette: any subset of the ten keys → color string. */
 export type Palette = Partial<Record<PaletteKey, string>>;
 /** A light or dark markdown-element palette: any subset of the syntax keys. */
 export type SyntaxPalette = Partial<Record<SyntaxKey, string>>;
+/** A light or dark whiteboard ink palette: any subset of bg/c0…c7. */
+export type WhiteboardPalette = Partial<Record<WhiteboardKey, string>>;
 
 /** Per-mode markdown-element colors. */
 export interface SyntaxColors {
   light: SyntaxPalette;
   dark: SyntaxPalette;
+}
+
+/** Per-mode whiteboard ink slot colors. */
+export interface WhiteboardColors {
+  light: WhiteboardPalette;
+  dark: WhiteboardPalette;
 }
 
 export interface ThemePlugin {
@@ -87,6 +117,8 @@ export interface ThemePlugin {
   dark: Palette;
   /** Optional per-mode markdown-element colors (the `--md-*` vars). */
   syntax?: SyntaxColors;
+  /** Optional per-mode whiteboard ink slot colors (the `--wb-*` vars). */
+  whiteboard?: WhiteboardColors;
   /** Optional verbatim CSS appended after the palette blocks. */
   css?: string;
   /** Seed-content version, stamped only on the built-in examples we write to the
@@ -153,12 +185,21 @@ export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
       ? { light: syntaxLight, dark: syntaxDark }
       : undefined;
 
+  const wbRaw = isRecord(raw.whiteboard) ? raw.whiteboard : undefined;
+  const wbLight = pickSafe(wbRaw?.light, WHITEBOARD_KEY_LIST);
+  const wbDark = pickSafe(wbRaw?.dark, WHITEBOARD_KEY_LIST);
+  const whiteboard =
+    Object.keys(wbLight).length > 0 || Object.keys(wbDark).length > 0
+      ? { light: wbLight, dark: wbDark }
+      : undefined;
+
   return {
     id,
     name,
     light,
     dark,
     ...(syntax ? { syntax } : {}),
+    ...(whiteboard ? { whiteboard } : {}),
     ...(css ? { css } : {}),
   };
 }
@@ -181,11 +222,16 @@ function declarations<K extends string>(
     .join('\n');
 }
 
-/** Join the palette declarations and (optional) syntax declarations for one mode. */
-function modeDeclarations(palette: Palette, syntax: SyntaxPalette | undefined): string {
+/** Join the palette, syntax and whiteboard declarations for one mode. */
+function modeDeclarations(
+  palette: Palette,
+  syntax: SyntaxPalette | undefined,
+  whiteboard?: WhiteboardPalette,
+): string {
   return [
     declarations(palette, PALETTE_KEYS, PALETTE_KEY_LIST),
     syntax ? declarations(syntax, SYNTAX_KEYS, SYNTAX_KEY_LIST) : '',
+    whiteboard ? declarations(whiteboard, WHITEBOARD_KEYS, WHITEBOARD_KEY_LIST) : '',
   ]
     .filter((block) => block.length > 0)
     .join('\n');
@@ -198,7 +244,7 @@ function modeDeclarations(palette: Palette, syntax: SyntaxPalette | undefined): 
  * caller wraps them in its own `:root { … }` block.
  */
 export function themeModeDeclarations(plugin: ThemePlugin, mode: 'light' | 'dark'): string {
-  return modeDeclarations(plugin[mode], plugin.syntax?.[mode]);
+  return modeDeclarations(plugin[mode], plugin.syntax?.[mode], plugin.whiteboard?.[mode]);
 }
 
 /**
@@ -215,11 +261,11 @@ export function themeModeDeclarations(plugin: ThemePlugin, mode: 'light' | 'dark
 export function themePluginToCss(plugin: ThemePlugin): string {
   const attr = escapeAttrValue(plugin.id);
   const blocks: string[] = [];
-  const light = modeDeclarations(plugin.light, plugin.syntax?.light);
+  const light = modeDeclarations(plugin.light, plugin.syntax?.light, plugin.whiteboard?.light);
   if (light) {
     blocks.push(`:root[data-color-scheme='${attr}']:not([data-theme='dark']) {\n${light}\n}`);
   }
-  const dark = modeDeclarations(plugin.dark, plugin.syntax?.dark);
+  const dark = modeDeclarations(plugin.dark, plugin.syntax?.dark, plugin.whiteboard?.dark);
   if (dark) {
     blocks.push(`:root[data-color-scheme='${attr}'][data-theme='dark'] {\n${dark}\n}`);
   }

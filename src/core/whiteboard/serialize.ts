@@ -16,8 +16,10 @@
  */
 
 import { escapeAttr, escapeText } from './xml';
+import { BOARD_BACKGROUND_DARK, PALETTE, PALETTE_DARK, paletteSlot } from './tool-settings';
 import {
   createScene,
+  DEFAULT_BACKGROUND,
   SCENE_SCHEMA,
   SVG_NAMESPACE,
   WB_NAMESPACE,
@@ -48,22 +50,38 @@ export function num(value: number): string {
 export function serializeWhiteboard(doc: SceneDoc): string {
   const [vx, vy, vw, vh] = doc.viewBox;
   const lines: string[] = [];
+  const themed = isThemed(doc);
 
+  // Theming scopes every palette rule to `svg.wb-board` — the class, not
+  // `:root`, because the file gets inlined into HTML contexts (export,
+  // mermaid-style DOM inlining) where `:root` is the page. A foreign root
+  // class rides along after ours.
+  const foreignClass = doc.rootExtras.find((a) => a.name === 'class')?.value;
   const rootAttrs: string[] = [
     `xmlns="${SVG_NAMESPACE}"`,
     `xmlns:wb="${WB_NAMESPACE}"`,
     `viewBox="${num(vx)} ${num(vy)} ${num(vw)} ${num(vh)}"`,
     `width="${num(doc.width)}"`,
     `height="${num(doc.height)}"`,
-    ...extras(doc.rootExtras),
+    ...(themed
+      ? [`class="${escapeAttr(foreignClass ? `wb-board ${foreignClass}` : 'wb-board')}"`]
+      : []),
+    ...extras(themed ? doc.rootExtras.filter((a) => a.name !== 'class') : doc.rootExtras),
   ];
   lines.push(`<svg ${rootAttrs.join(' ')}>`);
 
   lines.push(`${INDENT}<metadata><wb:doc>${escapeText(metaJson(doc))}</wb:doc></metadata>`);
 
+  if (themed) {
+    lines.push(...paletteStyleBlock());
+  }
+
   if (doc.background !== null) {
+    // The backdrop is themable only while it is the canonical white — a custom
+    // background is an explicit opt-out, exactly like a custom ink colour.
+    const bgClass = themed && doc.background === DEFAULT_BACKGROUND ? ' class="wb-bg"' : '';
     lines.push(
-      `${INDENT}<rect wb:role="background" x="${num(vx)}" y="${num(vy)}" ` +
+      `${INDENT}<rect wb:role="background"${bgClass} x="${num(vx)}" y="${num(vy)}" ` +
         `width="${num(vw)}" height="${num(vh)}" fill="${escapeAttr(doc.background)}"/>`,
     );
   }
@@ -77,11 +95,54 @@ export function serializeWhiteboard(doc: SceneDoc): string {
   }
 
   for (const layer of doc.layers) {
-    lines.push(...serializeLayer(layer));
+    lines.push(...serializeLayer(layer, themed));
   }
 
   lines.push('</svg>');
   return `${lines.join('\n')}\n`;
+}
+
+/** `"themed": false` in the wb:doc metadata turns the palette machinery off. */
+export function isThemed(doc: SceneDoc): boolean {
+  return doc.meta.themed !== false;
+}
+
+/**
+ * The serializer-owned palette block: slot variables with light defaults, a
+ * `prefers-color-scheme: dark` override, and class → `var()` rules. CSS
+ * overrides presentation attributes, so a CSS-capable renderer themes the ink
+ * while anything dumber falls back to the literal hex each element carries.
+ * Regenerated wholesale on every save (parse drops the old copy), which is how
+ * the palette stays current when these constants change.
+ *
+ * The stroke rule excludes `<text>` — text is painted by `fill`, and handing it
+ * a stroke would outline every glyph at the default 1px width.
+ */
+function paletteStyleBlock(): string[] {
+  const inner = INDENT + INDENT;
+  const lines = [`${INDENT}<style wb:role="palette">`];
+  lines.push(`${inner}svg.wb-board{${paletteVars(DEFAULT_BACKGROUND, PALETTE)}}`);
+  lines.push(
+    `${inner}@media (prefers-color-scheme: dark){` +
+      `svg.wb-board{${paletteVars(BOARD_BACKGROUND_DARK, PALETTE_DARK)}}}`,
+  );
+  lines.push(`${inner}svg.wb-board .wb-bg{fill:var(--wb-bg,${DEFAULT_BACKGROUND})}`);
+  PALETTE.forEach((hex, slot) => {
+    lines.push(`${inner}svg.wb-board .wb-c${slot}:not(text){stroke:var(--wb-c${slot},${hex})}`);
+    lines.push(`${inner}svg.wb-board text.wb-c${slot}{fill:var(--wb-c${slot},${hex})}`);
+  });
+  lines.push(`${INDENT}</style>`);
+  return lines;
+}
+
+function paletteVars(bg: string, colors: readonly string[]): string {
+  return [`--wb-bg:${bg}`, ...colors.map((c, slot) => `--wb-c${slot}:${c}`)].join(';');
+}
+
+/** `class="wb-cN"` for a palette colour, or nothing for a custom hex. */
+function slotClassAttr(color: string, themed: boolean): string[] {
+  const slot = themed ? paletteSlot(color) : -1;
+  return slot < 0 ? [] : [`class="wb-c${slot}"`];
 }
 
 /**
@@ -131,7 +192,7 @@ function extras(attrs: readonly SceneAttr[]): string[] {
   return attrs.map((a) => `${a.name}="${escapeAttr(a.value)}"`);
 }
 
-function serializeLayer(layer: Layer): string[] {
+function serializeLayer(layer: Layer, themed: boolean): string[] {
   const attrs: string[] = [
     `wb:layer="${escapeAttr(layer.id)}"`,
     `wb:name="${escapeAttr(layer.name)}"`,
@@ -151,7 +212,7 @@ function serializeLayer(layer: Layer): string[] {
   if (layer.elements.length === 0) {
     return [`${open}/>`];
   }
-  const body = layer.elements.map((element) => INDENT + INDENT + serializeElement(element));
+  const body = layer.elements.map((element) => INDENT + INDENT + serializeElement(element, themed));
   return [`${open}>`, ...body, `${INDENT}</g>`];
 }
 
@@ -159,15 +220,17 @@ function serializeLayer(layer: Layer): string[] {
  * One element's markup. Exported because the draw adapter renders the
  * in-progress stroke/shape by serializing the very element it is about to
  * commit — so what you see while dragging is exactly what lands in the file.
+ * `themed` adds the palette-slot class (`wb-cN`) that the file's palette
+ * `<style>` block themes; classes are DERIVED from the colour, never stored.
  */
-export function serializeElement(element: SceneElement): string {
+export function serializeElement(element: SceneElement, themed = true): string {
   switch (element.kind) {
     case 'stroke':
-      return serializeStroke(element);
+      return serializeStroke(element, themed);
     case 'shape':
-      return serializeShape(element);
+      return serializeShape(element, themed);
     case 'text':
-      return serializeText(element);
+      return serializeText(element, themed);
     case 'image':
       return serializeImage(element);
     case 'raw':
@@ -177,13 +240,14 @@ export function serializeElement(element: SceneElement): string {
   }
 }
 
-function serializeStroke(stroke: StrokeElement): string {
+function serializeStroke(stroke: StrokeElement, themed: boolean): string {
   const attrs: string[] = [];
   if (stroke.id !== null) {
     attrs.push(`wb:id="${escapeAttr(stroke.id)}"`);
   }
   attrs.push(
     `wb:tool="${stroke.tool}"`,
+    ...slotClassAttr(stroke.stroke, themed),
     `d="${escapeAttr(stroke.d)}"`,
     'fill="none"',
     `stroke="${escapeAttr(stroke.stroke)}"`,
@@ -208,12 +272,15 @@ const GEOM_ORDER: Record<ShapeElement['shape'], readonly string[]> = {
   arrow: ['x1', 'y1', 'x2', 'y2'],
 };
 
-function serializeShape(shape: ShapeElement): string {
+function serializeShape(shape: ShapeElement, themed: boolean): string {
   const tag = shape.shape === 'rect' ? 'rect' : shape.shape === 'ellipse' ? 'ellipse' : 'line';
   const attrs: string[] = [];
   if (shape.id !== null) {
     attrs.push(`wb:id="${escapeAttr(shape.id)}"`);
   }
+  // Only the OUTLINE is themable — the palette block's class rule sets stroke.
+  // A shape fill stays literal (v1 shapes are fill="none" anyway).
+  attrs.push(...slotClassAttr(shape.stroke, themed));
   for (const key of GEOM_ORDER[shape.shape]) {
     attrs.push(`${key}="${num(shape.geom[key] ?? 0)}"`);
   }
@@ -234,11 +301,13 @@ function serializeShape(shape: ShapeElement): string {
   return `<${tag} ${attrs.join(' ')}/>`;
 }
 
-function serializeText(text: TextElement): string {
+function serializeText(text: TextElement, themed: boolean): string {
   const attrs: string[] = [];
   if (text.id !== null) {
     attrs.push(`wb:id="${escapeAttr(text.id)}"`);
   }
+  // Text paints with fill; the palette block themes it via `text.wb-cN`.
+  attrs.push(...slotClassAttr(text.fill, themed));
   attrs.push(
     `x="${num(text.x)}"`,
     `y="${num(text.y)}"`,

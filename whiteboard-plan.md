@@ -312,8 +312,19 @@ Decisions taken during Phase 2 that the spec above did not pin down:
 - **`viewBox` is NOT recomputed on save.** The plan mentions growing it to cover content; doing so would resize the board out from under the user mid-stroke. Deferred to phase 3, where selection makes "fit the board to its content" an explicit command.
 - **The board background stays a literal white `<rect>`** — QA asked whether it should follow the app theme. It cannot, as a plain literal: the same bytes have to render correctly in a browser and in the markdown preview. That question is what Phase 2.5 below answers properly, via palette slots.
 
-**Phase 2.5 — Themable ink** (small; after Phase 2 QA lands, so it isn't retrofitted into an unmerged branch). Palette-slot classes + serializer-owned scoped `<style wb:role="palette">` block with dark-scheme media query, dark-variant constants beside `PALETTE`, adapter inline-var override from the active theme, theme-JSON `whiteboard` override section, `"themed"` metadata toggle. Spec in [Themable ink](#themable-ink-palette-slots-as-css-variables).
+**Phase 2.5 — Themable ink. ✅ BUILT** (branch `feat/whiteboard-theme`; desktop QA pending). Palette-slot classes + serializer-owned scoped `<style wb:role="palette">` block with dark-scheme media query, dark-variant constants beside `PALETTE`, adapter inline-var override from the active theme, theme-JSON `whiteboard` override section, `"themed"` metadata toggle. Spec in [Themable ink](#themable-ink-palette-slots-as-css-variables).
 *Verify:* format goldens for the block + classes; open-without-edit stays byte-identical; saved board in a browser flips with OS dark mode; forced app theme themes the editor correctly; a custom-hex stroke stays untouched in both schemes; export fallback renders the literal hexes.
+
+Automated verification is green: `pnpm run check`, 906 tests (18 new: `theming.test.ts` goldens + theme-plugin `whiteboard` section), `pnpm run build` (whiteboard still its own lazy chunk), `cargo check`.
+
+Decisions taken during Phase 2.5 that the spec above did not pin down:
+
+- **Scoping is a root class (`svg.wb-board`), not a `wb:` attribute selector.** Namespaced-attribute selectors behave differently between XML documents and inlined-HTML contexts; a class matches identically in both. The serializer merges `wb-board` in front of any foreign root class and parse strips the token back out, so a single `class` attribute round-trips stably.
+- **Slot classes are derived from the colour at serialize time, never stored.** Parse ignores them entirely, which keeps the fixed-point invariant free and means old files gain theming on their first genuine edit (the accepted normalize-on-first-edit contract).
+- **The stroke rule is `.wb-cN:not(text)`; text is themed via `text.wb-cN { fill }`.** A bare stroke rule would outline every glyph at the default 1 px stroke-width. Shape fills stay literal (v1 shapes are `fill="none"`); only outlines and text ink are themed.
+- **The background rect is themable only while it is the canonical `#ffffff`** — a custom board colour is an opt-out exactly like a custom ink hex.
+- **The adapter reads resolved `--wb-*` values off `<html>` via `getComputedStyle`** (base.css declares defaults; theme JSONs override via their `whiteboard` section) and copies them as inline style onto the board *and* the drag-preview overlay, re-applying on a `MutationObserver` over `data-theme`/`data-color-scheme`. No ui-layer import, so I9 holds.
+- **The ribbon swatches and nib dot render through `var(--wb-cN, hex)`**, so the picker shows the ink the current theme will actually draw; the stored colour stays the canonical light hex (the slot's identity).
 
 **Phase 3 — Selection, text, touch polish.** Select/move/resize with baked transforms, text tool, full pointer routing (pinch, palm rejection, finger toggle, pen eraser), phone toolbar layout, viewport persistence.
 *Verify:* classifier truth-table tests; `pnpm run android:deploy` on tablet — palm-resting pen draw, finger pan, pinch; desktop regression.
