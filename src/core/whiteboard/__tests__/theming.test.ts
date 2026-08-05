@@ -122,6 +122,7 @@ describe('palette-slot classes', () => {
     const text: SceneElement = {
       kind: 'text',
       id: null,
+      fontFamily: null,
       x: 1,
       y: 2,
       fontSize: 16,

@@ -63,6 +63,20 @@ what a palm touching down just ahead of the nib looks like.
 It is pure because those combinations are exactly what testing by hand on one
 device fails to cover.
 
+One thing the adapter must keep doing, learned the hard way: **cancelling
+`pointerdown` costs you focus**, because focus-on-click rides on the
+compatibility `mousedown` that `preventDefault()` suppresses. The stage focuses
+itself explicitly on every accepted press; without that, every keyboard path
+(Delete, Ctrl+Z, nudge) dies silently after the first click.
+
+## Text carries a font STACK
+
+`TextElement.fontFamily` is a CSS stack or null (null = inherit, and null emits
+no attribute at all, which is what keeps files written before it round-tripping
+byte-for-byte). `FONT_FAMILIES` in `tool-settings.ts` only offers stacks that
+end in a generic family: the premise of the whole feature is that the `.svg`
+renders on someone else's machine, where the named face may not exist.
+
 ## The one big idea
 
 **A single self-contained `.svg` file is the source of truth.** Not a project

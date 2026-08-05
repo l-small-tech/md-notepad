@@ -40,10 +40,12 @@ import {
   selectTheme,
 } from '../theme-actions';
 import {
+  FONT_FAMILIES,
   PALETTE,
   paletteSlot,
   STATIC_PALETTE,
   STROKE_WIDTHS,
+  TEXT_SIZES,
   THEMED_SLOT_NAMES,
   type DrawTool,
 } from '../../core/whiteboard/tool-settings';
@@ -471,6 +473,11 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const penSeen = useWhiteboardStore((s) => s.penSeen);
   const tabState = useWhiteboardStore((s) => (tabId !== null ? s.byTab[tabId] : undefined));
   const fingerDraws = fingerDrawsEnabled(fingerDrawsPref, penSeen);
+  const fontSize = useWhiteboardStore((s) => s.fontSize);
+  const fontFamily = useWhiteboardStore((s) => s.fontFamily);
+  // The type row shows for the text tool, and whenever a selection could
+  // contain text to restyle.
+  const typeControls = tool === 'text' || (tool === 'select' && !!tabState?.selectionCount);
   const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
   // Themed slots preview through their --wb-* var; static/custom stay literal.
   const colorSlot = paletteSlot(color);
@@ -552,7 +559,50 @@ function DrawControls({ tabId }: { tabId: string | null }) {
         })}
       </div>
 
-      <div className="ribbon-swatches" role="group" aria-label="Stroke width">
+      {/* Type controls replace the nib row for the text tool — a nib size says
+          nothing useful about type, and both rows at once is clutter. They also
+          restyle SELECTED text, so they act on what you are looking at. */}
+      {typeControls ? (
+        <div className="ribbon-swatches" role="group" aria-label="Text style">
+          <select
+            className="ribbon-select"
+            aria-label="Font"
+            title="Font"
+            value={fontFamily}
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              whiteboardStore.getState().setFontFamily(e.target.value);
+              adapter?.applyTextStyle({ fontFamily: e.target.value });
+            }}
+          >
+            {FONT_FAMILIES.map((font) => (
+              <option key={font.label} value={font.stack} style={{ fontFamily: font.stack }}>
+                {font.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="ribbon-select"
+            aria-label="Text size"
+            title="Text size"
+            value={fontSize}
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              const size = Number(e.target.value);
+              whiteboardStore.getState().setFontSize(size);
+              adapter?.applyTextStyle({ fontSize: size });
+            }}
+          >
+            {TEXT_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
+      <div className="ribbon-swatches" role="group" aria-label="Stroke width" hidden={typeControls}>
         {STROKE_WIDTHS.map((size) => (
           <button
             key={size}

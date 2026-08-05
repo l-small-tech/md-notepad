@@ -6,7 +6,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  fontSizeForWidth,
+  DEFAULT_FONT_SIZE,
+  fontLabelFor,
+  FONT_FAMILIES,
   isShapeTool,
   makeShape,
   makeStroke,
@@ -94,6 +96,12 @@ describe('makeText', () => {
     expect(text.lines).toEqual(['one', 'two']);
   });
 
+  it('carries a font stack, and defaults to inheriting one', () => {
+    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16)!.fontFamily).toBeNull();
+    const stack = FONT_FAMILIES[3]!.stack;
+    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, stack)!.fontFamily).toBe(stack);
+  });
+
   it('normalizes CRLF and trims blank lines off both ends', () => {
     expect(makeText(P(0, 0), '\r\n a \r\n\r\n b \n\n', '#1a1a1a', 16)!.lines).toEqual([
       ' a ',
@@ -107,11 +115,33 @@ describe('makeText', () => {
     expect(makeText(P(0, 0), '  \n\n ', '#1a1a1a', 16)).toBeNull();
   });
 
-  it('takes its size from the nib slot, index-aligned', () => {
-    STROKE_WIDTHS.forEach((width, slot) => {
-      expect(fontSizeForWidth(width)).toBe(TEXT_SIZES[slot]);
-    });
-    expect(fontSizeForWidth(999)).toBe(TEXT_SIZES[1]);
+  it('offers type sizes and font stacks that always end in a generic family', () => {
+    expect(TEXT_SIZES.every((size) => size > 0)).toBe(true);
+    expect(TEXT_SIZES).toContain(DEFAULT_FONT_SIZE);
+    for (const font of FONT_FAMILIES) {
+      expect(font.stack).toMatch(/(sans-serif|serif|monospace|cursive)$/);
+      expect(fontLabelFor(font.stack)).toBe(font.label);
+    }
+    expect(fontLabelFor('Papyrus')).toBeNull();
+    expect(fontLabelFor(null)).toBeNull();
+  });
+
+  it('round-trips a font stack through the format', () => {
+    const text = makeText(P(10, 20), 'hi', '#1a1a1a', 32, FONT_FAMILIES[2]!.stack)!;
+    const source = serializeWhiteboard(
+      addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', text),
+    );
+    expect(source).toContain('font-family="Consolas');
+    expect(parseWhiteboard(source).layers[0]!.elements[0]).toEqual(text);
+  });
+
+  it('emits no font-family at all when there is none, so old files are stable', () => {
+    const text = makeText(P(10, 20), 'hi', '#1a1a1a', 32)!;
+    const source = serializeWhiteboard(
+      addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', text),
+    );
+    expect(source).not.toContain('font-family');
+    expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
   });
 });
 

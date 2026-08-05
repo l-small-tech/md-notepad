@@ -16,6 +16,8 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   DEFAULT_COLOR,
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_FONT_SIZE,
   DEFAULT_STROKE_WIDTH,
   PALETTE,
   STATIC_PALETTE,
@@ -41,6 +43,9 @@ interface WhiteboardState {
   tool: DrawTool;
   color: string;
   width: number;
+  /** Text tool: kept beside the nib because type size is not a nib size. */
+  fontSize: number;
+  fontFamily: string;
   /** Which swatch row the ribbon offers: themable slots or fixed named colours. */
   paletteKind: PaletteKind;
   /**
@@ -63,6 +68,8 @@ interface WhiteboardState {
   setTool: (tool: DrawTool) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
+  setFontSize: (size: number) => void;
+  setFontFamily: (stack: string) => void;
   setPaletteKind: (kind: PaletteKind) => void;
   setFingerDraws: (value: boolean | null) => void;
   notePenSeen: () => void;
@@ -87,6 +94,8 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   tool: 'pen',
   color: DEFAULT_COLOR,
   width: DEFAULT_STROKE_WIDTH,
+  fontSize: DEFAULT_FONT_SIZE,
+  fontFamily: DEFAULT_FONT_FAMILY,
   paletteKind: 'themed',
   fingerDraws: null,
   penSeen: false,
@@ -95,6 +104,8 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
   setWidth: (width) => set({ width }),
+  setFontSize: (fontSize) => set({ fontSize }),
+  setFontFamily: (fontFamily) => set({ fontFamily }),
   setPaletteKind: (kind) =>
     set((s) =>
       s.paletteKind === kind ? s : { paletteKind: kind, color: carryColor(s.color, kind) },
@@ -123,8 +134,8 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
 
 /** What the adapter reads at the start of every gesture. */
 export function currentToolSettings(): ToolSettings {
-  const { tool, color, width } = whiteboardStore.getState();
-  return { tool, color, width };
+  const { tool, color, width, fontSize, fontFamily } = whiteboardStore.getState();
+  return { tool, color, width, fontSize, fontFamily };
 }
 
 export function drawStateFor(tabId: string | null): DrawTabState {

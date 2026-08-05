@@ -118,17 +118,37 @@ export const HIGHLIGHTER_OPACITY = 0.35;
 export const ERASER_RADIUS = 6;
 
 /**
- * Type sizes, index-aligned with {@link STROKE_WIDTHS}: the nib picker doubles
- * as the type-size picker rather than adding a second control to the ribbon for
- * a tool that is used once a session. Scene units, so they mean the same thing
- * as `font-size` in the saved file.
+ * Type sizes the text tool offers, in scene units — the same thing
+ * `font-size` means in the saved file.
  */
-export const TEXT_SIZES: readonly number[] = [16, 22, 32, 48];
+export const TEXT_SIZES: readonly number[] = [12, 16, 20, 24, 32, 48, 64, 96];
+export const DEFAULT_FONT_SIZE = 24;
 
-/** The type size for a nib width; the nearest slot, falling back to 22. */
-export function fontSizeForWidth(width: number): number {
-  const slot = STROKE_WIDTHS.indexOf(width);
-  return TEXT_SIZES[slot] ?? TEXT_SIZES[1]!;
+/** A named font choice. `stack` is what lands in the file's `font-family`. */
+export interface FontOption {
+  readonly label: string;
+  readonly stack: string;
+}
+
+/**
+ * The font menu. Every entry is a STACK ending in a generic family, never a
+ * single face: the whole premise is that the `.svg` renders on someone else's
+ * machine — in a browser, in the markdown preview, in an export — where
+ * "Segoe Print" may simply not exist. The generic at the end is the guarantee
+ * that something reasonable is always drawn.
+ */
+export const FONT_FAMILIES: readonly FontOption[] = [
+  { label: 'Sans', stack: "'Segoe UI', Arial, Helvetica, sans-serif" },
+  { label: 'Serif', stack: "Georgia, 'Times New Roman', serif" },
+  { label: 'Mono', stack: "Consolas, 'Courier New', monospace" },
+  { label: 'Marker', stack: "'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive" },
+];
+
+export const DEFAULT_FONT_FAMILY = FONT_FAMILIES[0]!.stack;
+
+/** The menu label for a stack, or null when it is one the user brought. */
+export function fontLabelFor(stack: string | null): string | null {
+  return FONT_FAMILIES.find((f) => f.stack === stack)?.label ?? null;
 }
 
 /**
@@ -147,4 +167,7 @@ export interface ToolSettings {
   readonly tool: DrawTool;
   readonly color: string;
   readonly width: number;
+  /** Text tool only — the nib size says nothing useful about type. */
+  readonly fontSize: number;
+  readonly fontFamily: string;
 }

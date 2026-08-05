@@ -58,6 +58,7 @@ export function makeText(
   text: string,
   color: string,
   fontSize: number,
+  fontFamily: string | null = null,
 ): TextElement | null {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') {
@@ -75,6 +76,7 @@ export function makeText(
     x: at.x,
     y: at.y,
     fontSize,
+    fontFamily,
     fill: color,
     lines,
   };

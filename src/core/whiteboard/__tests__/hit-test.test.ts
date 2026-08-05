@@ -126,6 +126,7 @@ describe('elementBounds', () => {
     const bounds = elementBounds({
       kind: 'text',
       id: null,
+      fontFamily: null,
       x: 10,
       y: 100,
       fontSize: 20,

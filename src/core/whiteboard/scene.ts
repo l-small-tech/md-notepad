@@ -80,6 +80,12 @@ export interface TextElement {
   readonly x: number;
   readonly y: number;
   readonly fontSize: number;
+  /**
+   * A CSS font stack, or null to inherit the renderer's default. A STACK
+   * rather than a single face on purpose: the file has to render in a plain
+   * browser on someone else's machine, where the exact font may not exist.
+   */
+  readonly fontFamily: string | null;
   readonly fill: string;
   /** One entry per rendered line (serialized as `<tspan>`s). */
   readonly lines: readonly string[];

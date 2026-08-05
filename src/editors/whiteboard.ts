@@ -82,7 +82,6 @@ import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
 import {
   ERASER_RADIUS,
-  fontSizeForWidth,
   HANDLE_HIT_RADIUS,
   HANDLE_SIZE,
   isShapeTool,
@@ -100,6 +99,7 @@ import {
   handleAt,
   handlePoint,
   hasRef,
+  mapElements,
   marqueeRect,
   RESIZE_HANDLES,
   replaceElement,
@@ -187,6 +187,12 @@ export interface WhiteboardAdapter extends EditorAdapter {
    * cursor, and whether the selection shows resize handles.
    */
   refreshTool(): void;
+  /**
+   * The ribbon changed the font or type size: restyle the box being typed in
+   * AND any selected text elements, so the controls act on what you are
+   * looking at rather than only on the next thing you type.
+   */
+  applyTextStyle(style: { fontSize?: number; fontFamily?: string }): void;
   uiState(): WhiteboardUiState;
 }
 
@@ -246,6 +252,7 @@ interface TextEdit {
   at: Point;
   color: string;
   fontSize: number;
+  fontFamily: string | null;
   ref: ElementRef | null;
 }
 
@@ -804,6 +811,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
     stagePositions.set(event.pointerId, stagePoint(event));
     stage.setPointerCapture(event.pointerId);
+    // Focus EXPLICITLY. Every gesture below calls preventDefault(), which
+    // suppresses the compatibility mousedown — and focus-on-click rides on
+    // mousedown, so without this the stage never becomes the keyboard target
+    // and Delete, Ctrl+Z and the arrow-key nudge all silently do nothing.
+    stage.focus({ preventScroll: true });
 
     if (!scene || route === 'navigate') {
       // A second finger arriving mid-stroke turns the whole thing into a
@@ -1094,24 +1106,18 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     textEdit = {
       at: element ? { x: element.x, y: element.y } : at,
       color: element ? element.fill : settings.color,
-      fontSize: element ? element.fontSize : fontSizeForWidth(settings.width),
+      // Reopening existing text adopts ITS type, so editing a label does not
+      // silently restyle it to whatever the ribbon happens to say.
+      fontSize: element ? element.fontSize : settings.fontSize,
+      fontFamily: element ? element.fontFamily : settings.fontFamily,
       ref: element ? existing : null,
     };
 
-    const scale = boardScale();
-    const origin = sceneToBoard(textEdit.at);
     const area = document.createElement('textarea');
     area.className = 'wb-text-input';
     area.spellcheck = false;
     area.rows = 1;
     area.value = element ? element.lines.join('\n') : '';
-    area.style.left = `${origin.x}px`;
-    // `<text y>` is the BASELINE; a textarea's first line sits about 0.8em
-    // above its own baseline at line-height 1.2. Line them up so the caret is
-    // where the glyphs will land.
-    area.style.top = `${origin.y - textEdit.fontSize * scale * 0.8}px`;
-    area.style.fontSize = `${textEdit.fontSize * scale}px`;
-    area.style.color = inkColor(textEdit.color);
     area.addEventListener('pointerdown', (e) => e.stopPropagation());
     area.addEventListener('keydown', onTextKeyDown);
     area.addEventListener('blur', () => commitText());
@@ -1121,11 +1127,35 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // you can see what you are typing over.
     area.classList.toggle('wb-editing', element !== null);
     canvas.append(area);
-    autoSizeText(area);
+    textArea = area;
+    styleTextArea();
     // Focus after layout so the caret lands in a box that already has a size.
     requestAnimationFrame(() => area.focus());
-    textArea = area;
     notifyState();
+  }
+
+  /**
+   * Put the current type on the open box. Separate from opening it because the
+   * ribbon can change font or size WHILE typing, and the box has to follow —
+   * including its top, since `<text y>` is a baseline and the offset from the
+   * box's top edge is a fraction of the type size.
+   */
+  function styleTextArea(): void {
+    const area = textArea;
+    const edit = textEdit;
+    if (!area || !edit) {
+      return;
+    }
+    const scale = boardScale();
+    const origin = sceneToBoard(edit.at);
+    area.style.left = `${origin.x}px`;
+    // A textarea's first line sits about 0.8em above its own baseline at
+    // line-height 1.2; line the two up so the caret is where the glyphs land.
+    area.style.top = `${origin.y - edit.fontSize * scale * 0.8}px`;
+    area.style.fontSize = `${edit.fontSize * scale}px`;
+    area.style.fontFamily = edit.fontFamily ?? '';
+    area.style.color = inkColor(edit.color);
+    autoSizeText(area);
   }
 
   /** Grow the box with its content; a fixed-size textarea hides what you type. */
@@ -1170,7 +1200,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (!area || !edit || !scene) {
       return;
     }
-    const element = makeText(edit.at, area.value, edit.color, edit.fontSize);
+    const element = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
     if (edit.ref) {
       // Editing existing text: empty means delete it.
       commit(
@@ -1478,6 +1508,35 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.dataset.tool = options.getTool().tool;
       }
       renderChrome();
+    },
+
+    applyTextStyle(style) {
+      if (textEdit) {
+        textEdit = { ...textEdit, ...style };
+        styleTextArea();
+        return;
+      }
+      if (!scene) {
+        return;
+      }
+      // Only the text in the selection is affected; a mixed selection restyles
+      // its text and leaves the ink alone.
+      const texts = selection.filter((ref) => resolveElement(scene!, ref)?.kind === 'text');
+      if (texts.length === 0) {
+        return;
+      }
+      const next = mapElements(scene, texts, (element) =>
+        element.kind === 'text'
+          ? {
+              ...element,
+              fontSize: style.fontSize ?? element.fontSize,
+              fontFamily: style.fontFamily ?? element.fontFamily,
+            }
+          : element,
+      );
+      if (next !== scene) {
+        commit(next);
+      }
     },
 
     toggleLayers() {

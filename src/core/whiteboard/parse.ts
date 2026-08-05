@@ -352,6 +352,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       x: numAttr(element, 'x', 0),
       y: numAttr(element, 'y', 0),
       fontSize: numAttr(element, 'font-size', 16),
+      fontFamily: attr(element, 'font-family') ?? null,
       fill: attr(element, 'fill') ?? '#000000',
       lines,
     } satisfies TextElement;

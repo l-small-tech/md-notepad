@@ -318,12 +318,14 @@ function serializeText(text: TextElement, themed: boolean): string {
   }
   // Text paints with fill; the palette block themes it via `text.wb-cN`.
   attrs.push(...slotClassAttr(text.fill, themed));
-  attrs.push(
-    `x="${num(text.x)}"`,
-    `y="${num(text.y)}"`,
-    `font-size="${num(text.fontSize)}"`,
-    `fill="${escapeAttr(text.fill)}"`,
-  );
+  attrs.push(`x="${num(text.x)}"`, `y="${num(text.y)}"`, `font-size="${num(text.fontSize)}"`);
+  // Omitted when null so text that never asked for a face keeps inheriting the
+  // renderer's default — and so files written before this existed round-trip
+  // byte-for-byte.
+  if (text.fontFamily !== null) {
+    attrs.push(`font-family="${escapeAttr(text.fontFamily)}"`);
+  }
+  attrs.push(`fill="${escapeAttr(text.fill)}"`);
   const tspans = text.lines
     .map(
       (line, index) =>

@@ -561,6 +561,21 @@
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* Font / type-size dropdowns (draw mode's text tool). Two menus beat eight
+   buttons for values nobody changes mid-stroke. */
+.ribbon-select {
+  height: 28px;
+  max-width: 96px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .ribbon-nib {
   display: inline-flex;
   align-items: center;
@@ -2225,6 +2240,10 @@ body.explorer-dragging * {
 
   .ribbon-center-draw .ribbon-swatches {
     gap: 6px;
+  }
+
+  .ribbon-center-draw .ribbon-select {
+    height: 40px;
   }
 
   .statusbar {
