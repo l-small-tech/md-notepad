@@ -41,20 +41,23 @@
   --danger: #c62828;
   --selection: #cfe6a9; /* pale-lime highlight */
 
-  /* Whiteboard ink slots — MUST mirror PALETTE in core/whiteboard/
-     tool-settings.ts (light) and PALETTE_DARK/BOARD_BACKGROUND_DARK (dark).
-     The draw adapter copies the resolved values onto each board's <svg> as
-     inline vars so the editor follows the app theme; theme-plugin JSONs may
-     override them via a "whiteboard" section. */
-  --wb-bg: #ffffff;
-  --wb-c0: #1a1a1a;
-  --wb-c1: #d02f2f;
-  --wb-c2: #e07b00;
-  --wb-c3: #c9a400;
-  --wb-c4: #1f9d55;
-  --wb-c5: #0f8f8f;
-  --wb-c6: #1f6fd0;
-  --wb-c7: #8a3fd1;
+  /* Whiteboard ink slots — DERIVED from the theme palette above, so every
+     theme (and both modes) gets a matching board without declaring anything:
+     the surface is the writing surface, the pen is the ink, and the chromatic
+     slots blend the theme's accent/danger hues. Theme-plugin JSONs may still
+     pin exact colors via a "whiteboard" section. The draw adapter copies the
+     RESOLVED values onto each board's <svg> as inline vars; the saved file
+     itself falls back to the fixed hexes in core/whiteboard/tool-settings.ts
+     (PALETTE / PALETTE_DARK), which foreign renderers see. */
+  --wb-bg: var(--editor-bg);
+  --wb-c0: var(--fg); /* pen — the theme's ink */
+  --wb-c1: var(--danger); /* alert */
+  --wb-c2: color-mix(in oklab, var(--danger) 55%, var(--accent)); /* warm blend */
+  --wb-c3: color-mix(in oklab, var(--danger) 40%, var(--fg)); /* deep warm */
+  --wb-c4: var(--accent); /* the theme's signature color */
+  --wb-c5: color-mix(in oklab, var(--accent) 55%, var(--fg)); /* deep accent */
+  --wb-c6: color-mix(in oklab, var(--accent) 55%, var(--editor-bg)); /* soft accent */
+  --wb-c7: var(--fg-muted); /* pencil */
 }
 
 :root[data-theme='dark'] {
@@ -72,16 +75,8 @@
   --danger: #e5766a;
   --selection: #21503a; /* forest highlight */
 
-  /* Whiteboard ink slots, dark variants (see the light block above). */
-  --wb-bg: #1e1e1e;
-  --wb-c0: #e6e6e6;
-  --wb-c1: #ef6363;
-  --wb-c2: #f09b3c;
-  --wb-c3: #d9bc3f;
-  --wb-c4: #43c17c;
-  --wb-c5: #3ab5b5;
-  --wb-c6: #62a0ef;
-  --wb-c7: #b07ce8;
+  /* No --wb-* here: the light block derives them from the palette vars, which
+     this block already redefines — the whiteboard follows automatically. */
 }
 
 * {

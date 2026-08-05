@@ -39,8 +39,9 @@ export const PALETTE: readonly string[] = [
  * Dark-scheme variants of the eight slots, index-aligned with {@link PALETTE}:
  * near-black flips to near-white, chromatic slots are lifted toward a tone
  * legible on a dark board. These are the DEFAULTS the serializer bakes into a
- * file's palette `<style>` block and base.css declares as `--wb-c0…c7`; a theme
- * JSON's `whiteboard` section may override them per scheme.
+ * file's palette `<style>` block — the dark-scheme fallback a foreign renderer
+ * sees. IN-APP, base.css derives `--wb-c0…c7` from the current theme's palette
+ * vars instead, and a theme JSON's `whiteboard` section may pin exact values.
  */
 export const PALETTE_DARK: readonly string[] = [
   '#e6e6e6',
@@ -60,8 +61,8 @@ export const BOARD_BACKGROUND_DARK = '#1e1e1e';
  * The STATIC palette: standard named SVG colours that render identically in
  * every scheme. None of them equals a {@link PALETTE} hex, so the serializer's
  * derived-class rule never tags them — a static stroke is literal by
- * construction, no format machinery involved. Index-aligned with PALETTE
- * (same hue order) so switching palette kinds can carry the selection across.
+ * construction, no format machinery involved. Index-aligned with PALETTE so
+ * switching palette kinds carries the selection across by slot.
  */
 export const STATIC_PALETTE: readonly string[] = [
   'black',
@@ -72,6 +73,24 @@ export const STATIC_PALETTE: readonly string[] = [
   'teal',
   'blue',
   'purple',
+];
+
+/**
+ * Ribbon labels for the themed slots. IN-APP the slots render through the
+ * `--wb-*` vars, which base.css derives from the current theme's palette
+ * (ink/alert/accent blends) — so a hue name would lie; these describe the
+ * slot's ROLE instead. The {@link PALETTE} hexes above remain what a saved
+ * file falls back to in a foreign, CSS-less renderer.
+ */
+export const THEMED_SLOT_NAMES: readonly string[] = [
+  'Ink',
+  'Alert',
+  'Warm',
+  'Deep warm',
+  'Accent',
+  'Deep accent',
+  'Soft accent',
+  'Pencil',
 ];
 
 /** Which swatch row the ribbon shows: theme-following slots or fixed colours. */

@@ -52,8 +52,9 @@ interface WhiteboardState {
 }
 
 /**
- * Switching palette kinds carries the selection across by INDEX (both rows
- * share the same hue order), so "blue pen" stays a blue pen. A colour outside
+ * Switching palette kinds carries the selection across by INDEX — the Nth
+ * marker stays the Nth marker. (The rows no longer share hues: the themed row
+ * is theme-derived, the static row is the fixed hue wheel.) A colour outside
  * the departing row (e.g. a future picker's custom hex) is left alone.
  */
 export function carryColor(color: string, to: PaletteKind): string {

@@ -1,10 +1,10 @@
 /**
  * The draw-tool store: global tool/colour/width plus the palette-kind switch.
  *
- * The switch is the interesting part: the themed row (PALETTE, theme-following
- * slots) and the static row (STATIC_PALETTE, named colours that never change)
- * share a hue order, and flipping between them must carry the selection across
- * by index — "the blue pen stays a blue pen".
+ * The switch is the interesting part: flipping between the themed row
+ * (PALETTE, theme-following slots) and the static row (STATIC_PALETTE, named
+ * colours that never change) must carry the selection across by index — the
+ * Nth marker stays the Nth marker.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';

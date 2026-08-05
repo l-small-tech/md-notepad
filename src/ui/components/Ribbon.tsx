@@ -44,6 +44,7 @@ import {
   paletteSlot,
   STATIC_PALETTE,
   STROKE_WIDTHS,
+  THEMED_SLOT_NAMES,
   type DrawTool,
 } from '../../core/whiteboard/tool-settings';
 import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
@@ -517,21 +518,25 @@ function DrawControls({ tabId }: { tabId: string | null }) {
 
       <div className="ribbon-swatches" role="group" aria-label="Ink colour">
         {/* The themed row renders through the --wb-* slot vars (phase 2.5) so
-            the picker shows the ink the CURRENT theme will actually draw; the
-            static row is named colours, shown (and saved) literally. */}
-        {(themedRow ? PALETTE : STATIC_PALETTE).map((swatch, slot) => (
-          <button
-            key={swatch}
-            className="ribbon-swatch"
-            style={{ background: themedRow ? `var(--wb-c${slot}, ${swatch})` : swatch }}
-            aria-label={`Colour ${swatch}`}
-            aria-pressed={color === swatch}
-            data-active={color === swatch || undefined}
-            title={swatch}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => whiteboardStore.getState().setColor(swatch)}
-          />
-        ))}
+            the picker shows the ink the CURRENT theme will actually draw —
+            hence role names, not hue names, on its tooltips; the static row is
+            named colours, shown (and saved) literally. */}
+        {(themedRow ? PALETTE : STATIC_PALETTE).map((swatch, slot) => {
+          const name = themedRow ? (THEMED_SLOT_NAMES[slot] ?? swatch) : swatch;
+          return (
+            <button
+              key={swatch}
+              className="ribbon-swatch"
+              style={{ background: themedRow ? `var(--wb-c${slot}, ${swatch})` : swatch }}
+              aria-label={`Colour ${name}`}
+              aria-pressed={color === swatch}
+              data-active={color === swatch || undefined}
+              title={name}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => whiteboardStore.getState().setColor(swatch)}
+            />
+          );
+        })}
       </div>
 
       <div className="ribbon-swatches" role="group" aria-label="Stroke width">

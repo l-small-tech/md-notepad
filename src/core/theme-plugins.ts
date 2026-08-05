@@ -64,10 +64,11 @@ export const SYNTAX_KEYS = {
 /**
  * Optional whiteboard ink slots (JSON field → CSS custom property). `bg` is the
  * board backdrop; `c0`–`c7` are the eight marker slots, index-aligned with
- * `core/whiteboard/tool-settings.ts` PALETTE. base.css declares defaults for
- * all nine per mode; the draw adapter copies the resolved values onto the
- * board's `<svg>` as inline style, so a theme override wins over the file's own
- * embedded palette block.
+ * `core/whiteboard/tool-settings.ts` PALETTE. base.css DERIVES defaults from
+ * the theme palette vars (--editor-bg/--fg/--accent/--danger blends), so a
+ * theme only needs this section to pin exact inks. The draw adapter copies the
+ * resolved values onto the board's `<svg>` as inline style, so a theme override
+ * wins over the file's own embedded palette block.
  */
 export const WHITEBOARD_KEYS = {
   bg: '--wb-bg',

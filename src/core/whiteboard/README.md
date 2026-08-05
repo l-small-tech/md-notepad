@@ -111,7 +111,13 @@ A saved board follows the viewer's colour scheme without ever depending on it:
   whole mechanism off for a document.
 - In the app, the adapter copies the resolved app-theme `--wb-*` values onto
   the board `<svg>` as inline style (inline beats the embedded block), so a
-  forced app theme wins over the OS scheme while editing.
+  forced app theme wins over the OS scheme while editing. base.css DERIVES
+  those values from the theme palette vars (`--wb-bg` is `--editor-bg`, the
+  slots are `--fg`/`--danger`/`--accent` and blends of them), so every theme —
+  built-in or user-authored — gets a matching board and ink palette with no
+  `whiteboard` section; the section remains as the way to pin exact inks. The
+  hexes in `tool-settings.ts` (`PALETTE`/`PALETTE_DARK`) are only what the
+  saved file falls back to outside the app.
 - The STATIC palette (`STATIC_PALETTE`, named SVG colours) is the opt-out made
   convenient: named colours never equal a `PALETTE` hex, so static strokes are
   literal by construction — no format machinery at all.
