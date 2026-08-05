@@ -45,7 +45,7 @@ Open `.svg` as a normal `kind:'file'` tab whose DocModel text **is** the SVG sou
 
 Untouched: `parseManifest`, flush planner, Rust `fs.rs`, `IMAGE_MIME`/`IMAGE_EXTENSIONS` (`.svg` stays an image type for preview inlining).
 
-**Core purity:** `src/core` is DOM-free, so the adapter does the DOMParser walk into plain records; `parse.ts` (records → `SceneDoc`) and `serialize.ts` (`SceneDoc` → deterministic SVG string: fixed attr order, 2-decimal coords) are pure and golden-tested.
+**Core purity:** `src/core` is DOM-free. The plan originally had the adapter do a DOMParser walk into plain records; Phase 1 replaced that with a ~250-line pure XML reader (`core/whiteboard/xml.ts`) that yields **source spans**. Two reasons, both load-bearing: the format's goldens must run in the node test env with no shims, and "nothing is ever dropped" needs to re-emit unmodeled content by slicing the ORIGINAL text — which `XMLSerializer` cannot do, because it reformats. `parse.ts` and `serialize.ts` (deterministic: fixed attr order, 2-decimal coords) sit on top and are golden-tested. The adapter still uses DOMParser, but only to *render* the source text.
 
 ## SVG format spec
 
@@ -253,8 +253,18 @@ Gradle: `com.google.mlkit:*` goes in the plugin's `android/build.gradle.kts` `de
 
 ## Phases (each independently shippable; worktree workflow per CLAUDE.md)
 
-**Phase 1 — Format, routing, view + raw editing.** scene/parse/serialize, doc-family, mode/adapter plumbing, routing, StatusBar/Ribbon gating, adapter that renders + pans/zooms (read-only tools), error card; raw mode fully working.
+**Phase 1 — Format, routing, view + raw editing. ✅ SHIPPED** (branch `feat/whiteboard-format`). scene/parse/serialize, doc-family, mode/adapter plumbing, routing, StatusBar/Ribbon gating, adapter that renders + pans/zooms (read-only tools), error card; raw mode fully working.
 *Verify:* `pnpm run check && pnpm test` (round-trip goldens incl. real Inkscape + hand-authored fixtures); tauri:dev — open svg, Draw⇄Raw, edit raw, save, reopen; opening without editing never dirties; `![](x.svg)` preview intact.
+
+Automated verification is green: `pnpm run check`, 794 tests (47 new), `pnpm run build`, `cargo check`, and `tauri:dev` launches clean. The whiteboard is its own ~10 KB lazy chunk (I8 confirmed). **Desktop QA is the remaining gate** — the manual list above still needs a human.
+
+Decisions taken during Phase 1 that the spec above did not pin down:
+
+- **Background** is stored in the metadata JSON *and* rendered as a `<rect wb:role="background">` right after `<metadata>`, so the board is white in a foreign renderer too. Parsing consumes that rect rather than treating it as content.
+- **`wb:kind="foreign"`** is a real layer kind, not just an in-memory flag. Once an imported SVG's body has been wrapped in an Imported layer and saved, re-opening must recognize it as still-foreign (locked, not tool-owned) instead of demoting it to a draw layer.
+- **`lastFileMode` never records `'draw'`.** Draw is a property of the file, not a preference — otherwise opening a whiteboard would change the mode the next note opens in.
+- A `.svg` in a **read-only workspace** keeps the old image-viewer behavior; only writable ones route to the whiteboard.
+- The full v1 element vocabulary (stroke / rect / ellipse / line / arrow / text / image) is already parsed and serialized, so Phase 2 only has to *create* elements, not extend the format.
 
 **Phase 2 — Drawing.** Pen/highlighter/eraser/shapes/arrow, undo/redo, layers panel, writeback on first edit, "New whiteboard" entry point (creates skeleton `.svg`, opens it). Mouse+pen input only.
 *Verify:* check+test (smoothing/hit-test/history/layer goldens & invariants); desktop draw-save-reopen-in-browser renders identically.
