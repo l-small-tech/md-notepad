@@ -102,6 +102,8 @@ cache?</desc>
 | Layers panel | add/rename/reorder/toggle/lock/delete as pure `(doc, …) → doc` ops |
 | Pan/zoom | reuse `src/core/diagram-zoom.ts` (`zoomDiagramAt`, `panDiagram`, `fitDiagramView`) unchanged |
 
+**Toolbar placement — revised after Phase 1 QA.** The original plan put the draw tools in a dedicated left rail (≥700 px) or bottom bar. The user's call instead: **the existing top ribbon becomes the draw toolbar in Draw mode** — the same strip that shows bold/italic/etc. for markdown swaps to pen/highlighter/eraser/shapes/text/colors. That is one toolbar to learn, not two, and it keeps the full pane for the board. The phone/tablet layout can still collapse it to a bottom bar (Phase 3); the desktop shape is now the ribbon. Phase 1 gates the markdown formatting actions out of Draw mode; Phase 2 replaces them.
+
 **Touch UX:** pointer events, `touch-action:none`, `setPointerCapture`, `getCoalescedEvents`. Pure `routePointer` classifier in `core/whiteboard/input.ts`: pen = tool, 1-finger = pan, 2-finger = pinch, mouse = tool (+wheel zoom, space/middle pan); "draw with finger" toolbar toggle (default on until first pen seen). Palm rejection: ignore touches while pen down +300 ms, oversized contacts, and cancel-undo a touch stroke if pen lands within 150 ms. Toolbar: left rail ≥700 px, bottom bar on phones; ≥44 px targets.
 
 ## Photo → SVG pipeline ("Scan")
@@ -256,7 +258,11 @@ Gradle: `com.google.mlkit:*` goes in the plugin's `android/build.gradle.kts` `de
 **Phase 1 — Format, routing, view + raw editing. ✅ SHIPPED** (branch `feat/whiteboard-format`). scene/parse/serialize, doc-family, mode/adapter plumbing, routing, StatusBar/Ribbon gating, adapter that renders + pans/zooms (read-only tools), error card; raw mode fully working.
 *Verify:* `pnpm run check && pnpm test` (round-trip goldens incl. real Inkscape + hand-authored fixtures); tauri:dev — open svg, Draw⇄Raw, edit raw, save, reopen; opening without editing never dirties; `![](x.svg)` preview intact.
 
-Automated verification is green: `pnpm run check`, 794 tests (47 new), `pnpm run build`, `cargo check`, and `tauri:dev` launches clean. The whiteboard is its own ~10 KB lazy chunk (I8 confirmed). **Desktop QA is the remaining gate** — the manual list above still needs a human.
+Automated verification is green: `pnpm run check`, 803 tests (56 new), `pnpm run build`, `cargo check`, and `tauri:dev` launches clean. The whiteboard is its own ~10 KB lazy chunk (I8 confirmed).
+
+**First QA round found one defect, now fixed:** Draw mode rendered blank. `.editor-pane` (app.css) is a plain block with `height:100%`, not a flex container, so the adapter's `flex: 1 1 auto` root collapsed to zero height; it now sizes itself explicitly, the same way `.cm-editor` already did. The same round surfaced a second, quieter bug: every tab's editor is built while the tab is HIDDEN (I7 mounts them all), so the initial fit-to-window measured 0×0 and the board would have sat unscaled at the top-left — a ResizeObserver now re-fits once the stage has real pixels.
+
+**Raw mode now highlights as XML**, not markdown: `editors/xml-highlight.ts` is a CM6 `StreamLanguage` tokenizer (~110 lines, no new dependency — `@codemirror/lang-xml` was declined because a highlighter only needs to tokenize). Colors are CSS variables from base.css reusing the same `--md-*` vocabulary as the markdown style and the Read pane, so light/dark and every theme plugin work with no extra code. XML mode also drops the markdown-only auto-bullet and list-Tab keymaps, which would be wrong in SVG source.
 
 Decisions taken during Phase 1 that the spec above did not pin down:
 
@@ -266,8 +272,11 @@ Decisions taken during Phase 1 that the spec above did not pin down:
 - A `.svg` in a **read-only workspace** keeps the old image-viewer behavior; only writable ones route to the whiteboard.
 - The full v1 element vocabulary (stroke / rect / ellipse / line / arrow / text / image) is already parsed and serialized, so Phase 2 only has to *create* elements, not extend the format.
 
-**Phase 2 — Drawing.** Pen/highlighter/eraser/shapes/arrow, undo/redo, layers panel, writeback on first edit, "New whiteboard" entry point (creates skeleton `.svg`, opens it). Mouse+pen input only.
-*Verify:* check+test (smoothing/hit-test/history/layer goldens & invariants); desktop draw-save-reopen-in-browser renders identically.
+**Phase 2 — Drawing.** Pen/highlighter/eraser/shapes/arrow, undo/redo, layers panel, writeback on first edit, "New whiteboard" entry point (creates skeleton `.svg`, opens it). Mouse+pen input only. Plus, from Phase 1 QA:
+- **Ribbon becomes the draw toolbar** in Draw mode (see toolbar note above) — the single biggest visible gap today, since Draw mode currently shows a markdown toolbar that does nothing.
+- **Explorer context menu**: right-click a workspace/folder → the existing "Import document" entry grows a submenu — *Document…* (today's PDF/DOCX picker) and *New whiteboard* (creates the skeleton `.svg` in that folder and opens it in Draw). The *Whiteboard scan…* item lands in the same submenu in Phase 4, so the menu shape should be built now with the scan row disabled/absent rather than restructured later.
+
+*Verify:* check+test (smoothing/hit-test/history/layer goldens & invariants); desktop draw-save-reopen-in-browser renders identically; right-click → New whiteboard creates and opens a board in the clicked folder.
 
 **Phase 3 — Selection, text, touch polish.** Select/move/resize with baked transforms, text tool, full pointer routing (pinch, palm rejection, finger toggle, pen eraser), phone toolbar layout, viewport persistence.
 *Verify:* classifier truth-table tests; `pnpm run android:deploy` on tablet — palm-resting pen draw, finger pan, pinch; desktop regression.

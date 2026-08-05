@@ -52,6 +52,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let unsubscribe: (() => void) | null = null;
   let scene: SceneDoc | null = null;
   let view: DiagramView = { scale: 1, x: 0, y: 0 };
+  /** False until the board has been fitted against a stage with real pixels. */
+  let fitted = false;
+  let resizeObserver: ResizeObserver | null = null;
   /** Live pointers on the stage, for the 1-finger-pan / 2-finger-pinch split. */
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDistance = 0;
@@ -70,12 +73,22 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     applyView();
   }
 
-  function fit(): void {
+  /**
+   * Fit the board to the stage. Returns false when the stage has no size yet —
+   * every tab's editor is built while INACTIVE (EditorHost mounts them all and
+   * hides the inactive ones with `display:none`, invariant I7), so the first
+   * attempt measures 0×0. The ResizeObserver retries once real pixels arrive.
+   */
+  function fit(): boolean {
     if (!stage || !scene) {
-      return;
+      return false;
     }
     const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return false;
+    }
     setView(fitDiagramView(scene.width, scene.height, rect.width, rect.height));
+    return true;
   }
 
   /** Zoom about the stage's centre — what the +/− buttons and keys do. */
@@ -225,7 +238,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // app CSP forbids inline script regardless.
     canvas.replaceChildren(document.importNode(svg, true));
     if (refit) {
-      fit();
+      fitted = fit();
     } else {
       applyView();
     }
@@ -265,7 +278,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         button('−', 'Zoom out', () => zoomByStep(1 / DIAGRAM_ZOOM_STEP)),
         zoomLabel,
         button('+', 'Zoom in', () => zoomByStep(DIAGRAM_ZOOM_STEP)),
-        button('Fit', 'Fit the board to the window', () => fit()),
+        button('Fit', 'Fit the board to the window', () => {
+          fitted = fit();
+        }),
         button('100%', 'Actual size', () => setView({ ...view, scale: clampDiagramScale(1) })),
       );
 
@@ -280,6 +295,16 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
       render(model.getText(), true);
 
+      // The tab was almost certainly hidden when the editor was built, so the
+      // fit above measured nothing. Retry the moment the stage has real size —
+      // without this the board sits unscaled at the top-left on first view.
+      resizeObserver = new ResizeObserver(() => {
+        if (!fitted) {
+          fitted = fit();
+        }
+      });
+      resizeObserver.observe(stage);
+
       // External changes only: the raw-mode editor, a file reload, a conflict
       // resolution. Phase 1 never pushes, so no echo suppression is needed yet.
       unsubscribe = model.subscribe((change) => render(change.text, false));
@@ -288,6 +313,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     detach() {
       unsubscribe?.();
       unsubscribe = null;
+      resizeObserver?.disconnect();
+      resizeObserver = null;
+      fitted = false;
       if (stage) {
         stage.removeEventListener('pointerdown', onPointerDown);
         stage.removeEventListener('pointermove', onPointerMove);

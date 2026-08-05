@@ -7,10 +7,14 @@
  * that is what a browser and the markdown preview will show for the same file.
  */
 
+/* `.editor-pane` (app.css) is a plain BLOCK with height:100% — not a flex
+   container — so the root must size itself explicitly. A `flex: 1 1 auto` here
+   is ignored by a block parent and collapses the board to zero height. */
 .wb-root {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   background: var(--bg-alt);
