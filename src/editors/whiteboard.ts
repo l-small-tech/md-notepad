@@ -1,5 +1,5 @@
 /**
- * whiteboard.ts — the Draw-mode editor over a `.svg` file (phases 1–2).
+ * whiteboard.ts — the Draw-mode editor over a `.svg` file (phases 1–3).
  *
  * Loaded ONLY through a dynamic import from the tab's `draw` AdapterFactory
  * (invariant I8), exactly like Milkdown: a markdown-only session never pays for
@@ -34,6 +34,25 @@
  * `doc-model.ts`), so a reentrancy flag — not a version check — is the correct
  * filter. Without it every stroke would re-parse and re-render the board from
  * its own output and blow the undo history away.
+ *
+ * ## Phase 3: selection, text, and hands
+ *
+ * Three additions, all of whose DECISIONS live in pure modules so this file
+ * stays "wire the DOM to them":
+ *
+ * - **Selection** (`core/whiteboard/select.ts`) is a list of element refs.
+ *   Moving and resizing BAKE the transform into each element, so a dragged
+ *   stroke is still an ordinary stroke and the file still has no transforms in
+ *   it. The box and its handles are drawn on the same overlay the in-progress
+ *   stroke uses, in scene units divided by the zoom so they stay a constant
+ *   size on screen.
+ * - **Text** is a `<textarea>` parented to the transformed `.wb-canvas`, which
+ *   means the browser scales and pans it with the board for free and the caret
+ *   sits exactly where the glyphs will land.
+ * - **Pointer routing** (`core/whiteboard/input.ts`) decides pen/finger/mouse
+ *   and rejects palms. It is pure precisely because the combinations — pen down
+ *   with a hand resting, second finger mid-stroke, space held — are what manual
+ *   testing on one device always misses.
  */
 
 import { parseWhiteboard, WhiteboardParseError } from '../core/whiteboard/parse';
@@ -63,13 +82,47 @@ import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
 import {
   ERASER_RADIUS,
+  fontSizeForWidth,
+  HANDLE_HIT_RADIUS,
+  HANDLE_SIZE,
   isShapeTool,
   makeShape,
   makeStroke,
+  makeText,
+  MIN_SELECTION_SIZE,
+  PALETTE,
   type DrawTool,
   type ToolSettings,
 } from '../core/whiteboard/tools';
-import type { Point } from '../core/whiteboard/geometry';
+import {
+  allSelectable,
+  elementsInRect,
+  handleAt,
+  handlePoint,
+  hasRef,
+  marqueeRect,
+  RESIZE_HANDLES,
+  replaceElement,
+  resizeRect,
+  resolveElement,
+  scaleElements,
+  selectionBounds,
+  toggleRef,
+  translateElements,
+  validRefs,
+  type ResizeHandle,
+} from '../core/whiteboard/select';
+import {
+  createInputState,
+  fingerDrawsEnabled,
+  notePointerDown,
+  notePointerUp,
+  routePointer,
+  shouldUndoTouchStroke,
+  type InputState,
+  type PointerInfo,
+} from '../core/whiteboard/input';
+import type { Point, Rect } from '../core/whiteboard/geometry';
 import {
   clampDiagramScale,
   DIAGRAM_ZOOM_STEP,
@@ -90,6 +143,8 @@ export interface WhiteboardUiState {
   readonly layersOpen: boolean;
   /** Null while the document is unreadable (the error card is showing). */
   readonly activeLayerName: string | null;
+  /** How many elements are selected — the Delete button's enablement. */
+  readonly selectionCount: number;
 }
 
 export interface WhiteboardAdapterOptions {
@@ -99,6 +154,22 @@ export interface WhiteboardAdapterOptions {
   getTool: () => ToolSettings;
   /** Undo availability etc., so the ribbon can disable what won't work. */
   onStateChange?: (state: WhiteboardUiState) => void;
+  /**
+   * The "draw with finger" preference: true/false when the user has chosen,
+   * null while they have not (fingers draw until a pen appears — see
+   * `fingerDrawsEnabled`).
+   */
+  getFingerDraws?: () => boolean | null;
+  /** Fired once, when a pen first touches this board, so the UI can follow. */
+  onPenSeen?: () => void;
+  /**
+   * Session viewport persistence. The view is deliberately NOT written to the
+   * file: panning must never dirty a document, and "mount → look → close is
+   * byte-identical" is the whole write-back contract. A file that ARRIVES with
+   * a `view` in its metadata is still honoured as the opening view.
+   */
+  getSavedView?: () => DiagramView | null;
+  onViewChange?: (view: DiagramView) => void;
 }
 
 export interface WhiteboardAdapter extends EditorAdapter {
@@ -107,12 +178,23 @@ export interface WhiteboardAdapter extends EditorAdapter {
   undo(): void;
   redo(): void;
   toggleLayers(): void;
+  /** Delete the current selection (the ribbon's bin button, and Delete). */
+  deleteSelection(): void;
+  selectAll(): void;
+  /**
+   * The ribbon changed the tool. The adapter PULLS tool settings at each
+   * gesture, so this is only about what is visible between gestures: the
+   * cursor, and whether the selection shows resize handles.
+   */
+  refreshTool(): void;
   uiState(): WhiteboardUiState;
 }
 
 /** The in-flight drag. Exactly one of `points` / `shapeEnd` is meaningful. */
 interface Gesture {
   pointerId: number;
+  /** Which kind of contact owns it — a pen landing cancels a touch stroke. */
+  pointerType: string;
   tool: DrawTool;
   color: string;
   width: number;
@@ -126,7 +208,56 @@ interface Gesture {
   erased: boolean;
 }
 
+/**
+ * A select-tool drag. All three paint their result straight onto the board and
+ * commit ONCE on release, so a move is one undo step however many frames it
+ * took — the same deal the eraser drag already gets.
+ */
+type SelectDrag =
+  | {
+      kind: 'marquee';
+      pointerId: number;
+      start: Point;
+      current: Point;
+      /** Shift-drag adds to the selection instead of replacing it. */
+      additive: boolean;
+      base: readonly ElementRef[];
+    }
+  | {
+      kind: 'move';
+      pointerId: number;
+      start: Point;
+      /** The document as it was when the drag began — every frame re-derives. */
+      base: SceneDoc;
+      moved: boolean;
+    }
+  | {
+      kind: 'resize';
+      pointerId: number;
+      handle: ResizeHandle;
+      start: Point;
+      from: Rect;
+      base: SceneDoc;
+      moved: boolean;
+    };
+
+/** What the text tool is currently editing. `ref` is null for new text. */
+interface TextEdit {
+  at: Point;
+  color: string;
+  fontSize: number;
+  ref: ElementRef | null;
+}
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Arrow-key nudge directions, in SCREEN pixels (scaled by the zoom). */
+const NUDGE_KEYS: Record<string, Point | undefined> = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+};
 
 /**
  * The themable ink variables (phase 2.5). base.css defines them per app
@@ -154,6 +285,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let canvas: HTMLDivElement | null = null;
   let live: SVGSVGElement | null = null;
   let previewGroup: SVGGElement | null = null;
+  let chromeGroup: SVGGElement | null = null;
   let zoomLabel: HTMLSpanElement | null = null;
   let pageButton: HTMLButtonElement | null = null;
   let layersPanel: LayersPanel | null = null;
@@ -178,9 +310,27 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let resizeObserver: ResizeObserver | null = null;
   /** Live NAVIGATION pointers (touch, middle-drag), for pan / pinch. */
   const pointers = new Map<number, Point>();
+  /**
+   * EVERY live pointer's stage position, drawing ones included. When a second
+   * finger converts a stroke into a pinch, the first finger has to join the
+   * navigation set at the position it is actually at — this is where that
+   * comes from.
+   */
+  const stagePositions = new Map<number, Point>();
   let pinchDistance = 0;
   let gesture: Gesture | null = null;
   let spaceHeld = false;
+
+  /* ------------------------------ phase 3 state --------------------------- */
+
+  let selection: readonly ElementRef[] = [];
+  let selectDrag: SelectDrag | null = null;
+  let input: InputState = createInputState();
+  /** When a FINGER last committed a stroke — the pen-takeover undo window. */
+  let lastTouchCommitAt: number | null = null;
+  let textArea: HTMLTextAreaElement | null = null;
+  let textEdit: TextEdit | null = null;
+  let viewReportTimer: ReturnType<typeof setTimeout> | null = null;
 
   /* ------------------------------ view plumbing --------------------------- */
 
@@ -196,6 +346,37 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   function setView(next: DiagramView): void {
     view = next;
     applyView();
+    // Selection handles are drawn in scene units at a constant SCREEN size, so
+    // every zoom change has to redraw them.
+    renderChrome();
+    reportViewSoon();
+  }
+
+  /**
+   * Report the viewport for session persistence, coalesced — a pan fires on
+   * every frame and the consumer is a store the ribbon subscribes to.
+   */
+  function reportViewSoon(): void {
+    if (!options.onViewChange) {
+      return;
+    }
+    if (viewReportTimer !== null) {
+      clearTimeout(viewReportTimer);
+    }
+    viewReportTimer = setTimeout(() => {
+      viewReportTimer = null;
+      options.onViewChange?.(view);
+    }, 400);
+  }
+
+  function reportViewNow(): void {
+    if (viewReportTimer !== null) {
+      clearTimeout(viewReportTimer);
+      viewReportTimer = null;
+    }
+    if (fitted) {
+      options.onViewChange?.(view);
+    }
   }
 
   /**
@@ -250,6 +431,24 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return 1;
     }
     return scene.viewBox[2] / scene.width / view.scale;
+  }
+
+  /**
+   * Scene units → `.wb-canvas` pixels. The canvas carries the pan/zoom
+   * transform, so anything positioned in these coordinates (the text
+   * textarea) is moved and scaled by the browser for free.
+   */
+  function sceneToBoard(p: Point): Point {
+    if (!scene) {
+      return p;
+    }
+    const [vx, vy, vw, vh] = scene.viewBox;
+    return { x: ((p.x - vx) * scene.width) / vw, y: ((p.y - vy) * scene.height) / vh };
+  }
+
+  /** Board pixels per scene unit — the text overlay's font scale. */
+  function boardScale(): number {
+    return scene ? scene.width / scene.viewBox[2] : 1;
   }
 
   /* -------------------------------- rendering ----------------------------- */
@@ -343,6 +542,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     activeLayerId = targetLayerId(parsed, activeLayerId);
     layersPanel?.render(parsed, activeLayerId);
+    // A ref survives a move or a resize (those replace elements in place) but
+    // not an add or a delete, so every render re-checks what is still there.
+    selection = validRefs(parsed, selection);
+    renderChrome();
     if (refit) {
       fitted = fit();
     } else {
@@ -409,8 +612,74 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       `markerWidth="6" markerHeight="6" orient="auto-start-reverse">` +
       `<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>`;
     previewGroup = document.createElementNS(SVG_NS, 'g');
-    svg.append(defs, previewGroup);
+    // Selection chrome rides ABOVE the stroke preview: the box and its handles
+    // are UI, not ink, and must never be hidden by what is being drawn.
+    chromeGroup = document.createElementNS(SVG_NS, 'g');
+    chromeGroup.setAttribute('class', 'wb-chrome');
+    svg.append(defs, previewGroup, chromeGroup);
     return svg;
+  }
+
+  /* ------------------------------- selection ------------------------------ */
+
+  /**
+   * Draw the selection box, its handles and the marquee.
+   *
+   * Everything is sized in SCENE units divided by the current zoom, so a handle
+   * is the same number of screen pixels whether the board is at 30% or 400% —
+   * handles that scale with the drawing are unusable at both extremes. The
+   * chrome is markup rather than DOM building for the same reason the stroke
+   * preview is: one string, one assignment, no incremental-update bugs.
+   */
+  function renderChrome(): void {
+    if (!chromeGroup) {
+      return;
+    }
+    const unit = sceneUnitsPerPixel();
+    const parts: string[] = [];
+
+    if (selectDrag?.kind === 'marquee') {
+      const box = marqueeRect(selectDrag.start, selectDrag.current);
+      parts.push(
+        `<rect class="wb-marquee" x="${box.x}" y="${box.y}" width="${box.width}" ` +
+          `height="${box.height}" stroke-width="${unit}" stroke-dasharray="${4 * unit} ${3 * unit}"/>`,
+      );
+    }
+
+    const box = scene ? selectionBounds(scene, selection) : null;
+    if (box) {
+      const pad = 3 * unit;
+      const outline = {
+        x: box.x - pad,
+        y: box.y - pad,
+        width: box.width + pad * 2,
+        height: box.height + pad * 2,
+      };
+      parts.push(
+        `<rect class="wb-sel-box" x="${outline.x}" y="${outline.y}" ` +
+          `width="${outline.width}" height="${outline.height}" stroke-width="${unit}" ` +
+          `stroke-dasharray="${5 * unit} ${4 * unit}"/>`,
+      );
+      // Handles only make sense while the SELECT tool is live; with the pen in
+      // hand the box is just a reminder of what Delete would take.
+      if (options.getTool().tool === 'select' && selectDrag?.kind !== 'marquee') {
+        const size = HANDLE_SIZE * unit;
+        for (const handle of RESIZE_HANDLES) {
+          const p = handlePoint(outline, handle);
+          parts.push(
+            `<rect class="wb-sel-handle" x="${p.x - size / 2}" y="${p.y - size / 2}" ` +
+              `width="${size}" height="${size}" stroke-width="${unit}"/>`,
+          );
+        }
+      }
+    }
+    chromeGroup.innerHTML = parts.join('');
+  }
+
+  function setSelection(next: readonly ElementRef[]): void {
+    selection = next;
+    renderChrome();
+    notifyState();
   }
 
   /* --------------------------------- editing ------------------------------ */
@@ -426,6 +695,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       canRedo: history?.canRedo() ?? false,
       layersOpen,
       activeLayerName: layer?.name ?? null,
+      selectionCount: selection.length,
     };
   }
 
@@ -477,25 +747,78 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   /* --------------------------------- gestures ----------------------------- */
 
+  function pointerInfo(event: PointerEvent): PointerInfo {
+    return {
+      pointerType: event.pointerType,
+      button: event.button,
+      width: event.width,
+      height: event.height,
+      timeMs: event.timeStamp,
+    };
+  }
+
+  /** The routing context, assembled from what the adapter currently knows. */
+  function routeContext() {
+    return {
+      fingerDraws: fingerDrawsEnabled(options.getFingerDraws?.() ?? null, input.penSeen),
+      spaceHeld,
+      touchDrawing: gesture?.pointerType === 'touch' || selectDrag !== null,
+    };
+  }
+
   /**
-   * Does this pointer drive a TOOL, or the view? Phase 2 is mouse + pen only:
-   * a finger always pans (the "draw with finger" toggle and palm rejection are
-   * phase 3), and a held space bar or a non-primary mouse button pans too —
-   * the conventional escape hatch for panning without leaving the tool.
+   * A pen has landed. Anything a hand did in the last instant was the hand:
+   * discard a touch stroke still in flight, and UNDO one that just committed
+   * (the palm touches down a fraction ahead of the nib and leaves a worm).
    */
-  function isToolPointer(event: PointerEvent): boolean {
-    if (spaceHeld || event.pointerType === 'touch') {
-      return false;
+  function penTakeover(at: number): void {
+    if (gesture?.pointerType === 'touch' || selectDrag !== null) {
+      cancelGesture();
     }
-    return event.button === 0 || event.button === 5;
+    if (shouldUndoTouchStroke(lastTouchCommitAt, at)) {
+      lastTouchCommitAt = null;
+      adapter.undo();
+    }
   }
 
   function onPointerDown(event: PointerEvent): void {
     if (!stage) {
       return;
     }
+    // A pointer landing anywhere commits whatever was being typed, before it
+    // can start a gesture that would make the caret's position meaningless.
+    commitText();
+
+    const info = pointerInfo(event);
+    if (info.pointerType === 'pen') {
+      if (!input.penSeen) {
+        options.onPenSeen?.();
+      }
+      penTakeover(info.timeMs);
+    }
+    input = notePointerDown(input, info);
+    const route = routePointer(input, info, routeContext());
+    if (route === 'ignore') {
+      return; // a palm: no capture, no mark, no trace it was ever here
+    }
+
+    stagePositions.set(event.pointerId, stagePoint(event));
     stage.setPointerCapture(event.pointerId);
-    if (!scene || !isToolPointer(event)) {
+
+    if (!scene || route === 'navigate') {
+      // A second finger arriving mid-stroke turns the whole thing into a
+      // pinch, so the finger that WAS drawing joins the navigation set.
+      if (gesture?.pointerType === 'touch') {
+        // Read the id BEFORE cancelling — `cancelGesture` clears `gesture`,
+        // and reading it afterwards is the exact bug that made phase 2's
+        // strokes vanish on release.
+        const drawingId = gesture.pointerId;
+        const drawingAt = stagePositions.get(drawingId);
+        cancelGesture();
+        if (drawingAt) {
+          pointers.set(drawingId, drawingAt);
+        }
+      }
       pointers.set(event.pointerId, stagePoint(event));
       if (pointers.size === 2) {
         pinchDistance = spread();
@@ -504,13 +827,26 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
 
     const settings = options.getTool();
-    // A pen's eraser end (button 5) overrides the selected tool while it is
-    // the one touching the board — the behaviour every stylus user expects.
-    const tool: DrawTool = event.button === 5 ? 'eraser' : settings.tool;
+    // The pen's eraser end overrides the selected tool while IT is the end
+    // touching the board — the behaviour every stylus user expects.
+    const tool: DrawTool = route === 'erase' ? 'eraser' : settings.tool;
     const point = scenePoint(event);
+
+    if (tool === 'select') {
+      beginSelectDrag(event, point);
+      event.preventDefault();
+      return;
+    }
+    if (tool === 'text') {
+      openTextEditor(point, null);
+      event.preventDefault();
+      return;
+    }
+
     const filter = createOneEuroFilter();
     gesture = {
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       tool,
       color: settings.color,
       width: settings.width,
@@ -529,6 +865,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function onPointerMove(event: PointerEvent): void {
+    stagePositions.set(event.pointerId, stagePoint(event));
+
+    if (selectDrag && event.pointerId === selectDrag.pointerId) {
+      updateSelectDrag(scenePoint(event));
+      return;
+    }
+
     if (gesture && event.pointerId === gesture.pointerId) {
       // Coalesced events recover the samples the browser batched between
       // frames — on a 240 Hz digitizer that is most of the stroke.
@@ -571,13 +914,304 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function onPointerUp(event: PointerEvent): void {
-    if (gesture && event.pointerId === gesture.pointerId) {
+    if (selectDrag && event.pointerId === selectDrag.pointerId) {
+      finishSelectDrag(scenePoint(event));
+    } else if (gesture && event.pointerId === gesture.pointerId) {
       finishGesture(scenePoint(event));
     }
+    input = notePointerUp(input, pointerInfo(event));
     pointers.delete(event.pointerId);
+    stagePositions.delete(event.pointerId);
     pinchDistance = pointers.size === 2 ? spread() : 0;
     if (stage?.hasPointerCapture(event.pointerId)) {
       stage.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  /* ---------------------------- the select tool --------------------------- */
+
+  /**
+   * Which of the three select gestures a press starts, in priority order:
+   * a handle resizes, an element (already selected or not) moves, empty board
+   * marquees. Shift adds to the set instead of replacing it.
+   */
+  function beginSelectDrag(event: PointerEvent, point: Point): void {
+    if (!scene) {
+      return;
+    }
+    const unit = sceneUnitsPerPixel();
+    const box = selectionBounds(scene, selection);
+    if (box) {
+      const pad = 3 * unit;
+      const outline = {
+        x: box.x - pad,
+        y: box.y - pad,
+        width: box.width + pad * 2,
+        height: box.height + pad * 2,
+      };
+      const handle = handleAt(outline, point, HANDLE_HIT_RADIUS * unit);
+      if (handle) {
+        selectDrag = {
+          kind: 'resize',
+          pointerId: event.pointerId,
+          handle,
+          start: point,
+          from: outline,
+          base: scene,
+          moved: false,
+        };
+        return;
+      }
+    }
+
+    const hit = hitTest(scene, point, ERASER_RADIUS * unit)[0] ?? null;
+    if (hit) {
+      // Pressing on something already selected keeps the whole set — that is
+      // what makes "drag the group" work.
+      const next = event.shiftKey
+        ? toggleRef(selection, hit)
+        : hasRef(selection, hit)
+          ? selection
+          : [hit];
+      setSelection(next);
+      selectDrag = {
+        kind: 'move',
+        pointerId: event.pointerId,
+        start: point,
+        base: scene,
+        moved: false,
+      };
+      return;
+    }
+
+    selectDrag = {
+      kind: 'marquee',
+      pointerId: event.pointerId,
+      start: point,
+      current: point,
+      additive: event.shiftKey,
+      base: event.shiftKey ? selection : [],
+    };
+    if (!event.shiftKey) {
+      setSelection([]);
+    }
+    renderChrome();
+  }
+
+  function updateSelectDrag(point: Point): void {
+    if (!selectDrag) {
+      return;
+    }
+    if (selectDrag.kind === 'marquee') {
+      const drag = selectDrag;
+      drag.current = point;
+      const inside = scene ? elementsInRect(scene, marqueeRect(drag.start, point)) : [];
+      selection = drag.additive
+        ? [...drag.base, ...inside.filter((ref) => !hasRef(drag.base, ref))]
+        : inside;
+      renderChrome();
+      notifyState();
+      return;
+    }
+    if (selectDrag.kind === 'move') {
+      const dx = point.x - selectDrag.start.x;
+      const dy = point.y - selectDrag.start.y;
+      selectDrag.moved = selectDrag.moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
+      // Re-derive from the drag's OWN starting document every frame, so the
+      // move is one transform rather than an accumulating pile of them.
+      render(serializeWhiteboard(translateElements(selectDrag.base, selection, dx, dy)), false);
+      return;
+    }
+    const target = resizeRect(
+      selectDrag.from,
+      selectDrag.handle,
+      point.x - selectDrag.start.x,
+      point.y - selectDrag.start.y,
+      MIN_SELECTION_SIZE,
+    );
+    selectDrag.moved = true;
+    render(
+      serializeWhiteboard(scaleElements(selectDrag.base, selection, selectDrag.from, target)),
+      false,
+    );
+  }
+
+  function finishSelectDrag(point: Point): void {
+    const drag = selectDrag;
+    selectDrag = null;
+    if (!drag) {
+      return;
+    }
+    if (drag.kind === 'marquee') {
+      renderChrome();
+      notifyState();
+      return;
+    }
+    if (!drag.moved || !scene) {
+      renderChrome();
+      return;
+    }
+    // The board already SHOWS the result (every frame painted it); committing
+    // is what makes it one undo step and schedules the write-back.
+    const next =
+      drag.kind === 'move'
+        ? translateElements(drag.base, selection, point.x - drag.start.x, point.y - drag.start.y)
+        : scaleElements(
+            drag.base,
+            selection,
+            drag.from,
+            resizeRect(
+              drag.from,
+              drag.handle,
+              point.x - drag.start.x,
+              point.y - drag.start.y,
+              MIN_SELECTION_SIZE,
+            ),
+          );
+    if (next === drag.base) {
+      render(serializeWhiteboard(drag.base), false);
+      return;
+    }
+    commit(next);
+  }
+
+  /* ------------------------------- the text tool -------------------------- */
+
+  /**
+   * A `<textarea>` parented to the transformed `.wb-canvas`, positioned in
+   * board pixels. Living inside the transform means the browser pans and zooms
+   * it with the board, and the type size matches the ink it is about to
+   * become — you edit text where the text will be, not in a floating box.
+   */
+  function openTextEditor(at: Point, existing: ElementRef | null): void {
+    if (!canvas || !scene) {
+      return;
+    }
+    commitText();
+    const settings = options.getTool();
+    const current = existing ? resolveElement(scene, existing) : null;
+    const element = current?.kind === 'text' ? current : null;
+    textEdit = {
+      at: element ? { x: element.x, y: element.y } : at,
+      color: element ? element.fill : settings.color,
+      fontSize: element ? element.fontSize : fontSizeForWidth(settings.width),
+      ref: element ? existing : null,
+    };
+
+    const scale = boardScale();
+    const origin = sceneToBoard(textEdit.at);
+    const area = document.createElement('textarea');
+    area.className = 'wb-text-input';
+    area.spellcheck = false;
+    area.rows = 1;
+    area.value = element ? element.lines.join('\n') : '';
+    area.style.left = `${origin.x}px`;
+    // `<text y>` is the BASELINE; a textarea's first line sits about 0.8em
+    // above its own baseline at line-height 1.2. Line them up so the caret is
+    // where the glyphs will land.
+    area.style.top = `${origin.y - textEdit.fontSize * scale * 0.8}px`;
+    area.style.fontSize = `${textEdit.fontSize * scale}px`;
+    area.style.color = inkColor(textEdit.color);
+    area.addEventListener('pointerdown', (e) => e.stopPropagation());
+    area.addEventListener('keydown', onTextKeyDown);
+    area.addEventListener('blur', () => commitText());
+    area.addEventListener('input', () => autoSizeText(area));
+    // Editing EXISTING text sits on top of the glyphs it came from, so the box
+    // paints the board colour behind itself; a new one stays transparent so
+    // you can see what you are typing over.
+    area.classList.toggle('wb-editing', element !== null);
+    canvas.append(area);
+    autoSizeText(area);
+    // Focus after layout so the caret lands in a box that already has a size.
+    requestAnimationFrame(() => area.focus());
+    textArea = area;
+    notifyState();
+  }
+
+  /** Grow the box with its content; a fixed-size textarea hides what you type. */
+  function autoSizeText(area: HTMLTextAreaElement): void {
+    area.style.height = 'auto';
+    area.style.height = `${area.scrollHeight}px`;
+    const longest = area.value.split('\n').reduce((n, line) => Math.max(n, line.length), 0);
+    area.style.width = `${Math.max(6, longest + 2)}ch`;
+  }
+
+  function onTextKeyDown(event: KeyboardEvent): void {
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelText();
+      stage?.focus();
+      return;
+    }
+    // Enter is a newline (this is a text BOX); Ctrl/Cmd+Enter finishes, which
+    // is the same "done" chord the app's other multi-line inputs use.
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      commitText();
+      stage?.focus();
+    }
+  }
+
+  function cancelText(): void {
+    textArea?.remove();
+    textArea = null;
+    textEdit = null;
+    notifyState();
+  }
+
+  /** Fold the textarea back into the document. Empty input leaves nothing. */
+  function commitText(): void {
+    const area = textArea;
+    const edit = textEdit;
+    textArea = null;
+    textEdit = null;
+    area?.remove();
+    if (!area || !edit || !scene) {
+      return;
+    }
+    const element = makeText(edit.at, area.value, edit.color, edit.fontSize);
+    if (edit.ref) {
+      // Editing existing text: empty means delete it.
+      commit(
+        element ? replaceElement(scene, edit.ref, element) : removeElements(scene, [edit.ref]),
+      );
+      return;
+    }
+    if (!element) {
+      return;
+    }
+    const target = ensureDrawLayer(scene, activeLayerId);
+    activeLayerId = target.layerId;
+    commit(addElement(target.doc, target.layerId, element));
+  }
+
+  /**
+   * The colour a swatch actually paints in the current theme. The stored value
+   * is the canonical light hex (the slot's identity); the board renders it
+   * through `--wb-cN`, and the textarea has to agree or typing looks like one
+   * colour and committing gives another.
+   */
+  function inkColor(color: string): string {
+    const slot = PALETTE.indexOf(color);
+    if (slot < 0) {
+      return color;
+    }
+    const resolved = getComputedStyle(document.documentElement)
+      .getPropertyValue(`--wb-c${slot}`)
+      .trim();
+    return resolved.length > 0 ? resolved : color;
+  }
+
+  /** Double-click with the select tool opens the text under the pointer. */
+  function onDoubleClick(event: MouseEvent): void {
+    if (!scene || options.getTool().tool !== 'select') {
+      return;
+    }
+    const point = scenePoint(event);
+    const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0];
+    if (hit && resolveElement(scene, hit)?.kind === 'text') {
+      openTextEditor(point, hit);
     }
   }
 
@@ -628,6 +1262,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (!active || !scene) {
       return;
     }
+    // Remember when a FINGER last put something down: if a pen lands in the
+    // next breath, that mark was a palm and gets undone (input.ts).
+    if (active.pointerType === 'touch') {
+      lastTouchCommitAt = performance.now();
+    }
     if (active.tool === 'eraser') {
       if (active.erased && active.working) {
         commit(active.working);
@@ -646,13 +1285,22 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function cancelGesture(): void {
+    // A select drag has also been painting straight onto the board, so it
+    // needs the same restore-from-the-last-commit treatment as an erase.
+    const wasDragging = selectDrag !== null && selectDrag.kind !== 'marquee' && selectDrag.moved;
+    selectDrag = null;
     if (!gesture) {
+      if (wasDragging && history) {
+        render(serializeWhiteboard(history.current()), false);
+      } else {
+        renderChrome();
+      }
       return;
     }
     const wasErasing = gesture.tool === 'eraser' && gesture.erased;
     gesture = null;
     setPreview(null);
-    if (wasErasing && history) {
+    if ((wasErasing || wasDragging) && history) {
       // An erase drag paints its removals straight onto the board (and so onto
       // `renderedText`) before it commits. Escape has to come back from the
       // last COMMITTED state, not from what is currently on screen.
@@ -685,6 +1333,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function onKeyDown(event: KeyboardEvent): void {
+    if (textArea && event.target === textArea) {
+      return; // typing; the textarea's own handler owns Escape and Ctrl+Enter
+    }
     if (event.key === ' ' && !spaceHeld) {
       spaceHeld = true;
       stage?.classList.add('wb-panning');
@@ -693,6 +1344,23 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     if (event.key === 'Escape') {
       cancelGesture();
+      setSelection([]);
+      return;
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (selection.length > 0) {
+        event.preventDefault();
+        adapter.deleteSelection();
+      }
+      return;
+    }
+    // Nudge: the keyboard's answer to "one pixel to the left", and the reason
+    // a mouse-less resize is not the only way to align things.
+    const nudge = NUDGE_KEYS[event.key];
+    if (nudge && selection.length > 0 && scene) {
+      event.preventDefault();
+      const step = (event.shiftKey ? 10 : 1) * sceneUnitsPerPixel();
+      commit(translateElements(scene, selection, nudge.x * step, nudge.y * step));
       return;
     }
     const mod = event.ctrlKey || event.metaKey;
@@ -700,6 +1368,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const key = event.key.toLowerCase();
+    if (key === 'a') {
+      event.preventDefault();
+      adapter.selectAll();
+      return;
+    }
     if (key === 'z') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -770,14 +1443,41 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
     undo() {
       if (history?.canUndo()) {
+        // Indices move under a selection when elements come back or go away,
+        // so stepping through the timeline drops it rather than pointing it at
+        // whatever now happens to sit at those positions.
+        selection = [];
         commit(history.undo(), false);
       }
     },
 
     redo() {
       if (history?.canRedo()) {
+        selection = [];
         commit(history.redo(), false);
       }
+    },
+
+    deleteSelection() {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      const next = removeElements(scene, selection);
+      selection = [];
+      commit(next);
+    },
+
+    selectAll() {
+      if (scene) {
+        setSelection(allSelectable(scene));
+      }
+    },
+
+    refreshTool() {
+      if (stage) {
+        stage.dataset.tool = options.getTool().tool;
+      }
+      renderChrome();
     },
 
     toggleLayers() {
@@ -836,8 +1536,18 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       stage.addEventListener('wheel', onWheel, { passive: false });
       stage.addEventListener('keydown', onKeyDown);
       stage.addEventListener('keyup', onKeyUp);
+      stage.addEventListener('dblclick', onDoubleClick);
 
+      adapter.refreshTool();
       render(doc.getText(), true);
+      // A view carried over from this session (a tab switch, a Draw→Raw→Draw
+      // round trip) wins; failing that, one the FILE arrived with; failing
+      // that, the fit `render` just did.
+      const restored = options.getSavedView?.() ?? viewFromMeta(scene);
+      if (restored) {
+        setView(restored);
+        fitted = true;
+      }
       // Re-attach (a Raw→Draw switch back) starts a fresh timeline, matching
       // the documented per-adapter-instance history scope.
       history = createHistory(scene ?? parseFallback(doc.getText()));
@@ -870,6 +1580,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         // reload, a conflict resolution. Their text is now the truth, so the
         // undo timeline starts over from it.
         cancelGesture();
+        cancelText();
+        selection = [];
         render(change.text, false);
         if (scene) {
           history?.reset(scene);
@@ -881,9 +1593,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
     detach() {
       // MUST be synchronous (mode-sync contract): a Draw→Raw switch has to see
-      // the strokes drawn in the last 150 ms.
+      // the strokes drawn in the last 150 ms — and text still in the box.
       cancelGesture();
+      commitText();
       flushPush();
+      reportViewNow();
       unsubscribe?.();
       unsubscribe = null;
       resizeObserver?.disconnect();
@@ -900,8 +1614,18 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.removeEventListener('wheel', onWheel);
         stage.removeEventListener('keydown', onKeyDown);
         stage.removeEventListener('keyup', onKeyUp);
+        stage.removeEventListener('dblclick', onDoubleClick);
       }
       pointers.clear();
+      stagePositions.clear();
+      selection = [];
+      selectDrag = null;
+      lastTouchCommitAt = null;
+      // `penSeen` is intentionally NOT reset: the device still has a pen after
+      // a mode switch, and re-arming finger-draw would smear the next board.
+      input = { ...createInputState(), penSeen: input.penSeen };
+      chromeGroup = null;
+      previewGroup = null;
       root?.remove();
       root = null;
       stage = null;
@@ -921,6 +1645,27 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   };
 
   return adapter;
+}
+
+/**
+ * The opening view a FILE asked for, via `"view"` in its `wb:doc` metadata.
+ *
+ * Read-only on purpose: the editor never writes it back, because panning a
+ * board must not dirty the document (the write-back guard's whole point). It
+ * exists so a generated or hand-authored board can say "open here".
+ */
+function viewFromMeta(doc: SceneDoc | null): DiagramView | null {
+  const raw = doc?.meta.view;
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const { scale, x, y } = raw as Record<string, unknown>;
+  if (typeof scale !== 'number' || typeof x !== 'number' || typeof y !== 'number') {
+    return null;
+  }
+  return Number.isFinite(scale) && Number.isFinite(x) && Number.isFinite(y)
+    ? { scale: clampDiagramScale(scale), x, y }
+    : null;
 }
 
 /**

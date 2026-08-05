@@ -34,6 +34,16 @@
   cursor: crosshair;
 }
 
+/* The cursor names the tool: crosshair draws, an arrow selects, a beam types.
+   Panning (space/middle-drag) overrides all of them below. */
+.wb-stage[data-tool='select'] {
+  cursor: default;
+}
+
+.wb-stage[data-tool='text'] {
+  cursor: text;
+}
+
 .wb-stage.wb-panning {
   cursor: grab;
 }
@@ -89,6 +99,58 @@
    (0,2,0 beats its 0,1,1): the overlay is always transparent. */
 .wb-canvas > .wb-live {
   background: none;
+}
+
+/* ---------------------------- selection chrome ---------------------------- */
+
+/* Drawn on the overlay in SCENE units — the adapter divides every size by the
+   zoom so the box and its handles stay a constant number of screen pixels.
+   These are UI, not ink: they take the app's accent colour, never the board's
+   palette, and they are never pointer targets (the stage owns all gestures). */
+.wb-chrome {
+  pointer-events: none;
+}
+
+.wb-sel-box,
+.wb-marquee {
+  fill: none;
+  stroke: var(--accent);
+}
+
+.wb-marquee {
+  fill: var(--accent);
+  fill-opacity: 0.08;
+}
+
+.wb-sel-handle {
+  fill: var(--bg);
+  stroke: var(--accent);
+}
+
+/* The text tool's editor. Parented to the TRANSFORMED .wb-canvas, so the
+   browser pans and zooms it with the board and the type size on screen is the
+   type size that will be committed. */
+.wb-text-input {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  min-width: 6ch;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  outline: 1px dashed var(--accent);
+  background: transparent;
+  font-family: sans-serif;
+  line-height: 1.2;
+  white-space: pre;
+  resize: none;
+}
+
+/* Editing text that already exists puts the box on top of the glyphs it came
+   from — paint the board colour behind it so the two don't ghost together. */
+.wb-text-input.wb-editing {
+  background: var(--wb-bg, #ffffff);
 }
 
 /* ------------------------------- layers panel ----------------------------- */

@@ -11,7 +11,7 @@
 
 import type { ShapeKind } from './scene';
 
-export type DrawTool = 'pen' | 'highlighter' | 'eraser' | ShapeKind;
+export type DrawTool = 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | ShapeKind;
 
 export const SHAPE_TOOLS: readonly ShapeKind[] = ['rect', 'ellipse', 'line', 'arrow'];
 
@@ -116,6 +116,32 @@ export const HIGHLIGHTER_OPACITY = 0.35;
 
 /** Eraser reach in SCREEN pixels; the adapter converts to scene units. */
 export const ERASER_RADIUS = 6;
+
+/**
+ * Type sizes, index-aligned with {@link STROKE_WIDTHS}: the nib picker doubles
+ * as the type-size picker rather than adding a second control to the ribbon for
+ * a tool that is used once a session. Scene units, so they mean the same thing
+ * as `font-size` in the saved file.
+ */
+export const TEXT_SIZES: readonly number[] = [16, 22, 32, 48];
+
+/** The type size for a nib width; the nearest slot, falling back to 22. */
+export function fontSizeForWidth(width: number): number {
+  const slot = STROKE_WIDTHS.indexOf(width);
+  return TEXT_SIZES[slot] ?? TEXT_SIZES[1]!;
+}
+
+/**
+ * Handle geometry for the selection box, in SCREEN pixels (the adapter divides
+ * by the zoom, so handles stay the same size however far you zoom in). The hit
+ * radius is deliberately larger than the drawn square: a 7px target is
+ * unusable with a finger, and the plan's touch budget is 44px.
+ */
+export const HANDLE_SIZE = 8;
+export const HANDLE_HIT_RADIUS = 14;
+
+/** Smallest a selection box may be resized to, in scene units. */
+export const MIN_SELECTION_SIZE = 4;
 
 export interface ToolSettings {
   readonly tool: DrawTool;

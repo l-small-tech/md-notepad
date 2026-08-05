@@ -23,6 +23,7 @@ import {
   type PaletteKind,
   type ToolSettings,
 } from '../../core/whiteboard/tool-settings';
+import type { DiagramView } from '../../core/diagram-zoom';
 import type { WhiteboardAdapter, WhiteboardUiState } from '../../editors/whiteboard';
 
 /** Per-tab draw state reported UP by the adapter (undo depth, layers panel). */
@@ -33,6 +34,7 @@ const IDLE: DrawTabState = {
   canRedo: false,
   layersOpen: false,
   activeLayerName: null,
+  selectionCount: 0,
 };
 
 interface WhiteboardState {
@@ -41,12 +43,30 @@ interface WhiteboardState {
   width: number;
   /** Which swatch row the ribbon offers: themable slots or fixed named colours. */
   paletteKind: PaletteKind;
+  /**
+   * "Draw with finger": true/false once the user has chosen, null while they
+   * have not — see `fingerDrawsEnabled` in `core/whiteboard/input.ts`, which
+   * resolves null to "yes, until this device proves it has a pen".
+   */
+  fingerDraws: boolean | null;
+  /** Set the first time a stylus touches a board; the toggle's auto label. */
+  penSeen: boolean;
+  /**
+   * tabId → the last viewport its board had. SESSION state, deliberately not
+   * written to the file: panning must never dirty a document. Survives tab
+   * switches and Draw⇄Raw round trips, which is where losing your place
+   * actually hurts.
+   */
+  viewByTab: Record<string, DiagramView>;
   /** tabId → what its draw adapter last reported. */
   byTab: Record<string, DrawTabState>;
   setTool: (tool: DrawTool) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
   setPaletteKind: (kind: PaletteKind) => void;
+  setFingerDraws: (value: boolean | null) => void;
+  notePenSeen: () => void;
+  saveView: (tabId: string, view: DiagramView) => void;
   reportTabState: (tabId: string, state: DrawTabState) => void;
   clearTab: (tabId: string) => void;
 }
@@ -68,6 +88,9 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   color: DEFAULT_COLOR,
   width: DEFAULT_STROKE_WIDTH,
   paletteKind: 'themed',
+  fingerDraws: null,
+  penSeen: false,
+  viewByTab: {},
   byTab: {},
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
@@ -76,17 +99,24 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
     set((s) =>
       s.paletteKind === kind ? s : { paletteKind: kind, color: carryColor(s.color, kind) },
     ),
+  setFingerDraws: (value) => set({ fingerDraws: value }),
+  notePenSeen: () => set((s) => (s.penSeen ? s : { penSeen: true })),
+  saveView(tabId, view) {
+    set((s) => ({ viewByTab: { ...s.viewByTab, [tabId]: view } }));
+  },
   reportTabState(tabId, state) {
     set((s) => ({ byTab: { ...s.byTab, [tabId]: state } }));
   },
   clearTab(tabId) {
     set((s) => {
-      if (!(tabId in s.byTab)) {
+      if (!(tabId in s.byTab) && !(tabId in s.viewByTab)) {
         return s;
       }
-      const next = { ...s.byTab };
-      delete next[tabId];
-      return { byTab: next };
+      const byTab = { ...s.byTab };
+      const viewByTab = { ...s.viewByTab };
+      delete byTab[tabId];
+      delete viewByTab[tabId];
+      return { byTab, viewByTab };
     });
   },
 }));

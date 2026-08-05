@@ -5,7 +5,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { makeShape, makeStroke, isShapeTool, PALETTE, STROKE_WIDTHS } from '../tools';
+import {
+  fontSizeForWidth,
+  isShapeTool,
+  makeShape,
+  makeStroke,
+  makeText,
+  PALETTE,
+  STROKE_WIDTHS,
+  TEXT_SIZES,
+} from '../tools';
 import { parseWhiteboard } from '../parse';
 import { ARROW_MARKER_ID, serializeWhiteboard } from '../serialize';
 import { createLayer, createScene, type SceneElement } from '../scene';
@@ -75,6 +84,34 @@ describe('makeShape', () => {
   it('refuses a degenerate gesture, so a stray click leaves nothing behind', () => {
     expect(makeShape('rect', P(10, 10), P(11, 11), '#1a1a1a', 2)).toBeNull();
     expect(makeShape('line', P(10, 10), P(11, 10), '#1a1a1a', 2)).toBeNull();
+  });
+});
+
+describe('makeText', () => {
+  it('splits lines and keeps the tap point as the first baseline', () => {
+    const text = makeText(P(40, 90), 'one\ntwo', '#1f6fd0', 32)!;
+    expect(text).toMatchObject({ kind: 'text', x: 40, y: 90, fontSize: 32, fill: '#1f6fd0' });
+    expect(text.lines).toEqual(['one', 'two']);
+  });
+
+  it('normalizes CRLF and trims blank lines off both ends', () => {
+    expect(makeText(P(0, 0), '\r\n a \r\n\r\n b \n\n', '#1a1a1a', 16)!.lines).toEqual([
+      ' a ',
+      '',
+      ' b ',
+    ]);
+  });
+
+  it('leaves nothing behind for empty input, so a stray tap is free', () => {
+    expect(makeText(P(0, 0), '', '#1a1a1a', 16)).toBeNull();
+    expect(makeText(P(0, 0), '  \n\n ', '#1a1a1a', 16)).toBeNull();
+  });
+
+  it('takes its size from the nib slot, index-aligned', () => {
+    STROKE_WIDTHS.forEach((width, slot) => {
+      expect(fontSizeForWidth(width)).toBe(TEXT_SIZES[slot]);
+    });
+    expect(fontSizeForWidth(999)).toBe(TEXT_SIZES[1]);
   });
 });
 

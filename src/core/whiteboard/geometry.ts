@@ -83,6 +83,34 @@ export function pointInRect(p: Point, rect: Rect): boolean {
   );
 }
 
+/** Is `inner` entirely within `outer`? The marquee's containment test. */
+export function rectContainsRect(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  );
+}
+
+/** The smallest rect covering both, or the other one when either is null. */
+export function unionRect(a: Rect | null, b: Rect | null): Rect | null {
+  if (!a) {
+    return b;
+  }
+  if (!b) {
+    return a;
+  }
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    width: Math.max(a.x + a.width, b.x + b.width) - x,
+    height: Math.max(a.y + a.height, b.y + b.height) - y,
+  };
+}
+
 /** Axis-aligned bounds of a point set, or null when there are none. */
 export function boundsOfPoints(points: readonly Point[]): Rect | null {
   if (points.length === 0) {
@@ -127,6 +155,130 @@ export function ellipseOutline(
     points.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
   }
   return points;
+}
+
+/* ----------------------------- path transforming -------------------------- */
+
+/**
+ * Parameter roles per SVG path command, in order. `x`/`y` are coordinates
+ * (translated AND scaled when absolute, only scaled when relative), `rx`/`ry`
+ * are lengths (scaled, never translated), `n` is a number to leave alone
+ * (rotation angle, arc flags). A command's list REPEATS for as long as numbers
+ * keep coming, which is exactly what the SVG grammar allows.
+ */
+const PATH_PARAMS: Record<string, readonly string[]> = {
+  M: ['x', 'y'],
+  L: ['x', 'y'],
+  T: ['x', 'y'],
+  H: ['x'],
+  V: ['y'],
+  C: ['x', 'y', 'x', 'y', 'x', 'y'],
+  S: ['x', 'y', 'x', 'y'],
+  Q: ['x', 'y', 'x', 'y'],
+  A: ['rx', 'ry', 'n', 'n', 'n', 'x', 'y'],
+  Z: [],
+};
+
+function round2(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const rounded = Math.round(value * 100) / 100;
+  return Object.is(rounded, -0) ? '0' : String(rounded);
+}
+
+/**
+ * Rewrite a `<path d>` under the affine `x' = x·sx + tx`, `y' = y·sy + ty`.
+ *
+ * Select/move/resize BAKE their transform into the element (there are no
+ * stacked transforms anywhere in the format — see `scene.ts`), and a stroke's
+ * geometry is its `d` string, so this is where baking a stroke happens.
+ *
+ * Relative commands take the scale but not the translation, which is what keeps
+ * a hand-authored `m…l…` path correct. Elliptical arcs are handled by scaling
+ * their radii: exact under a uniform scale, an approximation under a
+ * non-uniform one (the arc's own rotation would need recomputing). Our own
+ * serializer only ever emits absolute `M`/`C`, so that case can only arise for
+ * hand-authored ink sitting inside one of our layers.
+ */
+export function transformPathData(
+  d: string,
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+): string {
+  const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
+  if (!tokens) {
+    return d;
+  }
+  const out: string[] = [];
+  let command = 'M';
+  let index = 0;
+
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (/[a-zA-Z]/.test(token)) {
+      command = token;
+      out.push(token);
+      index++;
+      continue;
+    }
+    const params = PATH_PARAMS[command.toUpperCase()];
+    if (!params || params.length === 0) {
+      // Unknown command: pass its operands through untouched rather than
+      // corrupting them. Better a wrong-looking element than a broken file.
+      out.push(token);
+      index++;
+      continue;
+    }
+    const relative = command === command.toLowerCase();
+    for (const role of params) {
+      const raw = tokens[index];
+      if (raw === undefined || /[a-zA-Z]/.test(raw)) {
+        break;
+      }
+      index++;
+      const value = Number.parseFloat(raw);
+      if (!Number.isFinite(value)) {
+        out.push(raw);
+        continue;
+      }
+      switch (role) {
+        case 'x':
+          out.push(round2(relative ? value * sx : value * sx + tx));
+          break;
+        case 'y':
+          out.push(round2(relative ? value * sy : value * sy + ty));
+          break;
+        case 'rx':
+          out.push(round2(value * Math.abs(sx)));
+          break;
+        case 'ry':
+          out.push(round2(value * Math.abs(sy)));
+          break;
+        default:
+          out.push(raw);
+      }
+    }
+  }
+  return joinPathTokens(out);
+}
+
+/** `M 1 2 C …` with commands glued to their first operand — compact but legible. */
+function joinPathTokens(tokens: readonly string[]): string {
+  let out = '';
+  let previousWasCommand = false;
+  for (const token of tokens) {
+    const isCommand = /[a-zA-Z]/.test(token);
+    if (out === '' || isCommand || previousWasCommand) {
+      out += token;
+    } else {
+      out += ` ${token}`;
+    }
+    previousWasCommand = isCommand;
+  }
+  return out;
 }
 
 /* ------------------------------ path flattening --------------------------- */

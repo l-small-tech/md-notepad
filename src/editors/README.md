@@ -203,6 +203,20 @@ build instead of self-healing the session away.
   purpose**: the ribbon is in the eager entry bundle, and importing the palette
   from `tools.ts` would drag smoothing, serialization and the XML reader into
   startup, quietly undoing I8.
+- **Selection, text and touch (phase 3)** keep the same shape: `select.ts` and
+  `input.ts` decide, this file wires. Three things about the wiring are load-
+  bearing:
+  - A select drag paints straight onto the board and commits ONCE on release
+    (the eraser-drag pattern), re-deriving from the drag's own starting
+    document every frame so transforms never accumulate.
+  - The text editor is a `<textarea>` parented to the **transformed**
+    `.wb-canvas`, so the browser pans and zooms it with the board and the
+    on-screen type size is the size that gets committed.
+  - The viewport is reported UP for per-tab session persistence and is never
+    written to the file — panning must not dirty a document. A `view` in the
+    file's metadata is honoured read-only as the opening view.
+- `refreshTool()` exists because tool settings are PULLED per gesture: the
+  cursor and the selection handles are what the ribbon has to announce.
 
 ## Testing expectations
 

@@ -15,7 +15,7 @@
 import type { Point } from './geometry';
 import { rectFromCorners } from './geometry';
 import { buildStrokePath } from './smoothing';
-import type { ShapeElement, ShapeKind, StrokeElement } from './scene';
+import type { ShapeElement, ShapeKind, StrokeElement, TextElement } from './scene';
 import { HIGHLIGHTER_OPACITY, HIGHLIGHTER_WIDTH_FACTOR } from './tool-settings';
 
 export * from './tool-settings';
@@ -41,6 +41,42 @@ export function makeStroke(
     strokeWidth: tool === 'highlighter' ? width * HIGHLIGHTER_WIDTH_FACTOR : width,
     opacity: tool === 'highlighter' ? HIGHLIGHTER_OPACITY : null,
     widths: null,
+  };
+}
+
+/**
+ * A text element from what the user typed. `at` is the BASELINE of the first
+ * line, which is what `<text y>` means — the adapter's textarea overlay is
+ * positioned to match, so the caret sits where the glyphs will land.
+ *
+ * Returns null for empty input (including a box that only ever held spaces):
+ * tapping the text tool and tapping away again must leave nothing behind.
+ * Trailing blank lines go the same way; interior ones are the user's.
+ */
+export function makeText(
+  at: Point,
+  text: string,
+  color: string,
+  fontSize: number,
+): TextElement | null {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') {
+    lines.pop();
+  }
+  while (lines.length > 0 && lines[0]!.trim() === '') {
+    lines.shift();
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+  return {
+    kind: 'text',
+    id: null,
+    x: at.x,
+    y: at.y,
+    fontSize,
+    fill: color,
+    lines,
   };
 }
 

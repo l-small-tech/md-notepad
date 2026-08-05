@@ -47,6 +47,9 @@ import {
   THEMED_SLOT_NAMES,
   type DrawTool,
 } from '../../core/whiteboard/tool-settings';
+// Also a dependency-free leaf (the same I8 constraint tool-settings is under):
+// the ribbon needs the finger-toggle's resolution rule, nothing more.
+import { fingerDrawsEnabled } from '../../core/whiteboard/input';
 import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
@@ -464,7 +467,10 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const color = useWhiteboardStore((s) => s.color);
   const width = useWhiteboardStore((s) => s.width);
   const paletteKind = useWhiteboardStore((s) => s.paletteKind);
+  const fingerDrawsPref = useWhiteboardStore((s) => s.fingerDraws);
+  const penSeen = useWhiteboardStore((s) => s.penSeen);
   const tabState = useWhiteboardStore((s) => (tabId !== null ? s.byTab[tabId] : undefined));
+  const fingerDraws = fingerDrawsEnabled(fingerDrawsPref, penSeen);
   const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
   // Themed slots preview through their --wb-* var; static/custom stay literal.
   const colorSlot = paletteSlot(color);
@@ -480,7 +486,12 @@ function DrawControls({ tabId }: { tabId: string | null }) {
         data-active={tool === id || undefined}
         title={title}
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => whiteboardStore.getState().setTool(id)}
+        onClick={() => {
+          whiteboardStore.getState().setTool(id);
+          // The adapter pulls tool settings per gesture; what it needs told is
+          // the between-gesture chrome (cursor, selection handles).
+          adapter?.refreshTool();
+        }}
       >
         {label}
       </button>
@@ -488,10 +499,12 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   }
 
   return (
-    <div className="ribbon-center">
+    <div className="ribbon-center ribbon-center-draw">
+      {toolButton('select', '⬚', 'Select — drag to move, handles to resize, Delete to remove')}
       {toolButton('pen', '✎', 'Pen')}
       {toolButton('highlighter', '▤', 'Highlighter')}
       {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
+      {toolButton('text', 'T', 'Text — tap to type, Ctrl/Cmd+Enter to finish')}
 
       <span className="ribbon-divider" role="separator" />
 
@@ -558,6 +571,40 @@ function DrawControls({ tabId }: { tabId: string | null }) {
       </div>
 
       <span className="ribbon-divider" role="separator" />
+
+      {/* Touch policy. Only meaningful with a touchscreen, but shown always:
+          a hidden toggle is a toggle nobody finds on the device that needs
+          it, and "Auto" explains itself once a pen has been seen. */}
+      <button
+        className="ribbon-btn"
+        aria-label={fingerDraws ? 'Finger draws' : 'Finger pans'}
+        aria-pressed={fingerDraws}
+        data-active={fingerDraws || undefined}
+        title={
+          fingerDrawsPref === null
+            ? penSeen
+              ? 'Finger pans (automatic — a pen was detected). Click to draw with a finger.'
+              : 'Finger draws (automatic — no pen seen yet). Click to pan with a finger instead.'
+            : fingerDraws
+              ? 'Finger draws. Two fingers still pan and pinch. Click to pan with one finger.'
+              : 'Finger pans. Click to draw with a finger.'
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => whiteboardStore.getState().setFingerDraws(!fingerDraws)}
+      >
+        ✋
+      </button>
+
+      <button
+        className="ribbon-btn"
+        aria-label="Delete selection"
+        title="Delete the selection (Del)"
+        disabled={!tabState?.selectionCount}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => adapter?.deleteSelection()}
+      >
+        🗑
+      </button>
 
       <button
         className="ribbon-btn"

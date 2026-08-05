@@ -9,10 +9,18 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_COLOR, PALETTE, STATIC_PALETTE } from '../../../core/whiteboard/tool-settings';
-import { carryColor, whiteboardStore } from '../whiteboard';
+import { fingerDrawsEnabled } from '../../../core/whiteboard/input';
+import { carryColor, drawStateFor, whiteboardStore } from '../whiteboard';
 
 beforeEach(() => {
-  whiteboardStore.setState({ paletteKind: 'themed', color: DEFAULT_COLOR });
+  whiteboardStore.setState({
+    paletteKind: 'themed',
+    color: DEFAULT_COLOR,
+    fingerDraws: null,
+    penSeen: false,
+    viewByTab: {},
+    byTab: {},
+  });
 });
 
 describe('carryColor', () => {
@@ -41,5 +49,52 @@ describe('setPaletteKind', () => {
     whiteboardStore.getState().setColor(PALETTE[2]!);
     whiteboardStore.getState().setPaletteKind('themed');
     expect(whiteboardStore.getState().color).toBe(PALETTE[2]);
+  });
+});
+
+describe('touch policy (phase 3)', () => {
+  it('starts with no preference and no pen, so a finger draws', () => {
+    const s = whiteboardStore.getState();
+    expect(fingerDrawsEnabled(s.fingerDraws, s.penSeen)).toBe(true);
+  });
+
+  it('stops fingers drawing once a pen has been seen, unless told otherwise', () => {
+    whiteboardStore.getState().notePenSeen();
+    let s = whiteboardStore.getState();
+    expect(s.penSeen).toBe(true);
+    expect(fingerDrawsEnabled(s.fingerDraws, s.penSeen)).toBe(false);
+
+    whiteboardStore.getState().setFingerDraws(true);
+    s = whiteboardStore.getState();
+    expect(fingerDrawsEnabled(s.fingerDraws, s.penSeen)).toBe(true);
+  });
+});
+
+describe('per-tab state', () => {
+  const VIEW = { scale: 2, x: 10, y: -5 };
+
+  it('keeps a viewport per tab so switching tabs keeps your place', () => {
+    whiteboardStore.getState().saveView('t1', VIEW);
+    whiteboardStore.getState().saveView('t2', { scale: 1, x: 0, y: 0 });
+    expect(whiteboardStore.getState().viewByTab.t1).toEqual(VIEW);
+  });
+
+  it('forgets everything about a tab when it closes', () => {
+    whiteboardStore.getState().saveView('t1', VIEW);
+    whiteboardStore.getState().reportTabState('t1', {
+      canUndo: true,
+      canRedo: false,
+      layersOpen: false,
+      activeLayerName: 'Layer 1',
+      selectionCount: 3,
+    });
+    whiteboardStore.getState().clearTab('t1');
+    expect(whiteboardStore.getState().viewByTab.t1).toBeUndefined();
+    expect(whiteboardStore.getState().byTab.t1).toBeUndefined();
+  });
+
+  it('reports an idle state for a tab it knows nothing about', () => {
+    expect(drawStateFor('nope')).toMatchObject({ canUndo: false, selectionCount: 0 });
+    expect(drawStateFor(null)).toMatchObject({ canUndo: false });
   });
 });

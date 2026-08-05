@@ -2205,6 +2205,28 @@ body.explorer-dragging * {
     flex: 0 0 auto;
   }
 
+  /* Draw mode is the one ribbon a phone user drives with a FINGERTIP rather
+     than reading, so its targets go to the 44px touch minimum and the colour
+     chips grow to match. The cluster still scrolls sideways (the decision to
+     keep ONE toolbar rather than sprout a bottom bar — see whiteboard-plan.md),
+     and the tools sit first so the common ones need no swipe. */
+  .ribbon-center-draw .ribbon-btn {
+    min-width: 44px;
+  }
+
+  .ribbon-center-draw .ribbon-swatch {
+    width: 26px;
+    height: 26px;
+  }
+
+  .ribbon-center-draw .ribbon-nib {
+    min-width: 34px;
+  }
+
+  .ribbon-center-draw .ribbon-swatches {
+    gap: 6px;
+  }
+
   .statusbar {
     gap: 8px;
     /* Rounded display corners intrude into the bottom bar's left/right ends —

@@ -15,13 +15,53 @@ what a whiteboard *is* lives here.
 | `tool-settings.ts` | tool ids, palette, nib sizes. **A dependency-free leaf** |
 | `tools.ts` | gesture → `SceneElement` (the tools themselves) |
 | `layers.ts` | pure `(doc, …) → doc` layer and element operations |
-| `hit-test.ts` | the eraser's aim, and phase 3's selection base |
+| `hit-test.ts` | the eraser's aim, and selection's base |
+| `select.ts` | the selected set, resize handles, and BAKING a transform in |
+| `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
+| `bounds.ts` | the content-fitted viewBox for infinite boards |
 
 `tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws
 the palette and lives in the eager entry bundle, so importing it from `tools.ts`
 would pull smoothing, serialization and the XML reader into startup and quietly
-undo invariant I8. Keep that module importing nothing but a type.
+undo invariant I8. Keep that module importing nothing but a type. `input.ts` is
+under the same constraint for the same reason — the ribbon's finger toggle
+needs `fingerDrawsEnabled` and nothing else.
+
+## Selection bakes; it never transforms
+
+`select.ts` rewrites the elements themselves: a moved stroke gets a new `d`, a
+resized rect gets new `x`/`width`. There is no `transform` attribute anywhere in
+the format and there is not going to be one — hit-testing, the "renders
+identically in a browser" promise and the scan pipeline's coordinate mapping all
+stay simple in exchange for one careful module.
+
+Two consequences worth knowing before editing it:
+
+- A single `stroke-width` (or `font-size`) cannot follow two different axis
+  scales, so it takes the **geometric mean** √(sx·sy). A non-uniformly stretched
+  selection therefore lands within a stroke width of its box, not exactly on it.
+  The tests state that as the contract rather than pretending otherwise.
+- A resize **clamps** at a minimum size instead of passing through zero. Letting
+  a box flip inside-out means negative scales, mirrored text, and a drag the
+  user cannot undo by dragging back.
+
+An `ElementRef` (layer id + index) survives a move or a resize, because those
+REPLACE elements in place — and does not survive an add, a delete, or an undo,
+which is why the adapter drops the selection on all three.
+
+## Fingers, pens and palms
+
+`input.ts` is a pure classifier: a pen always draws (and its eraser end always
+erases), a mouse draws with the primary button, and a finger draws only when the
+user asked it to — with a second finger always converting the gesture into a
+pan/pinch. While a pen is down, and for 300 ms after it lifts, every touch is a
+palm and is dropped; oversized contacts are dropped always; and a stroke a
+finger committed in the 150 ms before a pen landed is undone, because that is
+what a palm touching down just ahead of the nib looks like.
+
+It is pure because those combinations are exactly what testing by hand on one
+device fails to cover.
 
 ## The one big idea
 

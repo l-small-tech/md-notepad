@@ -119,6 +119,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                 // side has to subscribe to the other.
                 getTool: () => currentToolSettings(),
                 onStateChange: (state) => whiteboardStore.getState().reportTabState(tabId, state),
+                // Touch policy (phase 3): the preference lives in the store,
+                // the adapter resolves it against the pen it has actually
+                // seen, and tells the store so the ribbon can say so.
+                getFingerDraws: () => whiteboardStore.getState().fingerDraws,
+                onPenSeen: () => whiteboardStore.getState().notePenSeen(),
+                // Viewport persistence is per-tab SESSION state — never the
+                // file, because panning must not dirty a document.
+                getSavedView: () => whiteboardStore.getState().viewByTab[tabId] ?? null,
+                onViewChange: (view) => whiteboardStore.getState().saveView(tabId, view),
               });
               registerWhiteboardAdapter(tabId, adapter);
               return adapter;
