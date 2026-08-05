@@ -196,14 +196,12 @@ describe('transformElement', () => {
     expect(transformElement(text, 2, 2, 0, 0)).toMatchObject({ x: 20, y: 40, fontSize: 48 });
   });
 
-  it("carries a text box's width on the HORIZONTAL scale, not the mean", () => {
-    const boxed = makeText(P(0, 0), 'hello', '#1a1a1a', 24, null, 100)!;
-    // A width is a width: stretched 3× across and 1× down it is 300, even
-    // though the type size follows the geometric mean of the two.
-    expect(transformElement(boxed, 3, 1, 0, 0)).toMatchObject({ boxWidth: 300 });
-    expect(transformElement(makeText(P(0, 0), 'x', '#1a1a1a', 24)!, 3, 1, 0, 0)).toMatchObject({
-      boxWidth: null,
-    });
+  it('resizes text without re-breaking its lines', () => {
+    // Scaling text moves and resizes it; the LINES are the author's and a
+    // stretched box is not a reason to re-flow them (nor could the format
+    // express one — there is no box).
+    const text = makeText(P(0, 0), 'one\ntwo', '#1a1a1a', 24)!;
+    expect(transformElement(text, 3, 1, 0, 0)).toMatchObject({ lines: text.lines });
   });
 
   it('never touches raw content', () => {

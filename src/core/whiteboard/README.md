@@ -18,7 +18,6 @@ what a whiteboard *is* lives here.
 | `hit-test.ts` | the eraser's aim, and selection's base |
 | `select.ts` | the selected set, resize handles, and BAKING a transform in |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
-| `text-wrap.ts` | greedy word wrap, with the measure injected |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
 
@@ -70,7 +69,7 @@ compatibility `mousedown` that `preventDefault()` suppresses. The stage focuses
 itself explicitly on every accepted press; without that, every keyboard path
 (Delete, Ctrl+Z, nudge) dies silently after the first click.
 
-## Text carries a font STACK, and its own wrapping
+## Text is a point and some lines — that is all `<text>` is
 
 `TextElement.fontFamily` is a CSS stack or null (null = inherit, and null emits
 no attribute at all, which is what keeps files written before it round-tripping
@@ -78,16 +77,21 @@ byte-for-byte). `FONT_FAMILIES` in `tool-settings.ts` only offers stacks that
 end in a generic family: the premise of the whole feature is that the `.svg`
 renders on someone else's machine, where the named face may not exist.
 
-**SVG does not wrap.** So the box a user drags out is an editor affordance, and
-`text-wrap.ts` turns it into `<tspan>` lines at commit time — the file holds
-lines that were already decided, which is exactly why it renders the same
-everywhere forever. `boxWidth` (`wb:box-width`, omitted when null) records only
-the width those lines came from, so reopening the text rewraps to the same box;
-a foreign renderer neither needs it nor sees it.
+**There is no text box, and there will not be one.** SVG 1.1 `<text>` is an
+anchor point plus `<tspan>`s; it has no width, no wrapping and no reflow (SVG 2
+proposed one and no shipping renderer implements it). So `lines` comes from the
+newlines the user typed and from nowhere else, and the editor's textarea grows
+sideways rather than wrapping — what you see typed is the run of glyphs the file
+will hold.
 
-The measure is INJECTED because the only honest width of a glyph run is the
-font engine's, and that lives in the DOM — the adapter passes a canvas
-`measureText`, so what the file breaks at is what the textarea showed.
+A drag-out wrapping box was built and reverted. It *can* be faked — measure the
+glyphs, bake the breaks into `<tspan>`s at commit — but the result is an editor
+promising a reflow the format cannot keep: the box's width becomes editor-only
+state, the "wrapped" lines are frozen the moment anything about the font
+resolves differently elsewhere, and resizing or restyling the text silently
+invalidates breaks the user never chose. Going with the grain is cheaper and
+more honest. If long text needs a column, the answer is to type the newlines,
+not to teach the file a layout model it doesn't have.
 
 Nib sizes and type sizes share a board, so they are chosen against each other:
 `STROKE_WIDTHS` tops out well under `DEFAULT_FONT_SIZE`, and the default board

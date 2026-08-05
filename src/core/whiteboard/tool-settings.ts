@@ -128,13 +128,6 @@ export const ERASER_RADIUS = 6;
 export const TEXT_SIZES: readonly number[] = [12, 16, 20, 24, 32, 48, 64, 96];
 export const DEFAULT_FONT_SIZE = 24;
 
-/**
- * How far the text tool must be dragged, in SCREEN pixels, before the gesture
- * counts as "I am drawing a box" rather than "I am clicking here". Below it the
- * text auto-sizes to what gets typed, which is what a tap should do.
- */
-export const MIN_TEXT_BOX_DRAG = 16;
-
 /** A named font choice. `stack` is what lands in the file's `font-family`. */
 export interface FontOption {
   readonly label: string;

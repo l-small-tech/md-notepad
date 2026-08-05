@@ -134,8 +134,7 @@
   position: absolute;
   z-index: 2;
   overflow: hidden;
-  /* A dragged box sets its own width, and may legitimately be narrower than
-     this; only the auto-sizing (clicked) box wants a floor. */
+  min-width: 6ch;
   margin: 0;
   padding: 0;
   border: none;
@@ -144,6 +143,8 @@
   background: transparent;
   font-family: sans-serif;
   line-height: 1.2;
+  /* Never wrap. `<text>` has no box and no reflow, so a line that wrapped on
+     screen would misrepresent the single `<tspan>` it is about to become. */
   white-space: pre;
   resize: none;
 }

@@ -49,6 +49,11 @@ export function makeStroke(
  * line, which is what `<text y>` means — the adapter's textarea overlay is
  * positioned to match, so the caret sits where the glyphs will land.
  *
+ * One line per newline typed, and no other source of lines. SVG `<text>` has
+ * no box and no wrapping, so anything that reflowed here would be the editor
+ * inventing a feature the file cannot carry — the line breaks are the author's,
+ * and they are what every renderer will show, forever.
+ *
  * Returns null for empty input (including a box that only ever held spaces):
  * tapping the text tool and tapping away again must leave nothing behind.
  * Trailing blank lines go the same way; interior ones are the user's.
@@ -59,7 +64,6 @@ export function makeText(
   color: string,
   fontSize: number,
   fontFamily: string | null = null,
-  boxWidth: number | null = null,
 ): TextElement | null {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') {
@@ -80,9 +84,6 @@ export function makeText(
     fontFamily,
     fill: color,
     lines,
-    // `lines` is already wrapped by the caller; this only records the box the
-    // wrapping came from, so reopening the text rewraps to the same width.
-    boxWidth: boxWidth !== null && boxWidth > 0 ? boxWidth : null,
   };
 }
 

@@ -326,13 +326,6 @@ function serializeText(text: TextElement, themed: boolean): string {
     attrs.push(`font-family="${escapeAttr(text.fontFamily)}"`);
   }
   attrs.push(`fill="${escapeAttr(text.fill)}"`);
-  // The typed-into box width. Editor-only (the lines below are ALREADY
-  // wrapped, which is what a foreign renderer needs), and omitted when absent
-  // so auto-sized text — and every file written before boxes existed — is
-  // unchanged by a round trip.
-  if (text.boxWidth !== null) {
-    attrs.push(`wb:box-width="${num(text.boxWidth)}"`);
-  }
   const tspans = text.lines
     .map(
       (line, index) =>

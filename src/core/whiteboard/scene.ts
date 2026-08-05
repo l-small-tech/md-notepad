@@ -94,16 +94,13 @@ export interface TextElement {
    */
   readonly fontFamily: string | null;
   readonly fill: string;
-  /** One entry per rendered line (serialized as `<tspan>`s). */
-  readonly lines: readonly string[];
   /**
-   * `wb:box-width` — the width, in scene units, of the box the text was typed
-   * into, or null for text that auto-sized to its longest line. SVG has no
-   * automatic wrapping, so `lines` is always already wrapped; this only records
-   * the box so re-editing rewraps to the same width. Editor-only, hence the
-   * `wb:` namespace: a foreign renderer neither needs nor sees it.
+   * One entry per rendered line, serialized as `<tspan>`s. Lines come from the
+   * newlines the user typed and from nothing else: SVG 1.1 `<text>` has no
+   * wrapping, no box and no reflow, so a line is a decision made once, at
+   * authoring time, and the file renders identically forever.
    */
-  readonly boxWidth: number | null;
+  readonly lines: readonly string[];
 }
 
 /** A raster image: a scan's "insert as photo" fallback, or a pasted picture. */

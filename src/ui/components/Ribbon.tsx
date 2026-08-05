@@ -514,7 +514,11 @@ function DrawControls({ tabId }: { tabId: string | null }) {
       {toolButton('pen', '✎', 'Pen')}
       {toolButton('highlighter', '▤', 'Highlighter')}
       {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
-      {toolButton('text', 'T', 'Text — drag out a box, or click to type. Ctrl/Cmd+Enter finishes')}
+      {toolButton(
+        'text',
+        'T',
+        'Text — click to type, Enter for a new line, Ctrl/Cmd+Enter to finish',
+      )}
 
       <span className="ribbon-divider" role="separator" />
 

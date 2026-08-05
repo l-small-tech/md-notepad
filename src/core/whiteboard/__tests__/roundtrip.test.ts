@@ -244,7 +244,6 @@ describe('degenerate input', () => {
               kind: 'text',
               id: null,
               fontFamily: null,
-              boxWidth: null,
               x: 0,
               y: 0,
               fontSize: 12,

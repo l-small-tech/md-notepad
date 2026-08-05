@@ -48,10 +48,10 @@
  *   size on screen.
  * - **Text** is a `<textarea>` parented to the transformed `.wb-canvas`, which
  *   means the browser scales and pans it with the board for free and the caret
- *   sits exactly where the glyphs will land. Dragging the tool out defines a
- *   BOX (the Paint gesture); since SVG cannot wrap, the box's wrapping is baked
- *   into `<tspan>` lines at commit time, measured with a canvas so the file
- *   breaks exactly where the textarea did.
+ *   sits exactly where the glyphs will land. It grows with what is typed and
+ *   never wraps — one `<tspan>` per newline the user pressed — because that is
+ *   the whole of what `<text>` can express. (A drag-out wrapping box was built
+ *   and reverted: it made the editor promise a reflow the file cannot keep.)
  * - **Pointer routing** (`core/whiteboard/input.ts`) decides pen/finger/mouse
  *   and rejects palms. It is pure precisely because the combinations — pen down
  *   with a hand resting, second finger mid-stroke, space held — are what manual
@@ -92,7 +92,6 @@ import {
   makeStroke,
   makeText,
   MIN_SELECTION_SIZE,
-  MIN_TEXT_BOX_DRAG,
   PALETTE,
   type DrawTool,
   type ToolSettings,
@@ -126,7 +125,6 @@ import {
   type InputState,
   type PointerInfo,
 } from '../core/whiteboard/input';
-import { wrapLines } from '../core/whiteboard/text-wrap';
 import type { Point, Rect } from '../core/whiteboard/geometry';
 import {
   clampDiagramScale,
@@ -258,16 +256,7 @@ interface TextEdit {
   color: string;
   fontSize: number;
   fontFamily: string | null;
-  /** Dragged-box width in scene units, or null for a box that auto-sizes. */
-  boxWidth: number | null;
   ref: ElementRef | null;
-}
-
-/** The text tool's click-drag, before it becomes a box. */
-interface TextDrag {
-  pointerId: number;
-  start: Point;
-  current: Point;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -351,13 +340,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let lastTouchCommitAt: number | null = null;
   let textArea: HTMLTextAreaElement | null = null;
   let textEdit: TextEdit | null = null;
-  let textDrag: TextDrag | null = null;
-  /**
-   * A detached canvas, kept for one job: measuring a glyph run so the committed
-   * `<tspan>`s wrap where the textarea showed them wrapping. It is the font
-   * engine's own answer, which no amount of arithmetic here could match.
-   */
-  let measureCanvas: HTMLCanvasElement | null = null;
   let viewReportTimer: ReturnType<typeof setTimeout> | null = null;
 
   /* ------------------------------ view plumbing --------------------------- */
@@ -674,16 +656,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       );
     }
 
-    // The text box being dragged out. Same dashed rect as the marquee — both
-    // mean "this region", and the tool in hand says which.
-    if (textDrag) {
-      const box = marqueeRect(textDrag.start, textDrag.current);
-      parts.push(
-        `<rect class="wb-marquee" x="${box.x}" y="${box.y}" width="${box.width}" ` +
-          `height="${box.height}" stroke-width="${unit}" stroke-dasharray="${4 * unit} ${3 * unit}"/>`,
-      );
-    }
-
     const box = scene ? selectionBounds(scene, selection) : null;
     if (box) {
       const pad = 3 * unit;
@@ -881,11 +853,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (tool === 'text') {
-      // Click-drag defines the box (MS Paint's gesture); a plain click opens a
-      // box that grows with what is typed. Which one this is isn't known until
-      // the pointer comes up, so the press only starts the drag.
-      textDrag = { pointerId: event.pointerId, start: point, current: point };
-      renderChrome();
+      openTextEditor(point, null);
       event.preventDefault();
       return;
     }
@@ -916,12 +884,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       updateSelectDrag(scenePoint(event));
-      return;
-    }
-
-    if (textDrag && event.pointerId === textDrag.pointerId) {
-      textDrag.current = scenePoint(event);
-      renderChrome();
       return;
     }
 
@@ -969,8 +931,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   function onPointerUp(event: PointerEvent): void {
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       finishSelectDrag(scenePoint(event));
-    } else if (textDrag && event.pointerId === textDrag.pointerId) {
-      finishTextDrag(scenePoint(event));
     } else if (gesture && event.pointerId === gesture.pointerId) {
       finishGesture(scenePoint(event));
     }
@@ -1133,45 +1093,17 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   /* ------------------------------- the text tool -------------------------- */
 
   /**
-   * The text tool's press has come up. A real drag defines the box — its top
-   * edge is where the first line of type sits, its width is what the text wraps
-   * to. Anything shorter than the drag threshold was a click, and opens an
-   * auto-sizing box at that point (the phase-3 behaviour, kept because it is
-   * still the right thing for a one-word label).
-   */
-  function finishTextDrag(point: Point): void {
-    const drag = textDrag;
-    textDrag = null;
-    renderChrome();
-    if (!drag) {
-      return;
-    }
-    const box = marqueeRect(drag.start, point);
-    const minimum = MIN_TEXT_BOX_DRAG * sceneUnitsPerPixel();
-    if (box.width < minimum) {
-      openTextEditor(drag.start, null, null);
-      return;
-    }
-    const fontSize = options.getTool().fontSize;
-    // `at` is a BASELINE (that is what `<text y>` means), so drop it below the
-    // box's top edge by the ascent the textarea will show there.
-    openTextEditor({ x: box.x, y: box.y + fontSize * 0.8 }, null, box.width);
-  }
-
-  /**
    * A `<textarea>` parented to the transformed `.wb-canvas`, positioned in
    * board pixels. Living inside the transform means the browser pans and zooms
    * it with the board, and the type size matches the ink it is about to
    * become — you edit text where the text will be, not in a floating box.
    *
-   * `boxWidth` (scene units) makes it a fixed-width, wrapping box; null lets it
-   * grow with the longest line.
+   * It grows with what is typed and NEVER wraps, because `<text>` never wraps:
+   * the box the user sees is exactly the run of glyphs the file will hold. A
+   * fixed-width wrapping box was tried and reverted — it made the editor
+   * promise a reflow the format cannot keep.
    */
-  function openTextEditor(
-    at: Point,
-    existing: ElementRef | null,
-    boxWidth: number | null = null,
-  ): void {
+  function openTextEditor(at: Point, existing: ElementRef | null): void {
     if (!canvas || !scene) {
       return;
     }
@@ -1186,7 +1118,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       // silently restyle it to whatever the ribbon happens to say.
       fontSize: element ? element.fontSize : settings.fontSize,
       fontFamily: element ? element.fontFamily : settings.fontFamily,
-      boxWidth: element ? element.boxWidth : boxWidth,
       ref: element ? existing : null,
     };
 
@@ -1232,26 +1163,18 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     area.style.fontSize = `${edit.fontSize * scale}px`;
     area.style.fontFamily = edit.fontFamily ?? '';
     area.style.color = inkColor(edit.color);
-    // A dragged box wraps at its own width; a clicked one has no width to wrap
-    // at, so it grows sideways instead and every line stays whole.
-    area.style.whiteSpace = edit.boxWidth === null ? 'pre' : 'pre-wrap';
-    if (edit.boxWidth !== null) {
-      area.style.width = `${edit.boxWidth * scale}px`;
-    }
     autoSizeText(area);
   }
 
   /**
    * Grow the box with its content; a fixed-size textarea hides what you type.
-   * A dragged box grows DOWNWARD only — its width is the thing the user chose,
-   * and rewriting it mid-sentence would rewrap the text under the caret.
+   * It grows in BOTH directions — sideways with the longest line, because the
+   * CSS keeps `white-space: pre` and a line that would wrap on screen would be
+   * lying about the single unwrapped `<tspan>` it is going to become.
    */
   function autoSizeText(area: HTMLTextAreaElement): void {
     area.style.height = 'auto';
     area.style.height = `${area.scrollHeight}px`;
-    if (textEdit && textEdit.boxWidth !== null) {
-      return;
-    }
     const longest = area.value.split('\n').reduce((n, line) => Math.max(n, line.length), 0);
     area.style.width = `${Math.max(6, longest + 2)}ch`;
   }
@@ -1290,23 +1213,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (!area || !edit || !scene) {
       return;
     }
-    // SVG does not wrap, so the box's wrapping has to be BAKED into lines here.
-    // Measured with the same font at the same size, so what the file renders is
-    // what the textarea showed.
-    const typed =
-      edit.boxWidth === null
-        ? area.value
-        : wrapLines(area.value, edit.boxWidth, measureRun(edit.fontSize, edit.fontFamily)).join(
-            '\n',
-          );
-    const element = makeText(
-      edit.at,
-      typed,
-      edit.color,
-      edit.fontSize,
-      edit.fontFamily,
-      edit.boxWidth,
-    );
+    const element = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
     if (edit.ref) {
       // Editing existing text: empty means delete it.
       commit(
@@ -1320,24 +1227,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const target = ensureDrawLayer(scene, activeLayerId);
     activeLayerId = target.layerId;
     commit(addElement(target.doc, target.layerId, element));
-  }
-
-  /**
-   * A measure function in SCENE units for one font. Canvas text metrics are the
-   * font engine's own, which is the only measure that agrees with what the
-   * textarea just showed the user — and measuring at the scene font size means
-   * the wrap is a property of the document, not of the current zoom.
-   */
-  function measureRun(fontSize: number, fontFamily: string | null): (run: string) => number {
-    measureCanvas ??= document.createElement('canvas');
-    const ctx = measureCanvas.getContext('2d');
-    if (!ctx) {
-      // No 2D context (headless, or a canvas-blocking policy): fall back to a
-      // rough average glyph width. The box still wraps, just less exactly.
-      return (run) => run.length * fontSize * 0.5;
-    }
-    ctx.font = `${fontSize}px ${fontFamily ?? 'sans-serif'}`;
-    return (run) => ctx.measureText(run).width;
   }
 
   /**
@@ -1443,9 +1332,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // needs the same restore-from-the-last-commit treatment as an erase.
     const wasDragging = selectDrag !== null && selectDrag.kind !== 'marquee' && selectDrag.moved;
     selectDrag = null;
-    // A half-drawn text box has nothing committed behind it; dropping it is the
-    // whole undo.
-    textDrag = null;
     if (!gesture) {
       if (wasDragging && history) {
         render(serializeWhiteboard(history.current()), false);

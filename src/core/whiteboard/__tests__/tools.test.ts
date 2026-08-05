@@ -110,27 +110,14 @@ describe('makeText', () => {
     expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, stack)!.fontFamily).toBe(stack);
   });
 
-  it('records the box it was typed into, and treats a zero width as none', () => {
-    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16)!.boxWidth).toBeNull();
-    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, null, 240)!.boxWidth).toBe(240);
-    expect(makeText(P(0, 0), 'x', '#1a1a1a', 16, null, 0)!.boxWidth).toBeNull();
-  });
-
-  it('round-trips a box width, and omits it entirely when there is none', () => {
-    const boxed = makeText(P(10, 20), 'hi', '#1a1a1a', 32, null, 180)!;
-    const source = serializeWhiteboard(
-      addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', boxed),
-    );
-    expect(source).toContain('wb:box-width="180"');
-    expect(parseWhiteboard(source).layers[0]!.elements[0]).toEqual(boxed);
-    expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
-
-    const plain = makeText(P(10, 20), 'hi', '#1a1a1a', 32)!;
-    expect(
-      serializeWhiteboard(
-        addElement(createScene({ layers: [createLayer({ id: 'a1B2' })] }), 'a1B2', plain),
-      ),
-    ).not.toContain('box-width');
+  it('takes its lines from typed newlines and nothing else — SVG cannot wrap', () => {
+    // A long run stays ONE line however long it is: `<text>` has no box to
+    // reflow inside, so the editor must never invent a break the author did
+    // not type. (A drag-out wrapping box was built and reverted over this.)
+    const long = 'word '.repeat(200).trim();
+    const text = makeText(P(0, 0), long, '#1a1a1a', 24)!;
+    expect(text.lines).toEqual([long]);
+    expect(makeText(P(0, 0), 'a\nb\nc', '#1a1a1a', 24)!.lines).toHaveLength(3);
   });
 
   it('normalizes CRLF and trims blank lines off both ends', () => {

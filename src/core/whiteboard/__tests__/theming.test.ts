@@ -123,7 +123,6 @@ describe('palette-slot classes', () => {
       kind: 'text',
       id: null,
       fontFamily: null,
-      boxWidth: null,
       x: 1,
       y: 2,
       fontSize: 16,
