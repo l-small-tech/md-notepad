@@ -9,7 +9,7 @@
  * the created row can jump straight into an inline rename).
  */
 
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isMarkdownPath } from '../../../core/text-files';
 import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
@@ -17,6 +17,7 @@ import { isAndroid } from '../../platform';
 import {
   deleteExplorerEntry,
   deleteExplorerFolder,
+  createWhiteboardIn,
   importDocumentInto,
   openExportPreviewForFile,
   openFileInNewWindow,
@@ -68,6 +69,8 @@ export type ExplorerContextMenuProps = FileMenuProps | DirMenuProps;
 
 export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   const { onClose, onRename } = props;
+  /** Which page of the directory menu is showing (see the Import row below). */
+  const [page, setPage] = useState<'root' | 'import'>('root');
 
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
@@ -203,6 +206,33 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
 
   const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onNewFolder, onSelectDir } =
     props;
+
+  if (page === 'import') {
+    return menuShell(
+      <>
+        <button
+          className="context-menu-item context-menu-nav"
+          role="menuitem"
+          onClick={() => setPage('root')}
+        >
+          <span className="context-menu-more">‹</span>
+          <span>Back</span>
+        </button>
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onSelectDir(dir);
+            void importDocumentInto(dir);
+          }}
+        >
+          Document…
+        </button>
+      </>,
+    );
+  }
+
   return menuShell(
     <>
       {!readOnly && (
@@ -236,10 +266,24 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           onClick={() => {
             onClose();
             onSelectDir(dir);
-            void importDocumentInto(dir);
+            void createWhiteboardIn(dir);
           }}
         >
-          Import document…
+          New whiteboard
+        </button>
+      )}
+      {/* A drill-in page, not a hover flyout: Android has no hover, and one
+          panel behaves identically under a finger and a mouse. Phase 4's
+          "Whiteboard scan…" joins this page, so the shape is already right. */}
+      {!readOnly && (
+        <button
+          className="context-menu-item context-menu-nav"
+          role="menuitem"
+          aria-haspopup="menu"
+          onClick={() => setPage('import')}
+        >
+          <span>Import</span>
+          <span className="context-menu-more">›</span>
         </button>
       )}
       {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}

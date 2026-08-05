@@ -7,6 +7,7 @@
 
 import { baseName, dirName, extName, joinPath } from '../../core/session/plan-flush';
 import { commentsPathFor, isCommentsPath } from '../../core/comments';
+import { blankWhiteboardSource } from '../../core/whiteboard/serialize';
 import { dropTrailingExtension, sanitizeFileBaseName } from '../../core/title';
 import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
@@ -38,6 +39,29 @@ export function createExplorerOps(
       return target;
     } catch (error) {
       uiStore.getState().showNotice('Could not create a new file there.');
+      ctx.deps.onError?.(error);
+      return null;
+    }
+  }
+
+  /**
+   * Context-menu "New whiteboard": write a blank board (`.svg`) into `dir` and
+   * open it. Unlike "New file" this one does NOT start an inline rename — a
+   * whiteboard opens straight into Draw mode, and the point of the entry is to
+   * be drawing a second later; the row can still be renamed the usual way.
+   */
+  async function createNewWhiteboard(dir: string): Promise<string | null> {
+    if (ctx.refuseReadOnly(dir)) {
+      return null;
+    }
+    try {
+      const target = await ctx.uniquePathIn(dir, 'whiteboard', '.svg');
+      await ctx.ipc.atomicWriteText(target, blankWhiteboardSource());
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      return target;
+    } catch (error) {
+      uiStore.getState().showNotice('Could not create a whiteboard there.');
       ctx.deps.onError?.(error);
       return null;
     }
@@ -306,5 +330,13 @@ export function createExplorerOps(
     uiStore.getState().refreshExplorer();
   }
 
-  return { createNewFile, createNewFolder, renameEntry, moveEntry, deleteEntry, deleteFolder };
+  return {
+    createNewFile,
+    createNewWhiteboard,
+    createNewFolder,
+    renameEntry,
+    moveEntry,
+    deleteEntry,
+    deleteFolder,
+  };
 }

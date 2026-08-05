@@ -29,10 +29,16 @@
   /* Pointer gestures are ours: no browser panning, no double-tap zoom. */
   touch-action: none;
   outline: none;
+  /* The default gesture is DRAWING; panning is the finger, the middle button,
+     or a held space bar — which is what swaps the cursor back to a grab. */
+  cursor: crosshair;
+}
+
+.wb-stage.wb-panning {
   cursor: grab;
 }
 
-.wb-stage:active {
+.wb-stage.wb-panning:active {
   cursor: grabbing;
 }
 
@@ -47,6 +53,128 @@
 
 .wb-canvas > svg {
   display: block;
+}
+
+/* The in-progress stroke/shape, drawn over the board in board coordinates.
+   Never a pointer target — every gesture belongs to the stage. */
+.wb-live {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* ------------------------------- layers panel ----------------------------- */
+
+.wb-layers {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: none;
+  width: 260px;
+  max-height: calc(100% - 24px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 2px 14px rgb(0 0 0 / 25%);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.wb-root.wb-layers-open .wb-layers {
+  display: flex;
+}
+
+.wb-root.wb-failed .wb-layers {
+  display: none;
+}
+
+.wb-layers-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.wb-layers-header > span:first-child {
+  flex: 1 1 auto;
+}
+
+.wb-layers-list {
+  overflow-y: auto;
+}
+
+.wb-layer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.wb-layer:last-child {
+  border-bottom: none;
+}
+
+.wb-layer[data-active='true'] {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* A hidden, locked or imported layer can't receive ink — say so quietly. */
+.wb-layer[data-dimmed='true'] .wb-layer-name {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.wb-layer-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-layer-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.wb-layer-btn {
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wb-layer-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.wb-layer-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* ------------------------------- controls -------------------------------- */
@@ -146,5 +274,14 @@
   .wb-controls {
     right: 8px;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* A 260px panel is most of a phone's width — let it span the pane instead
+     of floating in a corner it would half-cover anyway. */
+  .wb-layers {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    width: auto;
   }
 }

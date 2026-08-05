@@ -33,6 +33,12 @@ import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import {
+  currentToolSettings,
+  registerWhiteboardAdapter,
+  unregisterWhiteboardAdapter,
+  whiteboardStore,
+} from '../stores/whiteboard';
+import {
   previewNavStore,
   registerPreviewGoBack,
   registerPreviewReveal,
@@ -106,9 +112,16 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             // loads on the first draw-mode attach, never at startup.
             draw: async () => {
               const { createWhiteboardAdapter } = await import('../../editors/whiteboard');
-              return createWhiteboardAdapter({
+              const adapter = createWhiteboardAdapter({
                 onOpenAsText: () => tabsStore.getState().setMode(tabId, 'raw'),
+                // The ribbon owns the tool picker; the adapter reads it at the
+                // start of each gesture and reports undo depth back, so neither
+                // side has to subscribe to the other.
+                getTool: () => currentToolSettings(),
+                onStateChange: (state) => whiteboardStore.getState().reportTabState(tabId, state),
               });
+              registerWhiteboardAdapter(tabId, adapter);
+              return adapter;
             },
           }
         : {
@@ -198,6 +211,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     return () => {
       unsubscribeSettings();
       unregisterSourceAdapter(tabId);
+      unregisterWhiteboardAdapter(tabId);
       void sync.dispose();
     };
     // tab.id only — see I7. Adding reactive deps would re-mount the editor.

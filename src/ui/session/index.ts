@@ -45,6 +45,7 @@ import {
   setCloseAllTabsDispatch,
   setCreateNewFileDispatch,
   setCreateNewFolderDispatch,
+  setCreateWhiteboardDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
   setDeleteFolderDispatch,
@@ -93,6 +94,7 @@ export {
   closeTab,
   createNewFileIn,
   createNewFolderIn,
+  createWhiteboardIn,
   deleteExplorerEntry,
   deleteExplorerFolder,
   buildExportPreviewHtml,
@@ -321,6 +323,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setSavePastedFileDispatch(importImages.savePastedFile);
   setCreateNewFileDispatch(explorerOps.createNewFile);
   setCreateNewFolderDispatch(explorerOps.createNewFolder);
+  setCreateWhiteboardDispatch(explorerOps.createNewWhiteboard);
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
   setDeleteEntryDispatch(explorerOps.deleteEntry);

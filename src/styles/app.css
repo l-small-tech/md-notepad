@@ -519,6 +519,75 @@
   text-decoration: line-through;
 }
 
+/* A latched toolbar button (Draw mode's selected tool, the open layers panel).
+   The ribbon had no toggle state before the whiteboard — formatting buttons
+   are one-shot commands. */
+.ribbon-btn[data-active] {
+  background: var(--bg-alt);
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.ribbon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ribbon-btn:disabled:hover {
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+/* Colour chips and nib sizes — grouped so each set reads as one control. */
+.ribbon-swatches {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+}
+
+.ribbon-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ribbon-swatch[data-active] {
+  /* A ring rather than a border swap, so the chip's own colour never shifts. */
+  border-color: var(--bg);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.ribbon-nib {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ribbon-nib > span {
+  display: block;
+  border-radius: 50%;
+}
+
+.ribbon-nib:hover {
+  background: var(--bg-hover);
+}
+
+.ribbon-nib[data-active] {
+  background: var(--bg-alt);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 /* Read-mode zoom readout (the current text size) between the +/- buttons. */
 .ribbon-zoom {
   min-width: 44px;
@@ -903,6 +972,19 @@
 
 .context-menu-item.is-danger {
   color: var(--danger);
+}
+
+/* A row that navigates within the popover (Import ›, ‹ Back) rather than
+   running a command — the chevron sits opposite the label. */
+.context-menu-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.context-menu-more {
+  color: var(--fg-muted);
 }
 
 .context-menu-swatches {
