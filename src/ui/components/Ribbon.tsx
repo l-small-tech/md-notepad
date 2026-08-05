@@ -42,6 +42,7 @@ import {
 import {
   PALETTE,
   paletteSlot,
+  STATIC_PALETTE,
   STROKE_WIDTHS,
   type DrawTool,
 } from '../../core/whiteboard/tool-settings';
@@ -461,11 +462,13 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const tool = useWhiteboardStore((s) => s.tool);
   const color = useWhiteboardStore((s) => s.color);
   const width = useWhiteboardStore((s) => s.width);
+  const paletteKind = useWhiteboardStore((s) => s.paletteKind);
   const tabState = useWhiteboardStore((s) => (tabId !== null ? s.byTab[tabId] : undefined));
   const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
-  // Palette colours preview through their theme slot; a custom hex stays literal.
+  // Themed slots preview through their --wb-* var; static/custom stay literal.
   const colorSlot = paletteSlot(color);
   const nibColor = colorSlot < 0 ? color : `var(--wb-c${colorSlot}, ${color})`;
+  const themedRow = paletteKind === 'themed';
 
   function toolButton(id: DrawTool, label: ReactNode, title: string) {
     return (
@@ -498,14 +501,29 @@ function DrawControls({ tabId }: { tabId: string | null }) {
 
       <span className="ribbon-divider" role="separator" />
 
+      <button
+        className="ribbon-btn"
+        aria-label={themedRow ? 'Switch to static colours' : 'Switch to theme colours'}
+        title={
+          themedRow
+            ? 'Theme colours — ink follows the app/OS theme. Click for static colours.'
+            : 'Static colours — ink stays exactly this colour everywhere. Click for theme colours.'
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => whiteboardStore.getState().setPaletteKind(themedRow ? 'static' : 'themed')}
+      >
+        {themedRow ? 'Auto' : 'Fixed'}
+      </button>
+
       <div className="ribbon-swatches" role="group" aria-label="Ink colour">
-        {/* Swatches render through the --wb-* slot vars (phase 2.5) so the
-            picker shows the ink the CURRENT theme will actually draw. */}
-        {PALETTE.map((swatch, slot) => (
+        {/* The themed row renders through the --wb-* slot vars (phase 2.5) so
+            the picker shows the ink the CURRENT theme will actually draw; the
+            static row is named colours, shown (and saved) literally. */}
+        {(themedRow ? PALETTE : STATIC_PALETTE).map((swatch, slot) => (
           <button
             key={swatch}
             className="ribbon-swatch"
-            style={{ background: `var(--wb-c${slot}, ${swatch})` }}
+            style={{ background: themedRow ? `var(--wb-c${slot}, ${swatch})` : swatch }}
             aria-label={`Colour ${swatch}`}
             aria-pressed={color === swatch}
             data-active={color === swatch || undefined}

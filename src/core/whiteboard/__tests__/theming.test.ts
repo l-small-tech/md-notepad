@@ -36,12 +36,20 @@ function boardWith(elements: SceneElement[], meta: Record<string, unknown> = {})
 describe('the palette style block', () => {
   const blank = serializeWhiteboard(createScene());
 
-  it('is emitted once, scoped to svg.wb-board, with the root class and bg class', () => {
+  it('is emitted once, scoped to svg.wb-board, with the root class', () => {
     expect(blank.match(/<style wb:role="palette">/g)).toHaveLength(1);
     expect(blank).toContain('class="wb-board"');
-    expect(blank).toContain('<rect wb:role="background" class="wb-bg"');
+    // A blank board is INFINITE — no page rect; the surface colour comes from
+    // the block's background rule on the svg viewport itself.
+    expect(blank).not.toContain('wb:role="background"');
+    expect(blank).toContain('svg.wb-board{background:var(--wb-bg,#ffffff)}');
     // Never :root — the file gets inlined into HTML contexts.
     expect(blank).not.toContain(':root');
+  });
+
+  it('tags the page rect wb-bg on a page board', () => {
+    const paged = serializeWhiteboard(createScene({ background: '#ffffff' }));
+    expect(paged).toContain('<rect wb:role="background" class="wb-bg"');
   });
 
   it('defines every slot with its light default and dark override', () => {

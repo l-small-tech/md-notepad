@@ -222,7 +222,8 @@ describe('degenerate input', () => {
   it('falls back to a default board when the viewBox is missing or degenerate', () => {
     const doc = parseWhiteboard('<svg xmlns="http://www.w3.org/2000/svg"/>');
     expect(doc.viewBox).toEqual([0, 0, 1600, 1000]);
-    expect(doc.background).toBe('#ffffff');
+    // No background rect and no metadata background = an infinite board.
+    expect(doc.background).toBeNull();
   });
 
   it('escapes text and attribute content that would otherwise break the file', () => {

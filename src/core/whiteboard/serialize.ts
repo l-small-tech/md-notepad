@@ -16,6 +16,7 @@
  */
 
 import { escapeAttr, escapeText } from './xml';
+import { contentViewBox } from './bounds';
 import { BOARD_BACKGROUND_DARK, PALETTE, PALETTE_DARK, paletteSlot } from './tool-settings';
 import {
   createScene,
@@ -48,7 +49,13 @@ export function num(value: number): string {
 }
 
 export function serializeWhiteboard(doc: SceneDoc): string {
-  const [vx, vy, vw, vh] = doc.viewBox;
+  // An infinite board has no page, so its saved viewBox is refitted to the
+  // content every time (idempotent — see bounds.ts); a page board's viewBox
+  // is the page and stays exactly where the user put it.
+  const infinite = doc.background === null;
+  const [vx, vy, vw, vh] = infinite ? contentViewBox(doc) : doc.viewBox;
+  const width = infinite ? vw : doc.width;
+  const height = infinite ? vh : doc.height;
   const lines: string[] = [];
   const themed = isThemed(doc);
 
@@ -61,8 +68,8 @@ export function serializeWhiteboard(doc: SceneDoc): string {
     `xmlns="${SVG_NAMESPACE}"`,
     `xmlns:wb="${WB_NAMESPACE}"`,
     `viewBox="${num(vx)} ${num(vy)} ${num(vw)} ${num(vh)}"`,
-    `width="${num(doc.width)}"`,
-    `height="${num(doc.height)}"`,
+    `width="${num(width)}"`,
+    `height="${num(height)}"`,
     ...(themed
       ? [`class="${escapeAttr(foreignClass ? `wb-board ${foreignClass}` : 'wb-board')}"`]
       : []),
@@ -126,6 +133,9 @@ function paletteStyleBlock(): string[] {
     `${inner}@media (prefers-color-scheme: dark){` +
       `svg.wb-board{${paletteVars(BOARD_BACKGROUND_DARK, PALETTE_DARK)}}}`,
   );
+  // The surface of an infinite board (no page rect): CSS background on the
+  // svg viewport itself. Harmless on a page board — the rect covers it.
+  lines.push(`${inner}svg.wb-board{background:var(--wb-bg,${DEFAULT_BACKGROUND})}`);
   lines.push(`${inner}svg.wb-board .wb-bg{fill:var(--wb-bg,${DEFAULT_BACKGROUND})}`);
   PALETTE.forEach((hex, slot) => {
     lines.push(`${inner}svg.wb-board .wb-c${slot}:not(text){stroke:var(--wb-c${slot},${hex})}`);

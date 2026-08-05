@@ -181,3 +181,13 @@ export function removeElements(doc: SceneDoc, refs: readonly ElementRef[]): Scen
   });
   return changed ? { ...doc, layers } : doc;
 }
+
+/**
+ * Add or remove the background page. `background: null` makes the board
+ * INFINITE (no page rect; the serializer refits the viewBox to the content);
+ * a colour pins the CURRENT viewBox as a fixed page of that colour, so
+ * "add a page" wraps whatever is on screen rather than resetting the board.
+ */
+export function setBackground(doc: SceneDoc, background: string | null): SceneDoc {
+  return doc.background === background ? doc : { ...doc, background };
+}

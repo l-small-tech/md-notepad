@@ -112,6 +112,20 @@ A saved board follows the viewer's colour scheme without ever depending on it:
 - In the app, the adapter copies the resolved app-theme `--wb-*` values onto
   the board `<svg>` as inline style (inline beats the embedded block), so a
   forced app theme wins over the OS scheme while editing.
+- The STATIC palette (`STATIC_PALETTE`, named SVG colours) is the opt-out made
+  convenient: named colours never equal a `PALETTE` hex, so static strokes are
+  literal by construction — no format machinery at all.
+
+## Infinite vs page boards
+
+`background: null` (the default for new boards) means **infinite**: no page
+rect; the palette block paints the surface via CSS `background` on the svg
+viewport, and the serializer refits the root viewBox to the content
+(`bounds.ts`: +48 margin, integer-rounded, idempotent, unioning the stored
+viewBox when raw/foreign content is unmeasurable). A non-null background is a
+**page**: the rect is emitted, the viewBox is the page and is never touched.
+`setBackground` (layers.ts) flips between the two — adding a page pins the
+current content-fitted viewBox.
 
 ## Error policy
 

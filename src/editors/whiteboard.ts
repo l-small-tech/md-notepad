@@ -53,11 +53,13 @@ import {
   removeElements,
   removeLayer,
   renameLayer,
+  setBackground,
   setLayerLocked,
   setLayerVisible,
   targetLayerId,
   type ElementRef,
 } from '../core/whiteboard/layers';
+import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
 import {
   ERASER_RADIUS,
@@ -153,6 +155,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let live: SVGSVGElement | null = null;
   let previewGroup: SVGGElement | null = null;
   let zoomLabel: HTMLSpanElement | null = null;
+  let pageButton: HTMLButtonElement | null = null;
   let layersPanel: LayersPanel | null = null;
   let unsubscribe: (() => void) | null = null;
   let model: DocModel | null = null;
@@ -309,6 +312,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
 
     clearError();
+    const previous = scene;
     scene = parsed;
     renderedText = text;
     // Size the node from the scene, not from whatever the file declared, so a
@@ -327,11 +331,34 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // themed exactly like it will be once committed.
     live.classList.toggle('wb-board', parsed.meta.themed !== false);
     applyInkTheme();
+    // Infinite boards: the stage IS the surface (no page edge, no clipping),
+    // and the Page control flips its meaning.
+    const infinite = parsed.background === null;
+    root?.classList.toggle('wb-infinite', infinite);
+    if (pageButton) {
+      pageButton.setAttribute('aria-pressed', String(!infinite));
+      pageButton.title = infinite
+        ? 'Add a background page around the content'
+        : 'Remove the background page (infinite board)';
+    }
     activeLayerId = targetLayerId(parsed, activeLayerId);
     layersPanel?.render(parsed, activeLayerId);
     if (refit) {
       fitted = fit();
     } else {
+      // An infinite board's viewBox refits to the content on every commit, so
+      // its origin can move mid-session. Shift the pan by the same amount to
+      // keep the ink pinned to its screen position.
+      if (previous) {
+        const k = previous.width / previous.viewBox[2];
+        if (Math.abs(k - parsed.width / parsed.viewBox[2]) < 1e-6) {
+          view = {
+            ...view,
+            x: view.x + (parsed.viewBox[0] - previous.viewBox[0]) * k * view.scale,
+            y: view.y + (parsed.viewBox[1] - previous.viewBox[1]) * k * view.scale,
+          };
+        }
+      }
       applyView();
     }
   }
@@ -780,10 +807,15 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       zoomLabel = document.createElement('span');
       zoomLabel.className = 'wb-zoom-level';
 
+      pageButton = button('▢', 'Add a background page around the content', () =>
+        withScene((doc) => setBackground(doc, doc.background === null ? DEFAULT_BACKGROUND : null)),
+      );
+
       const controls = document.createElement('div');
       controls.className = 'wb-controls';
       controls.append(
         button('▤', 'Layers', () => adapter.toggleLayers()),
+        pageButton,
         button('−', 'Zoom out', () => zoomByStep(1 / DIAGRAM_ZOOM_STEP)),
         zoomLabel,
         button('+', 'Zoom in', () => zoomByStep(DIAGRAM_ZOOM_STEP)),
@@ -876,6 +908,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       canvas = null;
       live = null;
       zoomLabel = null;
+      pageButton = null;
       layersPanel = null;
       scene = null;
       history = null;

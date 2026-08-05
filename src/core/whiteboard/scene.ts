@@ -139,8 +139,13 @@ export interface SceneDoc {
   readonly schema: typeof SCENE_SCHEMA;
   readonly width: number;
   readonly height: number;
-  /** `[minX, minY, width, height]`, recomputed on save to cover the content. */
+  /**
+   * `[minX, minY, width, height]`. For an INFINITE board (`background: null`)
+   * the serializer refits this to the content on every save; a page board
+   * keeps it fixed (the page IS the board).
+   */
   readonly viewBox: readonly [number, number, number, number];
+  /** The page colour, or null for an infinite board with no page rect. */
   readonly background: string | null;
   /** Root `<svg>` attributes we don't own (xmlns:inkscape, class, …). */
   readonly rootExtras: readonly SceneAttr[];
@@ -195,7 +200,13 @@ export function createLayer(init: Partial<Layer> & { id: string }): Layer {
   };
 }
 
-/** A blank board — the skeleton "New whiteboard" writes to disk. */
+/**
+ * A blank board — the skeleton "New whiteboard" writes to disk. INFINITE by
+ * default (`background: null`, no page rect): the serializer fits the viewBox
+ * to the content on every save, and the surface colour comes from the palette
+ * block's `svg.wb-board{background:…}` rule instead of a rect. Passing a
+ * background colour creates a fixed page (`setBackground` toggles it later).
+ */
 export function createScene(init: Partial<SceneDoc> = {}): SceneDoc {
   const width = init.width ?? DEFAULT_BOARD_WIDTH;
   const height = init.height ?? DEFAULT_BOARD_HEIGHT;
@@ -204,7 +215,7 @@ export function createScene(init: Partial<SceneDoc> = {}): SceneDoc {
     width,
     height,
     viewBox: init.viewBox ?? [0, 0, width, height],
-    background: init.background ?? DEFAULT_BACKGROUND,
+    background: init.background !== undefined ? init.background : null,
     rootExtras: init.rootExtras ?? [],
     prelude: init.prelude ?? [],
     layers: init.layers ?? [createLayer({ id: 'a1B2', name: 'Layer 1' })],

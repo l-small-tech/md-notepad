@@ -27,7 +27,6 @@ import {
   type XmlNode,
 } from './xml';
 import {
-  DEFAULT_BACKGROUND,
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
   SCENE_SCHEMA,
@@ -162,7 +161,9 @@ export function parseWhiteboard(source: string): SceneDoc {
     width: Number.isFinite(width) && width > 0 ? width : DEFAULT_BOARD_WIDTH,
     height: Number.isFinite(height) && height > 0 ? height : DEFAULT_BOARD_HEIGHT,
     viewBox,
-    background: background ?? DEFAULT_BACKGROUND,
+    // No background rect and no metadata background = an INFINITE board (the
+    // default since phase 2.5-followup); the palette block paints the surface.
+    background,
     rootExtras: rootExtrasOf(root),
     prelude,
     layers,

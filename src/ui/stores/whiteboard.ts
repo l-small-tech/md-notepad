@@ -17,7 +17,10 @@ import { useStore } from 'zustand';
 import {
   DEFAULT_COLOR,
   DEFAULT_STROKE_WIDTH,
+  PALETTE,
+  STATIC_PALETTE,
   type DrawTool,
+  type PaletteKind,
   type ToolSettings,
 } from '../../core/whiteboard/tool-settings';
 import type { WhiteboardAdapter, WhiteboardUiState } from '../../editors/whiteboard';
@@ -36,23 +39,42 @@ interface WhiteboardState {
   tool: DrawTool;
   color: string;
   width: number;
+  /** Which swatch row the ribbon offers: themable slots or fixed named colours. */
+  paletteKind: PaletteKind;
   /** tabId → what its draw adapter last reported. */
   byTab: Record<string, DrawTabState>;
   setTool: (tool: DrawTool) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
+  setPaletteKind: (kind: PaletteKind) => void;
   reportTabState: (tabId: string, state: DrawTabState) => void;
   clearTab: (tabId: string) => void;
+}
+
+/**
+ * Switching palette kinds carries the selection across by INDEX (both rows
+ * share the same hue order), so "blue pen" stays a blue pen. A colour outside
+ * the departing row (e.g. a future picker's custom hex) is left alone.
+ */
+export function carryColor(color: string, to: PaletteKind): string {
+  const [from, into] = to === 'static' ? [PALETTE, STATIC_PALETTE] : [STATIC_PALETTE, PALETTE];
+  const slot = from.indexOf(color);
+  return slot < 0 ? color : into[slot]!;
 }
 
 export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   tool: 'pen',
   color: DEFAULT_COLOR,
   width: DEFAULT_STROKE_WIDTH,
+  paletteKind: 'themed',
   byTab: {},
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
   setWidth: (width) => set({ width }),
+  setPaletteKind: (kind) =>
+    set((s) =>
+      s.paletteKind === kind ? s : { paletteKind: kind, color: carryColor(s.color, kind) },
+    ),
   reportTabState(tabId, state) {
     set((s) => ({ byTab: { ...s.byTab, [tabId]: state } }));
   },

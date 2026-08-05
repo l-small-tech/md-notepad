@@ -57,6 +57,27 @@ export const PALETTE_DARK: readonly string[] = [
 export const BOARD_BACKGROUND_DARK = '#1e1e1e';
 
 /**
+ * The STATIC palette: standard named SVG colours that render identically in
+ * every scheme. None of them equals a {@link PALETTE} hex, so the serializer's
+ * derived-class rule never tags them — a static stroke is literal by
+ * construction, no format machinery involved. Index-aligned with PALETTE
+ * (same hue order) so switching palette kinds can carry the selection across.
+ */
+export const STATIC_PALETTE: readonly string[] = [
+  'black',
+  'red',
+  'orange',
+  'gold',
+  'green',
+  'teal',
+  'blue',
+  'purple',
+];
+
+/** Which swatch row the ribbon shows: theme-following slots or fixed colours. */
+export type PaletteKind = 'themed' | 'static';
+
+/**
  * The palette slot a colour belongs to, or -1 for a custom hex. Exact string
  * match on purpose: a custom colour — even one letter-case away from a slot —
  * is an explicit opt-out of theming and stays literal in every scheme.

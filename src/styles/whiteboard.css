@@ -55,6 +55,22 @@
   display: block;
 }
 
+/* Infinite boards (no background page): the whole stage is the drawing
+   surface. Paint it with the same --wb-bg the board's own palette rules use,
+   drop the page-edge shadow, and let ink render beyond the (content-fitted)
+   viewBox instead of clipping at an edge the user cannot see. */
+.wb-root.wb-infinite .wb-stage {
+  background: var(--wb-bg, #ffffff);
+}
+
+.wb-root.wb-infinite .wb-canvas {
+  box-shadow: none;
+}
+
+.wb-root.wb-infinite .wb-canvas > svg {
+  overflow: visible;
+}
+
 /* The in-progress stroke/shape, drawn over the board in board coordinates.
    Never a pointer target — every gesture belongs to the stage. */
 .wb-live {
