@@ -62,13 +62,19 @@ export interface EditorAdapter {
 /** Factories may lazy-import their chunk (invariant I8: milkdown loads on demand). */
 export type AdapterFactory = () => EditorAdapter | Promise<EditorAdapter>;
 
-type AdapterKind = 'source' | 'wysiwyg';
+export type AdapterKind = 'source' | 'wysiwyg' | 'draw';
 
 export interface ModeSyncOptions {
   model: DocModel;
   host: HTMLElement;
   initialMode: EditorMode;
-  adapters: Record<AdapterKind, AdapterFactory>;
+  /**
+   * Partial: a tab only supplies the adapters its document family can use (a
+   * markdown tab has no 'draw' factory, an SVG tab has no 'wysiwyg' one). A
+   * transition to a mode with no factory fails like any other failed switch —
+   * it reverts and reports via `onError` — rather than throwing.
+   */
+  adapters: Partial<Record<AdapterKind, AdapterFactory>>;
   /** A switch failed (chunk load or parse error); mode was reverted. UI shows a toast. */
   onError?: (error: unknown, failedMode: EditorMode) => void;
 }
@@ -90,7 +96,13 @@ export interface ModeSync {
 }
 
 function kindFor(mode: EditorMode): AdapterKind {
-  return mode === 'wysiwyg' ? 'wysiwyg' : 'source';
+  if (mode === 'wysiwyg') {
+    return 'wysiwyg';
+  }
+  if (mode === 'draw') {
+    return 'draw';
+  }
+  return 'source';
 }
 
 export function createModeSync(options: ModeSyncOptions): ModeSync {
@@ -106,7 +118,11 @@ export function createModeSync(options: ModeSyncOptions): ModeSync {
     if (existing) {
       return existing;
     }
-    const created = await options.adapters[kind]();
+    const factory = options.adapters[kind];
+    if (!factory) {
+      throw new Error(`no ${kind} editor for this document`);
+    }
+    const created = await factory();
     instances.set(kind, created);
     return created;
   }

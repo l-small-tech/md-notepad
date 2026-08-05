@@ -8,30 +8,41 @@
  * store's `setMode`, which drives the tab's ModeSync.
  */
 
+import { allowedModesFor, docFamilyFor } from '../../core/doc-family';
 import type { EditorMode } from '../../core/types';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { downloadAndInstall, useUpdateStore } from '../update';
 
-const MODES: { mode: EditorMode; label: string; hint: string }[] = [
-  { mode: 'raw', label: 'Raw', hint: 'Source (Ctrl/Cmd+1)' },
-  { mode: 'split', label: 'Split', hint: 'Source + preview (Ctrl/Cmd+2)' },
-  { mode: 'wysiwyg', label: 'Rich', hint: 'WYSIWYG (Ctrl/Cmd+3)' },
-  { mode: 'read', label: 'Read', hint: 'Reader — read-only (Ctrl/Cmd+4)' },
-];
+/** Label + tooltip per mode; WHICH ones a tab offers comes from its doc family. */
+const MODE_META: Record<EditorMode, { label: string; hint: string }> = {
+  raw: { label: 'Raw', hint: 'Source (Ctrl/Cmd+1)' },
+  split: { label: 'Split', hint: 'Source + preview (Ctrl/Cmd+2)' },
+  wysiwyg: { label: 'Rich', hint: 'WYSIWYG (Ctrl/Cmd+3)' },
+  read: { label: 'Read', hint: 'Reader — read-only (Ctrl/Cmd+4)' },
+  draw: { label: 'Draw', hint: 'Whiteboard (Ctrl/Cmd+1)' },
+};
 
-function ModeSegments({ activeMode, tabId }: { activeMode: EditorMode; tabId: string }) {
+function ModeSegments({
+  activeMode,
+  tabId,
+  modes,
+}: {
+  activeMode: EditorMode;
+  tabId: string;
+  modes: readonly EditorMode[];
+}) {
   return (
     <div className="mode-segments" role="group" aria-label="Edit mode">
-      {MODES.map(({ mode, label, hint }) => (
+      {modes.map((mode) => (
         <button
           key={mode}
           className={`mode-segment${mode === activeMode ? ' mode-segment-active' : ''}`}
           aria-pressed={mode === activeMode}
-          title={hint}
+          title={MODE_META[mode].hint}
           onClick={() => tabsStore.getState().setMode(tabId, mode)}
         >
-          {label}
+          {MODE_META[mode].label}
         </button>
       ))}
     </div>
@@ -81,7 +92,11 @@ export function StatusBar() {
           Read-only
         </span>
       ) : (
-        <ModeSegments activeMode={active.mode} tabId={active.id} />
+        <ModeSegments
+          activeMode={active.mode}
+          tabId={active.id}
+          modes={allowedModesFor(docFamilyFor(active.filePath ?? active.notePath))}
+        />
       )}
       {import.meta.env.DEV && (
         <span className="statusbar-dev" title="Running from a development build (tauri dev)">

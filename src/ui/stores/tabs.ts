@@ -34,6 +34,7 @@ import { nanoid } from 'nanoid';
 import { createDocModel, type DocModel } from '../../core/doc-model';
 import { deriveTitle, slugifyTitle, stripExtension } from '../../core/title';
 import { baseName } from '../../core/session/plan-flush';
+import { defaultModeFor, docFamilyFor, isModeAllowed } from '../../core/doc-family';
 import type { ModeSync } from '../../core/mode-sync';
 import type { EditorMode, TabGroup, TabKind, TabState, WorkspaceColor } from '../../core/types';
 import {
@@ -319,7 +320,15 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       customTitle,
       // A read-only tab is pinned to read mode regardless of what the
       // manifest recorded (the flag itself is recomputed by the caller).
-      mode: init?.readOnly ? 'read' : (init?.mode ?? settingsStore.getState().settings.defaultMode),
+      // Otherwise the recorded mode is filtered through the document family, so
+      // a whiteboard restored from an old manifest opens in Draw rather than
+      // rendering its SVG source as markdown.
+      mode: init?.readOnly
+        ? 'read'
+        : defaultModeFor(
+            docFamilyFor(init?.filePath ?? init?.notePath),
+            init?.mode ?? settingsStore.getState().settings.defaultMode,
+          ),
       savedMtimeMs: init?.savedMtimeMs ?? null,
       groupId: init?.groupId ?? null,
       model,
@@ -741,8 +750,18 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
-      // Remember this choice so the next file opened adopts it (see lastFileMode).
-      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)), lastFileMode: mode });
+      // A mode the document family doesn't have (Rich on an .svg, Draw on a
+      // note) can only arrive from a stale keybinding or an old manifest.
+      if (!isModeAllowed(docFamilyFor(tab.filePath ?? tab.notePath), mode)) {
+        return;
+      }
+      // Remember this choice so the next file opened adopts it (see
+      // lastFileMode) — but only for markdown modes: 'draw' means "this file is
+      // a whiteboard", not "open the next note differently".
+      set({
+        tabs: s.tabs.map((t) => (t.id === id ? { ...t, mode } : t)),
+        lastFileMode: mode === 'draw' ? s.lastFileMode : mode,
+      });
       void tab.modeSync?.setMode(mode);
       requestFlush();
     },
@@ -780,9 +799,11 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         renamingTabId: null,
         closedNotePaths: [],
         obsoleteBufferTabIds: [],
+        // 'draw' is a property of the FILE, not a preference — never let a
+        // restored whiteboard become the default mode for the next note.
         lastFileMode: isMobile()
           ? 'read'
-          : activeEntry.readOnly
+          : activeEntry.readOnly || activeEntry.mode === 'draw'
             ? settingsStore.getState().settings.defaultMode
             : activeEntry.mode,
       });
@@ -816,8 +837,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           filePath,
           customTitle: null,
           // Adopt the last mode the user switched to, not the static default,
-          // so flipping through files preserves e.g. read mode.
-          mode: get().lastFileMode,
+          // so flipping through files preserves e.g. read mode — unless the
+          // family can't offer it, which is how an .svg lands in Draw.
+          mode: defaultModeFor(docFamilyFor(filePath), get().lastFileMode),
           savedMtimeMs,
           text,
           readOnly,

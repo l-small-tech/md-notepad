@@ -11,8 +11,12 @@
  * full-width, read-only rendered view (no editor, optimized for reading). Both
  * 'raw', 'split', and 'read' share the one CM6 source editor under the hood
  * (see core/mode-sync `kindFor`) — 'read' just hides it behind the preview.
+ *
+ * 'draw' is the whiteboard editor over a `.svg` file. Which modes a given tab
+ * may actually use depends on its document family (core/doc-family.ts): a
+ * markdown tab offers Raw/Split/Rich/Read, an SVG tab offers Draw/Raw.
  */
-export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read';
+export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw';
 
 /**
  * 'note'  — an ephemeral Notepad-style tab, backed by a .md file in the

@@ -13,7 +13,8 @@
  */
 
 import { memo, useEffect, useRef } from 'react';
-import { createModeSync } from '../../core/mode-sync';
+import { docFamilyFor } from '../../core/doc-family';
+import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
 import type { EditorMode } from '../../core/types';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
@@ -94,11 +95,44 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       return;
     }
 
+    // Only the adapters this document family can actually use are supplied. An
+    // .svg tab gets Draw (+ Raw, which is a free SVG source editor); a markdown
+    // tab gets Rich. Anything else is a mode the status bar never offers.
+    const family = docFamilyFor(tab.filePath ?? tab.notePath);
+    const familyAdapters: Partial<Record<AdapterKind, AdapterFactory>> =
+      family === 'svg'
+        ? {
+            // Lazy import, same rule as Milkdown (I8): the whiteboard chunk
+            // loads on the first draw-mode attach, never at startup.
+            draw: async () => {
+              const { createWhiteboardAdapter } = await import('../../editors/whiteboard');
+              return createWhiteboardAdapter({
+                onOpenAsText: () => tabsStore.getState().setMode(tabId, 'raw'),
+              });
+            },
+          }
+        : {
+            // Lazy import keeps @milkdown/crepe out of the entry chunk (I8); the
+            // module loads on the first switch to rich mode, never at startup.
+            wysiwyg: async () => {
+              const { createMilkdownAdapter } = await import('../../editors/milkdown');
+              return createMilkdownAdapter({
+                onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
+                saveImage: (data) => savePastedImageForTab(tabId, data),
+                getDocPath: () => {
+                  const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
+                  return t ? (t.filePath ?? t.notePath) : null;
+                },
+              });
+            },
+          };
+
     const sync = createModeSync({
       model: tab.model,
       host,
       initialMode: tab.mode,
       adapters: {
+        ...familyAdapters,
         source: () => {
           const adapter = createCm6Adapter({
             wordWrap: settingsStore.getState().settings.wordWrap,
@@ -120,19 +154,6 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
           return adapter;
-        },
-        // Lazy import keeps @milkdown/crepe out of the entry chunk (I8); the
-        // module loads on the first switch to rich mode, never at startup.
-        wysiwyg: async () => {
-          const { createMilkdownAdapter } = await import('../../editors/milkdown');
-          return createMilkdownAdapter({
-            onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
-            saveImage: (data) => savePastedImageForTab(tabId, data),
-            getDocPath: () => {
-              const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
-              return t ? (t.filePath ?? t.notePath) : null;
-            },
-          });
         },
       },
       onError: (error, failedMode) => {

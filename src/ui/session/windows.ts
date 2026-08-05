@@ -6,6 +6,7 @@
  */
 
 import { nanoid } from 'nanoid';
+import { defaultModeFor, docFamilyFor } from '../../core/doc-family';
 import { isImagePath } from '../../core/images';
 import { isImportablePath } from '../../core/import/registry';
 import {
@@ -177,13 +178,20 @@ export function createWindows(
       if (!stat.exists) {
         throw new Error(`not found: ${path}`);
       }
+      // Mirrors openPaths' routing: an .svg is a whiteboard (a file tab in draw
+      // mode), not an image viewer.
+      const family = docFamilyFor(path);
       const descriptor: PersistedTab = {
         id: nanoid(),
-        kind: isImportablePath(path) ? 'import' : isImagePath(path) ? 'image' : 'file',
+        kind: isImportablePath(path)
+          ? 'import'
+          : isImagePath(path) && family !== 'svg'
+            ? 'image'
+            : 'file',
         notePath: null,
         filePath: path,
         customTitle: null,
-        mode: settingsStore.getState().settings.defaultMode,
+        mode: defaultModeFor(family, settingsStore.getState().settings.defaultMode),
         savedMtimeMs: stat.mtimeMs,
         hasBuffer: false,
         cursor: null,

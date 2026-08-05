@@ -6,6 +6,7 @@
  */
 
 import { baseName, dirName, extName, joinPath, relativePath } from '../../core/session/plan-flush';
+import { docFamilyFor } from '../../core/doc-family';
 import { isImagePath } from '../../core/images';
 import { converterFor } from '../../core/import/registry';
 import {
@@ -129,7 +130,12 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
           }
           continue;
         }
-        if (isImagePath(path)) {
+        // An .svg is BOTH an image type and an editable document. In a writable
+        // workspace it opens as a whiteboard (a normal file tab whose text is
+        // the SVG source, in draw mode — openFileTab picks that from the path);
+        // in a read-only workspace it stays the image viewer it always was.
+        const isWhiteboard = docFamilyFor(path) === 'svg' && !isReadOnlyPath(path);
+        if (isImagePath(path) && !isWhiteboard) {
           // Images open as a read-only viewer tab; existence check up front so
           // a bad path errors here (like a failed read) instead of in the view.
           const stat = await ctx.ipc.statPath(path);

@@ -10,6 +10,7 @@
  *   preview pane's registered reveal.
  * - wysiwyg: source lines don't exist in the rendered doc — jump by heading
  *   index via the adapter's (optional) revealHeading.
+ * - draw: a whiteboard has no markdown outline at all — nothing to jump to.
  */
 
 import type { EditorMode } from '../core/types';
@@ -33,5 +34,7 @@ export function planOutlineJump(
     case 'wysiwyg':
       // The adapter may not implement revealHeading; the executor no-ops then.
       return { kind: 'heading', index: headingIndex };
+    case 'draw':
+      return { kind: 'none' };
   }
 }

@@ -1,0 +1,146 @@
+/*
+ * Draw mode (src/editors/whiteboard.ts). Loaded with the lazy whiteboard chunk,
+ * so a markdown-only session never downloads it.
+ *
+ * Colors come from the theme variables only (styles/base.css) — the BOARD
+ * itself is deliberately exempt: its background is drawn inside the SVG, since
+ * that is what a browser and the markdown preview will show for the same file.
+ */
+
+.wb-root {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-alt);
+}
+
+.wb-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* Pointer gestures are ours: no browser panning, no double-tap zoom. */
+  touch-action: none;
+  outline: none;
+  cursor: grab;
+}
+
+.wb-stage:active {
+  cursor: grabbing;
+}
+
+.wb-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  /* A drop shadow marks where the board ends against the pane background. */
+  box-shadow: 0 1px 12px rgb(0 0 0 / 25%);
+}
+
+.wb-canvas > svg {
+  display: block;
+}
+
+/* ------------------------------- controls -------------------------------- */
+
+.wb-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 20%);
+}
+
+.wb-control {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wb-control:hover {
+  background: var(--bg-hover);
+}
+
+.wb-zoom-level {
+  min-width: 44px;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-align: center;
+  user-select: none;
+}
+
+/* -------------------------------- error card ------------------------------ */
+
+.wb-root.wb-failed .wb-stage,
+.wb-root.wb-failed .wb-controls {
+  display: none;
+}
+
+.wb-error {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px;
+  color: var(--fg);
+  font-family: var(--font-ui);
+}
+
+.wb-error h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.wb-error-detail {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wb-error-action {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wb-error-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Phones: keep the zoom cluster clear of the bottom system gesture bar. */
+@media (max-width: 640px) {
+  .wb-controls {
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+}

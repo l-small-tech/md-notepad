@@ -65,7 +65,7 @@ function applyFormat(action: FormatAction): void {
   if (!tab) {
     return;
   }
-  if (tab.mode === 'wysiwyg') {
+  if (tab.mode === 'wysiwyg' || tab.mode === 'draw') {
     uiStore.getState().showNotice('Formatting controls work in Markdown and Split modes.');
     return;
   }
@@ -105,7 +105,7 @@ function addVoiceCommentAtCaret(): void {
   if (!tab) {
     return;
   }
-  if (tab.mode === 'wysiwyg') {
+  if (tab.mode === 'wysiwyg' || tab.mode === 'draw') {
     uiStore.getState().showNotice('Voice comments work in Markdown and Split modes.');
     return;
   }

@@ -15,6 +15,8 @@ do not rewrite them.
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
 | `settings.ts` | reference | defaults + `normalizeSettings` |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
+| `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw) |
+| `whiteboard/` | feature | the `.svg` whiteboard format — see `whiteboard/README.md` |
 | `session/plan-flush.ts` | reference | pure flush planner + executor (I3, I4) |
 | `export/doc-source.ts` | feature | shared export vocabulary (`DocSource`, `ExportFormat`) |
 | `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |

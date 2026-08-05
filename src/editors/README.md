@@ -143,6 +143,40 @@ footnotes and HTML blocks — if Crepe drops them, the no-edit guarantee (I2)
 still protects untouched docs; document "editing in rich mode may drop X"
 in the root README known-limitations list.
 
+---
+
+## whiteboard.ts — the Draw-mode whiteboard editor
+
+Loaded ONLY via dynamic import from the `draw` `AdapterFactory` (I8), same as
+Milkdown. `EditorHost` supplies that factory only when
+`docFamilyFor(path) === 'svg'`; a markdown tab has no draw adapter at all, and
+`createModeSync`'s `adapters` map is `Partial` precisely so a tab can offer just
+the adapters its document family uses.
+
+An `.svg` tab is an ordinary `kind:'file'` tab whose DocModel text IS the SVG
+source. That is what buys dirty tracking, session buffering, Ctrl+S/liveSave,
+mtime conflict detection and tear-off for free — and it makes Raw mode a free
+SVG source editor. Nothing about `TabKind` or the session manifest changed:
+`parseManifest` hard-validates `kind` but never validates `mode`, so a
+`mode:'draw'` file tab degrades harmlessly to the source editor in an older
+build instead of self-healing the session away.
+
+- All logic lives in `src/core/whiteboard/` (read its README first). This file
+  is the only place in the whiteboard stack that touches the DOM.
+- Rendering hands the **original source text** to DOMParser and adopts the
+  resulting `<svg>`, so the pane shows exactly what is on disk — the same
+  pixels a browser or the markdown preview would show. `parseWhiteboard` runs
+  alongside as validation and (from Phase 2) as the edit model; a parse failure
+  is what raises the error card, whose "Open as text" button calls
+  `setMode('raw')`.
+- Pan/zoom reuses `core/diagram-zoom.ts` unchanged. The stage sets
+  `touch-action: none` and does its own pointer routing: one pointer pans, two
+  pinch-zoom about their midpoint, wheel zooms about the cursor.
+- **Phase 1 never pushes into the DocModel**, so opening a whiteboard cannot
+  dirty it. Once the Phase 2 tools land, that guarantee must be re-established
+  the Milkdown way — a `createWritebackGuard` that serializes only after a real
+  user edit (I2).
+
 ## Testing expectations
 
 Adapters are thin DOM glue by design — logic that can be tested (guard
