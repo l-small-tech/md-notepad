@@ -300,9 +300,19 @@ Phase 6's own decisions (beyond the plan's spec — full rationale in
 - **Sauvola has an absolute-darkness floor** (`L < 0.35`): its low-variance
   veto otherwise hollows any filled region larger than its window into a ring.
   Sauvola may veto contrast decisions, never darkness.
-- **A nib-sized dab is a DOT**, and **nothing is dropped at trace time** —
-  the phase-5 "losing ink is the worse error" conclusion holds at the vector
-  level too; what tracing buys is that every speck is now one tap to erase.
+- **A nib-sized dab is a DOT.**
+- **The despeckle is WIDTH-relative, and only ever a conjunction** (revised
+  after desktop UAT on a real board): ink whose measured width is under
+  `0.5·w` AND whose length is under `3·w` is residue and is dropped — the one
+  discriminator the raster never had, because a marker cannot leave a mark
+  much thinner than its own nib unless it is fading, and fading ink is LONG.
+  Same rule at the skeleton-graph level for dangling wisp edges (they fake the
+  junctions that fragment the stroke they hang off; solid edges also pair
+  before residue edges in junction continuation). Thin-but-long ink — a
+  hairline stroke, a fading tail — always survives.
+- **Every emitted stroke carries its own PATH median width**, never a
+  component-wide one: a single component can hold a marker-fat line and its
+  fading hairline continuation, and one shared width lies about both.
 - **The size guard** (`fitScanElements`) raises ε geometrically until the
   serialized elements fit 1.5 MB; it never drops strokes.
 

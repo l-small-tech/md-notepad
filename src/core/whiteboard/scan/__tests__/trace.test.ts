@@ -108,6 +108,63 @@ describe('createTracer', () => {
   });
 });
 
+describe('vector-level despeckle', () => {
+  /** The golden board plus residue: a 2×2 speck, and a long 2px hairline. */
+  function speckledBoard(): RgbaImage {
+    const board = syntheticBoard();
+    const paint = (x: number, y: number, rgb: readonly [number, number, number]) => {
+      const i = (y * W + x) * 4;
+      board.data[i] = rgb[0];
+      board.data[i + 1] = rgb[1];
+      board.data[i + 2] = rgb[2];
+    };
+    // A 2×2 eraser-residue speck: far thinner than the 6 px pen — dropped.
+    for (let y = 200; y < 202; y++) {
+      for (let x = 60; x < 62; x++) {
+        paint(x, y, [90, 60, 110]);
+      }
+    }
+    // A 60px-long 2px hairline: thin but LONG — genuine fading ink, kept.
+    for (let y = 200; y < 202; y++) {
+      for (let x = 150; x < 210; x++) {
+        paint(x, y, [90, 60, 110]);
+      }
+    }
+    return board;
+  }
+
+  const job = createCleaner(speckledBoard());
+  while (!job.done) {
+    job.step();
+  }
+  const cleaned = job.result()!;
+  const result = trace(cleaned);
+
+  it('drops the speck, keeps the thin-but-long hairline and everything real', () => {
+    // 3 originals + hairline; the speck is gone.
+    expect(result.components.length).toBe(4);
+    const strokes = result.components.filter((c) => c.kind === 'stroke');
+    const hairline = strokes.find(
+      (s) => s.paths.length === 1 && s.paths[0]!.length > 1 && s.strokeWidth <= 3,
+    );
+    expect(hairline).toBeDefined();
+    // Nothing traced anywhere near the speck.
+    const nearSpeck = strokes.some((s) =>
+      s.paths.some((p) => p.some((q) => Math.hypot(q.x - 61, q.y - 201) < 5)),
+    );
+    expect(nearSpeck).toBe(false);
+  });
+
+  it('gives each path its own width instead of one component-wide median', () => {
+    const elements = buildScanElements(result, cleaned.colors, { mode: 'true' });
+    const pens = elements.filter((e) => e.tool === 'pen' && polylineLength(e.d) > 30);
+    const widths = pens.map((p) => p.strokeWidth);
+    // The fat bar and the hairline must NOT share a width.
+    expect(Math.max(...widths)).toBeGreaterThan(4);
+    expect(Math.min(...widths)).toBeLessThan(3);
+  });
+});
+
 describe('buildScanElements', () => {
   const cleaned = clean();
   const result = trace(cleaned);

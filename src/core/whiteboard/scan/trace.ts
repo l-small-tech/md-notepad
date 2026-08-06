@@ -16,12 +16,14 @@
  * Like every stage before it this is a resumable job: `createTracer` hands
  * back something the UI pumps between frames, one component batch at a time.
  *
- * Deliberate phase-6 decision — NOTHING is dropped here. The phase-5 rounds
- * proved that every raster-level residue discriminator also kills fading ink,
- * and at the vector level the same trade holds: a residue speck and an i-dot
- * both trace to a dot. So specks become dots in their inherited colour (the
- * phase-5 colour fix is what makes them unobtrusive), and removal stays where
- * it is decidable — the user's eraser, on elements that are now one tap each.
+ * Deliberate phase-6 decision, revised after desktop UAT — residue IS dropped
+ * here, but only by WIDTH, never by contrast or size alone. The phase-5 rounds
+ * proved raster-level discriminators kill fading ink; the vector level has the
+ * one signal the raster never had: the measured ink width in units of the
+ * page's own pen width. A marker leaves nib-width marks — an i-dot, a comma, a
+ * fading tail are all at least half a nib wide OR long. Residue (eraser dust,
+ * edge wisps) is under half a nib wide AND short. Only that conjunction is
+ * dropped; thin-but-long ink (a fading hairline stroke) always survives.
  */
 
 import type { Point } from '../geometry';
@@ -45,6 +47,11 @@ const SPUR_FACTOR = 1.2;
 /** RDP ε in units of `w` — scaled to stroke width, NEVER a constant, or small
  *  handwriting is destroyed while big shapes barely notice. */
 const EPSILON_FACTOR = 0.35;
+/** Ink narrower than this fraction of the pen width is residue-thin. */
+const RESIDUE_WIDTH_FACTOR = 0.5;
+/** Residue-thin ink shorter than this many pen widths is dropped; longer
+ *  thin ink is a genuine fading stroke and stays. */
+const RESIDUE_LENGTH_FACTOR = 3;
 
 /** The size guard (plan risk 3): raise ε and re-fit until under these. */
 export const MAX_SCAN_BYTES = 1_500_000;
@@ -58,7 +65,11 @@ export interface TracedStroke {
   readonly paths: readonly (readonly Point[])[];
   /** Per-path per-vertex FULL widths (2 × the distance transform), px. */
   readonly widths: readonly (readonly number[])[];
-  /** 2 × median sampled half-width — the constant width v1 renders. */
+  /** Per-path median width — the constant width each emitted stroke renders.
+   *  Per PATH, not per component: one component can hold a marker-fat line
+   *  and its hairline continuation, and averaging them lies about both. */
+  readonly pathWidths: readonly number[];
+  /** Overall median sampled width across the component's kept paths. */
   readonly strokeWidth: number;
 }
 
@@ -132,7 +143,10 @@ export function createTracer(clean: CleanResult): TraceJob {
       while (index < components.length && budget > 0) {
         const component = components[index]!;
         budget -= windowArea(component);
-        traced.push(traceComponent(component, extraction.labels, distance, width, w));
+        const result = traceComponent(component, extraction.labels, distance, width, w);
+        if (result !== null) {
+          traced.push(result);
+        }
         index++;
       }
       progress = EDT_SHARE + (1 - EDT_SHARE) * (index / components.length);
@@ -178,14 +192,17 @@ function median(values: number[]): number {
   return values[Math.floor(values.length / 2)]!;
 }
 
+/** Null when the whole component is residue — the vector-level despeckle. */
 function traceComponent(
   c: InkComponent,
   labels: Int32Array,
   distance: Float32Array,
   imageWidth: number,
   w: number,
-): TracedComponent {
+): TracedComponent | null {
   const window = componentWindow(c, labels, imageWidth);
+  const residueWidth = RESIDUE_WIDTH_FACTOR * w;
+  const residueLength = RESIDUE_LENGTH_FACTOR * w;
 
   /** Full width (2·EDT) at a window-local point, from the full-image EDT. */
   const widthAt = (p: Point): number => {
@@ -197,13 +214,17 @@ function traceComponent(
   // A nib-sized dab — an i-dot, a bullet point, a period — IS a dot; neither
   // a centerline nor a contour would say anything its centre and width don't.
   if (c.maxX - c.minX + 1 <= 1.5 * w && c.maxY - c.minY + 1 <= 1.5 * w) {
-    const centre = { x: (c.minX + c.maxX) / 2 + 0.5, y: (c.minY + c.maxY) / 2 + 0.5 };
     const dotWidth = Math.max(1.5, 2 * c.dtMax);
+    if (dotWidth < residueWidth) {
+      return null; // a dab far thinner than the nib is a speck, not an i-dot
+    }
+    const centre = { x: (c.minX + c.maxX) / 2 + 0.5, y: (c.minY + c.maxY) / 2 + 0.5 };
     return {
       kind: 'stroke',
       label: c.label,
       paths: [[centre]],
       widths: [[dotWidth]],
+      pathWidths: [dotWidth],
       strokeWidth: dotWidth,
     };
   }
@@ -214,7 +235,11 @@ function traceComponent(
   // Thin a copy — the blob test needs the skeleton either way.
   const skeleton = window.mask.slice();
   thinInPlace(skeleton, window.width, window.height);
-  const paths = traceSkeletonPaths(skeleton, window.width, window.height, SPUR_FACTOR * w);
+  const paths = traceSkeletonPaths(skeleton, window.width, window.height, SPUR_FACTOR * w, {
+    widthAt,
+    residueWidth,
+    residueLength,
+  });
 
   if (!strokeLike) {
     // Area ≈ skeletonLength · width within 2× means the ink really is a
@@ -246,22 +271,40 @@ function traceComponent(
 
   // A component whose skeleton vanished entirely (thinning can consume a
   // 2×2 dot) is still ink: a dot at its centre, at its measured width.
-  const offsetPaths: Point[][] =
+  const candidatePaths: Point[][] =
     paths.length > 0
       ? paths.map((path) => path.map((p) => ({ x: p.x + window.offsetX, y: p.y + window.offsetY })))
       : [[{ x: (c.minX + c.maxX) / 2 + 0.5, y: (c.minY + c.maxY) / 2 + 0.5 }]];
 
+  // The despeckle: residue-thin AND short (a dot counts as short) is dropped.
+  const offsetPaths: Point[][] = [];
   const widths: number[][] = [];
+  const pathWidths: number[] = [];
   const allWidths: number[] = [];
-  for (const path of offsetPaths) {
+  for (const path of candidatePaths) {
     const perVertex = path.map((p) =>
       widthAt({ x: p.x - window.offsetX, y: p.y - window.offsetY }),
     );
+    const pathWidth = Math.max(1, median([...perVertex]));
+    if (pathWidth < residueWidth) {
+      let length = 0;
+      for (let i = 1; i < path.length; i++) {
+        length += Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.y - path[i - 1]!.y);
+      }
+      if (length < residueLength) {
+        continue;
+      }
+    }
+    offsetPaths.push(path);
     widths.push(perVertex);
+    pathWidths.push(pathWidth);
     allWidths.push(...perVertex);
   }
+  if (offsetPaths.length === 0) {
+    return null;
+  }
   const strokeWidth = Math.max(1, median([...allWidths]));
-  return { kind: 'stroke', label: c.label, paths: offsetPaths, widths, strokeWidth };
+  return { kind: 'stroke', label: c.label, paths: offsetPaths, widths, pathWidths, strokeWidth };
 }
 
 /* ----------------------------- element building ---------------------------- */
@@ -361,7 +404,9 @@ export function buildScanElements(
         tool: 'pen',
         d: strokePathData(points),
         stroke,
-        strokeWidth: Math.max(0.1, Math.round(component.strokeWidth * scale * 100) / 100),
+        // The PATH's own median width — a component can hold a marker-fat
+        // line and its fading hairline, and one shared width lies about both.
+        strokeWidth: Math.max(0.1, Math.round(component.pathWidths[i]! * scale * 100) / 100),
         opacity: null,
         widths: widths.join(' '),
       });

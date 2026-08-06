@@ -180,3 +180,46 @@ describe('traceSkeletonPaths', () => {
     expect(paths[0]!.length).toBe(1);
   });
 });
+
+describe('width-aware residue handling', () => {
+  /** A long horizontal stroke with a wisp hanging off it, PAST spur length.
+   *  Without widths the wisp is legitimate ink and stays; with widths saying
+   *  it is hairline-thin against a fat pen, it is pruned — junction and all. */
+  function strokeWithWisp(): { mask: Uint8Array; widthAt: (p: Point) => number } {
+    const mask = grid();
+    line(mask, 4, 32, 60, 32); // the pen stroke
+    line(mask, 30, 31, 30, 20); // the wisp, 12 px — longer than any spur limit
+    // The stroke is 8 px of ink; the wisp is 2 px.
+    const widthAt = (p: Point): number => (p.y > 30 ? 8 : 2);
+    return { mask, widthAt };
+  }
+
+  it('keeps a long wisp when no widths are known', () => {
+    const { mask } = strokeWithWisp();
+    const paths = traceSkeletonPaths(mask, W, H, 5);
+    expect(paths.length).toBe(2);
+  });
+
+  it('prunes the same wisp when widths mark it residue-thin', () => {
+    const { mask, widthAt } = strokeWithWisp();
+    const paths = traceSkeletonPaths(mask, W, H, 5, {
+      widthAt,
+      residueWidth: 4, // 0.5 × the 8 px pen
+      residueLength: 24, // 3 × w
+    });
+    expect(paths.length).toBe(1);
+    // The surviving path is the whole stroke, merged straight through the
+    // junction the wisp used to fake.
+    expect(span(paths[0]!).w).toBeGreaterThan(50);
+  });
+
+  it('never prunes a thin edge past the residue length — fading ink stays', () => {
+    const { mask, widthAt } = strokeWithWisp();
+    const paths = traceSkeletonPaths(mask, W, H, 5, {
+      widthAt,
+      residueWidth: 4,
+      residueLength: 8, // shorter than the 12 px wisp
+    });
+    expect(paths.length).toBe(2);
+  });
+});

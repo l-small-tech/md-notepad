@@ -10,12 +10,17 @@
  *    node at all (a drawn "O") become their own cycle edge.
  * 3. Prune SPURS — edges shorter than `spurLength` hanging off a junction.
  *    Thinning always grows little barbs at stroke ends and crossings; a real
- *    short stroke is endpoint-to-endpoint and is never pruned.
+ *    short stroke is endpoint-to-endpoint and is never pruned. When the caller
+ *    provides ink widths, pruning is also WIDTH-AWARE: a dangling edge much
+ *    thinner than the pen (a binarization wisp along a rough stroke edge) is
+ *    pruned even past the spur length, because the junction it fakes is what
+ *    fragments the real stroke it hangs off.
  * 4. Continue THROUGH junctions: at each junction, pair the incident edge
  *    ends whose directions best continue each other, so an "X" becomes two
  *    smooth strokes rather than four stubs and a crossed-out word stays
  *    readable. Pairs are only accepted below a bend threshold — a "T"'s stem
- *    must NOT fuse with half its crossbar.
+ *    must NOT fuse with half its crossbar. Pen-width edges pair first; residue
+ *    wisps never steal a continuation from the stroke they cling to.
  *
  * Everything is in window-local pixel coordinates; the tracer offsets to the
  *  board and hands the result to the same smoothing the pen tool uses.
@@ -47,6 +52,17 @@ interface Edge {
   points: Point[];
   length: number;
   alive: boolean;
+  /** Much thinner than the pen — a binarization wisp, not drawn ink. */
+  residue: boolean;
+}
+
+export interface SkeletonWidthOptions {
+  /** Full ink width (2 × EDT) at a skeleton point, in pixels. */
+  readonly widthAt: (p: Point) => number;
+  /** Median edge width below this is residue (typically 0.5 × pen width). */
+  readonly residueWidth: number;
+  /** Dangling residue edges shorter than this are pruned (typically 3 × w). */
+  readonly residueLength: number;
 }
 
 function polylineLength(points: readonly Point[]): number {
@@ -66,6 +82,7 @@ export function traceSkeletonPaths(
   width: number,
   height: number,
   spurLength: number,
+  widths?: SkeletonWidthOptions,
 ): Point[][] {
   const on = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < width && y < height && skeleton[y * width + x] !== 0;
@@ -158,8 +175,17 @@ export function traceSkeletonPaths(
   const nodeEdges: number[][] = Array.from({ length: nodes }, () => []);
   const directPairs = new Set<string>();
 
+  const isResidue = (points: readonly Point[]): boolean => {
+    if (!widths) {
+      return false;
+    }
+    const sampled = points.map((p) => widths.widthAt(p)).sort((a, b) => a - b);
+    return (sampled[Math.floor(sampled.length / 2)] ?? Infinity) < widths.residueWidth;
+  };
+
   const addEdge = (edge: Edge): void => {
     edge.length = polylineLength(edge.points);
+    edge.residue = isResidue(edge.points);
     const index = edges.length;
     edges.push(edge);
     if (edge.a >= 0) {
@@ -202,6 +228,7 @@ export function traceSkeletonPaths(
           points: [centre(start), centre(first)],
           length: 0,
           alive: true,
+          residue: false,
         });
         continue;
       }
@@ -254,6 +281,7 @@ export function traceSkeletonPaths(
         points,
         length: 0,
         alive: true,
+        residue: false,
       });
     }
   }
@@ -296,7 +324,14 @@ export function traceSkeletonPaths(
     if (points.length >= 3) {
       points.push(points[0]!); // close the loop
     }
-    edges.push({ a: -1, b: -1, points, length: polylineLength(points), alive: true });
+    edges.push({
+      a: -1,
+      b: -1,
+      points,
+      length: polylineLength(points),
+      alive: true,
+      residue: isResidue(points),
+    });
   }
 
   /*
@@ -310,7 +345,13 @@ export function traceSkeletonPaths(
   while (pruned) {
     pruned = false;
     for (const edge of edges) {
-      if (!edge.alive || edge.a < 0 || edge.length >= spurLength) {
+      // A residue wisp gets the longer leash: it fakes junctions that
+      // fragment the pen-width stroke it hangs off, so it is pruned up to
+      // `residueLength` — but never past it (a fading stroke's tapering tail
+      // is thin AND long, and losing ink is still the worse error).
+      const limit =
+        edge.residue && widths ? Math.max(spurLength, widths.residueLength) : spurLength;
+      if (!edge.alive || edge.a < 0 || edge.length >= limit) {
         continue;
       }
       const aFree = nodeEdges[edge.a]!.filter((e) => edges[e]!.alive).length === 1;
@@ -369,43 +410,52 @@ export function traceSkeletonPaths(
       const p = partners[end.edge]!;
       return end.atA ? p.atA === null : p.atB === null;
     });
-    let pool = available;
-    while (pool.length >= 2) {
-      let bestI = -1;
-      let bestJ = -1;
-      let bestBend = Infinity;
-      for (let i = 0; i < pool.length; i++) {
-        for (let j = i + 1; j < pool.length; j++) {
-          const di = endDirection(pool[i]!);
-          const dj = endDirection(pool[j]!);
-          // Continuation quality: entering along di, leaving along dj should
-          // be a straight line, i.e. dj ≈ −di.
-          const dot = -(di.x * dj.x + di.y * dj.y);
-          const bend = Math.acos(Math.max(-1, Math.min(1, dot)));
-          if (bend < bestBend) {
-            bestBend = bend;
-            bestI = i;
-            bestJ = j;
+    // Pen-width edges pair among themselves FIRST: a wisp that survives
+    // pruning often leaves a junction at a shallower angle than the true
+    // continuation, and letting it win would route the stroke onto the wisp.
+    const pairPool = (candidates: EdgeEnd[]): EdgeEnd[] => {
+      let pool = candidates;
+      while (pool.length >= 2) {
+        let bestI = -1;
+        let bestJ = -1;
+        let bestBend = Infinity;
+        for (let i = 0; i < pool.length; i++) {
+          for (let j = i + 1; j < pool.length; j++) {
+            const di = endDirection(pool[i]!);
+            const dj = endDirection(pool[j]!);
+            // Continuation quality: entering along di, leaving along dj should
+            // be a straight line, i.e. dj ≈ −di.
+            const dot = -(di.x * dj.x + di.y * dj.y);
+            const bend = Math.acos(Math.max(-1, Math.min(1, dot)));
+            if (bend < bestBend) {
+              bestBend = bend;
+              bestI = i;
+              bestJ = j;
+            }
           }
         }
+        if (bestBend > CONTINUATION_LIMIT) {
+          break;
+        }
+        const endA = pool[bestI]!;
+        const endB = pool[bestJ]!;
+        if (endA.atA) {
+          partners[endA.edge]!.atA = endB;
+        } else {
+          partners[endA.edge]!.atB = endB;
+        }
+        if (endB.atA) {
+          partners[endB.edge]!.atA = endA;
+        } else {
+          partners[endB.edge]!.atB = endA;
+        }
+        pool = pool.filter((_, index) => index !== bestI && index !== bestJ);
       }
-      if (bestBend > CONTINUATION_LIMIT) {
-        break;
-      }
-      const endA = pool[bestI]!;
-      const endB = pool[bestJ]!;
-      if (endA.atA) {
-        partners[endA.edge]!.atA = endB;
-      } else {
-        partners[endA.edge]!.atB = endB;
-      }
-      if (endB.atA) {
-        partners[endB.edge]!.atA = endA;
-      } else {
-        partners[endB.edge]!.atB = endA;
-      }
-      pool = pool.filter((_, index) => index !== bestI && index !== bestJ);
-    }
+      return pool;
+    };
+    const solid = available.filter((end) => !edges[end.edge]!.residue);
+    const residue = available.filter((end) => edges[end.edge]!.residue);
+    pairPool([...pairPool(solid), ...residue]);
   }
 
   /*
