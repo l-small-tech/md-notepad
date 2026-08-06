@@ -453,7 +453,7 @@ Still open, unchanged: `w` is one number for the whole page, so mixed nib widths
 
 Automated verification after these rounds: `pnpm run check` green, **1073 tests** across 73 files, `pnpm run build` green, `cargo check` green.
 
-**Phase 6 — Vectorize (S5) + review flow (S7). ✅ BUILT** (branch `feat/whiteboard-work`; desktop UAT pending, tablet QA pending). EDT, thinning, skeleton graph, spur pruning, junction continuation, width sampling, RDP + Bézier via `smoothing.ts`, contour fallback, size guard, review with vector preview + colour remap chips. **Insert strokes** is the primary action and lands editable strokes in an unlocked "Scan N" layer.
+**Phase 6 — Vectorize (S5) + review flow (S7). ✅ MERGED** (into `development` 2026-08-06; desktop UAT passed over three tuning rounds against a real board photo — see the decisions list below; tablet QA still pending). EDT, thinning, skeleton graph, spur pruning, junction continuation, width sampling, RDP + Bézier via `smoothing.ts`, contour fallback, size guard, review with vector preview + colour remap chips. **Insert strokes** is the primary action and lands editable strokes in an unlocked "Scan N" layer.
 *Verify:* skeleton-graph goldens; traced strokes are erasable/selectable/movable like drawn ones; real-whiteboard photo on tablet ≤~2 s at Balanced; saved file opens identically in a browser; full regression.
 
 Automated verification is green: `pnpm run check`, **1100 tests** across 77 files (35 new: `skeleton`, `contour`, `trace`, `scanfill` suites), `pnpm run build` (whiteboard still its own lazy chunk, 61.2 → 76.0 KB), `cargo check`. After UAT round 1 (speckles + fragmentation, fixed below): 1105 tests, plus `photo-harness.test.ts` — an env-gated offline harness (`SCAN_HARNESS_DIR` pointing at a raw-RGBA photo dump) that runs the full detect→rectify→clean→trace pipeline against a real board photo and reports component/path/width statistics; skipped in CI.
@@ -479,7 +479,7 @@ Decisions taken during Phase 6 that the spec above did not pin down:
 - **The panel hands the ADAPTER the trace, not elements.** The adapter owns the view, so it computes the pixel→scene transform (fit to 84% of the visible rect, same as photo inserts) and runs the same `fitScanElements` the preview ran — size guard included — at the destination. Inserted strokes get `wb:id` (`s1…sN`) for phase 7's OCR metadata to point at; the whole scan is one layer, one undo step.
 - **The size guard raises ε 1.6× per round (cap 8×) until the serialized elements fit 1.5 MB** — geometry only, never a re-trace. Stroke *count* cannot be reduced by ε (dropping strokes drops ink); past 4000 the review hint warns instead.
 
-**Phase 7 — OCR (S6).** `text-layout.ts` grouping, `TextRecognizer` port, Android ML Kit chain (Digital Ink primary, Text Recognition fallback), `<desc>` + hidden `<text>` + metadata JSON, "Copy recognized text", desktop no-op path.
+**Phase 7 — OCR (S6). ◀ NEXT** (worktree `worktrees/whiteboard-work` on `feat/whiteboard-work`, kept and synced to the phase-6 merge). `text-layout.ts` grouping, `TextRecognizer` port, Android ML Kit chain (Digital Ink primary, Text Recognition fallback), `<desc>` + hidden `<text>` + metadata JSON, "Copy recognized text", desktop no-op path.
 *Verify:* pure grouping/placement tests; on-device recognition on neat and messy handwriting with confidence reported; hidden text is copyable in a browser and absent from hit-testing; round-trip preserves the OCR group byte-stably; desktop reports `unavailable` without erroring.
 
 ## Risks / notes surfaced
