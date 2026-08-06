@@ -14,9 +14,10 @@
  *    `w` — never absolute pixels — so behaviour is identical at every preset
  *    and camera distance.
  * 3. The I-DOT RULE — a speckle-sized component is spared when kept ink lies
- *    within 2·w AND the mark could plausibly have come from the same marker.
- *    That is what preserves i-dots, accents, colons, dashed lines and
- *    arrowheads while still dropping grit that happens to sit near ink.
+ *    within 2·w. That is what preserves i-dots, accents, colons, dashed lines
+ *    and arrowheads while still dropping isolated grit. It is generous on
+ *    purpose; the note at the rule itself records why raster-level
+ *    discrimination was tried, failed twice, and moved to phase 6.
  *
  * No blanket morphology anywhere: at these stroke widths a global open/close
  * or 3×3 median erodes thin diagonals and costs real legibility. All removal
@@ -89,20 +90,6 @@ const BORDER_AREA = 200;
 const GLARE_RATIO = 0.6;
 /** The i-dot rule's reach, in stroke widths. */
 const IDOT_REACH = 2;
-/**
- * The i-dot rule's SHAPE gate, in units of `w` — the half-width a spared
- * speckle must reach to read as a deliberate dab (i-dot, colon, accent, the
- * tip of an arrowhead). A marker cannot lay down a mark thinner than its own
- * tip, so anything well under this was not made by the pen: it is dust, a
- * residue fleck or sensor grit. 0.3·w ⇒ a dab at least 60% of a stroke wide.
- */
-const IDOT_MIN_CORE = 0.3;
-/**
- * The other way a speckle earns its place: it is a FRAGMENT of a line — long
- * enough along one axis to be a piece of faint ink (a dash, a dying stroke
- * caught only in part by the threshold) rather than a grain. Measured in `w`.
- */
-const FRAGMENT_SPAN = 1;
 
 export interface Bounds {
   readonly minX: number;
@@ -307,40 +294,27 @@ export function extractInk(
     }
   }
   /*
-   * The i-dot rule. Proximity ALONE is not enough — that was a phase-5 UAT
-   * defect: near handwriting there is kept ink within 2·w of everything, so a
-   * proximity-only rule spared every speckle on the page and the despeckler
-   * did no work at all (a real board came back with ~100 surviving grains, one
-   * of them a dot parked under the "1" of "Box 1"). A speckle must therefore
-   * ALSO look like something the marker could have produced:
+   * The i-dot rule: spare a speckle when kept ink lies within 2·w of it.
+   * Checked against confidently-kept components only, so two grains of grit
+   * cannot vouch for each other.
    *
-   * - a DAB — core half-width ≥ 0.3·w, which is an i-dot, colon or accent; or
-   * - a FRAGMENT — spanning ≥ w along one axis, which is a piece of a faint
-   *   line (this is what keeps a dashed arrow shaft and a fading box edge); or
-   * - RESCUED — the continuity rescue above already proved it weak-only, of
-   *   the page's own ink thickness, and continuous with kept ink. That is
-   *   strictly stronger evidence than either shape test, and it does not care
-   *   how small the piece is. Without this exemption a light stroke that
-   *   fragments into pieces SHORTER than `w` comes back full of holes — the
-   *   second-UAT-round complaint that the arrow went faint and the circle lost
-   *   chunks. Dark residue on the board is never rescued: it has strong pixels,
-   *   so hysteresis admits it directly and the rescue never looks at it.
+   * This rule is deliberately GENEROUS, and that is a decision, not an
+   * oversight. Two UAT rounds tried to make it discriminate — a shape gate
+   * (dab-or-fragment), then an exemption for rescued components — and both
+   * failed the same way: every property that separates residue from faint ink
+   * at the RASTER level (size, elongation, darkness, core thickness) also
+   * separates a fading stroke from its own solid part, so tightening the rule
+   * punched holes in lightly-drawn circles and arrows. Losing real ink is the
+   * worse error: a surviving speck is one eraser tap away, whereas a stroke
+   * the pipeline never emitted cannot be recovered at all.
    *
-   * Grit that is none of the three is thin, short and dark, and dies.
-   * Proximity is still required for the two shape tests — and still checked
-   * against confidently-kept components only, so two grains cannot vouch for
-   * each other.
+   * Despeckling therefore moves to phase 6, where it belongs: after tracing,
+   * a speck is a path with no length and no continuation, which is a
+   * decidable question. Here it is not.
    */
   const reach = IDOT_REACH * w;
   for (const speckle of speckles) {
-    if (rescued[speckle.label] !== 0) {
-      kept.push(speckle);
-      continue;
-    }
-    const isDab = speckle.dtMax >= IDOT_MIN_CORE * w;
-    const isFragment =
-      Math.max(speckle.maxX - speckle.minX, speckle.maxY - speckle.minY) + 1 >= FRAGMENT_SPAN * w;
-    if ((isDab || isFragment) && kept.some((c) => bboxGap(speckle, c) <= reach)) {
+    if (kept.some((c) => bboxGap(speckle, c) <= reach)) {
       kept.push(speckle);
     } else {
       removed.speckle++;

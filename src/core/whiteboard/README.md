@@ -245,24 +245,18 @@ Phase 5's own decisions (beyond the table in the plan):
 - **The cleaned raster is flat colour on pure white and ships as PNG**
   (photo fallback stays JPEG): flat colour compresses far better as PNG and
   JPEG ringing would haunt phase 6's tracer.
-- **Proximity alone never spares a speckle.** The i-dot rule also demands the
-  mark look like the marker made it — a DAB (`dtMax ≥ 0.3·w`, since a pen
-  cannot draw thinner than its tip) or a FRAGMENT of a line (spanning ≥ `w` on
-  one axis). Proximity-only was the phase-5 UAT defect: near handwriting there
-  is kept ink within 2·w of everything, so the despeckler removed nothing and
-  a real board came back carrying ~100 grains. Known limit: `w` is ONE number
-  for the page, so a fine-tip dot on a board dominated by fat markers can read
-  as grit. Mixed nib widths are a phase-6 concern.
-- **But a RESCUED component is exempt from the size filter entirely.** The
-  continuity rescue has already proved it weak-only, of the page's own ink
-  thickness, and continuous with kept ink — strictly stronger evidence than
-  either shape test, and indifferent to size. Without the exemption a light
-  stroke that fragments into pieces shorter than `w` returns full of holes
-  (round two of the same UAT: the arrow went faint, the circle lost chunks).
-  The two are separable because they measure different things: dark residue on
-  the board carries strong pixels, so hysteresis admits it directly and the
-  rescue never considers it; faint ink is weak-only and only the rescue can
-  speak for it.
+- **The i-dot rule is GENEROUS on purpose, and despeckling is phase 6's job.**
+  Proximity to kept ink is the whole test; a speckle-sized component within
+  2·w of confidently-kept ink stays. Two UAT rounds tried to make it
+  discriminate — first a shape gate (dab `dtMax ≥ 0.3·w` or fragment spanning
+  ≥ `w`), then an exemption for rescued components — and both failed the same
+  way. Every property that separates residue from faint ink at the RASTER
+  level (size, elongation, darkness, core thickness) also separates a fading
+  stroke from its own solid part, so each tightening punched holes in
+  lightly-drawn circles and arrows. **Losing ink is the worse error**: a
+  surviving speck is one eraser tap away, a stroke the pipeline never emitted
+  is gone for good. After tracing, a speck is a path with no length and no
+  continuation — a decidable question, and phase 6's to answer.
 - **A component with no core INHERITS its colour.** Below `0.4·w` half-width
   every pixel is anti-aliased edge, which is desaturated by construction, so
   the vote returns black whatever the marker was — which is how a green board
