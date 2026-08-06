@@ -316,14 +316,27 @@ export function extractInk(
    *
    * - a DAB — core half-width ≥ 0.3·w, which is an i-dot, colon or accent; or
    * - a FRAGMENT — spanning ≥ w along one axis, which is a piece of a faint
-   *   line (this is what keeps a dashed arrow shaft and a fading box edge).
+   *   line (this is what keeps a dashed arrow shaft and a fading box edge); or
+   * - RESCUED — the continuity rescue above already proved it weak-only, of
+   *   the page's own ink thickness, and continuous with kept ink. That is
+   *   strictly stronger evidence than either shape test, and it does not care
+   *   how small the piece is. Without this exemption a light stroke that
+   *   fragments into pieces SHORTER than `w` comes back full of holes — the
+   *   second-UAT-round complaint that the arrow went faint and the circle lost
+   *   chunks. Dark residue on the board is never rescued: it has strong pixels,
+   *   so hysteresis admits it directly and the rescue never looks at it.
    *
-   * Grit is neither: it is both thin and short. Proximity is still required —
-   * and still checked against confidently-kept components only, so two grains
-   * cannot vouch for each other.
+   * Grit that is none of the three is thin, short and dark, and dies.
+   * Proximity is still required for the two shape tests — and still checked
+   * against confidently-kept components only, so two grains cannot vouch for
+   * each other.
    */
   const reach = IDOT_REACH * w;
   for (const speckle of speckles) {
+    if (rescued[speckle.label] !== 0) {
+      kept.push(speckle);
+      continue;
+    }
     const isDab = speckle.dtMax >= IDOT_MIN_CORE * w;
     const isFragment =
       Math.max(speckle.maxX - speckle.minX, speckle.maxY - speckle.minY) + 1 >= FRAGMENT_SPAN * w;

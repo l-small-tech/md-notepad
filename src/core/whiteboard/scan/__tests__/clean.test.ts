@@ -52,6 +52,23 @@ const NEAR_GRIT = { x0: 166, x1: 167, y0: 97, y1: 98 };
  */
 const DASH = { x0: 166, x1: 177, y: 58 };
 
+/**
+ * A light stroke fading off the black one into pieces SHORTER than `w`: 4-px
+ * dashes, 2 px tall, weak everywhere (never strong). Neither a dab nor a
+ * span-`w` fragment, so the shape tests reject all of them — only the
+ * continuity rescue can save these, and it must. This is the second-UAT-round
+ * complaint: with the shape tests alone a faint arrow shaft and a lightly drawn
+ * circle come back full of holes.
+ */
+const FADING_TAIL = { x0: 166, x1: 200, y0: 137, y1: 138, on: 4, off: 3 };
+
+function inFadingTail(x: number, y: number): boolean {
+  if (y < FADING_TAIL.y0 || y > FADING_TAIL.y1 || x < FADING_TAIL.x0 || x > FADING_TAIL.x1) {
+    return false;
+  }
+  return (x - FADING_TAIL.x0) % (FADING_TAIL.on + FADING_TAIL.off) < FADING_TAIL.on;
+}
+
 function syntheticPhoto(): RgbaImage {
   const data = new Uint8ClampedArray(W * H * 4);
   const cast: readonly [number, number, number] = [1, 0.9, 0.78];
@@ -81,6 +98,9 @@ function syntheticPhoto(): RgbaImage {
       }
       if (x >= DASH.x0 && x <= DASH.x1 && y === DASH.y) {
         base = [40, 90, 200];
+      }
+      if (inFadingTail(x, y)) {
+        base = [195, 195, 195];
       }
       const p = (y * W + x) * 4;
       data[p] = base[0] * light * cast[0] + noise;
@@ -160,11 +180,12 @@ describe('the clean pipeline (S2–S4)', () => {
   let cached: CleanResult | null = null;
   const getResult = () => (cached ??= runClean(syntheticPhoto()));
 
-  it('keeps every real stroke plus the i-dot and the dash, and nothing else', () => {
+  it('keeps every real stroke, the i-dot, the dash and the fade — nothing else', () => {
     const result = getResult();
-    // 4 strokes + the i-dot + the faint dash = 6 components. The ghost, the
-    // isolated speckle and the grit beside the red stroke are all gone.
-    expect(result.extraction.components.length).toBe(6);
+    // 4 strokes + the i-dot + the faint dash + the fading tail's 5 dashes = 11
+    // components. The ghost, the isolated speckle and the grit beside the red
+    // stroke are all gone.
+    expect(result.extraction.components.length).toBe(11);
   });
 
   it('the eraser ghost yields zero surviving ink', () => {
@@ -191,6 +212,18 @@ describe('the clean pipeline (S2–S4)', () => {
     for (let y = NEAR_GRIT.y0; y <= NEAR_GRIT.y1; y++) {
       for (let x = NEAR_GRIT.x0; x <= NEAR_GRIT.x1; x++) {
         expect(labels[y * W + x]).toBe(0);
+      }
+    }
+  });
+
+  it('a light stroke fragmenting into pieces shorter than w keeps every piece', () => {
+    const result = getResult();
+    const { labels } = result.extraction;
+    // Every dash, not just the first: a gappy circle is the failure this
+    // guards, and it only shows up further along the fade.
+    for (let x = FADING_TAIL.x0; x <= FADING_TAIL.x1; x++) {
+      if (inFadingTail(x, FADING_TAIL.y0)) {
+        expect(labels[FADING_TAIL.y0 * W + x]).not.toBe(0);
       }
     }
   });
