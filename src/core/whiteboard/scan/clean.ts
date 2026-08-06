@@ -22,7 +22,6 @@ import { normalizeIllumination, detectGlare } from './illumination';
 import { binarize } from './binarize';
 import { extractInk, type InkExtraction } from './components';
 import { assignColors, type ColorAssignment, type ComponentColor } from './color';
-import { inkCoverage } from './coverage';
 import type { RgbaImage } from './types';
 
 /** How ink components are coloured in the cleaned output. */
@@ -36,12 +35,6 @@ export const GLARE_HINT_FRACTION = 0.04;
 export interface CleanResult {
   readonly extraction: InkExtraction;
   readonly colors: ColorAssignment;
-  /**
-   * Per-pixel ink coverage, 0–255 — what the raster paints as alpha so strokes
-   * have edges instead of staircases. See `coverage.ts` for why the mask alone
-   * is not enough.
-   */
-  readonly coverage: Uint8Array;
   /** Fraction of the frame lost to blown highlights, 0–1. */
   readonly glareFraction: number;
   readonly width: number;
@@ -115,7 +108,6 @@ export function createCleaner(image: RgbaImage): CleanJob {
           final = {
             extraction: extraction!,
             colors: assignColors(normalized!, extraction!),
-            coverage: inkCoverage(normalized!, extraction!),
             glareFraction: glare!.fraction,
             width: image.width,
             height: image.height,
@@ -130,29 +122,6 @@ export function createCleaner(image: RgbaImage): CleanJob {
     },
     result: () => final,
   };
-}
-
-/** The label of the first labelled 8-neighbour — how a ring pixel is coloured. */
-function nearestLabel(labels: Int32Array, width: number, height: number, index: number): number {
-  const y = Math.floor(index / width);
-  const x = index - y * width;
-  for (let dy = -1; dy <= 1; dy++) {
-    const ny = y + dy;
-    if (ny < 0 || ny >= height) {
-      continue;
-    }
-    for (let dx = -1; dx <= 1; dx++) {
-      const nx = x + dx;
-      if (nx < 0 || nx >= width || (dx === 0 && dy === 0)) {
-        continue;
-      }
-      const label = labels[ny * width + nx]!;
-      if (label !== 0) {
-        return label;
-      }
-    }
-  }
-  return 0;
 }
 
 function parseHex(hex: string): readonly [number, number, number] {
@@ -205,43 +174,18 @@ export function composeCleaned(
     lut[label * 3 + 1] = g;
     lut[label * 3 + 2] = b;
   }
-  /*
-   * Ink is painted by COVERAGE, not as a 1-bit stamp. On a white sheet that
-   * means blending toward the sheet (the output stays opaque, which is what a
-   * document wants); on a transparent sheet it means alpha, so the taper works
-   * against whatever board colour sits behind it. Coverage extends one pixel
-   * past the mask, so a stroke ends in a soft edge rather than a staircase —
-   * the difference between a thin stroke reading as a stroke and reading as
-   * dropout once the board scales the image down.
-   */
-  const { coverage } = result;
   for (let i = 0; i < labels.length; i++) {
     const p = i * 4;
     const label = labels[i]!;
-    const alpha = coverage[i]!;
-    if (alpha === 0) {
+    if (label === 0) {
       data[p] = 255;
       data[p + 1] = 255;
       data[p + 2] = 255;
       data[p + 3] = backgroundAlpha;
-      continue;
-    }
-    // A ring pixel sits outside the mask and takes its colour from the
-    // component it borders, which is the label coverage already resolved.
-    const source = label !== 0 ? label : nearestLabel(labels, width, height, i);
-    const r = lut[source * 3]!;
-    const g = lut[source * 3 + 1]!;
-    const b = lut[source * 3 + 2]!;
-    if (backgroundAlpha === 0) {
-      data[p] = r;
-      data[p + 1] = g;
-      data[p + 2] = b;
-      data[p + 3] = alpha;
     } else {
-      const t = alpha / 255;
-      data[p] = r * t + 255 * (1 - t);
-      data[p + 1] = g * t + 255 * (1 - t);
-      data[p + 2] = b * t + 255 * (1 - t);
+      data[p] = lut[label * 3]!;
+      data[p + 1] = lut[label * 3 + 1]!;
+      data[p + 2] = lut[label * 3 + 2]!;
       data[p + 3] = 255;
     }
   }

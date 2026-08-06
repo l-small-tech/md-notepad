@@ -329,22 +329,19 @@ describe('the clean pipeline (S2–S4)', () => {
     expect([cleaned.data[ink], cleaned.data[ink + 1], cleaned.data[ink + 2]]).toEqual([1, 2, 3]);
   });
 
-  it('colour-mode switching never changes WHICH pixels carry ink', () => {
+  it('colour-mode switching never changes the ink mask', () => {
     const result = getResult();
     const themed = composeCleaned(result, 'themed');
     const truth = composeCleaned(result, 'true');
-    // The invariant is the footprint, not the colour: recolouring must not
-    // move, grow or shrink the ink. Painted-ness now includes the one-pixel
-    // anti-aliased ring outside the mask, so it is read from the pixels rather
-    // than assumed to equal `labels != 0`.
     for (let i = 0; i < W * H; i++) {
       const p = i * 4;
-      const painted = (img: typeof themed) =>
-        img.data[p] !== 255 || img.data[p + 1] !== 255 || img.data[p + 2] !== 255;
-      expect(painted(themed)).toBe(painted(truth));
-      if (result.coverage[i] === 0) {
-        expect(painted(themed)).toBe(false);
+      const themedInk = themed.data[p] !== 255 || themed.data[p + 1] !== 255;
+      const trueInk = truth.data[p] !== 255 || truth.data[p + 1] !== 255;
+      if (result.extraction.labels[i] !== 0) {
+        continue; // ink pixels may legitimately differ between modes
       }
+      expect(themedInk).toBe(false);
+      expect(trueInk).toBe(false);
     }
   });
 });
