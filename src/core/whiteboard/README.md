@@ -226,6 +226,7 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `binarize.ts` | S3a: Sauvola-modulated strong/weak luminance gates + free-standing chroma gates |
 | `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule |
 | `color.ts` | S4: core-pixel colour voting, hue bins, snap to the drawing `PALETTE` |
+| `coverage.ts` | per-pixel ink coverage — the anti-aliasing the cleaned raster paints with |
 | `clean.ts` | the resumable S2–S4 job (`createCleaner`) and the mode-switchable `composeCleaned` |
 
 Phase 5's own decisions (beyond the table in the plan):
@@ -245,6 +246,17 @@ Phase 5's own decisions (beyond the table in the plan):
 - **The cleaned raster is flat colour on pure white and ships as PNG**
   (photo fallback stays JPEG): flat colour compresses far better as PNG and
   JPEG ringing would haunt phase 6's tracer.
+- **Ink is painted by COVERAGE, not as a 1-bit stamp.** Extraction answers
+  *whether* a pixel is ink; the normalized image still knows *how much*, and
+  throwing that away made every stroke edge a staircase and every thin stroke a
+  candidate for dropout when the board scales the image down. `coverage.ts`
+  recovers it, extends it one pixel past the mask so a stroke does not end on a
+  step, and normalizes each component against its own core so a light stroke
+  reads as present rather than as a translucent smear. Coverage is measured as
+  `255 − min(R,G,B)` — distance from board white, not darkness, or a yellow
+  marker (found by the chroma gate, not the luminance one) would come out
+  nearly transparent. This is presentation only: the mask, the components and
+  the colours are untouched, so phase 6 traces exactly what it would have.
 - **The i-dot rule is GENEROUS on purpose, and despeckling is phase 6's job.**
   Proximity to kept ink is the whole test; a speckle-sized component within
   2·w of confidently-kept ink stays. Two UAT rounds tried to make it
