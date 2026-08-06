@@ -227,6 +227,10 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule |
 | `color.ts` | S4: core-pixel colour voting, hue bins, snap to the drawing `PALETTE` |
 | `clean.ts` | the resumable S2–S4 job (`createCleaner`) and the mode-switchable `composeCleaned` |
+| `thin.ts` | S5: Zhang–Suen thinning, active-frontier queue (O(ink pixels)) |
+| `skeleton.ts` | S5: skeleton → polylines (junction clustering, spur pruning, angle-paired continuation) |
+| `contour.ts` | S5: marching-squares boundary loops — the blob fallback |
+| `trace.ts` | the resumable S5 job (`createTracer`), stroke/blob classification, `buildScanElements` / `fitScanElements` + the size guard |
 
 Phase 5's own decisions (beyond the table in the plan):
 
@@ -284,6 +288,23 @@ Four things here are decisions, not implementation details:
 - **The output long edge is clamped to what the source resolves.** Upsampling
   a 900 px quad to 1800 px invents no detail and makes every later stage
   slower for nothing.
+
+Phase 6's own decisions (beyond the plan's spec — full rationale in
+`whiteboard-plan.md`):
+
+- **Traced strokes ARE pen strokes** — same element, same smoothing, so the
+  eraser/select/theming all work on scanned ink with zero new machinery.
+- **`wb:tool="scanfill"`** is the blob fallback: a first-class stroke painted
+  with `fill` (evenodd), colour still in the model's `stroke` field, no
+  palette-slot class (the block's stroke rule would outline it).
+- **Sauvola has an absolute-darkness floor** (`L < 0.35`): its low-variance
+  veto otherwise hollows any filled region larger than its window into a ring.
+  Sauvola may veto contrast decisions, never darkness.
+- **A nib-sized dab is a DOT**, and **nothing is dropped at trace time** —
+  the phase-5 "losing ink is the worse error" conclusion holds at the vector
+  level too; what tracing buys is that every speck is now one tap to erase.
+- **The size guard** (`fitScanElements`) raises ε geometrically until the
+  serialized elements fit 1.5 MB; it never drops strokes.
 
 Fixtures are GENERATED in-test, never committed as bytes: a JPEG decoder
 differs across platforms and pixel-exact goldens on photos are a maintenance

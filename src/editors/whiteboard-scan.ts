@@ -1,12 +1,12 @@
 /**
  * whiteboard-scan.ts — the scan screen (phase 4: S0 acquire + S1 rectify;
- * phase 5: S2–S4 clean + colour).
+ * phase 5: S2–S4 clean + colour; phase 6: S5 vectorize + S7 review).
  *
  * Photograph a physical whiteboard, correct the perspective, flat-field the
- * lighting out, extract the ink and vote its colours, then drop the CLEANED
- * board onto the whiteboard (the straightened photo stays available as a
- * fallback). Phases 6–7 keep this same screen and replace what comes out the
- * end of it with vector strokes, then recognized text.
+ * lighting out, extract the ink, vote its colours, then TRACE it into the
+ * same editable strokes the pen draws — that is the primary insert; the
+ * cleaned raster and the straightened photo stay available as fallbacks.
+ * Phase 7 adds recognized text on top of the same screen.
  *
  * This file, with `whiteboard.ts` and `whiteboard-layers.ts`, is the only DOM in
  * the whiteboard stack. Everything that DECIDES anything — where the board is,
@@ -40,7 +40,20 @@ import {
   type CleanResult,
   type ScanColorMode,
 } from '../core/whiteboard/scan/clean';
-import { SCAN_PALETTE, type ComponentColor, type MarkerColor } from '../core/whiteboard/scan/color';
+import {
+  SCAN_PALETTE,
+  type ColorAssignment,
+  type ComponentColor,
+  type MarkerColor,
+} from '../core/whiteboard/scan/color';
+import {
+  createTracer,
+  fitScanElements,
+  IDENTITY_TRANSFORM,
+  MAX_SCAN_STROKES,
+  type ScanElements,
+  type TraceResult,
+} from '../core/whiteboard/scan/trace';
 import { PALETTE } from '../core/whiteboard/tool-settings';
 import { rotate90 } from '../core/whiteboard/scan/image-ops';
 import {
@@ -65,6 +78,19 @@ export interface ScanResult {
   readonly height: number;
 }
 
+/**
+ * The traced board, ready to become EDITABLE STROKES. Deliberately not the
+ * elements themselves: the adapter knows where the current view is, so it owns
+ * the pixel→scene transform and calls `fitScanElements` with it — the same
+ * build (including the size guard) the preview ran, at the real destination.
+ */
+export interface ScanStrokesResult {
+  readonly trace: TraceResult;
+  readonly colors: ColorAssignment;
+  readonly mode: ScanColorMode;
+  readonly remap: ReadonlyMap<MarkerColor, MarkerColor>;
+}
+
 export interface ScanPanelOptions {
   /** Take a photo with the device camera. Null where there is no camera. */
   readonly capture: (() => Promise<ScanPhoto>) | null;
@@ -73,6 +99,8 @@ export interface ScanPanelOptions {
   readonly pick: (() => Promise<ScanPhoto | null>) | null;
   /** Insert the rectified board. The panel closes itself first. */
   readonly onInsert: (result: ScanResult) => void;
+  /** Insert the traced board as editable strokes (the phase-6 primary). */
+  readonly onInsertStrokes: (result: ScanStrokesResult) => void;
   /** The panel is finished with (cancelled, or inserted). */
   readonly onClose: () => void;
   /** Surface a message to the user (permission denied, decode failure, …). */
@@ -243,9 +271,9 @@ function hexTriple(hex: string): readonly [number, number, number] {
  * resolve) — so probe it through a real element's `color`, which the browser
  * must resolve to plain rgb.
  */
-function resolveThemedInk(
+function resolveThemedTriples(
   host: HTMLElement,
-): (color: ComponentColor) => readonly [number, number, number] {
+): Map<MarkerColor, readonly [number, number, number]> {
   const probe = document.createElement('span');
   probe.style.display = 'none';
   host.append(probe);
@@ -260,7 +288,23 @@ function resolveThemedInk(
     );
   }
   probe.remove();
+  return resolved;
+}
+
+function resolveThemedInk(
+  host: HTMLElement,
+): (color: ComponentColor) => readonly [number, number, number] {
+  const resolved = resolveThemedTriples(host);
   return (color) => resolved.get(color.bucket) ?? hexTriple(color.snapped);
+}
+
+/** Canonical scan hex → the resolved app-theme CSS colour (for the canvas). */
+function resolveThemedCss(host: HTMLElement): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [bucket, triple] of resolveThemedTriples(host)) {
+    out.set(SCAN_PALETTE[bucket], `rgb(${triple[0]}, ${triple[1]}, ${triple[2]})`);
+  }
+  return out;
 }
 
 /* ================================= the panel ============================== */
@@ -292,12 +336,20 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   let rectified: RgbaImage | null = null;
   /** The phase-5 pipeline output (ink components + colours), once cleaned. */
   let cleaned: CleanResult | null = null;
+  /** The phase-6 pipeline output (centerlines + contours), once traced. */
+  let traced: TraceResult | null = null;
+  /** Review-screen colour remap: original bucket → replacement. */
+  const remap = new Map<MarkerColor, MarkerColor>();
+  /** The identity-transform build shown in the vector preview, cached per
+   *  (mode, remap) so toggling views is free. */
+  let builtCache: { key: string; built: ScanElements } | null = null;
   /** Which colours the cleaned view paints ink in. Themed is the default:
    *  snapped ink matches the drawing palette and stays themeable when
    *  phase 6 vectorizes it; "true" keeps the voted measured colours. */
   let colorMode: ScanColorMode = DEFAULT_SCAN_COLOR_MODE;
-  /** What the review screen is showing: the cleaned board or the photo. */
-  let reviewView: 'cleaned' | 'photo' = 'cleaned';
+  /** What the review screen is showing. Strokes are the deliverable, so they
+   *  are what the user judges first. */
+  let reviewView: 'vector' | 'cleaned' | 'photo' = 'vector';
   /** The band-pumping rAF handle, so cancel really cancels. */
   let pumping: number | null = null;
   /** Bumped on every close/retake; an in-flight acquire checks it before
@@ -387,10 +439,83 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   colorSelect.value = colorMode;
   colorSelect.addEventListener('change', () => {
     colorMode = (colorSelect.value as ScanColorMode) ?? DEFAULT_SCAN_COLOR_MODE;
-    if (stage === 'review' && reviewView === 'cleaned') {
+    builtCache = null;
+    if (stage === 'review' && reviewView !== 'photo') {
       showReview();
     }
   });
+
+  /** The colour remap chips — one per detected colour, with its mark count. */
+  const colorsRow = document.createElement('div');
+  colorsRow.className = 'wb-scan-colors';
+  colorsRow.hidden = true;
+  element.insertBefore(colorsRow, actions);
+
+  const BUCKET_LABELS: Readonly<Record<MarkerColor, string>> = {
+    black: 'Black',
+    red: 'Red',
+    orange: 'Orange',
+    yellow: 'Yellow',
+    green: 'Green',
+    teal: 'Teal',
+    blue: 'Blue',
+    purple: 'Purple',
+  };
+
+  /**
+   * One chip per DETECTED colour: a swatch plus a select of all eight marker
+   * colours. Choosing another colour remaps every mark of this one — which is
+   * also how merging works ("teal → blue"), and the escape hatch when a dying
+   * marker was genuinely ambiguous (plan risk 9).
+   */
+  function renderColorChips(): void {
+    if (!cleaned || cleaned.colors.tallies.length === 0) {
+      colorsRow.hidden = true;
+      colorsRow.replaceChildren();
+      return;
+    }
+    const chips: HTMLElement[] = [];
+    for (const tally of cleaned.colors.tallies) {
+      const chip = document.createElement('label');
+      chip.className = 'wb-scan-chip';
+      chip.title =
+        `${tally.count} mark${tally.count === 1 ? '' : 's'} detected as ${BUCKET_LABELS[tally.bucket].toLowerCase()}` +
+        ' — pick another colour to remap them';
+      const swatch = document.createElement('span');
+      swatch.className = 'wb-scan-chip-swatch';
+      const current = remap.get(tally.bucket) ?? tally.bucket;
+      swatch.style.background = SCAN_PALETTE[current];
+      const count = document.createElement('span');
+      count.className = 'wb-scan-chip-count';
+      count.textContent = `×${tally.count}`;
+      const select = document.createElement('select');
+      select.className = 'wb-scan-chip-select';
+      select.setAttribute('aria-label', `Colour for ${tally.count} ${tally.bucket} marks`);
+      for (const [bucket, label] of Object.entries(BUCKET_LABELS) as [MarkerColor, string][]) {
+        const option = document.createElement('option');
+        option.value = bucket;
+        option.textContent = bucket === tally.bucket ? `${label}` : label;
+        select.append(option);
+      }
+      select.value = current;
+      select.addEventListener('change', () => {
+        const target = (select.value as MarkerColor) ?? tally.bucket;
+        if (target === tally.bucket) {
+          remap.delete(tally.bucket);
+        } else {
+          remap.set(tally.bucket, target);
+        }
+        builtCache = null;
+        if (stage === 'review') {
+          showReview();
+        }
+      });
+      chip.append(swatch, select, count);
+      chips.push(chip);
+    }
+    colorsRow.replaceChildren(...chips);
+    colorsRow.hidden = false;
+  }
 
   /* ------------------------------ crop drawing ---------------------------- */
 
@@ -591,6 +716,10 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     stage = 'crop';
     rectified = null;
     cleaned = null;
+    traced = null;
+    builtCache = null;
+    remap.clear();
+    colorsRow.hidden = true;
     title.textContent = 'Frame the board';
     hint.textContent =
       detectedSource === 'detected'
@@ -710,10 +839,111 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         return;
       }
       cleaned = job.result();
-      reviewView = 'cleaned';
+      startTrace();
+    };
+    pumping = requestAnimationFrame(pump);
+  }
+
+  /**
+   * Phase 6: thin, walk and fit every ink component into editable strokes.
+   * Same pump shape as the rectifier — a step is one bounded batch of
+   * components, so the bar moves and Cancel lands between batches.
+   */
+  function startTrace(): void {
+    if (!cleaned || cleaned.extraction.components.length === 0) {
+      reviewView = cleaned ? 'cleaned' : 'photo';
+      showReview();
+      return;
+    }
+    const job = createTracer(cleaned);
+    stage = 'working';
+    title.textContent = 'Tracing…';
+    hint.textContent = 'Turning the ink into editable strokes';
+    progress.hidden = false;
+    progressBar.style.width = '0%';
+    setActions(button('Cancel', 'Stop and go back to the crop', cancelRectify));
+
+    const pump = () => {
+      pumping = null;
+      if (stage !== 'working') {
+        return;
+      }
+      const start = performance.now();
+      while (!job.done && performance.now() - start < 12) {
+        job.step();
+      }
+      progressBar.style.width = `${Math.round(job.progress * 100)}%`;
+      if (!job.done) {
+        pumping = requestAnimationFrame(pump);
+        return;
+      }
+      traced = job.result();
+      builtCache = null;
+      reviewView = 'vector';
       showReview();
     };
     pumping = requestAnimationFrame(pump);
+  }
+
+  /** The identity-space build the preview shows — cached per (mode, remap). */
+  function ensureBuilt(): ScanElements | null {
+    if (!traced || !cleaned) {
+      return null;
+    }
+    const key = `${colorMode}|${[...remap.entries()]
+      .map(([from, to]) => `${from}>${to}`)
+      .sort()
+      .join(',')}`;
+    if (builtCache?.key !== key) {
+      builtCache = {
+        key,
+        built: fitScanElements(traced, cleaned.colors, {
+          mode: colorMode,
+          remap,
+          transform: IDENTITY_TRANSFORM,
+        }),
+      };
+    }
+    return builtCache.built;
+  }
+
+  /**
+   * Paint the traced strokes onto the review canvas. `Path2D` accepts the
+   * elements' own `d` verbatim, so the preview IS the geometry that will land
+   * in the file; themed ink resolves through the app palette exactly like the
+   * board it will sit on.
+   */
+  function renderVectorPreview(built: ScanElements): void {
+    if (!rectified) {
+      return;
+    }
+    photoCanvas.width = rectified.width;
+    photoCanvas.height = rectified.height;
+    const context = photoCanvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+    context.clearRect(0, 0, photoCanvas.width, photoCanvas.height);
+    const themed = colorMode === 'themed';
+    if (!themed) {
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, photoCanvas.width, photoCanvas.height);
+    }
+    const resolved = themed ? resolveThemedCss(element) : null;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    for (const stroke of built.elements) {
+      const path = new Path2D(stroke.d);
+      const css = resolved?.get(stroke.stroke) ?? stroke.stroke;
+      if (stroke.tool === 'scanfill') {
+        context.fillStyle = css;
+        context.fill(path, 'evenodd');
+      } else {
+        context.strokeStyle = css;
+        context.lineWidth = stroke.strokeWidth;
+        context.stroke(path);
+      }
+    }
   }
 
   function cancelRectify(): void {
@@ -733,69 +963,115 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     progress.hidden = true;
     overlay.innerHTML = '';
 
-    const showingCleaned = reviewView === 'cleaned' && cleaned !== null;
-    const image = showingCleaned ? composeCleanedForDisplay() : rectified;
-    // Themed ink lands on a TRANSPARENT sheet; showing the board surface
+    // Only offer what exists: no trace → no vector view; no ink → photo only.
+    if (reviewView === 'vector' && traced === null) {
+      reviewView =
+        cleaned !== null && cleaned.extraction.components.length > 0 ? 'cleaned' : 'photo';
+    }
+    if (reviewView === 'cleaned' && cleaned === null) {
+      reviewView = 'photo';
+    }
+
+    const built = reviewView === 'vector' ? ensureBuilt() : null;
+    if (built !== null) {
+      renderVectorPreview(built);
+    } else {
+      paint(
+        photoCanvas,
+        reviewView === 'cleaned' && cleaned !== null ? composeCleanedForDisplay() : rectified,
+      );
+    }
+    // Themed ink sits on a TRANSPARENT sheet; showing the board surface
     // behind it is what makes the preview honest.
     photoCanvas.style.background =
-      showingCleaned && colorMode === 'themed' ? 'var(--wb-bg, #ffffff)' : '';
-    paint(photoCanvas, image);
+      reviewView !== 'photo' && colorMode === 'themed' ? 'var(--wb-bg, #ffffff)' : '';
     const box = viewport.getBoundingClientRect();
-    const scale = Math.min(box.width / image.width, box.height / image.height, 1);
-    photoCanvas.style.width = `${image.width * scale}px`;
-    photoCanvas.style.height = `${image.height * scale}px`;
-    photoCanvas.style.left = `${(box.width - image.width * scale) / 2}px`;
-    photoCanvas.style.top = `${(box.height - image.height * scale) / 2}px`;
+    const scale = Math.min(box.width / photoCanvas.width, box.height / photoCanvas.height, 1);
+    photoCanvas.style.width = `${photoCanvas.width * scale}px`;
+    photoCanvas.style.height = `${photoCanvas.height * scale}px`;
+    photoCanvas.style.left = `${(box.width - photoCanvas.width * scale) / 2}px`;
+    photoCanvas.style.top = `${(box.height - photoCanvas.height * scale) / 2}px`;
 
     title.textContent = 'Ready to insert';
-    hint.textContent = reviewHint(showingCleaned);
+    hint.textContent = reviewHint(built);
+    if (reviewView !== 'photo' && cleaned !== null) {
+      renderColorChips();
+    } else {
+      colorsRow.hidden = true;
+    }
+
+    const hasInk = cleaned !== null && cleaned.extraction.components.length > 0;
+    const hasStrokes = traced !== null && traced.components.length > 0;
+    const VIEW_LABELS = { vector: 'strokes', cleaned: 'cleaned', photo: 'photo' } as const;
+    const order: (typeof reviewView)[] = ['vector', 'cleaned', 'photo'];
+    const available = order.filter(
+      (view) =>
+        view === 'photo' || (view === 'cleaned' && hasInk) || (view === 'vector' && hasStrokes),
+    );
+    const next = available[(available.indexOf(reviewView) + 1) % available.length]!;
+
     setActions(
       button('Back', 'Adjust the crop', showCrop),
-      cleaned !== null
+      available.length > 1
         ? button(
-            showingCleaned ? 'Show photo' : 'Show cleaned',
-            'Compare the cleaned board with the straightened photo',
+            `Show ${VIEW_LABELS[next]}`,
+            'Compare the traced strokes, the cleaned board and the straightened photo',
             () => {
-              reviewView = showingCleaned ? 'photo' : 'cleaned';
+              reviewView = next;
               showReview();
             },
           )
         : null,
-      showingCleaned ? colorSelect : null,
+      reviewView !== 'photo' ? colorSelect : null,
       button('Cancel', 'Discard the scan', close),
-      cleaned !== null && cleaned.extraction.components.length > 0
-        ? button('Insert photo', 'Add the straightened photo instead', () => insert('photo'))
+      button(
+        'Insert photo',
+        'Add the straightened photo to this whiteboard',
+        () => insert('photo'),
+        !hasInk,
+      ),
+      hasInk
+        ? button('Insert image', 'Add the cleaned board as a picture instead', () =>
+            insert('cleaned'),
+          )
         : null,
-      cleaned !== null && cleaned.extraction.components.length > 0
+      hasStrokes
         ? button(
-            'Insert cleaned',
-            'Add the cleaned board to this whiteboard',
-            () => insert('cleaned'),
+            'Insert strokes',
+            'Add the traced ink as editable strokes — erase, move and recolour them like drawn ink',
+            () => insert('strokes'),
             true,
           )
-        : button(
-            'Insert photo',
-            'Add the straightened photo to this whiteboard',
-            () => insert('photo'),
-            true,
-          ),
+        : null,
     );
   }
 
   /** What the review screen says — honest about glare and about empty boards. */
-  function reviewHint(showingCleaned: boolean): string {
+  function reviewHint(built: ScanElements | null): string {
     if (!rectified) {
       return '';
     }
     const parts: string[] = [`${rectified.width} × ${rectified.height} px`];
     if (cleaned !== null) {
-      const strokes = cleaned.extraction.components.length;
-      if (strokes === 0) {
+      const marks = cleaned.extraction.components.length;
+      if (marks === 0) {
         parts.push('no ink stood out — the photo is still available below');
-      } else if (showingCleaned) {
+      } else if (built !== null) {
+        const colours = new Set(built.elements.map((e) => e.stroke)).size;
+        parts.push(
+          `${built.strokes} editable stroke${built.strokes === 1 ? '' : 's'} in ` +
+            `${colours} colour${colours === 1 ? '' : 's'}`,
+        );
+        if (built.reduced) {
+          parts.push('dense board — the geometry was simplified to keep the file small');
+        }
+        if (built.strokes > MAX_SCAN_STROKES) {
+          parts.push('a very dense board; expect the editor to feel it');
+        }
+      } else if (reviewView === 'cleaned') {
         const colours = cleaned.colors.tallies.length;
         parts.push(
-          `${strokes} ink mark${strokes === 1 ? '' : 's'} in ${colours} colour${colours === 1 ? '' : 's'}`,
+          `${marks} ink mark${marks === 1 ? '' : 's'} in ${colours} colour${colours === 1 ? '' : 's'}`,
         );
       }
       if (cleaned.glareFraction > GLARE_HINT_FRACTION) {
@@ -817,17 +1093,46 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
    * colours need the white they were measured against.
    */
   function composeCleanedForDisplay(): RgbaImage {
+    // The remap applies to the raster views too — one truth for every mode.
+    const remapped = (color: ComponentColor): ComponentColor => {
+      const target = remap.get(color.bucket);
+      return target === undefined || target === color.bucket
+        ? color
+        : {
+            ...color,
+            bucket: target,
+            snapped: SCAN_PALETTE[target],
+            measured: SCAN_PALETTE[target],
+          };
+    };
     if (colorMode === 'themed') {
+      const ink = resolveThemedInk(element);
       return composeCleaned(cleaned!, 'themed', {
         background: 'transparent',
-        inkFor: resolveThemedInk(element),
+        inkFor: (color) => ink(remapped(color)),
       });
     }
-    return composeCleaned(cleaned!, 'true');
+    return composeCleaned(cleaned!, 'true', {
+      inkFor: (color) => hexTriple(remapped(color).measured),
+    });
   }
 
-  function insert(kind: 'cleaned' | 'photo'): void {
+  function insert(kind: 'strokes' | 'cleaned' | 'photo'): void {
     if (!rectified) {
+      return;
+    }
+    if (kind === 'strokes') {
+      if (!traced || !cleaned) {
+        return;
+      }
+      const payload: ScanStrokesResult = {
+        trace: traced,
+        colors: cleaned.colors,
+        mode: colorMode,
+        remap: new Map(remap),
+      };
+      close();
+      options.onInsertStrokes(payload);
       return;
     }
     // The cleaned board is flat colour — PNG both compresses that far better
@@ -942,11 +1247,16 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     quad = null;
     rectified = null;
     cleaned = null;
-    reviewView = 'cleaned';
+    traced = null;
+    builtCache = null;
+    remap.clear();
+    reviewView = 'vector';
     dragging = null;
     element.hidden = true;
     overlay.innerHTML = '';
     loupe.hidden = true;
+    colorsRow.hidden = true;
+    colorsRow.replaceChildren();
     actions.replaceChildren();
     options.onClose();
   }
@@ -973,6 +1283,8 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       quad = null;
       rectified = null;
       cleaned = null;
+      traced = null;
+      builtCache = null;
     },
   };
 }

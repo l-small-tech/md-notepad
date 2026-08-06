@@ -83,6 +83,27 @@ export function pointInRect(p: Point, rect: Rect): boolean {
   );
 }
 
+/**
+ * Even-odd interior test over a set of closed polygons (subpaths). A ray cast
+ * to +x counts crossings across EVERY loop, so holes subtract — matching how
+ * `fill-rule="evenodd"` paints a traced blob (`wb:tool="scanfill"`), which is
+ * what hit-testing one must match.
+ */
+export function pointInPolygonsEvenOdd(p: Point, polygons: readonly (readonly Point[])[]): boolean {
+  let inside = false;
+  for (const polygon of polygons) {
+    const n = polygon.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const a = polygon[i]!;
+      const b = polygon[j]!;
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+    }
+  }
+  return inside;
+}
+
 /** Is `inner` entirely within `outer`? The marquee's containment test. */
 export function rectContainsRect(outer: Rect, inner: Rect): boolean {
   return (
