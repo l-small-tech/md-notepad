@@ -10,7 +10,14 @@
 import { describe, expect, it } from 'vitest';
 import { createCleaner, type CleanResult } from '../clean';
 import { SCAN_PALETTE, type MarkerColor } from '../color';
-import { buildScanElements, createTracer, fitScanElements, type TraceResult } from '../trace';
+import {
+  buildScanElements,
+  createTracer,
+  fitScanElements,
+  suppressCoveredResidue,
+  type TracedComponent,
+  type TraceResult,
+} from '../trace';
 import { flattenPathData } from '../../geometry';
 import type { RgbaImage } from '../types';
 
@@ -219,6 +226,43 @@ describe('nick bridging', () => {
     expect(spans[0]).toBeGreaterThan(170);
     expect(spans[1]).toBeLessThan(70);
     expect(spans[2]).toBeLessThan(70);
+  });
+});
+
+describe('covered residue suppression', () => {
+  const line = (y: number, from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({ x: from + i, y }));
+  const stroke = (points: { x: number; y: number }[], width: number): TracedComponent => ({
+    kind: 'stroke',
+    label: points[0]!.y,
+    paths: [points],
+    widths: [points.map(() => width)],
+    pathWidths: [width],
+    strokeWidth: width,
+  });
+
+  it('drops a thin track inside a fat band, keeps open-space thin ink', () => {
+    const fat = stroke(line(64, 30, 230), 8);
+    const inside = stroke(line(66, 60, 200), 2); // 2px off the centreline, well inside ±4
+    const open = stroke(line(160, 60, 200), 2); // covered by nothing
+    const kept = suppressCoveredResidue([fat, inside, open], 6);
+    expect(kept.length).toBe(2);
+    expect(kept.some((c) => c.kind === 'stroke' && c.paths[0]![0]!.y === 64)).toBe(true);
+    expect(kept.some((c) => c.kind === 'stroke' && c.paths[0]![0]!.y === 160)).toBe(true);
+  });
+
+  it('never suppresses a parallel line OUTSIDE the painted band', () => {
+    const fat = stroke(line(64, 30, 230), 8);
+    const beside = stroke(line(72, 60, 200), 2); // 8px off: a visible second line
+    const kept = suppressCoveredResidue([fat, beside], 6);
+    expect(kept.length).toBe(2);
+  });
+
+  it('never suppresses nib-width ink even when overlapping', () => {
+    const fat = stroke(line(64, 30, 230), 8);
+    const retrace = stroke(line(65, 60, 200), 6); // a genuine full-width retrace
+    const kept = suppressCoveredResidue([fat, retrace], 6);
+    expect(kept.length).toBe(2);
   });
 });
 

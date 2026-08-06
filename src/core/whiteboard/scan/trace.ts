@@ -114,7 +114,8 @@ export function createTracer(clean: CleanResult): TraceJob {
   let final: TraceResult | null = null;
 
   const finish = (): void => {
-    final = { components: bridgeNicks(traced, w), strokeWidth: w, width, height };
+    const components = suppressCoveredResidue(bridgeNicks(traced, w), w);
+    final = { components, strokeWidth: w, width, height };
     progress = 1;
   };
 
@@ -503,6 +504,153 @@ function bridgeNicks(components: readonly TracedComponent[], w: number): TracedC
       emit(chainFrom({ item: i, atStart: true })); // a fully-paired ring
     }
   }
+  return out;
+}
+
+/* --------------------------- covered residue ---------------------------- */
+
+/** Only paths at or below this fraction of `w` can be suppressed. */
+const COVER_WIDTH_FACTOR = 0.75;
+/** Fraction of sampled vertices that must sit inside a wider stroke's band. */
+const COVER_FRACTION = 0.8;
+/** At most this many vertices are distance-tested per candidate path. */
+const COVER_SAMPLES = 48;
+
+/**
+ * Drop thin paths that run INSIDE the painted band of a wider stroke — the
+ * parallel edge-doubling tracks binarization leaves along a rough marker
+ * line. They carry no visible ink of their own (the wider stroke already
+ * paints every pixel they would), but each one is another small element and,
+ * width-floored, a visible wart along a clean edge. A thin path in OPEN
+ * space (a fading hairline, a faint circle arc) is covered by nothing and
+ * always survives — this rule can only remove ink that is already drawn.
+ */
+export function suppressCoveredResidue(
+  components: readonly TracedComponent[],
+  w: number,
+): TracedComponent[] {
+  interface Entry {
+    points: readonly Point[];
+    width: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  }
+  const entries: Entry[] = [];
+  const index: { component: number; path: number; entry: number }[] = [];
+  components.forEach((c, ci) => {
+    if (c.kind !== 'stroke') {
+      return;
+    }
+    c.paths.forEach((path, pi) => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of path) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+      index.push({ component: ci, path: pi, entry: entries.length });
+      entries.push({ points: path, width: c.pathWidths[pi]!, minX, minY, maxX, maxY });
+    });
+  });
+
+  const segmentDistance = (p: Point, a: Point, b: Point): number => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSq = dx * dx + dy * dy;
+    const t =
+      lengthSq === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  };
+
+  const covered = new Set<number>();
+  for (let e = 0; e < entries.length; e++) {
+    const thin = entries[e]!;
+    if (thin.width > COVER_WIDTH_FACTOR * w) {
+      continue;
+    }
+    // Coverers: strictly wider paths whose bbox could reach this one.
+    const coverers = entries.filter(
+      (other, oi) =>
+        oi !== e &&
+        !covered.has(oi) &&
+        other.points.length >= 2 &&
+        other.width >= thin.width + 1 &&
+        other.minX - other.width <= thin.maxX &&
+        other.maxX + other.width >= thin.minX &&
+        other.minY - other.width <= thin.maxY &&
+        other.maxY + other.width >= thin.minY,
+    );
+    if (coverers.length === 0) {
+      continue;
+    }
+    const step = Math.max(1, Math.floor(thin.points.length / COVER_SAMPLES));
+    let sampled = 0;
+    let inside = 0;
+    for (let i = 0; i < thin.points.length; i += step) {
+      const p = thin.points[i]!;
+      sampled++;
+      for (const coverer of coverers) {
+        const reach = coverer.width / 2 + thin.width / 2 + 0.5;
+        let hit = false;
+        for (let s = 1; s < coverer.points.length; s++) {
+          if (segmentDistance(p, coverer.points[s - 1]!, coverer.points[s]!) <= reach) {
+            hit = true;
+            break;
+          }
+        }
+        if (hit) {
+          inside++;
+          break;
+        }
+      }
+    }
+    if (sampled > 0 && inside / sampled >= COVER_FRACTION) {
+      covered.add(e);
+    }
+  }
+  if (covered.size === 0) {
+    return [...components];
+  }
+
+  const dropByComponent = new Map<number, Set<number>>();
+  for (const { component, path, entry } of index) {
+    if (covered.has(entry)) {
+      let set = dropByComponent.get(component);
+      if (!set) {
+        set = new Set();
+        dropByComponent.set(component, set);
+      }
+      set.add(path);
+    }
+  }
+  const out: TracedComponent[] = [];
+  components.forEach((c, ci) => {
+    const drop = dropByComponent.get(ci);
+    if (c.kind !== 'stroke' || !drop) {
+      out.push(c);
+      return;
+    }
+    const keep = c.paths.map((_, pi) => pi).filter((pi) => !drop.has(pi));
+    if (keep.length === 0) {
+      return;
+    }
+    out.push({
+      kind: 'stroke',
+      label: c.label,
+      paths: keep.map((pi) => c.paths[pi]!),
+      widths: keep.map((pi) => c.widths[pi]!),
+      pathWidths: keep.map((pi) => c.pathWidths[pi]!),
+      strokeWidth: c.strokeWidth,
+    });
+  });
   return out;
 }
 

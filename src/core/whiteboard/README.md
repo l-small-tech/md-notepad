@@ -326,6 +326,12 @@ Phase 6's own decisions (beyond the plan's spec — full rationale in
   tangents continue across the gap within 50° (letters at that distance are
   never collinear). A circle drawn in one movement with one nick closes back
   into a ring.
+- **Covered residue is suppressed** (`suppressCoveredResidue`): a thin path
+  (≤ `0.75·w`) whose sampled vertices sit ≥80% inside the painted band of a
+  strictly wider stroke is a parallel edge-doubling track — the wider stroke
+  already paints every pixel it would, so dropping it removes an element,
+  not ink. Thin ink in open space is covered by nothing and always survives;
+  nib-width retraces are never suppressed (real double-drawn marks stay).
 - **The size guard** (`fitScanElements`) raises ε geometrically until the
   serialized elements fit 1.5 MB; it never drops strokes.
 
