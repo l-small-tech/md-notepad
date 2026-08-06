@@ -313,6 +313,19 @@ Phase 6's own decisions (beyond the plan's spec — full rationale in
 - **Every emitted stroke carries its own PATH median width**, never a
   component-wide one: a single component can hold a marker-fat line and its
   fading hairline continuation, and one shared width lies about both.
+- **The width FLOOR is the despeckle's complement**: surviving thin-but-long
+  ink renders at no less than `0.5·w` — the sub-nib measurement is
+  binarization catching only a faint stroke's core, and drawing it verbatim
+  makes it near-invisible. Below the floor and short → dropped; below the
+  floor and long → drawn at exactly the floor.
+- **Pixel-scale NICKS are bridged after tracing** (`bridgeNicks`): endpoint
+  pairs within `2·w` (the nick itself is under half a nib; thinning retreats
+  each endpoint another half-nib) merge into one stroke, but only ACROSS
+  components (a nick by definition split the ink — same-component ends are
+  the junctions continuation deliberately refused), and only when both end
+  tangents continue across the gap within 50° (letters at that distance are
+  never collinear). A circle drawn in one movement with one nick closes back
+  into a ring.
 - **The size guard** (`fitScanElements`) raises ε geometrically until the
   serialized elements fit 1.5 MB; it never drops strokes.
 

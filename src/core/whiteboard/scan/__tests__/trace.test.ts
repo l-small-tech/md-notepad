@@ -159,9 +159,66 @@ describe('vector-level despeckle', () => {
     const elements = buildScanElements(result, cleaned.colors, { mode: 'true' });
     const pens = elements.filter((e) => e.tool === 'pen' && polylineLength(e.d) > 30);
     const widths = pens.map((p) => p.strokeWidth);
-    // The fat bar and the hairline must NOT share a width.
+    // The fat bar and the hairline must NOT share a width — and the hairline
+    // renders at the width FLOOR (half the nib), never its raw 2 px core.
     expect(Math.max(...widths)).toBeGreaterThan(4);
-    expect(Math.min(...widths)).toBeLessThan(3);
+    expect(Math.min(...widths)).toBeLessThanOrEqual(3);
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(2.5);
+  });
+});
+
+describe('nick bridging', () => {
+  /** A 6px bar broken by a 3px nick, and two bars a letter-gap apart. */
+  function nickedBoard(): RgbaImage {
+    const data = new Uint8ClampedArray(W * H * 4).fill(255);
+    const paint = (x: number, y: number) => {
+      const i = (y * W + x) * 4;
+      data[i] = 90;
+      data[i + 1] = 60;
+      data[i + 2] = 110;
+    };
+    // One drawn line with a pixel-scale nick at x=130..133.
+    for (let y = 60; y < 66; y++) {
+      for (let x = 30; x < 130; x++) {
+        paint(x, y);
+      }
+      for (let x = 133; x < 230; x++) {
+        paint(x, y);
+      }
+    }
+    // Two collinear bars a LETTER gap (24px = 4·w) apart: never bridged.
+    for (let y = 160; y < 166; y++) {
+      for (let x = 40; x < 100; x++) {
+        paint(x, y);
+      }
+      for (let x = 124; x < 184; x++) {
+        paint(x, y);
+      }
+    }
+    return { width: W, height: H, data };
+  }
+
+  const job = createCleaner(nickedBoard());
+  while (!job.done) {
+    job.step();
+  }
+  const cleaned = job.result()!;
+  const result = trace(cleaned);
+
+  it('heals the nick into one stroke and leaves the letter gap alone', () => {
+    const strokes = result.components.filter((c) => c.kind === 'stroke');
+    expect(strokes.length).toBe(3);
+    const spans = strokes
+      .map((s) => {
+        const xs = s.paths.flat().map((p) => p.x);
+        return Math.max(...xs) - Math.min(...xs);
+      })
+      .sort((a, b) => b - a);
+    // The nicked line comes back WHOLE (~200px); the letter-gap bars stay
+    // two separate ~60px strokes.
+    expect(spans[0]).toBeGreaterThan(170);
+    expect(spans[1]).toBeLessThan(70);
+    expect(spans[2]).toBeLessThan(70);
   });
 });
 

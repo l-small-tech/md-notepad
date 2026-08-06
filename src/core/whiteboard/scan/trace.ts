@@ -114,7 +114,7 @@ export function createTracer(clean: CleanResult): TraceJob {
   let final: TraceResult | null = null;
 
   const finish = (): void => {
-    final = { components: traced, strokeWidth: w, width, height };
+    final = { components: bridgeNicks(traced, w), strokeWidth: w, width, height };
     progress = 1;
   };
 
@@ -295,16 +295,215 @@ function traceComponent(
         continue;
       }
     }
+    // The WIDTH FLOOR, the despeckle's complement: ink thinner than half the
+    // nib that survives (because it is long) is a faint stroke drawn with the
+    // same marker — the sub-nib measurement is binarization catching only its
+    // core, and rendering it verbatim makes it near-invisible. Floor at the
+    // residue threshold so the two rules compose: below it and short → gone,
+    // below it and long → drawn at exactly the floor.
+    const floored = perVertex.map((v) => Math.max(v, residueWidth));
     offsetPaths.push(path);
-    widths.push(perVertex);
-    pathWidths.push(pathWidth);
-    allWidths.push(...perVertex);
+    widths.push(floored);
+    pathWidths.push(Math.max(pathWidth, residueWidth));
+    allWidths.push(...floored);
   }
   if (offsetPaths.length === 0) {
     return null;
   }
   const strokeWidth = Math.max(1, median([...allWidths]));
   return { kind: 'stroke', label: c.label, paths: offsetPaths, widths, pathWidths, strokeWidth };
+}
+
+/* ------------------------------ nick bridging ------------------------------ */
+
+/** Endpoint pairs at most this far apart (in units of `w`) may be one
+ *  stroke. The pixel-scale nick itself is under half a nib, but THINNING
+ *  retreats each skeleton endpoint by about half a nib too, so the measured
+ *  end-to-end distance across a nick is roughly `nick + w`, with another
+ *  half-nib of slack for where the retreat lands. Letter spacing at this
+ *  distance is possible — the ALIGNMENT gate below is what rules it out. */
+const NICK_GAP_FACTOR = 2;
+/** Both end tangents must continue across the gap within this angle —
+ *  a nick interrupts one pen movement, so the two sides are collinear;
+ *  neighbouring letters at this distance almost never are. */
+const NICK_ALIGN_LIMIT = (50 * Math.PI) / 180;
+
+interface BridgeItem {
+  label: number;
+  points: Point[];
+  widths: number[];
+}
+interface BridgeEnd {
+  item: number;
+  /** true = the path's first point sits at this end. */
+  atStart: boolean;
+}
+
+/**
+ * Join stroke paths whose ENDPOINTS sit within half a nib of each other — the
+ * pixel-scale nicks where binarization briefly lost a faint stroke, which
+ * split a drawn circle into arcs (and its components apart, so the skeleton
+ * graph never saw the connection). Half a nib is deliberately tiny: gaps
+ * between letters are several nib widths, so handwriting is never ligatured;
+ * only breaks that were almost certainly one pen movement are healed. A
+ * path's two ends can even pair with each other's partner chain ends —
+ * a circle drawn in one movement with one nick closes back into a loop.
+ */
+function bridgeNicks(components: readonly TracedComponent[], w: number): TracedComponent[] {
+  const gapLimit = Math.max(2, NICK_GAP_FACTOR * w);
+  const out: TracedComponent[] = [];
+  const items: BridgeItem[] = [];
+  for (const c of components) {
+    if (c.kind === 'fill') {
+      out.push(c);
+      continue;
+    }
+    const passthroughIdx: number[] = [];
+    c.paths.forEach((path, pi) => {
+      if (path.length < 2) {
+        passthroughIdx.push(pi); // dots take no part in bridging
+      } else {
+        items.push({ label: c.label, points: [...path], widths: [...c.widths[pi]!] });
+      }
+    });
+    if (passthroughIdx.length > 0) {
+      out.push({
+        kind: 'stroke',
+        label: c.label,
+        paths: passthroughIdx.map((pi) => c.paths[pi]!),
+        widths: passthroughIdx.map((pi) => c.widths[pi]!),
+        pathWidths: passthroughIdx.map((pi) => c.pathWidths[pi]!),
+        strokeWidth: c.strokeWidth,
+      });
+    }
+  }
+
+  const endPoint = (end: BridgeEnd): Point => {
+    const points = items[end.item]!.points;
+    return end.atStart ? points[0]! : points[points.length - 1]!;
+  };
+
+  /** Unit OUTWARD tangent at a path end (the direction a nick would continue). */
+  const endTangent = (end: BridgeEnd): Point => {
+    const points = items[end.item]!.points;
+    const tip = endPoint(end);
+    const back = Math.min(4, points.length - 1);
+    const inner = end.atStart ? points[back]! : points[points.length - 1 - back]!;
+    const length = Math.hypot(tip.x - inner.x, tip.y - inner.y) || 1;
+    return { x: (tip.x - inner.x) / length, y: (tip.y - inner.y) / length };
+  };
+
+  // All endpoint pairs within the gap, nearest first; each end pairs once.
+  const ends: BridgeEnd[] = items.flatMap((_, i) => [
+    { item: i, atStart: true },
+    { item: i, atStart: false },
+  ]);
+  const candidates: { a: number; b: number; distance: number }[] = [];
+  for (let i = 0; i < ends.length; i++) {
+    for (let j = i + 1; j < ends.length; j++) {
+      // Only across COMPONENTS: a nick by definition split the ink into two
+      // components. Paths within one component share junctions at distance
+      // zero — the box corners and T-joints the 75° continuation rule
+      // deliberately refused to fuse; bridging must not overrule it.
+      if (items[ends[i]!.item]!.label === items[ends[j]!.item]!.label) {
+        continue;
+      }
+      const p = endPoint(ends[i]!);
+      const q = endPoint(ends[j]!);
+      const distance = Math.hypot(q.x - p.x, q.y - p.y);
+      if (distance > gapLimit || distance === 0) {
+        continue;
+      }
+      const gap = { x: (q.x - p.x) / distance, y: (q.y - p.y) / distance };
+      const ti = endTangent(ends[i]!);
+      const tj = endTangent(ends[j]!);
+      const outI = Math.acos(Math.max(-1, Math.min(1, ti.x * gap.x + ti.y * gap.y)));
+      const outJ = Math.acos(Math.max(-1, Math.min(1, -(tj.x * gap.x + tj.y * gap.y))));
+      if (outI <= NICK_ALIGN_LIMIT && outJ <= NICK_ALIGN_LIMIT) {
+        candidates.push({ a: i, b: j, distance });
+      }
+    }
+  }
+  candidates.sort((a, b) => a.distance - b.distance);
+  /** partner[item] = the paired end at each side, or null. */
+  const partners: { atStart: BridgeEnd | null; atEnd: BridgeEnd | null }[] = items.map(() => ({
+    atStart: null,
+    atEnd: null,
+  }));
+  const partnerOf = (end: BridgeEnd): BridgeEnd | null => {
+    const p = partners[end.item]!;
+    return end.atStart ? p.atStart : p.atEnd;
+  };
+  const setPartner = (end: BridgeEnd, to: BridgeEnd): void => {
+    const p = partners[end.item]!;
+    if (end.atStart) {
+      p.atStart = to;
+    } else {
+      p.atEnd = to;
+    }
+  };
+  for (const { a, b } of candidates) {
+    if (partnerOf(ends[a]!) === null && partnerOf(ends[b]!) === null) {
+      setPartner(ends[a]!, ends[b]!);
+      setPartner(ends[b]!, ends[a]!);
+    }
+  }
+
+  // Assemble chains, exactly like the skeleton graph's continuation walk.
+  const consumed = new Uint8Array(items.length);
+  const chainFrom = (start: BridgeEnd): { points: Point[]; widths: number[]; label: number } => {
+    const points: Point[] = [];
+    const widths: number[] = [];
+    let longest = 0;
+    let label = items[start.item]!.label;
+    let end: BridgeEnd | null = start;
+    while (end !== null && consumed[end.item] === 0) {
+      consumed[end.item] = 1;
+      const item = items[end.item]!;
+      const p = end.atStart ? item.points : [...item.points].reverse();
+      const vw = end.atStart ? item.widths : [...item.widths].reverse();
+      for (let i = 0; i < p.length; i++) {
+        points.push(p[i]!);
+        widths.push(vw[i]!);
+      }
+      if (item.points.length > longest) {
+        longest = item.points.length;
+        label = item.label;
+      }
+      end = partnerOf({ item: end.item, atStart: !end.atStart });
+    }
+    return { points, widths, label };
+  };
+
+  const emit = (chain: { points: Point[]; widths: number[]; label: number }): void => {
+    const pathWidth = Math.max(1, median([...chain.widths]));
+    out.push({
+      kind: 'stroke',
+      label: chain.label,
+      paths: [chain.points],
+      widths: [chain.widths],
+      pathWidths: [pathWidth],
+      strokeWidth: pathWidth,
+    });
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    if (consumed[i] !== 0) {
+      continue;
+    }
+    const p = partners[i]!;
+    if (p.atStart === null) {
+      emit(chainFrom({ item: i, atStart: true }));
+    } else if (p.atEnd === null) {
+      emit(chainFrom({ item: i, atStart: false }));
+    }
+  }
+  for (let i = 0; i < items.length; i++) {
+    if (consumed[i] === 0) {
+      emit(chainFrom({ item: i, atStart: true })); // a fully-paired ring
+    }
+  }
+  return out;
 }
 
 /* ----------------------------- element building ---------------------------- */

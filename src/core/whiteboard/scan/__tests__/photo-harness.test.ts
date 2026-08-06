@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import { detectBoardQuad } from '../quad';
 import { createRectifier } from '../pipeline';
 import { createCleaner, composeCleaned } from '../clean';
+import { normalizeIllumination, detectGlare } from '../illumination';
+import { binarize } from '../binarize';
 import { createTracer, fitScanElements, type TracedStroke } from '../trace';
 import type { RgbaImage, ScanPreset } from '../types';
 
@@ -160,6 +162,43 @@ describe.runIf(dir)('scan photo harness', () => {
       });
       out(
         `  #${si}: [${medians.map((m) => m.toFixed(1)).join(', ')}] stroke=${s.strokeWidth.toFixed(1)}`,
+      );
+    }
+
+    // Binarize masks over the normalized image: kept label = black,
+    // weak-but-unkept = orange, strong = dark — shows what the gates saw.
+    {
+      const norm = normalizeIllumination(rectified).normalized;
+      const glare = detectGlare(rectified);
+      const masks = binarize(norm, glare.mask);
+      const vis = new Uint8ClampedArray(rectified.width * rectified.height * 4);
+      for (let i = 0; i < rectified.width * rectified.height; i++) {
+        const p = i * 4;
+        let r = 255;
+        let g = 255;
+        let b = 255;
+        if (clean.extraction.labels[i] !== 0) {
+          r = 40;
+          g = 40;
+          b = 40; // kept ink
+        } else if (masks.strong[i] !== 0) {
+          r = 200;
+          g = 40;
+          b = 40; // strong but not kept
+        } else if (masks.weak[i] !== 0) {
+          r = 255;
+          g = 165;
+          b = 0; // weak only, not kept
+        }
+        vis[p] = r;
+        vis[p + 1] = g;
+        vis[p + 2] = b;
+        vis[p + 3] = 255;
+      }
+      writeFileSync(join(dir!, 'masks.rgba'), Buffer.from(vis.buffer));
+      writeFileSync(
+        join(dir!, 'masks.json'),
+        JSON.stringify({ width: rectified.width, height: rectified.height }),
       );
     }
 
