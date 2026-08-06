@@ -20,10 +20,27 @@
 
 import { PALETTE } from '../tool-settings';
 import type { RgbaImage } from './types';
+import { bboxGap } from './components';
 import type { InkExtraction } from './components';
 
 /** Chroma (0–1) below which a component votes black regardless of hue. */
 const BLACK_CHROMA = 0.12;
+
+/**
+ * Half-width, in units of the page's stroke width `w`, below which a component
+ * has no trustworthy core at all: every one of its pixels is an anti-aliased
+ * edge pixel, which is desaturated by construction. Such a component votes
+ * `black` no matter what colour the marker was — a phase-5 UAT defect, where
+ * the surviving specks and faint dashes of a GREEN board all came out pure
+ * black and were therefore the most visible thing on it.
+ *
+ * A stroke's own half-width is ≈ 0.5·w by the definition of `w` (the median of
+ * the distance transform's local maxima), so 0.4 clears real ink with margin
+ * while catching the one- and two-pixel-thick fragments.
+ */
+const CORE_TRUST = 0.4;
+/** How far, in `w`, a coreless component may look for ink to take colour from. */
+const INHERIT_REACH = 3;
 
 /** The colour vocabulary, in the plan's bin order. */
 export type MarkerColor =
@@ -184,7 +201,6 @@ export function assignColors(normalized: RgbaImage, extraction: InkExtraction): 
   }
 
   const byLabel = new Map<number, ComponentColor>();
-  const counts = new Map<MarkerColor, number>();
   for (const c of components) {
     const acc = accumulators.get(c.label)!;
     let bucket: MarkerColor;
@@ -203,6 +219,40 @@ export function assignColors(normalized: RgbaImage, extraction: InkExtraction): 
       }
     }
     byLabel.set(c.label, { label: c.label, bucket, snapped: SCAN_PALETTE[bucket], measured });
+  }
+
+  /*
+   * Coreless components INHERIT. A one- or two-pixel-thick fragment — a dashed
+   * arrow shaft, a fading box edge, an i-dot from a dry marker — is all edge
+   * and no core, so the vote above measured anti-aliasing and returned black.
+   * It belongs to the ink beside it, so it takes that ink's answer: nearest
+   * confidently-cored component within 3·w, by bbox gap. With nothing in reach
+   * it keeps its own vote, which is the honest answer for an isolated mark.
+   * Donors are chosen from cored components only, so fragments cannot chain.
+   */
+  const trusted = components.filter((c) => c.dtMax >= CORE_TRUST * extraction.strokeWidth);
+  const inheritReach = INHERIT_REACH * extraction.strokeWidth;
+  for (const c of components) {
+    if (c.dtMax >= CORE_TRUST * extraction.strokeWidth) {
+      continue;
+    }
+    let donor: ComponentColor | null = null;
+    let best = inheritReach;
+    for (const other of trusted) {
+      const gap = bboxGap(c, other);
+      if (gap <= best) {
+        best = gap;
+        donor = byLabel.get(other.label) ?? null;
+      }
+    }
+    if (donor !== null) {
+      byLabel.set(c.label, { ...donor, label: c.label });
+    }
+  }
+
+  const counts = new Map<MarkerColor, number>();
+  for (const c of components) {
+    const bucket = byLabel.get(c.label)!.bucket;
     counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
   }
   const tallies: ColorTally[] = [];

@@ -29,8 +29,28 @@ const GHOST = { x0: 220, x1: 260, y0: 40, y1: 200 };
 /** Isolated grit far from any ink — must die as speckle. */
 const SPECKLE = { x: 290, y: 24 };
 
-/** A 2×2 dot just above the black stroke's end — the i-dot, must survive. */
-const IDOT = { x0: 164, x1: 165, y0: 130, y1: 131 };
+/**
+ * A 4×4 dot just above the black stroke's end — the i-dot, must survive. It is
+ * as wide as the strokes are thick BY DESIGN: a marker cannot lay down a mark
+ * narrower than its own tip, and that is exactly the evidence the i-dot rule
+ * demands before sparing a speckle.
+ */
+const IDOT = { x0: 164, x1: 167, y0: 128, y1: 131 };
+
+/**
+ * Grit 6 px from the red stroke — the phase-5 UAT defect. Proximity alone used
+ * to spare this (kept ink is within 2·w of it), which near handwriting meant
+ * every grain on the board survived. It is thin AND short, so it must die.
+ */
+const NEAR_GRIT = { x0: 166, x1: 167, y0: 97, y1: 98 };
+
+/**
+ * A faint 12×1 dash just past the blue stroke's end: too small to clear the
+ * speckle area, but long enough to read as a piece of a line (a dashed arrow
+ * shaft, a fading box edge). Must survive — and must come out BLUE, not black,
+ * even though it is one pixel thick and therefore all anti-aliased edge.
+ */
+const DASH = { x0: 166, x1: 177, y: 58 };
 
 function syntheticPhoto(): RgbaImage {
   const data = new Uint8ClampedArray(W * H * 4);
@@ -55,6 +75,12 @@ function syntheticPhoto(): RgbaImage {
       }
       if (x >= IDOT.x0 && x <= IDOT.x1 && y >= IDOT.y0 && y <= IDOT.y1) {
         base = [30, 30, 30];
+      }
+      if (x >= NEAR_GRIT.x0 && x <= NEAR_GRIT.x1 && y >= NEAR_GRIT.y0 && y <= NEAR_GRIT.y1) {
+        base = [40, 40, 40];
+      }
+      if (x >= DASH.x0 && x <= DASH.x1 && y === DASH.y) {
+        base = [40, 90, 200];
       }
       const p = (y * W + x) * 4;
       data[p] = base[0] * light * cast[0] + noise;
@@ -134,10 +160,11 @@ describe('the clean pipeline (S2–S4)', () => {
   let cached: CleanResult | null = null;
   const getResult = () => (cached ??= runClean(syntheticPhoto()));
 
-  it('keeps every real stroke plus the i-dot, and nothing else', () => {
+  it('keeps every real stroke plus the i-dot and the dash, and nothing else', () => {
     const result = getResult();
-    // 4 strokes + the i-dot = 5 components. The ghost and the speckle are gone.
-    expect(result.extraction.components.length).toBe(5);
+    // 4 strokes + the i-dot + the faint dash = 6 components. The ghost, the
+    // isolated speckle and the grit beside the red stroke are all gone.
+    expect(result.extraction.components.length).toBe(6);
   });
 
   it('the eraser ghost yields zero surviving ink', () => {
@@ -156,6 +183,30 @@ describe('the clean pipeline (S2–S4)', () => {
     expect(labels[SPECKLE.y * W + SPECKLE.x]).toBe(0);
     expect(labels[IDOT.y0 * W + IDOT.x0]).not.toBe(0);
     expect(result.extraction.removed.speckle).toBeGreaterThanOrEqual(1);
+  });
+
+  it('grit NEAR ink dies too — proximity alone does not earn a reprieve', () => {
+    const result = getResult();
+    const { labels } = result.extraction;
+    for (let y = NEAR_GRIT.y0; y <= NEAR_GRIT.y1; y++) {
+      for (let x = NEAR_GRIT.x0; x <= NEAR_GRIT.x1; x++) {
+        expect(labels[y * W + x]).toBe(0);
+      }
+    }
+  });
+
+  it('a faint dash beside a stroke survives as a fragment of a line', () => {
+    const result = getResult();
+    const label = result.extraction.labels[DASH.y * W + DASH.x1]!;
+    expect(label).not.toBe(0);
+  });
+
+  it('a coreless fragment inherits the colour of the ink beside it', () => {
+    const result = getResult();
+    const label = result.extraction.labels[DASH.y * W + DASH.x1]!;
+    // One pixel thick: every pixel is anti-aliased edge, so its own vote is
+    // black. It belongs to the blue stroke it continues, and must say so.
+    expect(result.colors.byLabel.get(label)!.bucket).toBe('blue');
   });
 
   it('estimates the stroke width from the ink itself', () => {

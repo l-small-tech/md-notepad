@@ -14,8 +14,9 @@
  *    `w` — never absolute pixels — so behaviour is identical at every preset
  *    and camera distance.
  * 3. The I-DOT RULE — a speckle-sized component is spared when kept ink lies
- *    within 2·w. That is what preserves i-dots, accents, colons, dashed lines
- *    and arrowheads while still dropping isolated grit.
+ *    within 2·w AND the mark could plausibly have come from the same marker.
+ *    That is what preserves i-dots, accents, colons, dashed lines and
+ *    arrowheads while still dropping grit that happens to sit near ink.
  *
  * No blanket morphology anywhere: at these stroke widths a global open/close
  * or 3×3 median erodes thin diagonals and costs real legibility. All removal
@@ -88,8 +89,22 @@ const BORDER_AREA = 200;
 const GLARE_RATIO = 0.6;
 /** The i-dot rule's reach, in stroke widths. */
 const IDOT_REACH = 2;
+/**
+ * The i-dot rule's SHAPE gate, in units of `w` — the half-width a spared
+ * speckle must reach to read as a deliberate dab (i-dot, colon, accent, the
+ * tip of an arrowhead). A marker cannot lay down a mark thinner than its own
+ * tip, so anything well under this was not made by the pen: it is dust, a
+ * residue fleck or sensor grit. 0.3·w ⇒ a dab at least 60% of a stroke wide.
+ */
+const IDOT_MIN_CORE = 0.3;
+/**
+ * The other way a speckle earns its place: it is a FRAGMENT of a line — long
+ * enough along one axis to be a piece of faint ink (a dash, a dying stroke
+ * caught only in part by the threshold) rather than a grain. Measured in `w`.
+ */
+const FRAGMENT_SPAN = 1;
 
-interface Bounds {
+export interface Bounds {
   readonly minX: number;
   readonly minY: number;
   readonly maxX: number;
@@ -97,7 +112,7 @@ interface Bounds {
 }
 
 /** Gap between two bboxes (0 when they touch or overlap). */
-function bboxGap(a: Bounds, b: Bounds): number {
+export function bboxGap(a: Bounds, b: Bounds): number {
   const dx = Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX));
   const dy = Math.max(0, Math.max(a.minY - b.maxY, b.minY - a.maxY));
   return Math.hypot(dx, dy);
@@ -291,12 +306,28 @@ export function extractInk(
       kept.push(c);
     }
   }
-  // The i-dot rule: spare a speckle when kept ink lies within 2·w of it.
-  // Checked against confidently-kept components only, so two grains of grit
-  // cannot vouch for each other.
+  /*
+   * The i-dot rule. Proximity ALONE is not enough — that was a phase-5 UAT
+   * defect: near handwriting there is kept ink within 2·w of everything, so a
+   * proximity-only rule spared every speckle on the page and the despeckler
+   * did no work at all (a real board came back with ~100 surviving grains, one
+   * of them a dot parked under the "1" of "Box 1"). A speckle must therefore
+   * ALSO look like something the marker could have produced:
+   *
+   * - a DAB — core half-width ≥ 0.3·w, which is an i-dot, colon or accent; or
+   * - a FRAGMENT — spanning ≥ w along one axis, which is a piece of a faint
+   *   line (this is what keeps a dashed arrow shaft and a fading box edge).
+   *
+   * Grit is neither: it is both thin and short. Proximity is still required —
+   * and still checked against confidently-kept components only, so two grains
+   * cannot vouch for each other.
+   */
+  const reach = IDOT_REACH * w;
   for (const speckle of speckles) {
-    const reach = IDOT_REACH * w;
-    if (kept.some((c) => bboxGap(speckle, c) <= reach)) {
+    const isDab = speckle.dtMax >= IDOT_MIN_CORE * w;
+    const isFragment =
+      Math.max(speckle.maxX - speckle.minX, speckle.maxY - speckle.minY) + 1 >= FRAGMENT_SPAN * w;
+    if ((isDab || isFragment) && kept.some((c) => bboxGap(speckle, c) <= reach)) {
       kept.push(speckle);
     } else {
       removed.speckle++;

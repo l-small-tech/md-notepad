@@ -245,6 +245,20 @@ Phase 5's own decisions (beyond the table in the plan):
 - **The cleaned raster is flat colour on pure white and ships as PNG**
   (photo fallback stays JPEG): flat colour compresses far better as PNG and
   JPEG ringing would haunt phase 6's tracer.
+- **Proximity alone never spares a speckle.** The i-dot rule also demands the
+  mark look like the marker made it — a DAB (`dtMax ≥ 0.3·w`, since a pen
+  cannot draw thinner than its tip) or a FRAGMENT of a line (spanning ≥ `w` on
+  one axis). Proximity-only was the phase-5 UAT defect: near handwriting there
+  is kept ink within 2·w of everything, so the despeckler removed nothing and
+  a real board came back carrying ~100 grains. Known limit: `w` is ONE number
+  for the page, so a fine-tip dot on a board dominated by fat markers can read
+  as grit. Mixed nib widths are a phase-6 concern.
+- **A component with no core INHERITS its colour.** Below `0.4·w` half-width
+  every pixel is anti-aliased edge, which is desaturated by construction, so
+  the vote returns black whatever the marker was — which is how a green board
+  came back with black specks and a black-dashed arrow. Such a component takes
+  the answer of the nearest cored component within `3·w`; with nothing in
+  reach it keeps its own vote. Donors must be cored, so fragments never chain.
 
 Four things here are decisions, not implementation details:
 
