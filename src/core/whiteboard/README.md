@@ -221,6 +221,48 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `quad.ts` | find the board: hull → decimate → maximum-area quadrilateral |
 | `homography.ts` | DLT solve, Zhang & He aspect recovery, the banded inverse warp |
 | `pipeline.ts` | output sizing (`planRectify`) and the resumable `createRectifier` |
+| `illumination.ts` | S2: flat-field estimate (van Herk dilation) + division; glare detection |
+| `distance.ts` | exact Euclidean distance transform (Felzenszwalb–Huttenlocher); stroke-width estimate |
+| `binarize.ts` | S3a: Sauvola-modulated strong/weak luminance gates + free-standing chroma gates |
+| `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule |
+| `color.ts` | S4: core-pixel colour voting, hue bins, snap to the drawing `PALETTE` |
+| `clean.ts` | the resumable S2–S4 job (`createCleaner`) and the mode-switchable `composeCleaned` |
+
+Phase 5's own decisions (beyond the table in the plan):
+
+- **Ink is decided per component, never per pixel** — hysteresis (a weak blob
+  must contain a strong pixel) plus stats filters in units of the measured
+  stroke width `w`. No blanket morphology anywhere; every removal is
+  surgical and explainable, and the eraser-ghost golden asserts ZERO
+  surviving components.
+- **Colour output defaults to `'themed'`** — each component snapped to its
+  `SCAN_PALETTE` hex, which is BY CONSTRUCTION a member of the drawing
+  `PALETTE` (a test pins this), so scanned ink matches drawn ink and will be
+  themeable for free when phase 6 vectorizes it. `'true'` keeps the voted
+  measured colour — still one colour per component; this is the colour
+  VOTING output, not raw pixels. Switching modes is a cheap re-compose from
+  the cached extraction, never a pipeline re-run.
+- **The cleaned raster is flat colour on pure white and ships as PNG**
+  (photo fallback stays JPEG): flat colour compresses far better as PNG and
+  JPEG ringing would haunt phase 6's tracer.
+- **The i-dot rule is GENEROUS on purpose, and despeckling is phase 6's job.**
+  Proximity to kept ink is the whole test; a speckle-sized component within
+  2·w of confidently-kept ink stays. Two UAT rounds tried to make it
+  discriminate — first a shape gate (dab `dtMax ≥ 0.3·w` or fragment spanning
+  ≥ `w`), then an exemption for rescued components — and both failed the same
+  way. Every property that separates residue from faint ink at the RASTER
+  level (size, elongation, darkness, core thickness) also separates a fading
+  stroke from its own solid part, so each tightening punched holes in
+  lightly-drawn circles and arrows. **Losing ink is the worse error**: a
+  surviving speck is one eraser tap away, a stroke the pipeline never emitted
+  is gone for good. After tracing, a speck is a path with no length and no
+  continuation — a decidable question, and phase 6's to answer.
+- **A component with no core INHERITS its colour.** Below `0.4·w` half-width
+  every pixel is anti-aliased edge, which is desaturated by construction, so
+  the vote returns black whatever the marker was — which is how a green board
+  came back with black specks and a black-dashed arrow. Such a component takes
+  the answer of the nearest cored component within `3·w`; with nothing in
+  reach it keeps its own vote. Donors must be cored, so fragments never chain.
 
 Four things here are decisions, not implementation details:
 

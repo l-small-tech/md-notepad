@@ -56,11 +56,20 @@ export type Homography = readonly [
  * skeleton is stable (phase 6), and OCR wants ≥25 px x-height (phase 7).
  * 1800 px across a 2 m board puts a 1 cm stroke at ~9 px; 1200 is the
  * "it's a diagram, not prose" preset.
+ *
+ * `detailed` is deliberately generous — 3600 px is the "resolve everything the
+ * camera saw" setting, not a rung on an evenly-spaced ladder. UAT on a real
+ * board found a faint marker stroke thinning to a 1 px hairline at 2400, which
+ * fragments the skeleton phase 6 traces; 1.5× the sampling is what keeps that
+ * stroke continuous. It costs 2.25× the pixels in every stage, which is the
+ * trade the preset name promises. {@link planRectify} clamps it to what the
+ * source actually resolves, so a phone capture that arrives pre-downscaled
+ * simply gets its native resolution back instead of an invented upsample.
  */
 export const SCAN_PRESETS = {
   fast: 1200,
   balanced: 1800,
-  detailed: 2400,
+  detailed: 3600,
 } as const;
 
 export type ScanPreset = keyof typeof SCAN_PRESETS;

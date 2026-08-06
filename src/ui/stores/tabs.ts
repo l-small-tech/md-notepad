@@ -837,9 +837,16 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           filePath,
           customTitle: null,
           // Adopt the last mode the user switched to, not the static default,
-          // so flipping through files preserves e.g. read mode — unless the
-          // family can't offer it, which is how an .svg lands in Draw.
-          mode: defaultModeFor(docFamilyFor(filePath), get().lastFileMode),
+          // so flipping through files preserves e.g. read mode. A whiteboard
+          // ignores that preference entirely: `lastFileMode` is a MARKDOWN
+          // preference, and 'raw' happens to be legal for svg too — inheriting
+          // it would open a fresh board as XML source (bit UAT in phase 5, via
+          // Import › Whiteboard scan…, which then found no draw adapter).
+          // Raw for a board is an explicit per-tab switch, never a default.
+          mode:
+            docFamilyFor(filePath) === 'svg'
+              ? 'draw'
+              : defaultModeFor(docFamilyFor(filePath), get().lastFileMode),
           savedMtimeMs,
           text,
           readOnly,
