@@ -285,8 +285,21 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
 
   if (name === 'path') {
     const tool = attr(element, 'wb:tool');
+    if (tool === 'scanfill') {
+      // A traced blob: colour rides in `fill`; `stroke` is literally "none".
+      return {
+        kind: 'stroke',
+        id,
+        tool,
+        d: attr(element, 'd') ?? '',
+        stroke: attr(element, 'fill') ?? '#000000',
+        strokeWidth: 0,
+        opacity,
+        widths: null,
+      } satisfies StrokeElement;
+    }
     if (tool !== 'pen' && tool !== 'highlighter') {
-      return null; // a scan's fill path, or foreign geometry — keep as-is
+      return null; // foreign geometry — keep as-is
     }
     return {
       kind: 'stroke',

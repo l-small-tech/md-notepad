@@ -41,12 +41,17 @@ export interface SceneAttr {
 
 /* ------------------------------- elements -------------------------------- */
 
-/** Freehand ink. The pen tool and the scan tracer both emit exactly this. */
+/**
+ * Freehand ink. The pen tool and the scan tracer both emit exactly this.
+ * `'scanfill'` is the tracer's fallback for genuinely blobby ink — a CLOSED
+ * outline painted with `fill` (evenodd) rather than stroked; its colour still
+ * lives in `stroke` (the element's colour identity), serialization translates.
+ */
 export interface StrokeElement {
   readonly kind: 'stroke';
   /** `wb:id`, present only inside scan layers (drawn strokes stay id-free). */
   readonly id: string | null;
-  readonly tool: 'pen' | 'highlighter';
+  readonly tool: 'pen' | 'highlighter' | 'scanfill';
   /** Path data, already in scene coordinates. */
   readonly d: string;
   readonly stroke: string;

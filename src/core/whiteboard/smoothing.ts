@@ -123,8 +123,17 @@ export function decimatePoints(points: readonly Point[], minDistance: number): P
  * able to blow the call stack.
  */
 export function simplifyPoints(points: readonly Point[], epsilon: number): Point[] {
+  return simplifyIndices(points, epsilon).map((i) => points[i]!);
+}
+
+/**
+ * The same RDP, returning the KEPT INDICES instead of the points. The scan
+ * tracer needs this form: each traced vertex carries a sampled width, and the
+ * widths must survive simplification in lockstep with their points.
+ */
+export function simplifyIndices(points: readonly Point[], epsilon: number): number[] {
   if (points.length <= 2 || epsilon <= 0) {
-    return [...points];
+    return points.map((_, i) => i);
   }
   const keep = new Uint8Array(points.length);
   keep[0] = 1;
@@ -153,10 +162,10 @@ export function simplifyPoints(points: readonly Point[], epsilon: number): Point
     }
   }
 
-  const out: Point[] = [];
+  const out: number[] = [];
   for (let i = 0; i < points.length; i++) {
     if (keep[i]) {
-      out.push(points[i]!);
+      out.push(i);
     }
   }
   return out;

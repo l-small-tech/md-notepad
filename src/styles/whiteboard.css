@@ -487,6 +487,52 @@
   transition: width 80ms linear;
 }
 
+/* Colour remap chips — one per detected marker colour, with mark counts. */
+.wb-scan-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.wb-scan-colors[hidden] {
+  display: none;
+}
+
+.wb-scan-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+
+.wb-scan-chip-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.wb-scan-chip-count {
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.wb-scan-chip-select {
+  min-height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .wb-scan-actions {
   display: flex;
   flex-wrap: wrap;

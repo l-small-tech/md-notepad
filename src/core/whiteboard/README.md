@@ -227,6 +227,10 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule |
 | `color.ts` | S4: core-pixel colour voting, hue bins, snap to the drawing `PALETTE` |
 | `clean.ts` | the resumable S2–S4 job (`createCleaner`) and the mode-switchable `composeCleaned` |
+| `thin.ts` | S5: Zhang–Suen thinning, active-frontier queue (O(ink pixels)) |
+| `skeleton.ts` | S5: skeleton → polylines (junction clustering, spur pruning, angle-paired continuation) |
+| `contour.ts` | S5: marching-squares boundary loops — the blob fallback |
+| `trace.ts` | the resumable S5 job (`createTracer`), stroke/blob classification, `buildScanElements` / `fitScanElements` + the size guard |
 
 Phase 5's own decisions (beyond the table in the plan):
 
@@ -284,6 +288,52 @@ Four things here are decisions, not implementation details:
 - **The output long edge is clamped to what the source resolves.** Upsampling
   a 900 px quad to 1800 px invents no detail and makes every later stage
   slower for nothing.
+
+Phase 6's own decisions (beyond the plan's spec — full rationale in
+`whiteboard-plan.md`):
+
+- **Traced strokes ARE pen strokes** — same element, same smoothing, so the
+  eraser/select/theming all work on scanned ink with zero new machinery.
+- **`wb:tool="scanfill"`** is the blob fallback: a first-class stroke painted
+  with `fill` (evenodd), colour still in the model's `stroke` field, no
+  palette-slot class (the block's stroke rule would outline it).
+- **Sauvola has an absolute-darkness floor** (`L < 0.35`): its low-variance
+  veto otherwise hollows any filled region larger than its window into a ring.
+  Sauvola may veto contrast decisions, never darkness.
+- **A nib-sized dab is a DOT.**
+- **The despeckle is WIDTH-relative, and only ever a conjunction** (revised
+  after desktop UAT on a real board): ink whose measured width is under
+  `0.5·w` AND whose length is under `3·w` is residue and is dropped — the one
+  discriminator the raster never had, because a marker cannot leave a mark
+  much thinner than its own nib unless it is fading, and fading ink is LONG.
+  Same rule at the skeleton-graph level for dangling wisp edges (they fake the
+  junctions that fragment the stroke they hang off; solid edges also pair
+  before residue edges in junction continuation). Thin-but-long ink — a
+  hairline stroke, a fading tail — always survives.
+- **Every emitted stroke carries its own PATH median width**, never a
+  component-wide one: a single component can hold a marker-fat line and its
+  fading hairline continuation, and one shared width lies about both.
+- **The width FLOOR is the despeckle's complement**: surviving thin-but-long
+  ink renders at no less than `0.5·w` — the sub-nib measurement is
+  binarization catching only a faint stroke's core, and drawing it verbatim
+  makes it near-invisible. Below the floor and short → dropped; below the
+  floor and long → drawn at exactly the floor.
+- **Pixel-scale NICKS are bridged after tracing** (`bridgeNicks`): endpoint
+  pairs within `2·w` (the nick itself is under half a nib; thinning retreats
+  each endpoint another half-nib) merge into one stroke, but only ACROSS
+  components (a nick by definition split the ink — same-component ends are
+  the junctions continuation deliberately refused), and only when both end
+  tangents continue across the gap within 50° (letters at that distance are
+  never collinear). A circle drawn in one movement with one nick closes back
+  into a ring.
+- **Covered residue is suppressed** (`suppressCoveredResidue`): a thin path
+  (≤ `0.75·w`) whose sampled vertices sit ≥80% inside the painted band of a
+  strictly wider stroke is a parallel edge-doubling track — the wider stroke
+  already paints every pixel it would, so dropping it removes an element,
+  not ink. Thin ink in open space is covered by nothing and always survives;
+  nib-width retraces are never suppressed (real double-drawn marks stay).
+- **The size guard** (`fitScanElements`) raises ε geometrically until the
+  serialized elements fit 1.5 MB; it never drops strokes.
 
 Fixtures are GENERATED in-test, never committed as bytes: a JPEG decoder
 differs across platforms and pixel-exact goldens on photos are a maintenance

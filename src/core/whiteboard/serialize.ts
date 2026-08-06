@@ -255,6 +255,22 @@ function serializeStroke(stroke: StrokeElement, themed: boolean): string {
   if (stroke.id !== null) {
     attrs.push(`wb:id="${escapeAttr(stroke.id)}"`);
   }
+  if (stroke.tool === 'scanfill') {
+    // A blob traced by contour: painted with FILL, not stroke. No slot class
+    // — the palette block's stroke rule would outline it; blob theming is a
+    // possible later addition, and the literal hex is correct everywhere.
+    attrs.push(
+      'wb:tool="scanfill"',
+      `d="${escapeAttr(stroke.d)}"`,
+      `fill="${escapeAttr(stroke.stroke)}"`,
+      'fill-rule="evenodd"',
+      'stroke="none"',
+    );
+    if (stroke.opacity !== null) {
+      attrs.push(`opacity="${num(stroke.opacity)}"`);
+    }
+    return `<path ${attrs.join(' ')}/>`;
+  }
   attrs.push(
     `wb:tool="${stroke.tool}"`,
     ...slotClassAttr(stroke.stroke, themed),

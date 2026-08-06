@@ -31,6 +31,18 @@ const K_STRONG = 0.2;
 /** k for the weak (permissive) gate. */
 const K_WEAK = 0.08;
 
+/**
+ * Below this luminance a pixel is ink REGARDLESS of Sauvola. Sauvola's job is
+ * to veto low-contrast speckle on blank board; but inside a solid filled
+ * region larger than its window the local mean IS ink-dark, the variance is
+ * zero, and the threshold drops below the ink itself — hollowing every filled
+ * shape into a ring (found by the phase-6 blob-tracing golden). Absolute
+ * darkness needs no local evidence: a normalized blank board sits near 255,
+ * and nothing on it — noise, ghosting, shadow residue — comes anywhere near
+ * 0.35·255 ≈ 89. Sauvola may veto contrast decisions, never darkness.
+ */
+const ABSOLUTE_INK_LUM = 0.35;
+
 /** The fixed gates from the plan, luminance 0–1 and chroma 0–1. */
 const STRONG_LUM = 0.62;
 const STRONG_CHROMA = 0.28;
@@ -119,6 +131,10 @@ export function binarize(normalized: RgbaImage, exclude?: Uint8Array): InkMasks 
         const value = lum[i]!;
         lumWeak = value < mean * (1 + K_WEAK * (std / SAUVOLA_R - 1));
         lumStrong = l < STRONG_LUM && value < mean * (1 + K_STRONG * (std / SAUVOLA_R - 1));
+        if (l < ABSOLUTE_INK_LUM) {
+          lumWeak = true;
+          lumStrong = true;
+        }
       }
       if (lumStrong || chromaStrong) {
         strong[i] = 1;

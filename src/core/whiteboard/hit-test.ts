@@ -17,6 +17,7 @@ import {
   distanceToPolyline,
   ellipseOutline,
   flattenPathData,
+  pointInPolygonsEvenOdd,
   pointInRect,
   rectOutline,
   type Point,
@@ -107,8 +108,14 @@ export function elementBounds(element: SceneElement): Rect | null {
 export function hitTestElement(element: SceneElement, point: Point, radius: number): boolean {
   switch (element.kind) {
     case 'stroke': {
+      const subpaths = flattenPathData(element.d);
+      // A traced blob is FILLED — anywhere inside it (holes excepted) is a
+      // hit, exactly like a filled shape.
+      if (element.tool === 'scanfill' && pointInPolygonsEvenOdd(point, subpaths)) {
+        return true;
+      }
       const reach = radius + element.strokeWidth / 2;
-      return flattenPathData(element.d).some((sub) => distanceToPolyline(point, sub) <= reach);
+      return subpaths.some((sub) => distanceToPolyline(point, sub) <= reach);
     }
     case 'shape': {
       const g = element.geom;

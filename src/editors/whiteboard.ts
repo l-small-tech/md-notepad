@@ -145,7 +145,9 @@ import {
   type ScanPhoto,
   type ScanResult,
   type ScanSource,
+  type ScanStrokesResult,
 } from './whiteboard-scan';
+import { fitScanElements } from '../core/whiteboard/scan/trace';
 import '../styles/whiteboard.css';
 
 /** What the ribbon needs to render its draw cluster correctly. */
@@ -1567,6 +1569,46 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     commit(added.doc);
   }
 
+  /**
+   * Add traced ink as EDITABLE STROKES on their own layer, fitted into the
+   * current view. The transform is applied inside the element build (bake, no
+   * transforms — I-format), and the size guard runs against the same geometry
+   * the review previewed.
+   */
+  function insertScanStrokes(payload: ScanStrokesResult): void {
+    if (!scene) {
+      return;
+    }
+    const area = visibleSceneRect();
+    const maxWidth = area.width * 0.84;
+    const maxHeight = area.height * 0.84;
+    const fit = Math.min(maxWidth / payload.trace.width, maxHeight / payload.trace.height);
+    const fitted = fitScanElements(payload.trace, payload.colors, {
+      mode: payload.mode,
+      remap: payload.remap,
+      transform: {
+        scale: fit,
+        dx: area.x + (area.width - payload.trace.width * fit) / 2,
+        dy: area.y + (area.height - payload.trace.height * fit) / 2,
+      },
+    });
+    // Strokes gain `wb:id` only inside scan layers — phase 7's OCR metadata
+    // will point at these ids; drawn strokes stay id-free to keep files small.
+    const elements = fitted.elements.map((element, index) => ({
+      ...element,
+      id: `s${index + 1}`,
+    }));
+    const added = addLayerWith(scene, nextLayerName(scene, 'Scan'), elements, 'scan');
+    activeLayerId = added.layerId;
+    selection = [];
+    commit(added.doc);
+    if (fitted.reduced) {
+      options.scan?.onNotice(
+        'Dense board — the traced ink was simplified so the file stays a reasonable size.',
+      );
+    }
+  }
+
   function ensureScanPanel(): ScanPanel | null {
     if (!options.scan || !root) {
       return null;
@@ -1578,6 +1620,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         pick: config.pick,
         onNotice: config.onNotice,
         onInsert: insertScan,
+        onInsertStrokes: insertScanStrokes,
         onClose: () => stage?.focus({ preventScroll: true }),
       });
       root.append(scanPanel.element);
