@@ -62,4 +62,14 @@ describe('createHistory', () => {
     expect(history.canUndo()).toBe(false);
     expect(history.canRedo()).toBe(false);
   });
+
+  it('replace swaps the current entry without consuming an undo step', () => {
+    const history = createHistory('a');
+    history.push('b');
+    history.replace('b+ocr');
+    expect(history.current()).toBe('b+ocr');
+    expect(history.undo()).toBe('a');
+    // Redo lands on the annotated state, not the stale pre-annotation one.
+    expect(history.redo()).toBe('b+ocr');
+  });
 });

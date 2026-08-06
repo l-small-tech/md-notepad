@@ -213,6 +213,55 @@ export const ipc = {
    * reason: `PERMISSION_DENIED`, `cancelled`, or `NO_CAMERA`.
    */
   capturePhoto: () => call<{ base64: string; width: number; height: number }>('capture_photo'),
+  /**
+   * Android only — on-device handwriting recognition for the whiteboard scan
+   * (S6). Same native-bridge shape as `stt_*`/`capturePhoto`: called behind an
+   * `isAndroid()` check, not registered on desktop.
+   *
+   * `inkRecognize` takes a JSON payload (built by `src/ui/scan-ocr.ts`) of
+   * text lines, each a list of strokes in a shared pixel space — ML Kit
+   * Digital Ink is a stroke model, and the traced centerlines ARE strokes.
+   * Kotlin downloads the language model on first use (may take a while on the
+   * first scan; recognition is async by design so nothing blocks on it).
+   * Rejects with `INK_UNAVAILABLE` when no model exists for the device
+   * language — the caller falls back to `textRecognize`.
+   *
+   * `textRecognize` runs ML Kit Text Recognition (the printed-text raster
+   * model) over a PNG; the fallback when the ink model is missing or fails.
+   */
+  inkRecognize: (payload: string) =>
+    call<{ lines: { text: string; confidence: number | null }[] }>('ink_recognize', { payload }),
+  textRecognize: (base64: string) =>
+    call<{
+      lines: {
+        text: string;
+        confidence: number | null;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }[];
+    }>('text_recognize', { base64 }),
+  /**
+   * Windows only — on-device OCR over the cleaned scan raster via
+   * `Windows.Media.Ocr` (ships with Windows 10/11, offline). Called behind an
+   * `isWindows()` check; not registered on macOS/Linux, which report the scan
+   * OCR as unavailable. Line boxes come back in the PNG's own pixel space;
+   * confidence is always null (the engine reports none).
+   */
+  ocrImageAvailable: () => call<boolean>('ocr_image_available'),
+  ocrImageRecognize: (pngBase64: string) =>
+    call<{
+      engine: string;
+      lines: {
+        text: string;
+        confidence: number | null;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }[];
+    }>('ocr_image_recognize', { pngBase64 }),
 };
 
 export type Ipc = typeof ipc;

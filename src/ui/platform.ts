@@ -26,6 +26,18 @@ export function isMobile(): boolean {
   return isAndroid();
 }
 
+/** Pure predicate over a user-agent string (kept separate so it's unit-testable).
+ *  Every Windows WebView2 UA carries "Windows NT"; Android never does. */
+export function isWindowsUA(ua: string): boolean {
+  return /Windows NT/i.test(ua);
+}
+
+/** Desktop Windows — where the scan's OCR has an on-device engine
+ *  (`Windows.Media.Ocr`); macOS/Linux report it unavailable. */
+export function isWindows(): boolean {
+  return typeof navigator !== 'undefined' && !isAndroid() && isWindowsUA(navigator.userAgent);
+}
+
 export function detectRuntime(): Runtime {
   return isAndroid() ? 'android' : 'desktop';
 }

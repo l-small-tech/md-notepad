@@ -272,3 +272,35 @@ pub async fn capture_photo(
     use tauri_plugin_androidfs::AndroidfsExt;
     app.androidfs().capture_photo().map_err(|e| e.to_string())
 }
+
+/* ---- Handwriting OCR (whiteboard scan, S6) ----------------------------- */
+
+/// ML Kit Digital Ink Recognition over traced stroke lines. The payload is a
+/// JSON string the frontend builds (src/ui/scan-ocr.ts) — an opaque
+/// pass-through here so its shape is owned by exactly two files, the builder
+/// and the Kotlin parser. Errors are plain strings like the other native
+/// bridges; `INK_UNAVAILABLE` tells the frontend to fall back to
+/// `text_recognize`.
+#[tauri::command]
+pub async fn ink_recognize(
+    app: tauri::AppHandle,
+    payload: String,
+) -> Result<tauri_plugin_androidfs::OcrLines, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .ink_recognize(payload)
+        .map_err(|e| e.to_string())
+}
+
+/// ML Kit Text Recognition (printed-text raster model) over a PNG — the
+/// fallback engine when no ink model exists for the device language.
+#[tauri::command]
+pub async fn text_recognize(
+    app: tauri::AppHandle,
+    base64: String,
+) -> Result<tauri_plugin_androidfs::OcrLines, String> {
+    use tauri_plugin_androidfs::AndroidfsExt;
+    app.androidfs()
+        .text_recognize(base64)
+        .map_err(|e| e.to_string())
+}

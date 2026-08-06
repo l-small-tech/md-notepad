@@ -48,6 +48,7 @@ import {
 import { isDark, subscribeDark } from '../theme';
 import { isAndroid } from '../platform';
 import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
+import { scanTextRecognizer } from '../scan-ocr';
 import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
 
@@ -137,6 +138,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                   capture: isAndroid() ? capturePhotoForScan : null,
                   pick: isAndroid() ? null : pickPhotoForScan,
                   onNotice: (message) => uiStore.getState().showNotice(message),
+                  // Text recognition (phase 7) is injected for the same
+                  // reason: the engines are platform bridges, and the null on
+                  // macOS/Linux is what makes the scan record "unavailable".
+                  recognize: scanTextRecognizer(),
                 },
               });
               registerWhiteboardAdapter(tabId, adapter);

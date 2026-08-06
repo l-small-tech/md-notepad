@@ -148,6 +148,7 @@ import {
   type ScanStrokesResult,
 } from './whiteboard-scan';
 import { fitScanElements } from '../core/whiteboard/scan/trace';
+import { applyScanOcr, type ScanRecognizeFn } from '../core/whiteboard/scan/ocr';
 import '../styles/whiteboard.css';
 
 /** What the ribbon needs to render its draw cluster correctly. */
@@ -198,6 +199,9 @@ export interface WhiteboardAdapterOptions {
     pick: (() => Promise<ScanPhoto | null>) | null;
     /** Surface a message (permission denied, decode failure, size warning). */
     onNotice: (message: string) => void;
+    /** This platform's text recognizer (phase 7); null where none exists —
+     *  same injection rationale as capture/pick. */
+    recognize: ScanRecognizeFn | null;
   };
 }
 
@@ -1607,6 +1611,39 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         'Dense board — the traced ink was simplified so the file stays a reasonable size.',
       );
     }
+
+    // Phase 7: recognition patches in AFTER the strokes land (OCR never
+    // blocks the scan). The fit transform is captured here because it cannot
+    // be recomputed later — the view will have moved. The patch is
+    // undo-INVISIBLE: `history.replace` swaps the current snapshot instead of
+    // pushing, so undo steps over the annotation and redo restores it.
+    const layerId = added.layerId;
+    const transform = {
+      scale: fit,
+      dx: area.x + (area.width - payload.trace.width * fit) / 2,
+      dy: area.y + (area.height - payload.trace.height * fit) / 2,
+    };
+    void payload.ocr.then((outcome) => {
+      // Re-locate the layer against the CURRENT scene — the user may have
+      // drawn, undone, deleted the layer, or reloaded the file meanwhile.
+      if (!model || !scene) {
+        return;
+      }
+      const patched = applyScanOcr(scene, layerId, outcome, transform);
+      if (!patched) {
+        return; // the scan layer is gone; drop the result
+      }
+      history?.replace(patched);
+      commit(patched, false);
+      if (outcome.status === 'ok') {
+        const read = outcome.lines.filter((line) => line.text.length > 0).length;
+        if (read > 0) {
+          options.scan?.onNotice(
+            `Recognized ${read} line${read === 1 ? '' : 's'} of text on the scan.`,
+          );
+        }
+      }
+    });
   }
 
   function ensureScanPanel(): ScanPanel | null {
@@ -1622,6 +1659,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         onInsert: insertScan,
         onInsertStrokes: insertScanStrokes,
         onClose: () => stage?.focus({ preventScroll: true }),
+        recognize: config.recognize,
       });
       root.append(scanPanel.element);
     }

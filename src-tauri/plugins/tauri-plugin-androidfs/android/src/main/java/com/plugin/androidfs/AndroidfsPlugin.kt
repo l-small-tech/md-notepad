@@ -32,8 +32,23 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.digitalink.DigitalInkRecognition
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModel
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModelIdentifier
+import com.google.mlkit.vision.digitalink.DigitalInkRecognizerOptions
+import com.google.mlkit.vision.digitalink.Ink
+import com.google.mlkit.vision.digitalink.RecognitionContext
+import com.google.mlkit.vision.digitalink.WritingArea
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 @InvokeArg
@@ -1030,5 +1045,173 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
             else -> return bitmap
         }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
+    /* ---- Handwriting OCR (whiteboard scan, S6) --------------------------- */
+    //
+    // Two ML Kit engines behind the same bridge shape as stt_*/capturePhoto.
+    // Digital Ink Recognition is the primary: it is a HANDWRITING model and it
+    // takes strokes — which the scan's centerline tracer just produced. The
+    // model expects roughly written order, which a traced board cannot supply,
+    // so recognition runs one ink PER LINE in reading order with a
+    // writing-area hint (plan risk 7); the raster Text Recognition model is
+    // the fallback when no ink model exists for the device language.
+    //
+    // The payload is JSON parsed with org.json (no deserializer coupling):
+    //   { "language": "en-US",
+    //     "lines": [ { "strokes": [ [ [x,y], ... ], ... ],
+    //                  "area": { "width": w, "height": h } } ] }
+    //
+    // Everything runs on its own thread — Tasks.await blocks, a first-use
+    // model download can take seconds, and the plugin dispatch thread must
+    // never wait on either (see the safRefresh threading note above).
+
+    @InvokeArg
+    class InkPayloadArgs {
+        var payload: String? = null
+    }
+
+    @InvokeArg
+    class TextImageArgs {
+        var base64: String? = null
+    }
+
+    @Command
+    fun inkRecognize(invoke: Invoke) {
+        val args = invoke.parseArgs(InkPayloadArgs::class.java)
+        val payload = args.payload ?: return invoke.reject("missing payload")
+        Thread {
+            try {
+                val json = JSONObject(payload)
+                val tag = json.optString("language", "").ifEmpty {
+                    Locale.getDefault().toLanguageTag()
+                }
+                val identifier = DigitalInkRecognitionModelIdentifier.fromLanguageTag(tag)
+                    ?: DigitalInkRecognitionModelIdentifier.fromLanguageTag("en-US")
+                if (identifier == null) {
+                    invoke.reject("INK_UNAVAILABLE")
+                    return@Thread
+                }
+                val model = DigitalInkRecognitionModel.builder(identifier).build()
+                val manager = RemoteModelManager.getInstance()
+                if (!Tasks.await(manager.isModelDownloaded(model))) {
+                    // First use: fetch the language model (~20 MB). Recognition
+                    // is async end to end, so a slow first scan just patches
+                    // its text in late rather than blocking anything.
+                    Tasks.await(manager.download(model, DownloadConditions.Builder().build()))
+                }
+                val recognizer =
+                    DigitalInkRecognition.getClient(DigitalInkRecognizerOptions.builder(model).build())
+                try {
+                    val linesIn = json.getJSONArray("lines")
+                    val out = JSArray()
+                    for (i in 0 until linesIn.length()) {
+                        val lineObj = linesIn.getJSONObject(i)
+                        val strokes = lineObj.getJSONArray("strokes")
+                        val inkBuilder = Ink.builder()
+                        // Synthetic timestamps: traced strokes have no real
+                        // ones, and the model only needs monotonic time.
+                        var t = 0L
+                        for (s in 0 until strokes.length()) {
+                            val points = strokes.getJSONArray(s)
+                            val strokeBuilder = Ink.Stroke.builder()
+                            for (p in 0 until points.length()) {
+                                val point = points.getJSONArray(p)
+                                strokeBuilder.addPoint(
+                                    Ink.Point.create(
+                                        point.getDouble(0).toFloat(),
+                                        point.getDouble(1).toFloat(),
+                                        t,
+                                    ),
+                                )
+                                t += 10
+                            }
+                            inkBuilder.addStroke(strokeBuilder.build())
+                        }
+                        val area = lineObj.optJSONObject("area")
+                        val result = if (area != null) {
+                            val context = RecognitionContext.builder()
+                                .setWritingArea(
+                                    WritingArea(
+                                        area.getDouble("width").toFloat(),
+                                        area.getDouble("height").toFloat(),
+                                    ),
+                                )
+                                .build()
+                            Tasks.await(recognizer.recognize(inkBuilder.build(), context))
+                        } else {
+                            Tasks.await(recognizer.recognize(inkBuilder.build()))
+                        }
+                        val line = JSObject()
+                        line.put("text", result.candidates.firstOrNull()?.text ?: "")
+                        // Ink candidates carry ranking scores, not calibrated
+                        // confidences — record an honest null instead.
+                        line.put("confidence", JSONObject.NULL)
+                        out.put(line)
+                    }
+                    val ret = JSObject()
+                    ret.put("lines", out)
+                    invoke.resolve(ret)
+                } finally {
+                    recognizer.close()
+                }
+            } catch (e: Exception) {
+                invoke.reject("INK_FAILED: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }.start()
+    }
+
+    @Command
+    fun textRecognize(invoke: Invoke) {
+        val args = invoke.parseArgs(TextImageArgs::class.java)
+        val base64 = args.base64 ?: return invoke.reject("missing base64")
+        Thread {
+            try {
+                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap == null) {
+                    invoke.reject("could not decode the image")
+                    return@Thread
+                }
+                val client = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                try {
+                    val text = Tasks.await(client.process(InputImage.fromBitmap(bitmap, 0)))
+                    val out = JSArray()
+                    for (block in text.textBlocks) {
+                        for (line in block.lines) {
+                            if (line.text.isBlank()) {
+                                continue
+                            }
+                            val obj = JSObject()
+                            obj.put("text", line.text)
+                            val confidence: Float? = try {
+                                line.confidence
+                            } catch (e: Throwable) {
+                                null
+                            }
+                            if (confidence != null && confidence > 0f) {
+                                obj.put("confidence", confidence.toDouble())
+                            } else {
+                                obj.put("confidence", JSONObject.NULL)
+                            }
+                            val box = line.boundingBox
+                            obj.put("x", (box?.left ?: 0).toDouble())
+                            obj.put("y", (box?.top ?: 0).toDouble())
+                            obj.put("width", (box?.width() ?: 0).toDouble())
+                            obj.put("height", (box?.height() ?: 0).toDouble())
+                            out.put(obj)
+                        }
+                    }
+                    val ret = JSObject()
+                    ret.put("lines", out)
+                    invoke.resolve(ret)
+                } finally {
+                    client.close()
+                    bitmap.recycle()
+                }
+            } catch (e: Exception) {
+                invoke.reject("TEXT_FAILED: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }.start()
     }
 }

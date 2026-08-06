@@ -26,6 +26,13 @@ export interface History<T> {
   canRedo(): boolean;
   /** Throw the whole timeline away and restart from `state` (external reload). */
   reset(state: T): void;
+  /**
+   * Swap the CURRENT entry without consuming an undo step. This is for
+   * annotations that arrive asynchronously (a scan layer's OCR result): the
+   * user never made an edit, so undo must step over it, and redo after an
+   * undo must land on the annotated state — not the stale pre-annotation one.
+   */
+  replace(state: T): void;
 }
 
 export function createHistory<T>(initial: T, limit = DEFAULT_HISTORY_LIMIT): History<T> {
@@ -69,6 +76,11 @@ export function createHistory<T>(initial: T, limit = DEFAULT_HISTORY_LIMIT): His
     reset(state) {
       states = [state];
       index = 0;
+    },
+
+    replace(state) {
+      states = [...states];
+      states[index] = state;
     },
   };
 }

@@ -231,6 +231,8 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `skeleton.ts` | S5: skeleton → polylines (junction clustering, spur pruning, angle-paired continuation) |
 | `contour.ts` | S5: marching-squares boundary loops — the blob fallback |
 | `trace.ts` | the resumable S5 job (`createTracer`), stroke/blob classification, `buildScanElements` / `fitScanElements` + the size guard |
+| `text-layout.ts` | S6 gate: group traced marks into text LINES (y-bands, x-gap splits, i-dot satellites); classify the rest diagram-ish so no engine is asked to read an arrow |
+| `ocr.ts` | S6 port + representation: recognizer request/response shapes, `<desc>` + hidden `<text>` builders (one-line RawElements), the `ocr[layerId]` metadata entry, and `applyScanOcr` — the pure async-safe layer patch |
 
 Phase 5's own decisions (beyond the table in the plan):
 
@@ -334,6 +336,27 @@ Phase 6's own decisions (beyond the plan's spec — full rationale in
   nib-width retraces are never suppressed (real double-drawn marks stay).
 - **The size guard** (`fitScanElements`) raises ε geometrically until the
   serialized elements fit 1.5 MB; it never drops strokes.
+
+Phase 7's own decisions (S6 — OCR):
+
+- **Recognition is a PORT.** Core fixes the request/response shapes and the
+  SVG representation; the engines live behind platform bridges selected in
+  `src/ui/scan-ocr.ts` (Android: ML Kit Digital Ink → Text Recognition
+  fallback; Windows: `Windows.Media.Ocr`; macOS/Linux: none — the metadata
+  records `"status": "unavailable"` honestly).
+- **The output rides existing machinery.** The `<desc>` and the hidden
+  `<g wb:ocr="text" opacity="0">` group are ONE-LINE RawElements — verbatim
+  re-emission gives byte-stable round trips for free, and `applyScanOcr`
+  regenerates the pair wholesale on a re-run. Structured detail (engine,
+  timestamp, per-line confidence, boxes, `wb:id`s) goes in the `wb:doc`
+  metadata under `ocr[layerId]` with deterministic key order.
+- **OCR never blocks the scan.** Strokes insert first; the outcome promise
+  rides the insert payload and the adapter patches the layer when it settles —
+  `history.replace`, not `push`, so the annotation never costs an undo step,
+  and a layer deleted meanwhile drops the result (`applyScanOcr` → null).
+- **Confidence is nullable, never invented.** ML Kit ink candidates and
+  Windows OCR report none; the schema records `null` there and the real number
+  where the raster engine has one.
 
 Fixtures are GENERATED in-test, never committed as bytes: a JPEG decoder
 differs across platforms and pixel-exact goldens on photos are a maintenance

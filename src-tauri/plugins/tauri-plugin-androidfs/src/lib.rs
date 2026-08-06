@@ -27,7 +27,8 @@ use mobile::Androidfs;
 
 #[cfg(mobile)]
 pub use mobile::{
-    CapturedPhoto, ContentPayload, PickTreeResponse, SafEntry, SafList, SafRead, SafStat, SttResult,
+    CapturedPhoto, ContentPayload, OcrLine, OcrLines, PickTreeResponse, SafEntry, SafList, SafRead,
+    SafStat, SttResult,
 };
 
 /// Access the Android FS APIs from any [`tauri::Manager`] (App/AppHandle/Window).

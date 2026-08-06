@@ -55,6 +55,20 @@ import {
   type TraceResult,
 } from '../core/whiteboard/scan/trace';
 import { PALETTE } from '../core/whiteboard/tool-settings';
+import {
+  attachRasterLines,
+  linesFromLayout,
+  ocrPlainText,
+  type ScanOcrOutcome,
+  type ScanRecognizeFn,
+  type ScanRecognizeRequest,
+  type ScanRecognizeResponse,
+} from '../core/whiteboard/scan/ocr';
+import {
+  elementInk,
+  groupTextLines,
+  layoutItemsFromTrace,
+} from '../core/whiteboard/scan/text-layout';
 import { rotate90 } from '../core/whiteboard/scan/image-ops';
 import {
   DEFAULT_SCAN_PRESET,
@@ -89,6 +103,13 @@ export interface ScanStrokesResult {
   readonly colors: ColorAssignment;
   readonly mode: ScanColorMode;
   readonly remap: ReadonlyMap<MarkerColor, MarkerColor>;
+  /**
+   * The recognition outcome, possibly still in flight — OCR NEVER blocks the
+   * scan (plan S6): strokes insert first and the adapter patches the layer's
+   * `<desc>` / hidden text / metadata when this resolves. Always settles
+   * (unavailable platforms resolve `{ status: 'unavailable' }`).
+   */
+  readonly ocr: Promise<ScanOcrOutcome>;
 }
 
 export interface ScanPanelOptions {
@@ -105,6 +126,9 @@ export interface ScanPanelOptions {
   readonly onClose: () => void;
   /** Surface a message to the user (permission denied, decode failure, …). */
   readonly onNotice: (message: string) => void;
+  /** This platform's text recognizer (src/ui/scan-ocr.ts), or null where none
+   *  exists — the scan then records `"status": "unavailable"`. */
+  readonly recognize: ScanRecognizeFn | null;
 }
 
 /** How the panel is opened. A `ScanPhoto` skips acquisition (paste / drop). */
@@ -350,6 +374,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   /** What the review screen is showing. Strokes are the deliverable, so they
    *  are what the user judges first. */
   let reviewView: 'vector' | 'cleaned' | 'photo' = 'vector';
+  /** The settled recognition outcome, once it arrives (adds the Copy button). */
+  let ocrOutcome: ScanOcrOutcome | null = null;
+  /** The in-flight recognition — captured into the insert payload so the
+   *  adapter can patch the layer when it settles, even after the panel closes. */
+  let ocrPromise: Promise<ScanOcrOutcome> | null = null;
   /** The band-pumping rAF handle, so cancel really cancels. */
   let pumping: number | null = null;
   /** Bumped on every close/retake; an in-flight acquire checks it before
@@ -880,9 +909,108 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       traced = job.result();
       builtCache = null;
       reviewView = 'vector';
+      startOcr();
       showReview();
     };
     pumping = requestAnimationFrame(pump);
+  }
+
+  /**
+   * Phase 7: kick recognition off the moment the trace exists — it runs
+   * while the user reviews, so "Copy text" is usually ready by the time they
+   * look for it, and an insert that beats it still patches in later (the
+   * promise rides the payload). Everything that DECIDES here — line grouping,
+   * zipping engine answers back onto geometry — is core (`text-layout.ts`,
+   * `ocr.ts`); this function only wires it to the injected engine.
+   */
+  function startOcr(): void {
+    ocrOutcome = null;
+    ocrPromise = null;
+    if (!traced || !cleaned) {
+      return;
+    }
+    const recognize = options.recognize;
+    if (!recognize) {
+      ocrOutcome = { status: 'unavailable' };
+      ocrPromise = Promise.resolve(ocrOutcome);
+      return;
+    }
+    const mine = generation;
+    const clean = cleaned;
+    const items = layoutItemsFromTrace(traced);
+    const layout = groupTextLines(items, traced.strokeWidth);
+    const ink = elementInk(traced);
+    const round1 = (value: number): number => Math.round(value * 10) / 10;
+    const request: ScanRecognizeRequest = {
+      lines: layout.lines.map((line) => ({
+        strokes: line.items.flatMap((index) =>
+          (ink[index] ?? []).map((path) => path.map((p) => [round1(p.x), round1(p.y)] as const)),
+        ),
+        area: {
+          width: Math.max(1, Math.round(line.bbox.width)),
+          height: Math.max(1, Math.round(line.bbox.height)),
+        },
+      })),
+      // Black ink on white for the raster engines — maximum contrast, and the
+      // engine's boxes come back in this image's own (rectified) pixels.
+      png: async () => {
+        const composed = composeCleaned(clean, 'true', {
+          background: 'white',
+          inkFor: () => [0, 0, 0],
+        });
+        const dataUrl = encodePng(composed);
+        return dataUrl ? dataUrl.slice(dataUrl.indexOf(',') + 1) : null;
+      },
+    };
+    ocrPromise = (async (): Promise<ScanOcrOutcome> => {
+      const response = await recognize(request).catch((error): ScanRecognizeResponse => ({
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      }));
+      const timestamp = new Date().toISOString();
+      let outcome: ScanOcrOutcome;
+      switch (response.kind) {
+        case 'ink':
+          outcome = {
+            status: 'ok',
+            engine: response.engine,
+            timestamp,
+            lines: linesFromLayout(layout.lines, response.texts),
+          };
+          break;
+        case 'raster':
+          outcome = {
+            status: 'ok',
+            engine: response.engine,
+            timestamp,
+            lines: attachRasterLines(response.lines, items),
+          };
+          break;
+        case 'unavailable':
+          outcome = { status: 'unavailable' };
+          break;
+        case 'error':
+          outcome = { status: 'error', message: response.message };
+          break;
+      }
+      if (mine === generation) {
+        ocrOutcome = outcome;
+        if (stage === 'review') {
+          showReview(); // the Copy button appears in place
+        }
+      }
+      return outcome;
+    })();
+  }
+
+  function copyRecognizedText(): void {
+    if (ocrOutcome?.status !== 'ok') {
+      return;
+    }
+    void navigator.clipboard.writeText(ocrPlainText(ocrOutcome.lines)).then(
+      () => options.onNotice('Recognized text copied to the clipboard.'),
+      () => options.onNotice('Could not access the clipboard.'),
+    );
   }
 
   /** The identity-space build the preview shows — cached per (mode, remap). */
@@ -1023,6 +1151,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
           )
         : null,
       reviewView !== 'photo' ? colorSelect : null,
+      ocrOutcome?.status === 'ok' && ocrPlainText(ocrOutcome.lines).length > 0
+        ? button('Copy text', 'Copy the recognized handwriting as plain text', copyRecognizedText)
+        : null,
       button('Cancel', 'Discard the scan', close),
       button(
         'Insert photo',
@@ -1077,6 +1208,12 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       if (cleaned.glareFraction > GLARE_HINT_FRACTION) {
         parts.push('glare detected — some ink may be lost; try shooting from off-axis');
       }
+      if (ocrOutcome?.status === 'ok') {
+        const read = ocrOutcome.lines.filter((line) => line.text.length > 0).length;
+        if (read > 0) {
+          parts.push(`${read} line${read === 1 ? '' : 's'} of text recognized`);
+        }
+      }
     }
     parts.push(
       'it lands on its own layer, so it can be moved, resized or deleted like anything else',
@@ -1130,6 +1267,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         colors: cleaned.colors,
         mode: colorMode,
         remap: new Map(remap),
+        // Captured BEFORE close() wipes the panel — the promise is the only
+        // thing that carries a still-running recognition to the adapter.
+        ocr: ocrPromise ?? Promise.resolve({ status: 'unavailable' }),
       };
       close();
       options.onInsertStrokes(payload);
@@ -1249,6 +1389,8 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     cleaned = null;
     traced = null;
     builtCache = null;
+    ocrOutcome = null;
+    ocrPromise = null;
     remap.clear();
     reviewView = 'vector';
     dragging = null;

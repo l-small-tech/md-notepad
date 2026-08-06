@@ -157,6 +157,42 @@ pub struct CapturedPhoto {
     pub height: u32,
 }
 
+/* ---- Handwriting OCR (whiteboard scan, S6) ----------------------------- */
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InkArgs {
+    payload: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextImageArgs {
+    base64: String,
+}
+
+/// One recognized text line. Ink recognition fills only `text`/`confidence`
+/// (the caller knows where each submitted line sits); raster recognition
+/// also reports the engine's own line box in the image's pixel space.
+#[derive(Serialize, Deserialize)]
+pub struct OcrLine {
+    pub text: String,
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub x: f64,
+    #[serde(default)]
+    pub y: f64,
+    #[serde(default)]
+    pub width: f64,
+    #[serde(default)]
+    pub height: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OcrLines {
+    pub lines: Vec<OcrLine>,
+}
+
 impl<R: Runtime> Androidfs<R> {
     /// The app-specific EXTERNAL files dir
     /// (`/storage/emulated/0/Android/data/<pkg>/files`), or `None` when external
@@ -351,6 +387,25 @@ impl<R: Runtime> Androidfs<R> {
     pub fn capture_photo(&self) -> crate::Result<CapturedPhoto> {
         self.0
             .run_mobile_plugin::<CapturedPhoto>("capturePhoto", EmptyArgs {})
+            .map_err(Into::into)
+    }
+
+    /* ---- Handwriting OCR (whiteboard scan, S6) ------------------------- */
+
+    /// ML Kit Digital Ink over traced stroke lines (JSON payload — see the
+    /// Kotlin side). Errors carry the Kotlin reject text; `INK_UNAVAILABLE`
+    /// means no model exists for the device language and the caller should
+    /// fall back to `text_recognize`.
+    pub fn ink_recognize(&self, payload: String) -> crate::Result<OcrLines> {
+        self.0
+            .run_mobile_plugin::<OcrLines>("inkRecognize", InkArgs { payload })
+            .map_err(Into::into)
+    }
+
+    /// ML Kit Text Recognition (printed-text raster model) over a PNG.
+    pub fn text_recognize(&self, base64: String) -> crate::Result<OcrLines> {
+        self.0
+            .run_mobile_plugin::<OcrLines>("textRecognize", TextImageArgs { base64 })
             .map_err(Into::into)
     }
 }

@@ -25,6 +25,20 @@ tauri-plugin-store = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
 
+# Windows-only: the on-device Windows.Media.Ocr engine behind the whiteboard
+# scan's text recognition. The `windows` crate is already in the tree via
+# tauri/wry — this direct dependency only turns on the WinRT namespaces the
+# OCR command uses.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Storage_Streams",
+  "Win32_System_WinRT",
+] }
+
 # Desktop-only plugins. These crates either don't compile for mobile
 # (single-instance) or have no meaning there (window geometry, the
 # self-updater, process restart/exit). Keep them out of the Android/iOS

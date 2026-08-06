@@ -14,4 +14,14 @@
          NO_CAMERA there and the scan UI falls back to the file picker. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Whiteboard scan OCR: the unbundled Text Recognition engine gets its
+         model from Play Services; this meta-data asks for it to be fetched at
+         install time instead of on the first recognition. Merged into the
+         generated app manifest like the permissions above. -->
+    <application>
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
+    </application>
 </manifest>
