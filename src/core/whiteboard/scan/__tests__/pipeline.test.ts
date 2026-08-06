@@ -35,7 +35,7 @@ describe('planRectify', () => {
   it('clamps the long edge to what the source actually resolves', () => {
     const image = noiseImage(600, 420);
     const plan = planRectify(image, ANGLED, 'detailed');
-    // The quad's widest side is ~520 px, so 'detailed' (2400) must not apply.
+    // The quad's widest side is ~520 px, so 'detailed' (3600) must not apply.
     expect(Math.max(plan.width, plan.height)).toBeLessThanOrEqual(525);
   });
 

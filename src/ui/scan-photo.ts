@@ -8,7 +8,7 @@
  *
  * - **Android** — `ipc.capturePhoto()` drives the system camera through the
  *   androidfs plugin. Kotlin normalizes EXIF orientation and downscales to
- *   ≤2600 px before encoding, so what arrives here is a few hundred KB rather
+ *   ≤3800 px before encoding, so what arrives here is under a megabyte rather
  *   than a raw sensor frame.
  * - **Desktop** — the native file picker, filtered to images, read back as
  *   base64. There is no in-app camera on desktop; the flow is

@@ -868,9 +868,12 @@ class AndroidfsPlugin(private val activity: Activity) : Plugin(activity) {
     // rule is that declaring it makes ACTION_IMAGE_CAPTURE require it to be
     // GRANTED — so the runtime request below is not optional.
 
-    // Long edge the capture is reduced to. Well above what the pipeline needs
-    // (Detailed rectifies to 2400 px) and far below a modern sensor.
-    private val MAX_CAPTURE_EDGE = 2600
+    // Long edge the capture is reduced to. Kept a margin above what the
+    // pipeline needs (Detailed rectifies to 3600 px) and still far below a
+    // modern sensor: the board rarely fills the frame, so the rectified crop
+    // is smaller than the capture, and a cap AT 3600 would quietly clamp
+    // Detailed on every shot that was not framed edge-to-edge.
+    private val MAX_CAPTURE_EDGE = 3800
 
     // The temp file handed to the camera app, held between launch and callback.
     private var pendingPhoto: File? = null
