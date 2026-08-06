@@ -86,6 +86,13 @@ async function recognizeAndroid(request: ScanRecognizeRequest): Promise<ScanReco
   }
 }
 
+// Windows deliberately has NO ink engine. InkAnalyzer (the OS handwriting
+// recognizer) was built, probed against a real board's traced strokes, and
+// REJECTED: skeleton centerlines carry none of the pen dynamics it depends
+// on, and it returned confident junk ("x-", "5 7", "ace" for "Box 1 → Other
+// Place") at every scale, isolated or whole-board, auto or forced-writing.
+// Junk in a `<desc>` is worse than an honest empty result. Evidence and
+// probe scripts are recorded in whiteboard-plan.md phase 7.
 async function recognizeWindows(request: ScanRecognizeRequest): Promise<ScanRecognizeResponse> {
   try {
     // No engine means no OCR language pack is installed — that is

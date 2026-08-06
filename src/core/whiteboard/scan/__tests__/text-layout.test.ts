@@ -41,6 +41,21 @@ describe('groupTextLines', () => {
     expect(layout.diagram).toEqual([]);
   });
 
+  it('keeps a text line whose band a broken arrow shaft crosses', () => {
+    // The real-board failure: arrow shaft fragments (short, very wide) share
+    // the y-band with letters; without the sliver rule their heights drag the
+    // band's consistency past the gate and the LETTERS die with them.
+    const letters = row(100, 3);
+    const shafts: Rect[] = [
+      { x: 260, y: 112, width: 120, height: 8 },
+      { x: 390, y: 110, width: 150, height: 10 },
+    ];
+    const layout = groupTextLines(items(...letters, ...shafts), 4);
+    expect(layout.lines).toHaveLength(1);
+    expect(layout.lines[0]!.items).toEqual([0, 1, 2]);
+    expect(layout.diagram).toEqual([3, 4]);
+  });
+
   it('classifies a big box and a long arrow as diagram', () => {
     const layout = groupTextLines(
       items(

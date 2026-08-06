@@ -135,6 +135,13 @@ fn recognize_png(png: &[u8]) -> windows::core::Result<Vec<OcrLineOut>> {
     Ok(lines)
 }
 
+// NOTE: an `InkAnalyzer` (OS handwriting engine) command lived here briefly
+// and was removed after offline probing against a real board's traced
+// strokes: centerline skeletons carry none of the pen dynamics the engine
+// depends on, and it returned confident junk at every scale and grouping.
+// Evidence in whiteboard-plan.md phase 7 — bring new evidence before
+// reintroducing it.
+
 /// True when a user-profile OCR language pack is installed. `TryCreate…`
 /// returns a null engine (surfaced as Err by windows-rs) when none is.
 #[tauri::command]

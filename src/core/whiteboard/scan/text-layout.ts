@@ -56,6 +56,15 @@ const LINE_SPLIT_GAP_FACTOR = 3;
 const SATELLITE_REACH_FACTOR = 0.8;
 /** Body items of one line must agree on height within this ratio. */
 const HEIGHT_CONSISTENCY = 3;
+/** A short item wider than this many of its own heights is a SLIVER — an
+ *  arrow shaft, an underline, a rule fragment. Found on a real board: a
+ *  broken arrow's shaft pieces (13–20 px tall, 100–280 px wide) shared a
+ *  y-band with genuine letters and dragged the whole band's height
+ *  consistency past the gate, killing the text line beside them. */
+const SLIVER_ASPECT = 6;
+/** Slivers are only slivers when clearly shorter than the page median —
+ *  a long lowercase word is wide too, but it is h0 tall. */
+const SLIVER_HEIGHT_FACTOR = 0.5;
 
 function median(values: number[]): number {
   if (values.length === 0) {
@@ -160,6 +169,13 @@ export function groupTextLines(items: readonly LayoutItem[], strokeWidth: number
   const body: LayoutItem[] = [];
   for (const item of items) {
     if (item.bbox.height > LARGE_HEIGHT_FACTOR * h0 || item.bbox.width > LARGE_WIDTH_FACTOR * h0) {
+      large.push(item);
+    } else if (
+      item.bbox.height < SLIVER_HEIGHT_FACTOR * h0 &&
+      item.bbox.width > SLIVER_ASPECT * Math.max(1, item.bbox.height)
+    ) {
+      // Arrow shafts, underlines, rule fragments — diagram, and crucially
+      // OUT of the bands, where they poison height consistency.
       large.push(item);
     } else if (item.bbox.height < TINY_HEIGHT_FACTOR * h0 && item.bbox.width < h0) {
       tiny.push(item);

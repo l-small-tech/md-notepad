@@ -17,6 +17,7 @@ import { createCleaner, composeCleaned } from '../clean';
 import { normalizeIllumination, detectGlare } from '../illumination';
 import { binarize } from '../binarize';
 import { createTracer, fitScanElements, type TracedStroke } from '../trace';
+import { elementInk, groupTextLines, layoutItemsFromTrace } from '../text-layout';
 import type { RgbaImage, ScanPreset } from '../types';
 
 const dir = process.env['SCAN_HARNESS_DIR'];
@@ -254,6 +255,46 @@ describe.runIf(dir)('scan photo harness', () => {
       join(dir!, 'render.json'),
       JSON.stringify({ width: rectified.width, height: rectified.height, paths }),
     );
+
+    // Phase 7: the text layout's verdict, plus the exact ink payload the
+    // recognizers get — feed ocr-payload.json to an engine probe to judge
+    // recognition quality offline.
+    {
+      const items = layoutItemsFromTrace(trace);
+      const layout = groupTextLines(items, w);
+      const ink = elementInk(trace);
+      out(`text layout: ${layout.lines.length} lines, ${layout.diagram.length} diagram items`);
+      const inLine = new Set(layout.lines.flatMap((l) => [...l.items]));
+      for (const item of items) {
+        const cls = inLine.has(item.index)
+          ? 'line'
+          : layout.diagram.includes(item.index)
+            ? 'diagram'
+            : 'dropped';
+        out(
+          `  item #${item.index} ${cls} bbox=${Math.round(item.bbox.x)},${Math.round(item.bbox.y)} ` +
+            `${Math.round(item.bbox.width)}x${Math.round(item.bbox.height)}`,
+        );
+      }
+      for (const line of layout.lines) {
+        out(
+          `  line bbox=${Math.round(line.bbox.x)},${Math.round(line.bbox.y)} ` +
+            `${Math.round(line.bbox.width)}x${Math.round(line.bbox.height)} items=[${line.items.join(',')}]`,
+        );
+      }
+      const payload = {
+        lines: layout.lines.map((line) => ({
+          strokes: line.items.flatMap((index) =>
+            (ink[index] ?? []).map((path) => path.map((p) => [p.x, p.y])),
+          ),
+          area: {
+            width: Math.max(1, Math.round(line.bbox.width)),
+            height: Math.max(1, Math.round(line.bbox.height)),
+          },
+        })),
+      };
+      writeFileSync(join(dir!, 'ocr-payload.json'), JSON.stringify(payload));
+    }
 
     const report = lines.join('\n');
     writeFileSync(join(dir!, 'stats.txt'), report);
