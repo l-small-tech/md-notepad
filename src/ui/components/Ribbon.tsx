@@ -4,8 +4,10 @@
  * Layout: the panel toggles bookend the row on the side their panel opens —
  * explorer (◧) leftmost, outline (◨) rightmost. Next to the explorer sits the
  * ☰ app menu (search / palette / export / copy raw / settings), keeping the
- * one-shot commands out of the toolbar. The center is a mode-dependent
- * cluster; fullscreen stays as a direct button on the right. Its background is
+ * one-shot commands out of the toolbar, and then Save — which is also the
+ * auto-save indicator, so it lives with the chrome that every mode shows. The
+ * center is a mode-dependent cluster; fullscreen stays as a direct button on
+ * the right. Its background is
  * `var(--bg)`, matching the active tab, so the selected tab appears to flow
  * down into the ribbon as one continuous surface (the tabbar drops its bottom
  * border for this to read).
@@ -19,7 +21,7 @@
  * own inline toolbar there).
  */
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { appendMentions } from '../../core/link-mentions';
@@ -29,7 +31,7 @@ import { getSourceAdapter } from '../editor-registry';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
-import { insertFileLink, openExportPreview } from '../session';
+import { insertFileLink, openExportPreview, saveActiveTab, saveActiveTabAs } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
 import {
   canRevealThemesFolder,
@@ -158,6 +160,32 @@ const ImageIcon = (
 const CommentIcon = (
   <RibbonIcon>
     <path d="M16.5 11.3a1.8 1.8 0 0 1-1.8 1.8H8.2L5 15.8v-2.7h-.2a1.8 1.8 0 0 1-1.3-1.8V6a1.8 1.8 0 0 1 1.8-1.8h9.4A1.8 1.8 0 0 1 16.5 6z" />
+  </RibbonIcon>
+);
+
+/** A floppy disk — save. The manual-mode save button. */
+const SaveIcon = (
+  <RibbonIcon>
+    <path d="M3.5 4.8A1.3 1.3 0 0 1 4.8 3.5h8.1l3.6 3.6v8.1a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3z" />
+    <path d="M6.8 3.5v3.6h5.4V3.5" />
+    <path d="M6.3 16.5v-4.4h7.4v4.4" />
+  </RibbonIcon>
+);
+
+/**
+ * The same floppy wearing a circular-arrow badge — auto save. It is the ribbon's
+ * auto-save INDICATOR as much as its button, so the difference has to survive a
+ * glance at 16px: a badge outside the crowded body reads where a change inside
+ * it would not, and `[data-auto]` tints the whole glyph with the accent. The
+ * badge is knocked out of the body with a `--bg` disc so the two don't merge.
+ */
+const SaveAutoIcon = (
+  <RibbonIcon>
+    <path d="M3.5 4.8A1.3 1.3 0 0 1 4.8 3.5h8.1l3.6 3.6v8.1a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3z" />
+    <path d="M6.8 3.5v3.6h5.4V3.5" />
+    <circle cx="14.8" cy="14.8" r="4.4" fill="var(--bg)" stroke="none" />
+    <path d="M12.2 14.8a2.6 2.6 0 1 0 0.9-2" />
+    <path d="M13.6 10.6l-0.5 2.3 2.3-0.4" />
   </RibbonIcon>
 );
 
@@ -430,6 +458,177 @@ function RootMenuPage({
         onClose={onClose}
       />
     </>
+  );
+}
+
+/** How long the save button has to be held before its options menu opens. */
+const SAVE_HOLD_MS = 500;
+/** How far the contact may wander during that hold and still count as a press. */
+const SAVE_HOLD_SLOP_PX = 10;
+
+/**
+ * The save button — and the auto-save indicator.
+ *
+ * One control says two things. Its glyph is the mode (plain floppy = you save;
+ * badged floppy = the app saves), and a click always saves right now, in either
+ * mode — an explicit save under auto save is harmless and is what a hand
+ * reaching for Ctrl+S expects. The mode toggle lives behind a HOLD rather than
+ * a second button because switching it is rare and switching it by accident is
+ * not: an auto-save mode you flipped without noticing quietly changes what your
+ * files do. Right-click opens the same menu, since a mouse user has no reason
+ * to guess that a toolbar button can be held.
+ *
+ * Disabled for tabs with nothing to write (image/import viewers, read-only
+ * documents). A NOTE tab stays enabled: saving one is Save As, which is how the
+ * command and Ctrl+S already behave.
+ */
+function SaveControl() {
+  const liveSave = useSettingsStore((s) => s.settings.liveSave);
+  const tab = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdOrigin = useRef<{ x: number; y: number } | null>(null);
+  // A hold that opened the menu must not also fire the button's click on
+  // release — the finger that summoned the menu would save on the way out.
+  const suppressClick = useRef(false);
+
+  const savable = !!tab && tab.kind !== 'image' && tab.kind !== 'import' && !tab.readOnly;
+  const dirty = tab?.kind === 'file' && tab.dirty;
+
+  const cancelHold = (): void => {
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    holdOrigin.current = null;
+  };
+  useEffect(() => cancelHold, []);
+
+  const title = liveSave
+    ? 'Auto save is ON — changes save themselves. Click to save now; hold or right-click for options.'
+    : `Save (${IS_MAC ? '⌘S' : 'Ctrl+S'}) — hold or right-click for auto-save options.`;
+
+  return (
+    <>
+      <button
+        className="ribbon-btn ribbon-btn-lg ribbon-save"
+        aria-label={liveSave ? 'Save now (auto save is on)' : 'Save'}
+        aria-haspopup="menu"
+        aria-expanded={menuAnchor != null}
+        data-auto={liveSave || undefined}
+        data-dirty={dirty || undefined}
+        title={title}
+        disabled={!savable}
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          // No stopPropagation here (unlike the ☰ trigger): this press opens
+          // nothing yet, so letting it reach the window lets an already-open
+          // popover — the ☰ menu, or this button's own — dismiss normally. The
+          // menu appears 500 ms later, by which time the press is long over.
+          cancelHold();
+          if (e.pointerType === 'mouse' && e.button !== 0) {
+            return; // right-click has its own path (onContextMenu)
+          }
+          const rect = e.currentTarget.getBoundingClientRect();
+          holdOrigin.current = { x: e.clientX, y: e.clientY };
+          holdTimer.current = setTimeout(() => {
+            cancelHold();
+            suppressClick.current = true;
+            setMenuAnchor(rect);
+          }, SAVE_HOLD_MS);
+        }}
+        onPointerMove={(e) => {
+          const at = holdOrigin.current;
+          if (
+            at &&
+            (Math.abs(e.clientX - at.x) > SAVE_HOLD_SLOP_PX ||
+              Math.abs(e.clientY - at.y) > SAVE_HOLD_SLOP_PX)
+          ) {
+            cancelHold();
+          }
+        }}
+        onPointerUp={cancelHold}
+        onPointerLeave={cancelHold}
+        onPointerCancel={cancelHold}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          cancelHold();
+          setMenuAnchor(e.currentTarget.getBoundingClientRect());
+        }}
+        onClick={() => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          saveActiveTab();
+        }}
+      >
+        {liveSave ? SaveAutoIcon : SaveIcon}
+      </button>
+      {menuAnchor && (
+        <SaveMenu anchor={menuAnchor} liveSave={liveSave} onClose={() => setMenuAnchor(null)} />
+      )}
+    </>
+  );
+}
+
+/** The save button's hold menu: the auto-save toggle, plus Save as…. */
+function SaveMenu({
+  anchor,
+  liveSave,
+  onClose,
+}: {
+  anchor: DOMRect;
+  liveSave: boolean;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="tab-menu ribbon-menu"
+      role="menu"
+      aria-label="Save options"
+      style={{ left: anchor.left, top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <RibbonMenuItem
+        glyph={liveSave ? '✓' : ''}
+        label="Auto save"
+        title="Save opened files automatically as you type, without Ctrl+S"
+        onPick={() => {
+          const next = !liveSave;
+          settingsStore.getState().update({ liveSave: next });
+          uiStore.getState().showNotice(next ? 'Auto save is on.' : 'Auto save is off.');
+        }}
+        onClose={onClose}
+      />
+      <div className="ribbon-menu-divider" role="separator" />
+      <RibbonMenuItem
+        glyph="⤓"
+        label="Save as…"
+        shortcut={IS_MAC ? '⇧⌘S' : 'Ctrl+Shift+S'}
+        onPick={() => saveActiveTabAs()}
+        onClose={onClose}
+      />
+    </div>
   );
 }
 
@@ -898,6 +1097,10 @@ export function Ribbon() {
         >
           ☰
         </button>
+        {/* Save sits with the chrome, not in the mode-dependent center: it
+            means the same thing in every mode, and its glyph doubles as the
+            auto-save indicator, which must not vanish when you switch modes. */}
+        <SaveControl />
         {canGoBack && (
           <button
             className="ribbon-btn ribbon-btn-lg"

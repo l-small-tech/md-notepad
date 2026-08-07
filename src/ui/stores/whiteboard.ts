@@ -91,7 +91,11 @@ export function carryColor(color: string, to: PaletteKind): string {
 }
 
 export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
-  tool: 'pen',
+  // Select, not pen: opening a board should not put a live nib under the first
+  // touch. Landing in select lets you read, pan and pick up what is already
+  // there without risking a stray stroke — you reach for the pen when you mean
+  // to draw. (Still global, so the tool you pick carries to the next board.)
+  tool: 'select',
   color: DEFAULT_COLOR,
   width: DEFAULT_STROKE_WIDTH,
   fontSize: DEFAULT_FONT_SIZE,
