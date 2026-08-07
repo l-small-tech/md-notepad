@@ -78,7 +78,7 @@ Colors can be written as hex (`#rrggbb`), `rgb(...)`, `hsl(...)`, or a named
 color like `navy`.
 
 First, the **brand trio** — your theme's three identity colors. They drive the
-whiteboard's themed ink palette (the pens automatically match your theme):
+vector drawings' themed ink palette (the pens automatically match your theme):
 
 | Key         | What it is |
 | ----------- | ---------- |

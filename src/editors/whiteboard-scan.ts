@@ -152,6 +152,13 @@ export interface ScanPanelOptions {
   readonly onInsert: (result: ScanResult) => void;
   /** Insert the traced board as editable strokes (the phase-6 primary). */
   readonly onInsertStrokes: (result: ScanStrokesResult) => void;
+  /**
+   * What the scan produces. `'board'` (default) traces the ink and inserts
+   * into the open drawing. `'image'` stops after cleaning — one less step: no
+   * tracing, no OCR — and offers only the raster results, which `onInsert`
+   * then saves as a standalone image file instead of embedding in a board.
+   */
+  readonly output?: 'board' | 'image';
   /** The panel is finished with (cancelled, or inserted). */
   readonly onClose: () => void;
   /** Surface a message to the user (permission denied, decode failure, …). */
@@ -382,6 +389,8 @@ function resolveThemedCss(host: HTMLElement): Map<string, string> {
 type Stage = 'idle' | 'acquiring' | 'crop' | 'working' | 'review';
 
 export function createScanPanel(options: ScanPanelOptions): ScanPanel {
+  /** Image output: stop after cleaning and save a file — never trace. */
+  const imageOutput = options.output === 'image';
   const element = document.createElement('div');
   element.className = 'wb-scan';
   element.hidden = true;
@@ -418,10 +427,12 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   /** The identity-transform build shown in the vector preview, cached per
    *  (mode, remap) so toggling views is free. */
   let builtCache: { key: string; built: ScanElements } | null = null;
-  /** Which colours the cleaned view paints ink in. Themed is the default:
-   *  snapped ink matches the drawing palette and stays themeable when
-   *  phase 6 vectorizes it; "true" keeps the voted measured colours. */
-  let colorMode: ScanColorMode = DEFAULT_SCAN_COLOR_MODE;
+  /** Which colours the cleaned view paints ink in. Themed is the default on a
+   *  board: snapped ink matches the drawing palette and stays themeable when
+   *  phase 6 vectorizes it; "true" keeps the voted measured colours. A
+   *  standalone image file defaults to true colours — it is a document, and
+   *  themed ink on a transparent sheet belongs to the theme it was saved in. */
+  let colorMode: ScanColorMode = imageOutput ? 'true' : DEFAULT_SCAN_COLOR_MODE;
   /** What the review screen is showing. Strokes are the deliverable, so they
    *  are what the user judges first. */
   let reviewView: 'vector' | 'cleaned' | 'photo' = 'vector';
@@ -1105,7 +1116,14 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         return;
       }
       cleaned = job.result();
-      startTrace();
+      if (imageOutput) {
+        // Image output stops here — one less step: no tracing, no OCR. The
+        // review offers the cleaned board and the straightened photo only.
+        reviewView = (cleaned?.extraction.components.length ?? 0) > 0 ? 'cleaned' : 'photo';
+        showReview();
+      } else {
+        startTrace();
+      }
     };
     pumping = requestAnimationFrame(pump);
   }
@@ -1386,7 +1404,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       available.length > 1
         ? button(
             `Show ${VIEW_LABELS[next]}`,
-            'Compare the traced strokes, the cleaned board and the straightened photo',
+            imageOutput
+              ? 'Compare the cleaned board and the straightened photo'
+              : 'Compare the traced strokes, the cleaned board and the straightened photo',
             () => {
               reviewView = next;
               showReview();
@@ -1403,19 +1423,26 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         ? button(
             'Debug insert',
             'Insert as usual, and also save the source photo, the straightened photo, ' +
-              'the cleaned board and the traced SVG into a folder beside this whiteboard',
+              'the cleaned board and the traced SVG into a folder beside this drawing',
             () => void debugInsert(),
           )
         : null,
       button(
-        'Insert photo',
-        `Add the straightened photo to this whiteboard. ${summary}`,
+        imageOutput ? 'Save photo' : 'Insert photo',
+        imageOutput
+          ? `Save the straightened photo as an image file in this folder. ${summary}`
+          : `Add the straightened photo to this drawing. ${summary}`,
         () => insert('photo'),
         !hasInk,
       ),
       hasInk
-        ? button('Insert image', `Add the cleaned board as a picture instead. ${summary}`, () =>
-            insert('cleaned'),
+        ? button(
+            imageOutput ? 'Save image' : 'Insert image',
+            imageOutput
+              ? `Save the cleaned board as a PNG image file in this folder. ${summary}`
+              : `Add the cleaned board as a picture instead. ${summary}`,
+            () => insert('cleaned'),
+            imageOutput,
           )
         : null,
       hasStrokes
@@ -1483,7 +1510,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       }
     }
     parts.push(
-      'it lands on its own layer, so it can be moved, resized or deleted like anything else',
+      imageOutput
+        ? 'it becomes a new image file in this folder, ready to link into notes'
+        : 'it lands on its own layer, so it can be moved, resized or deleted like anything else',
     );
     return parts.join(' — ') + '.';
   }
@@ -1688,8 +1717,10 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       return;
     }
     // base64 is 4 bytes per 3; the payload is what actually lands in the file.
-    if (dataUrl.length * 0.75 > LARGE_RESULT_BYTES) {
-      options.onNotice('That scan is large — the whiteboard file will be a few MB.');
+    // A standalone image file is its own bytes on disk — only an EMBEDDED
+    // result inflates the drawing's document string, so only that warns.
+    if (!imageOutput && dataUrl.length * 0.75 > LARGE_RESULT_BYTES) {
+      options.onNotice('That scan is large — the drawing file will be a few MB.');
     }
     const result: ScanResult = {
       dataUrl,

@@ -45,9 +45,9 @@ export function createExplorerOps(
   }
 
   /**
-   * Context-menu "New whiteboard": write a blank board (`.svg`) into `dir` and
-   * open it. Unlike "New file" this one does NOT start an inline rename — a
-   * whiteboard opens straight into Draw mode, and the point of the entry is to
+   * Context-menu "New vector drawing": write a blank board (`.svg`) into `dir`
+   * and open it. Unlike "New file" this one does NOT start an inline rename —
+   * a drawing opens straight into Draw mode, and the point of the entry is to
    * be drawing a second later; the row can still be renamed the usual way.
    */
   async function createNewWhiteboard(dir: string): Promise<string | null> {
@@ -55,13 +55,36 @@ export function createExplorerOps(
       return null;
     }
     try {
-      const target = await ctx.uniquePathIn(dir, 'whiteboard', '.svg');
+      const target = await ctx.uniquePathIn(dir, 'drawing', '.svg');
       await ctx.ipc.atomicWriteText(target, blankWhiteboardSource());
       uiStore.getState().refreshExplorer();
       await openPaths([target]);
       return target;
     } catch (error) {
-      uiStore.getState().showNotice('Could not create a whiteboard there.');
+      uiStore.getState().showNotice('Could not create a drawing there.');
+      ctx.deps.onError?.(error);
+      return null;
+    }
+  }
+
+  /**
+   * "Import › Scan whiteboard as image…" lands here with the finished bytes:
+   * write them as a uniquely-named image file in `dir` and open it. The scan
+   * screen produced the bytes; this owns naming, disk and the explorer.
+   * `ext` includes the dot ('.png' / '.jpg').
+   */
+  async function createScanImage(dir: string, ext: string, base64: string): Promise<string | null> {
+    if (ctx.refuseReadOnly(dir)) {
+      return null;
+    }
+    try {
+      const target = await ctx.uniquePathIn(dir, 'scan', ext);
+      await ctx.ipc.writeFileBase64(target, base64);
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      return target;
+    } catch (error) {
+      uiStore.getState().showNotice('Could not save the scanned image there.');
       ctx.deps.onError?.(error);
       return null;
     }
@@ -333,6 +356,7 @@ export function createExplorerOps(
   return {
     createNewFile,
     createNewWhiteboard,
+    createScanImage,
     createNewFolder,
     renameEntry,
     moveEntry,

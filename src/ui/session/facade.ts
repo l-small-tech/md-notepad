@@ -245,6 +245,11 @@ let savePastedFileDispatch: (dir: string, file: PastedFile) => Promise<void> = a
 let createNewFileDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createWhiteboardDispatch: (dir: string) => Promise<string | null> = async () => null;
+let createScanImageDispatch: (
+  dir: string,
+  ext: string,
+  base64: string,
+) => Promise<string | null> = async () => null;
 let pickPhotoDispatch: () => Promise<ScanPhotoRef | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
@@ -301,6 +306,11 @@ export function setCreateNewFolderDispatch(fn: (dir: string) => Promise<string |
 }
 export function setCreateWhiteboardDispatch(fn: (dir: string) => Promise<string | null>): void {
   createWhiteboardDispatch = fn;
+}
+export function setCreateScanImageDispatch(
+  fn: (dir: string, ext: string, base64: string) => Promise<string | null>,
+): void {
+  createScanImageDispatch = fn;
 }
 export function setPickPhotoDispatch(fn: () => Promise<ScanPhotoRef | null>): void {
   pickPhotoDispatch = fn;
@@ -529,10 +539,20 @@ export function createNewFileIn(dir: string): Promise<string | null> {
 export function createNewFolderIn(dir: string): Promise<string | null> {
   return createNewFolderDispatch(dir);
 }
-/** FileExplorer context menu → controller: write a blank whiteboard (.svg) into
+/** FileExplorer context menu → controller: write a blank drawing (.svg) into
  *  `dir` and open it in Draw mode. Resolves with its path (null on failure). */
 export function createWhiteboardIn(dir: string): Promise<string | null> {
   return createWhiteboardDispatch(dir);
+}
+/** Scan-to-image flow → controller: write a finished scan's bytes as a
+ *  uniquely named image file in `dir` and open it. `ext` includes the dot.
+ *  Resolves with the file's path (null on failure). */
+export function createScanImageIn(
+  dir: string,
+  ext: string,
+  base64: string,
+): Promise<string | null> {
+  return createScanImageDispatch(dir, ext, base64);
 }
 
 /** A photo for the whiteboard scan screen, as a self-contained `data:` URL. */

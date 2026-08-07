@@ -26,6 +26,7 @@ import {
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
+import { scanImageInto } from '../../scan-image';
 import { scanWhiteboardInto } from '../../scan-photo';
 import { explorerRelativePath } from './helpers';
 
@@ -230,10 +231,10 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         >
           Document…
         </button>
-        {/* Creates the board first, then opens its scan screen: a scan has to
-            land somewhere, and "a new whiteboard in this folder" is the answer
-            that needs no further questions. Scanning INTO an existing board is
-            the ribbon's camera button. */}
+        {/* Creates the drawing first, then opens its scan screen: a scan has
+            to land somewhere, and "a new drawing in this folder" is the answer
+            that needs no further questions. Scanning INTO an existing drawing
+            is the ribbon's camera button. */}
         <button
           className="context-menu-item"
           role="menuitem"
@@ -243,7 +244,21 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             void scanWhiteboardInto(dir);
           }}
         >
-          Whiteboard scan…
+          Scan whiteboard as drawing…
+        </button>
+        {/* The same scan screen with one less step: nothing is traced — the
+            cleaned board is saved as a PNG file here instead of landing in a
+            drawing. */}
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onSelectDir(dir);
+            void scanImageInto(dir);
+          }}
+        >
+          Scan whiteboard as image…
         </button>
       </>,
     );
@@ -285,7 +300,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             void createWhiteboardIn(dir);
           }}
         >
-          New whiteboard
+          New vector drawing
         </button>
       )}
       {/* A drill-in page, not a hover flyout: Android has no hover, and one

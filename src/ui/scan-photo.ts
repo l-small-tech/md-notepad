@@ -33,8 +33,8 @@ export async function capturePhotoForScan(): Promise<ScanPhotoRef> {
 }
 
 /**
- * Explorer "Import › Whiteboard scan…" — create a board in `dir`, open it, and
- * put its scan screen up.
+ * Explorer "Import › Scan whiteboard as drawing…" — create a drawing in `dir`,
+ * open it, and put its scan screen up.
  *
  * The wait is unavoidable rather than sloppy: the draw adapter is a LAZY chunk
  * (invariant I8) created in an effect after the tab mounts, so there is nothing
@@ -63,7 +63,7 @@ export async function scanWhiteboardInto(dir: string): Promise<void> {
   }
   uiStore
     .getState()
-    .showNotice('The whiteboard is open — use the camera button in the toolbar to scan into it.');
+    .showNotice('The drawing is open — use the camera button in the toolbar to scan into it.');
 }
 
 export { pickPhotoForScan };

@@ -45,6 +45,7 @@ import {
   setCloseAllTabsDispatch,
   setCreateNewFileDispatch,
   setCreateNewFolderDispatch,
+  setCreateScanImageDispatch,
   setCreateWhiteboardDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
@@ -95,6 +96,7 @@ export {
   closeTab,
   createNewFileIn,
   createNewFolderIn,
+  createScanImageIn,
   createWhiteboardIn,
   deleteExplorerEntry,
   deleteExplorerFolder,
@@ -327,6 +329,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCreateNewFileDispatch(explorerOps.createNewFile);
   setCreateNewFolderDispatch(explorerOps.createNewFolder);
   setCreateWhiteboardDispatch(explorerOps.createNewWhiteboard);
+  setCreateScanImageDispatch(explorerOps.createScanImage);
   // Whiteboard scan (desktop): the native picker plus a base64 read, turned
   // into the self-contained data: URL the scan screen decodes.
   setPickPhotoDispatch(async () => {

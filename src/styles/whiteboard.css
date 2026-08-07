@@ -382,6 +382,19 @@
  * lives in the lazy whiteboard chunk. Layered above the layers panel because
  * while it is up it owns the pane.
  */
+/* Fullscreen host for the scan screen when it runs without a board behind it
+   ("Import › Scan whiteboard as image…"). The .wb-scan inside positions
+   itself absolutely, so this only supplies the fixed box — above dialogs and
+   the diagram viewer, but stopping short of the status bar: notices render
+   there ("camera permission was declined", "could not save…") and must stay
+   readable while the screen is up. The bottom offset mirrors .statusbar's
+   own height math. */
+.wb-scan-standalone {
+  position: fixed;
+  inset: 0 0 calc(32px + env(safe-area-inset-bottom, 0px)) 0;
+  z-index: 120;
+}
+
 .wb-scan {
   position: absolute;
   inset: 0;

@@ -20,7 +20,7 @@ const MODE_META: Record<EditorMode, { label: string; hint: string }> = {
   split: { label: 'Split', hint: 'Source + preview (Ctrl/Cmd+2)' },
   wysiwyg: { label: 'Rich', hint: 'WYSIWYG (Ctrl/Cmd+3)' },
   read: { label: 'Read', hint: 'Reader — read-only (Ctrl/Cmd+4)' },
-  draw: { label: 'Draw', hint: 'Whiteboard (Ctrl/Cmd+1)' },
+  draw: { label: 'Draw', hint: 'Vector graphics (Ctrl/Cmd+1)' },
 };
 
 function ModeSegments({

@@ -931,8 +931,8 @@ function DrawControls({ tabId }: { tabId: string | null }) {
           aria-label="Scan a whiteboard"
           title={
             HAS_TOUCH
-              ? 'Scan — photograph a physical whiteboard, straighten it, and add it to this board'
-              : 'Scan — choose a photo of a physical whiteboard, straighten it, and add it to this board. You can also paste or drop an image onto the board.'
+              ? 'Scan — photograph a physical whiteboard, straighten it, and add it to this drawing'
+              : 'Scan — choose a photo of a physical whiteboard, straighten it, and add it to this drawing. You can also paste or drop an image onto the board.'
           }
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => adapter.startScan()}
