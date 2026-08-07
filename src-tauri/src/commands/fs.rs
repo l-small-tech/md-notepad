@@ -171,11 +171,44 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> FsResult<()> {
             FsError::InvalidPath(format!("{} has no parent directory", path.display()))
         })?;
     fs::create_dir_all(dir)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    let mut tmp = temp_beside(path, dir)?;
     tmp.write_all(bytes)?;
     tmp.as_file().sync_all()?;
     tmp.persist(path).map_err(|e| FsError::Io(e.error))?;
     Ok(())
+}
+
+/// Filename prefix for the scratch file of a write to `path`: `.<name>.`
+/// (`tempfile` appends its own random middle and our `.tmp` suffix, giving
+/// `.note.md.a1b2c3.tmp`).
+///
+/// The temp file is forced to live beside its target (rename is only atomic
+/// within one filesystem), which on a cloud-synced workspace — a Google Drive
+/// streaming folder, OneDrive, Dropbox — means the sync client sees it. A
+/// random bare name like `.tmpA1b2C3` reads to those clients as a real new
+/// document: it gets uploaded, then renamed, leaving churn and trashed
+/// revisions behind. Dot-prefixed with a `.tmp` extension matches the temp-file
+/// shape their ignore rules look for, and it is hidden from our own explorer
+/// (`list_dir` skips dot-prefixed entries) either way. Best-effort — no sync
+/// client guarantees an ignore list — but strictly better than a random name,
+/// and it makes an orphan obvious: the file says which write left it.
+fn temp_prefix(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("file");
+    format!(".{name}.")
+}
+
+/// A scratch file in `dir` named after `path` (see `temp_prefix`). The random
+/// middle `tempfile` inserts is what keeps two concurrent writes to the same
+/// target from colliding, so it stays.
+fn temp_beside(path: &Path, dir: &Path) -> std::io::Result<tempfile::NamedTempFile> {
+    tempfile::Builder::new()
+        .prefix(&temp_prefix(path))
+        .suffix(".tmp")
+        .tempfile_in(dir)
 }
 
 /// Atomically write base64-decoded bytes (pasted clipboard images). Same
@@ -218,7 +251,7 @@ pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     // Copy into a temp file in the destination's own directory, then atomically
     // rename into place — same invariant as `atomic_write_bytes`, so a crash
     // mid-copy can't leave a half-written file at `to`.
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    let mut tmp = temp_beside(&to, dir)?;
     {
         let mut src = fs::File::open(&from).map_err(|e| not_found_or_io(e, &from))?;
         std::io::copy(&mut src, tmp.as_file_mut())?;
@@ -547,6 +580,31 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("note.md")]);
+    }
+
+    #[test]
+    fn temp_file_is_dot_prefixed_and_named_after_its_target() {
+        // Cloud sync clients (Drive streaming, OneDrive, Dropbox) see this name
+        // before the rename; it must read as scratch, not as a new document.
+        let dir = tmpdir();
+        let target = dir.path().join("note.md");
+        let tmp = temp_beside(&target, dir.path()).unwrap();
+        let name = tmp
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            name.starts_with(".note.md."),
+            "unexpected temp name: {name}"
+        );
+        assert!(name.ends_with(".tmp"), "unexpected temp name: {name}");
+    }
+
+    #[test]
+    fn temp_prefix_falls_back_for_a_nameless_path() {
+        assert_eq!(temp_prefix(Path::new("/")), ".file.");
     }
 
     #[test]

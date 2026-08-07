@@ -7,7 +7,7 @@ vi.mock('@tauri-apps/api/path', () => ({
   join: async (...parts: string[]) => parts.join('/'),
 }));
 
-import { resolvePaths } from '../paths';
+import { resolvePaths, resolveScanDebugDir } from '../paths';
 import { ipc } from '../commands';
 import { DEFAULT_SETTINGS } from '../../core/settings';
 
@@ -55,5 +55,23 @@ describe('resolvePaths', () => {
       const paths = await resolvePaths({ ...DEFAULT_SETTINGS, notesDir: '/custom' }, 'android');
       expect(paths.notesDir).toBe('/custom');
     });
+  });
+});
+
+describe('resolveScanDebugDir', () => {
+  // Always app-owned local storage, never the (possibly cloud-synced) workspace
+  // — a dump is tens of megabytes of throwaway rasters.
+  test('sits under the internal app data dir on desktop', async () => {
+    expect(await resolveScanDebugDir('desktop')).toBe('/app-data/scan-debug');
+  });
+
+  test('uses the external files dir on android so a file manager can reach it', async () => {
+    vi.spyOn(ipc, 'externalFilesDir').mockResolvedValue('/ext/files');
+    expect(await resolveScanDebugDir('android')).toBe('/ext/files/scan-debug');
+  });
+
+  test('falls back to internal storage when the external dir is unavailable', async () => {
+    vi.spyOn(ipc, 'externalFilesDir').mockRejectedValue(new Error('no plugin'));
+    expect(await resolveScanDebugDir('android')).toBe('/app-data/scan-debug');
   });
 });
