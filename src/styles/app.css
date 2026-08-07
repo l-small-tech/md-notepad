@@ -529,6 +529,26 @@
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
+/* Save is the one ribbon button whose GLYPH carries state rather than naming a
+   command: the accent marks auto save (the icon itself swaps to the badged
+   floppy), and full-strength ink marks a document with unwritten edits — the
+   same "something is pending" signal as the tab bar's dirty dot, so the toolbar
+   and the tab agree without a second dot. */
+/* Its long press is OUR gesture — don't let the webview answer the same hold
+   with a selection callout of its own. */
+.ribbon-save {
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.ribbon-save[data-auto] {
+  color: var(--accent);
+}
+
+.ribbon-save[data-dirty]:not([data-auto]) {
+  color: var(--fg);
+}
+
 .ribbon-btn:disabled {
   opacity: 0.35;
   cursor: default;
