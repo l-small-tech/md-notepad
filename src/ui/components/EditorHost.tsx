@@ -48,6 +48,7 @@ import {
 import { isDark, subscribeDark } from '../theme';
 import { isAndroid } from '../platform';
 import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
+import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
 import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
@@ -142,6 +143,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                   // reason: the engines are platform bridges, and the null on
                   // macOS/Linux is what makes the scan record "unavailable".
                   recognize: scanTextRecognizer(),
+                  // "Debug insert": the same insert, plus every intermediate
+                  // written into a folder beside this board for later
+                  // analysis. Injected for the same layering reason as the
+                  // camera — the editor must not know about storage.
+                  saveDebug: createScanDebugSaver(() => {
+                    const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
+                    return t ? (t.filePath ?? t.notePath) : null;
+                  }),
                 },
               });
               registerWhiteboardAdapter(tabId, adapter);

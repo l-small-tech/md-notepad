@@ -433,6 +433,11 @@
   display: block;
 }
 
+.wb-scan-title[hidden],
+.wb-scan-hint[hidden] {
+  display: none;
+}
+
 .wb-scan-overlay {
   position: absolute;
   inset: 0;

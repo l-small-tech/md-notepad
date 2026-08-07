@@ -141,6 +141,7 @@ import type { EditorAdapter } from '../core/mode-sync';
 import { createLayersPanel, type LayersPanel } from './whiteboard-layers';
 import {
   createScanPanel,
+  type ScanDebugFile,
   type ScanPanel,
   type ScanPhoto,
   type ScanResult,
@@ -202,6 +203,9 @@ export interface WhiteboardAdapterOptions {
     /** This platform's text recognizer (phase 7); null where none exists —
      *  same injection rationale as capture/pick. */
     recognize: ScanRecognizeFn | null;
+    /** Write the scan's intermediates beside this document for later analysis
+     *  (the review screen's "Debug insert"); null hides that button. */
+    saveDebug?: ((files: readonly ScanDebugFile[]) => Promise<string | null>) | null;
   };
 }
 
@@ -1660,6 +1664,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         onInsertStrokes: insertScanStrokes,
         onClose: () => stage?.focus({ preventScroll: true }),
         recognize: config.recognize,
+        saveDebug: config.saveDebug ?? null,
       });
       root.append(scanPanel.element);
     }

@@ -33,6 +33,13 @@
 import { detectBoardQuad, frameQuad, orderQuad } from '../core/whiteboard/scan/quad';
 import { createRectifier } from '../core/whiteboard/scan/pipeline';
 import {
+  DIAGRAM_ZOOM_STEP,
+  fitDiagramView,
+  panDiagram,
+  zoomDiagramAt,
+  type DiagramView,
+} from '../core/diagram-zoom';
+import {
   composeCleaned,
   createCleaner,
   DEFAULT_SCAN_COLOR_MODE,
@@ -112,6 +119,16 @@ export interface ScanStrokesResult {
   readonly ocr: Promise<ScanOcrOutcome>;
 }
 
+/**
+ * One artifact of a debug dump. Text for the SVG, base64 for the images —
+ * exactly the two write primitives every storage backend has.
+ */
+export interface ScanDebugFile {
+  readonly name: string;
+  readonly kind: 'text' | 'base64';
+  readonly data: string;
+}
+
 export interface ScanPanelOptions {
   /** Take a photo with the device camera. Null where there is no camera. */
   readonly capture: (() => Promise<ScanPhoto>) | null;
@@ -129,6 +146,13 @@ export interface ScanPanelOptions {
   /** This platform's text recognizer (src/ui/scan-ocr.ts), or null where none
    *  exists — the scan then records `"status": "unavailable"`. */
   readonly recognize: ScanRecognizeFn | null;
+  /**
+   * Write the scan's intermediate artifacts (source photo, straightened photo,
+   * cleaned raster, traced SVG) into a fresh folder for later analysis, and
+   * resolve with that folder. Injected because choosing WHERE is a workspace
+   * question, not an editor one. Null hides the Debug insert button.
+   */
+  readonly saveDebug: ((files: readonly ScanDebugFile[]) => Promise<string | null>) | null;
 }
 
 /** How the panel is opened. A `ScanPhoto` skips acquisition (paste / drop). */
@@ -354,6 +378,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   let stage: Stage = 'idle';
   /** The photo as taken (before rotation), so Retake-less rotation is free. */
   let photo: RgbaImage | null = null;
+  /** The acquired photo EXACTLY as it arrived — the camera's own JPEG, before
+   *  decode, rotation or rectification. Only the debug dump wants this. */
+  let sourcePhoto: ScanPhoto | null = null;
   let quad: Quad | null = null;
   let detectedSource: 'detected' | 'frame' = 'frame';
   let preset: ScanPreset = DEFAULT_SCAN_PRESET;
@@ -379,6 +406,19 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   /** The in-flight recognition — captured into the insert payload so the
    *  adapter can patch the layer when it settles, even after the panel closes. */
   let ocrPromise: Promise<ScanOcrOutcome> | null = null;
+  /**
+   * The review preview's zoom/pan, in the same `translate·scale` form the board
+   * itself uses (`core/diagram-zoom.ts`). Inspecting whether the tracer got a
+   * word right needs pixels, and the fitted preview is a 1800 px board squeezed
+   * into a tablet pane — so the preview zooms, by pinch, wheel or double-tap.
+   */
+  let previewView: DiagramView = { scale: 1, x: 0, y: 0 };
+  /** Live preview pointers (fingers / a dragging mouse), for pan + pinch. */
+  const previewPointers = new Map<number, ScanPoint>();
+  let previewPinch = 0;
+  /** Set whenever a NEW image reaches the review screen; re-renders that merely
+   *  recolour or toggle views keep whatever the user was looking at. */
+  let previewNeedsFit = true;
   /** The band-pumping rAF handle, so cancel really cancels. */
   let pumping: number | null = null;
   /** Bumped on every close/retake; an in-flight acquire checks it before
@@ -588,6 +628,10 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     if (!l || !photo || !quad) {
       return;
     }
+    // The crop screen positions the photo itself; the review screen's zoom
+    // transform must not survive into it.
+    photoCanvas.style.transform = '';
+    photoCanvas.style.imageRendering = 'auto';
     photoCanvas.style.width = `${photo.width * l.scale}px`;
     photoCanvas.style.height = `${photo.height * l.scale}px`;
     photoCanvas.style.left = `${l.left}px`;
@@ -648,11 +692,115 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     loupe.hidden = false;
   }
 
+  /* ---------------------------- preview zoom / pan ------------------------ */
+
+  /**
+   * Push {@link previewView} onto the canvas. The canvas keeps its natural
+   * pixel size in CSS pixels and everything else is one composited transform
+   * with origin 0 0 — the same shape as the board's own viewport, so a pinch
+   * here behaves exactly like a pinch there, and zooming never re-rasterizes.
+   */
+  function applyPreviewView(): void {
+    photoCanvas.style.left = '0px';
+    photoCanvas.style.top = '0px';
+    photoCanvas.style.width = `${photoCanvas.width}px`;
+    photoCanvas.style.height = `${photoCanvas.height}px`;
+    photoCanvas.style.transformOrigin = '0 0';
+    // Past 1:1 the question is "what exactly did the tracer draw here", so show
+    // the real pixels; below it, smoothing is what makes a fitted board legible.
+    photoCanvas.style.imageRendering = previewView.scale > 1 ? 'pixelated' : 'auto';
+    photoCanvas.style.transform =
+      `translate(${previewView.x.toFixed(2)}px, ${previewView.y.toFixed(2)}px) ` +
+      `scale(${previewView.scale.toFixed(4)})`;
+  }
+
+  /** Whole board, centered — the review screen's starting point and its
+   *  double-tap reset. */
+  function fitPreview(): void {
+    const box = viewport.getBoundingClientRect();
+    previewView = fitDiagramView(photoCanvas.width, photoCanvas.height, box.width, box.height);
+    applyPreviewView();
+  }
+
+  function previewSpread(): number {
+    const [a, b] = [...previewPointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  }
+
+  function previewMidpoint(): ScanPoint {
+    const [a, b] = [...previewPointers.values()];
+    return a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : { x: 0, y: 0 };
+  }
+
+  function viewportPoint(event: PointerEvent | WheelEvent): ScanPoint {
+    const box = viewport.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
+  }
+
+  function onPreviewPointerDown(event: PointerEvent): void {
+    previewPointers.set(event.pointerId, viewportPoint(event));
+    previewPinch = previewPointers.size === 2 ? previewSpread() : 0;
+    viewport.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function onPreviewPointerMove(event: PointerEvent): void {
+    const previous = previewPointers.get(event.pointerId);
+    if (!previous) {
+      return;
+    }
+    const current = viewportPoint(event);
+    previewPointers.set(event.pointerId, current);
+    if (previewPointers.size === 1) {
+      previewView = panDiagram(previewView, current.x - previous.x, current.y - previous.y);
+    } else if (previewPointers.size === 2) {
+      // Zoom about the midpoint, so whatever sits between the fingers — the
+      // word being checked — stays between them.
+      const distance = previewSpread();
+      if (previewPinch > 0 && distance > 0) {
+        const centre = previewMidpoint();
+        previewView = zoomDiagramAt(previewView, distance / previewPinch, centre.x, centre.y);
+      }
+      previewPinch = distance;
+    }
+    applyPreviewView();
+    event.preventDefault();
+  }
+
+  function onPreviewPointerUp(event: PointerEvent): void {
+    previewPointers.delete(event.pointerId);
+    previewPinch = previewPointers.size === 2 ? previewSpread() : 0;
+    if (viewport.hasPointerCapture(event.pointerId)) {
+      viewport.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function onWheel(event: WheelEvent): void {
+    if (stage !== 'review' || event.deltaY === 0) {
+      return;
+    }
+    event.preventDefault();
+    const at = viewportPoint(event);
+    const factor = event.deltaY < 0 ? DIAGRAM_ZOOM_STEP : 1 / DIAGRAM_ZOOM_STEP;
+    previewView = zoomDiagramAt(previewView, factor, at.x, at.y);
+    applyPreviewView();
+  }
+
+  function onDoubleClick(): void {
+    if (stage === 'review') {
+      fitPreview();
+    }
+  }
+
   /* ------------------------------ crop gestures --------------------------- */
 
   let dragging: number | null = null;
 
   function onPointerDown(event: PointerEvent): void {
+    if (stage === 'review') {
+      onPreviewPointerDown(event);
+      return;
+    }
     if (stage !== 'crop' || !quad) {
       return;
     }
@@ -678,6 +826,10 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   }
 
   function onPointerMove(event: PointerEvent): void {
+    if (stage === 'review') {
+      onPreviewPointerMove(event);
+      return;
+    }
     if (dragging === null || !quad) {
       return;
     }
@@ -693,6 +845,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   }
 
   function onPointerUp(event: PointerEvent): void {
+    // Unconditional: a pointer that went down on the review screen must be
+    // released even if the panel has since moved on to another stage.
+    if (previewPointers.size > 0) {
+      onPreviewPointerUp(event);
+    }
     if (dragging === null) {
       return;
     }
@@ -713,10 +870,17 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   viewport.addEventListener('pointermove', onPointerMove);
   viewport.addEventListener('pointerup', onPointerUp);
   viewport.addEventListener('pointercancel', onPointerUp);
+  // Not passive: wheel-zoom has to stop the gesture from scrolling the pane.
+  viewport.addEventListener('wheel', onWheel, { passive: false });
+  viewport.addEventListener('dblclick', onDoubleClick);
 
   const resizeObserver = new ResizeObserver(() => {
     if (stage === 'crop') {
       renderCrop();
+    } else if (stage === 'review') {
+      // A rotated tablet gets the whole board back rather than a view that
+      // now points at the wrong part of it.
+      fitPreview();
     }
   });
   resizeObserver.observe(viewport);
@@ -727,10 +891,22 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     actions.replaceChildren(...nodes.filter((n): n is HTMLElement => n !== null));
   }
 
+  /**
+   * The panel's heading. Passing `null` hides it entirely — which is what the
+   * review screen does when there is nothing wrong: on a tablet those two
+   * paragraphs cost a fifth of the pane, and the pane is the whole point of
+   * the review screen. Warnings still get to speak.
+   */
+  function setHeader(titleText: string | null, hintText: string | null): void {
+    title.hidden = titleText === null;
+    title.textContent = titleText ?? '';
+    hint.hidden = hintText === null;
+    hint.textContent = hintText ?? '';
+  }
+
   function showAcquiring(message: string): void {
     stage = 'acquiring';
-    title.textContent = 'Scan a whiteboard';
-    hint.textContent = message;
+    setHeader('Scan a whiteboard', message);
     photoCanvas.hidden = true;
     overlay.innerHTML = '';
     progress.hidden = true;
@@ -743,17 +919,22 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       return;
     }
     stage = 'crop';
+    previewNeedsFit = true;
+    previewPointers.clear();
+    previewPinch = 0;
     rectified = null;
     cleaned = null;
     traced = null;
     builtCache = null;
     remap.clear();
     colorsRow.hidden = true;
-    title.textContent = 'Frame the board';
-    hint.textContent =
+    setHeader(
+      'Frame the board',
       detectedSource === 'detected'
         ? 'Drag the corners if the outline missed the board.'
-        : 'No board edges stood out — drag the corners onto the board.';
+        : 'No board edges stood out — drag the corners onto the board.',
+    );
+    viewport.title = '';
     photoCanvas.hidden = false;
     progress.hidden = true;
     paint(photoCanvas, photo);
@@ -808,8 +989,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       return;
     }
     stage = 'working';
-    title.textContent = 'Straightening…';
-    hint.textContent = `${job.plan.width} × ${job.plan.height} px`;
+    setHeader('Straightening…', `${job.plan.width} × ${job.plan.height} px`);
     overlay.innerHTML = '';
     loupe.hidden = true;
     progress.hidden = false;
@@ -850,8 +1030,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     }
     const job = createCleaner(rectified);
     stage = 'working';
-    title.textContent = 'Cleaning…';
-    hint.textContent = 'Removing shadows, glare and eraser ghosts';
+    setHeader('Cleaning…', 'Removing shadows, glare and eraser ghosts');
     progress.hidden = false;
     progressBar.style.width = '0%';
     setActions(button('Cancel', 'Stop and go back to the crop', cancelRectify));
@@ -886,8 +1065,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     }
     const job = createTracer(cleaned);
     stage = 'working';
-    title.textContent = 'Tracing…';
-    hint.textContent = 'Turning the ink into editable strokes';
+    setHeader('Tracing…', 'Turning the ink into editable strokes');
     progress.hidden = false;
     progressBar.style.width = '0%';
     setActions(button('Cancel', 'Stop and go back to the crop', cancelRectify));
@@ -1113,15 +1291,20 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     // behind it is what makes the preview honest.
     photoCanvas.style.background =
       reviewView !== 'photo' && colorMode === 'themed' ? 'var(--wb-bg, #ffffff)' : '';
-    const box = viewport.getBoundingClientRect();
-    const scale = Math.min(box.width / photoCanvas.width, box.height / photoCanvas.height, 1);
-    photoCanvas.style.width = `${photoCanvas.width * scale}px`;
-    photoCanvas.style.height = `${photoCanvas.height * scale}px`;
-    photoCanvas.style.left = `${(box.width - photoCanvas.width * scale) / 2}px`;
-    photoCanvas.style.top = `${(box.height - photoCanvas.height * scale) / 2}px`;
+    // A new image fits; a recolour or a view toggle keeps the zoom the user
+    // set — they are usually comparing the same detail across views.
+    if (previewNeedsFit) {
+      previewNeedsFit = false;
+      fitPreview();
+    } else {
+      applyPreviewView();
+    }
+    viewport.title = 'Pinch or scroll to zoom, drag to pan, double-tap to fit';
 
-    title.textContent = 'Ready to insert';
-    hint.textContent = reviewHint(built);
+    // No heading here: the buttons say what they do and the warnings, when
+    // there are any, say the rest. The pane belongs to the board.
+    const warnings = reviewWarnings(built);
+    setHeader(warnings.length > 0 ? 'Check the scan' : null, warnings.join(' — ') || null);
     if (reviewView !== 'photo' && cleaned !== null) {
       renderColorChips();
     } else {
@@ -1137,6 +1320,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         view === 'photo' || (view === 'cleaned' && hasInk) || (view === 'vector' && hasStrokes),
     );
     const next = available[(available.indexOf(reviewView) + 1) % available.length]!;
+    const summary = reviewSummary(built);
 
     setActions(
       button('Back', 'Adjust the crop', showCrop),
@@ -1155,21 +1339,30 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         ? button('Copy text', 'Copy the recognized handwriting as plain text', copyRecognizedText)
         : null,
       button('Cancel', 'Discard the scan', close),
+      options.saveDebug !== null
+        ? button(
+            'Debug insert',
+            'Insert as usual, and also save the source photo, the straightened photo, ' +
+              'the cleaned board and the traced SVG into a folder beside this whiteboard',
+            () => void debugInsert(),
+          )
+        : null,
       button(
         'Insert photo',
-        'Add the straightened photo to this whiteboard',
+        `Add the straightened photo to this whiteboard. ${summary}`,
         () => insert('photo'),
         !hasInk,
       ),
       hasInk
-        ? button('Insert image', 'Add the cleaned board as a picture instead', () =>
+        ? button('Insert image', `Add the cleaned board as a picture instead. ${summary}`, () =>
             insert('cleaned'),
           )
         : null,
       hasStrokes
         ? button(
             'Insert strokes',
-            'Add the traced ink as editable strokes — erase, move and recolour them like drawn ink',
+            'Add the traced ink as editable strokes — erase, move and recolour them like ' +
+              `drawn ink. ${summary}`,
             () => insert('strokes'),
             true,
           )
@@ -1177,42 +1370,56 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     );
   }
 
-  /** What the review screen says — honest about glare and about empty boards. */
-  function reviewHint(built: ScanElements | null): string {
-    if (!rectified) {
-      return '';
+  /**
+   * ONLY what is wrong. The counts-and-colours summary the review screen used
+   * to print above the board was true and useless — the board itself shows it,
+   * and on a tablet the paragraph cost more than it said. It now rides the
+   * Insert button's tooltip; this returns the things a user could act on.
+   */
+  function reviewWarnings(built: ScanElements | null): string[] {
+    const parts: string[] = [];
+    if (cleaned === null) {
+      return parts;
     }
-    const parts: string[] = [`${rectified.width} × ${rectified.height} px`];
-    if (cleaned !== null) {
+    if (cleaned.extraction.components.length === 0) {
+      parts.push('no ink stood out — only the straightened photo can be inserted');
+    }
+    if (cleaned.glareFraction > GLARE_HINT_FRACTION) {
+      parts.push('glare detected — some ink may be lost; try shooting from off-axis');
+    }
+    if (built !== null && built.reduced) {
+      parts.push('dense board — the geometry was simplified to keep the file small');
+    }
+    if (built !== null && built.strokes > MAX_SCAN_STROKES) {
+      parts.push('a very dense board; expect the editor to feel it');
+    }
+    return parts;
+  }
+
+  /** The counts, for the Insert button's tooltip — available on demand rather
+   *  than permanently occupying the pane. */
+  function reviewSummary(built: ScanElements | null): string {
+    const parts: string[] = [];
+    if (rectified !== null) {
+      parts.push(`${rectified.width} × ${rectified.height} px`);
+    }
+    if (built !== null) {
+      const colours = new Set(built.elements.map((e) => e.stroke)).size;
+      parts.push(
+        `${built.strokes} editable stroke${built.strokes === 1 ? '' : 's'} in ` +
+          `${colours} colour${colours === 1 ? '' : 's'}`,
+      );
+    } else if (cleaned !== null) {
       const marks = cleaned.extraction.components.length;
-      if (marks === 0) {
-        parts.push('no ink stood out — the photo is still available below');
-      } else if (built !== null) {
-        const colours = new Set(built.elements.map((e) => e.stroke)).size;
-        parts.push(
-          `${built.strokes} editable stroke${built.strokes === 1 ? '' : 's'} in ` +
-            `${colours} colour${colours === 1 ? '' : 's'}`,
-        );
-        if (built.reduced) {
-          parts.push('dense board — the geometry was simplified to keep the file small');
-        }
-        if (built.strokes > MAX_SCAN_STROKES) {
-          parts.push('a very dense board; expect the editor to feel it');
-        }
-      } else if (reviewView === 'cleaned') {
-        const colours = cleaned.colors.tallies.length;
-        parts.push(
-          `${marks} ink mark${marks === 1 ? '' : 's'} in ${colours} colour${colours === 1 ? '' : 's'}`,
-        );
-      }
-      if (cleaned.glareFraction > GLARE_HINT_FRACTION) {
-        parts.push('glare detected — some ink may be lost; try shooting from off-axis');
-      }
-      if (ocrOutcome?.status === 'ok') {
-        const read = ocrOutcome.lines.filter((line) => line.text.length > 0).length;
-        if (read > 0) {
-          parts.push(`${read} line${read === 1 ? '' : 's'} of text recognized`);
-        }
+      parts.push(
+        `${marks} ink mark${marks === 1 ? '' : 's'} in ` +
+          `${cleaned.colors.tallies.length} colour${cleaned.colors.tallies.length === 1 ? '' : 's'}`,
+      );
+    }
+    if (ocrOutcome?.status === 'ok') {
+      const read = ocrOutcome.lines.filter((line) => line.text.length > 0).length;
+      if (read > 0) {
+        parts.push(`${read} line${read === 1 ? '' : 's'} of text recognized`);
       }
     }
     parts.push(
@@ -1252,6 +1459,100 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     return composeCleaned(cleaned!, 'true', {
       inkFor: (color) => hexTriple(remapped(color).measured),
     });
+  }
+
+  /* ------------------------------- debug dump ----------------------------- */
+
+  /** XML text escape — the debug SVG carries recognized text verbatim. */
+  function escapeXml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /**
+   * The traced board as a STANDALONE `.svg` — the same `d` strings that will
+   * land in the whiteboard, in rectified-image pixels, on a white sheet so the
+   * file opens legibly in any viewer. This is the artifact worth diffing when
+   * a trace comes out wrong.
+   */
+  function debugSvg(built: ScanElements, size: RgbaImage): string {
+    const body = built.elements
+      .map((stroke) =>
+        stroke.tool === 'scanfill'
+          ? `  <path d="${stroke.d}" fill="${stroke.stroke}" fill-rule="evenodd"/>`
+          : `  <path d="${stroke.d}" fill="none" stroke="${stroke.stroke}" ` +
+            `stroke-width="${stroke.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      )
+      .join('\n');
+    const text =
+      ocrOutcome?.status === 'ok' && ocrPlainText(ocrOutcome.lines).length > 0
+        ? `  <desc>${escapeXml(ocrPlainText(ocrOutcome.lines))}</desc>\n`
+        : '';
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size.width} ${size.height}" ` +
+      `width="${size.width}" height="${size.height}">\n` +
+      text +
+      `  <rect width="100%" height="100%" fill="#ffffff"/>\n${body}\n</svg>\n`
+    );
+  }
+
+  /** `data:image/jpeg;base64,AAA` → `AAA` (the write primitive takes payloads). */
+  function base64Payload(dataUrl: string): string {
+    return dataUrl.slice(dataUrl.indexOf(',') + 1);
+  }
+
+  /**
+   * "Debug insert": everything a normal insert does, plus the intermediates
+   * written to disk. Deliberately the SAME insert path rather than a parallel
+   * one — a debugging button that exercises different code proves nothing.
+   */
+  async function debugInsert(): Promise<void> {
+    const save = options.saveDebug;
+    if (!save || !rectified) {
+      return;
+    }
+    const files: ScanDebugFile[] = [];
+    if (sourcePhoto) {
+      const decoded = decodeDataUrl(sourcePhoto.dataUrl);
+      const ext = decoded?.mime === 'image/png' ? 'png' : 'jpg';
+      files.push({
+        name: `1-source.${ext}`,
+        kind: 'base64',
+        data: base64Payload(sourcePhoto.dataUrl),
+      });
+    }
+    const straightened = encodeJpeg(rectified, 0.92);
+    if (straightened) {
+      files.push({ name: '2-straightened.jpg', kind: 'base64', data: base64Payload(straightened) });
+    }
+    if (cleaned) {
+      const png = encodePng(composeCleanedForDisplay());
+      if (png) {
+        files.push({ name: '3-cleaned.png', kind: 'base64', data: base64Payload(png) });
+      }
+    }
+    const built = ensureBuilt();
+    if (built) {
+      files.push({ name: '4-traced.svg', kind: 'text', data: debugSvg(built, rectified) });
+    }
+
+    // Insert FIRST — the write is the side errand, and the user should not be
+    // waiting on a disk round-trip to see their board.
+    const hasStrokes = traced !== null && traced.components.length > 0;
+    insert(hasStrokes ? 'strokes' : 'photo');
+    try {
+      const folder = await save(files);
+      options.onNotice(
+        folder === null
+          ? 'The scan debug files could not be saved.'
+          : `Scan debug files saved to "${folder}".`,
+      );
+    } catch {
+      options.onNotice('The scan debug files could not be saved.');
+    }
   }
 
   function insert(kind: 'strokes' | 'cleaned' | 'photo'): void {
@@ -1369,6 +1670,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         return;
       }
       photo = decoded;
+      sourcePhoto = acquired;
       const detection = detectBoardQuad(decoded);
       quad = detection.quad;
       detectedSource = detection.source;
@@ -1384,6 +1686,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     }
     stage = 'idle';
     photo = null;
+    sourcePhoto = null;
     quad = null;
     rectified = null;
     cleaned = null;
@@ -1394,6 +1697,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     remap.clear();
     reviewView = 'vector';
     dragging = null;
+    previewPointers.clear();
+    previewPinch = 0;
+    previewNeedsFit = true;
     element.hidden = true;
     overlay.innerHTML = '';
     loupe.hidden = true;
@@ -1419,9 +1725,12 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       viewport.removeEventListener('pointermove', onPointerMove);
       viewport.removeEventListener('pointerup', onPointerUp);
       viewport.removeEventListener('pointercancel', onPointerUp);
+      viewport.removeEventListener('wheel', onWheel);
+      viewport.removeEventListener('dblclick', onDoubleClick);
       element.remove();
       stage = 'idle';
       photo = null;
+      sourcePhoto = null;
       quad = null;
       rectified = null;
       cleaned = null;
