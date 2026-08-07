@@ -74,7 +74,29 @@ export const SCAN_PRESETS = {
 
 export type ScanPreset = keyof typeof SCAN_PRESETS;
 
-export const DEFAULT_SCAN_PRESET: ScanPreset = 'balanced';
+/**
+ * Detailed by default (UAT preference): the extra pixels cost time, not
+ * quality, and `planRectify`'s source clamp means a low-res capture never
+ * pays for resolution it cannot use.
+ */
+export const DEFAULT_SCAN_PRESET: ScanPreset = 'detailed';
+
+/**
+ * Trace simplification strength — a multiplier on `buildScanElements`'
+ * RDP ε (`epsilonFactor`). The honest two ends of the writing↔diagram axis:
+ * `precise` keeps small letterforms' vertices, `simplified` straightens long
+ * diagram lines and shrinks the file. It affects TRACED STROKES only — the
+ * cleaned raster has no vertices to simplify.
+ */
+export const SCAN_SMOOTHING = {
+  precise: 0.6,
+  standard: 1,
+  simplified: 2,
+} as const;
+
+export type ScanSmoothing = keyof typeof SCAN_SMOOTHING;
+
+export const DEFAULT_SCAN_SMOOTHING: ScanSmoothing = 'standard';
 
 /** How a quad was arrived at — the crop screen says so, and it matters. */
 export type QuadSource =

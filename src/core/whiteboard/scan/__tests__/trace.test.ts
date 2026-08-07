@@ -331,4 +331,19 @@ describe('fitScanElements', () => {
     expect(fitted.epsilonFactor).toBe(1);
     expect(fitted.reduced).toBe(false);
   });
+
+  it('honours a caller epsilonFactor (the Smoothing control) without reporting reduced', () => {
+    // Precise keeps at least as many bytes of geometry as Simplified: ε scales
+    // with the factor, and fewer vertices survive a coarser ε.
+    const precise = fitScanElements(result, cleaned.colors, { mode: 'themed', epsilonFactor: 0.6 });
+    const simplified = fitScanElements(result, cleaned.colors, {
+      mode: 'themed',
+      epsilonFactor: 2,
+    });
+    expect(precise.epsilonFactor).toBe(0.6);
+    expect(simplified.epsilonFactor).toBe(2);
+    expect(precise.reduced).toBe(false);
+    expect(simplified.reduced).toBe(false);
+    expect(precise.bytes).toBeGreaterThanOrEqual(simplified.bytes);
+  });
 });

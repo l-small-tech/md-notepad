@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-// The dump target is app-owned local storage; the path plugin behind
-// `resolveScanDebugDir` is not available under Vitest, so stub the resolver.
+// The unsaved-board fallback resolves app storage through the path plugin,
+// which is not available under Vitest — stub the resolver.
 vi.mock('../../ipc/paths', () => ({
   resolveScanDebugDir: async () => '/app-data/scan-debug',
+}));
+const refreshExplorer = vi.fn();
+vi.mock('../stores/ui', () => ({
+  uiStore: { getState: () => ({ refreshExplorer }) },
 }));
 
 import { createScanDebugSaver } from '../scan-debug';
@@ -20,9 +24,12 @@ const FILES = [
 let created: string[];
 let written: [string, string][];
 
+// `currentProvider()` resolves to LocalFsProvider unless a synced workspace
+// is active, so spying on LocalFsProvider covers both code paths here.
 beforeEach(() => {
   created = [];
   written = [];
+  refreshExplorer.mockClear();
   vi.spyOn(LocalFsProvider, 'createDir').mockImplementation(async (p) => {
     created.push(p);
   });
@@ -35,14 +42,14 @@ beforeEach(() => {
 });
 
 describe('createScanDebugSaver', () => {
-  test('writes into local app storage, not beside the board', async () => {
+  test('a saved board dumps BESIDE the board (UAT: where the user is looking)', async () => {
     const save = createScanDebugSaver(() => 'D:/MyNotes/board.md', now);
     const folder = await save(FILES);
 
-    expect(folder).toBe('/app-data/scan-debug/board-2026-08-06-143205');
-    expect(created).toEqual(['/app-data/scan-debug/board-2026-08-06-143205']);
-    // Nothing under the workspace root the board lives in.
-    expect(written.every(([p]) => p.startsWith('/app-data/scan-debug/'))).toBe(true);
+    expect(folder).toBe('D:/MyNotes/scan-debug-2026-08-06-143205');
+    expect(created).toEqual(['D:/MyNotes/scan-debug-2026-08-06-143205']);
+    // And the explorer refreshes so the new folder is visible.
+    expect(refreshExplorer).toHaveBeenCalledTimes(1);
   });
 
   test('routes each file by kind, keeping the pipeline order', async () => {
@@ -50,20 +57,17 @@ describe('createScanDebugSaver', () => {
     await save(FILES);
 
     expect(written).toEqual([
-      ['/app-data/scan-debug/board-2026-08-06-143205/1-source.jpg', 'AAA'],
-      ['/app-data/scan-debug/board-2026-08-06-143205/4-traced.svg', '<svg/>'],
+      ['D:/MyNotes/scan-debug-2026-08-06-143205/1-source.jpg', 'AAA'],
+      ['D:/MyNotes/scan-debug-2026-08-06-143205/4-traced.svg', '<svg/>'],
     ]);
   });
 
-  test('a synced (saf://) board still dumps locally', async () => {
-    const save = createScanDebugSaver(() => 'saf://tree%3Aabc/notes/board.md', now);
-    expect(await save(FILES)).toBe('/app-data/scan-debug/board-2026-08-06-143205');
-  });
-
-  test('an unsaved board can be debugged — it just has no name to borrow', async () => {
+  test('an unsaved board falls back to app-local storage', async () => {
     const save = createScanDebugSaver(() => null, now);
     expect(await save(FILES)).toBe('/app-data/scan-debug/scan-2026-08-06-143205');
     expect(created).toHaveLength(1);
+    // Nothing to show in the explorer — the dump is outside every workspace.
+    expect(refreshExplorer).not.toHaveBeenCalled();
   });
 
   test('writes nothing when the pipeline produced no artifacts', async () => {
@@ -71,5 +75,6 @@ describe('createScanDebugSaver', () => {
     expect(await save([])).toBeNull();
     expect(created).toEqual([]);
     expect(written).toEqual([]);
+    expect(refreshExplorer).not.toHaveBeenCalled();
   });
 });

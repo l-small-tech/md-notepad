@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectBoardQuad } from '../quad';
 import { createRectifier } from '../pipeline';
-import { createCleaner, composeCleaned } from '../clean';
+import { createCleaner, composeCleaned, composeRemovedDebug } from '../clean';
 import { normalizeIllumination, detectGlare } from '../illumination';
 import { binarize } from '../binarize';
 import { createTracer, fitScanElements, type TracedStroke } from '../trace';
@@ -79,6 +79,29 @@ describe.runIf(dir)('scan photo harness', () => {
     );
     out(`page strokeWidth w=${w.toFixed(2)} px`);
     out(`components: ${trace.components.length}`);
+
+    // Every removed component with the filter that killed it and the stats the
+    // filter judged — the first place to look when ink is missing.
+    {
+      const removed = clean.extraction.removedComponents;
+      const cw = clean.extraction.strokeWidth;
+      out(`removed components: ${removed.length}`);
+      const bySize = [...removed].sort((a, b) => b.component.area - a.component.area).slice(0, 30);
+      for (const { component: c, reason } of bySize) {
+        out(
+          `  ${reason} bbox=${c.minX},${c.minY}..${c.maxX},${c.maxY} area/w2=${(c.area / (cw * cw)).toFixed(1)} ` +
+            `thinness=${c.thinness.toFixed(1)} strongRatio=${c.strongRatio.toFixed(2)} ` +
+            `dtMax/w=${(c.dtMax / cw).toFixed(2)} glareRatio=${c.glareRatio.toFixed(2)} ` +
+            `border=${c.touchesBorder}`,
+        );
+      }
+      const removedVis = composeRemovedDebug(clean);
+      writeFileSync(join(dir!, 'removed.rgba'), Buffer.from(removedVis.data.buffer));
+      writeFileSync(
+        join(dir!, 'removed.json'),
+        JSON.stringify({ width: removedVis.width, height: removedVis.height }),
+      );
+    }
 
     const strokes = trace.components.filter((c): c is TracedStroke => c.kind === 'stroke');
     const fills = trace.components.filter((c) => c.kind === 'fill');

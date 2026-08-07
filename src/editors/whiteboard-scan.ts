@@ -41,6 +41,7 @@ import {
 } from '../core/diagram-zoom';
 import {
   composeCleaned,
+  composeRemovedDebug,
   createCleaner,
   DEFAULT_SCAN_COLOR_MODE,
   GLARE_HINT_FRACTION,
@@ -79,10 +80,13 @@ import {
 import { rotate90 } from '../core/whiteboard/scan/image-ops';
 import {
   DEFAULT_SCAN_PRESET,
+  DEFAULT_SCAN_SMOOTHING,
+  SCAN_SMOOTHING,
   type Quad,
   type RgbaImage,
   type ScanPoint,
   type ScanPreset,
+  type ScanSmoothing,
 } from '../core/whiteboard/scan/types';
 
 /** A photo handed to the scan screen: a `data:` URL and its pixel size. */
@@ -110,6 +114,9 @@ export interface ScanStrokesResult {
   readonly colors: ColorAssignment;
   readonly mode: ScanColorMode;
   readonly remap: ReadonlyMap<MarkerColor, MarkerColor>;
+  /** Trace simplification chosen on the review screen — the adapter's
+   *  `fitScanElements` must build with the same ε the preview showed. */
+  readonly smoothing: ScanSmoothing;
   /**
    * The recognition outcome, possibly still in flight — OCR NEVER blocks the
    * scan (plan S6): strokes insert first and the adapter patches the layer's
@@ -127,6 +134,12 @@ export interface ScanDebugFile {
   readonly name: string;
   readonly kind: 'text' | 'base64';
   readonly data: string;
+}
+
+/** The scan panel's remembered tuning — preset and smoothing survive sessions. */
+export interface ScanPrefs {
+  readonly preset: ScanPreset;
+  readonly smoothing: ScanSmoothing;
 }
 
 export interface ScanPanelOptions {
@@ -153,6 +166,15 @@ export interface ScanPanelOptions {
    * question, not an editor one. Null hides the Debug insert button.
    */
   readonly saveDebug: ((files: readonly ScanDebugFile[]) => Promise<string | null>) | null;
+  /**
+   * Last-used preset + smoothing, read on open and written on change.
+   * Injected (EditorHost owns the settings store — I9 keeps editors off it);
+   * null forgets between opens and falls back to the defaults.
+   */
+  readonly prefs?: {
+    readonly get: () => ScanPrefs;
+    readonly set: (prefs: ScanPrefs) => void;
+  } | null;
 }
 
 /** How the panel is opened. A `ScanPhoto` skips acquisition (paste / drop). */
@@ -383,7 +405,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   let sourcePhoto: ScanPhoto | null = null;
   let quad: Quad | null = null;
   let detectedSource: 'detected' | 'frame' = 'frame';
-  let preset: ScanPreset = DEFAULT_SCAN_PRESET;
+  let preset: ScanPreset = options.prefs?.get().preset ?? DEFAULT_SCAN_PRESET;
+  /** Trace simplification strength; affects traced strokes, never the raster. */
+  let smoothing: ScanSmoothing = options.prefs?.get().smoothing ?? DEFAULT_SCAN_SMOOTHING;
   let rectified: RgbaImage | null = null;
   /** The phase-5 pipeline output (ink components + colours), once cleaned. */
   let cleaned: CleanResult | null = null;
@@ -485,7 +509,12 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   presetSelect.value = preset;
   presetSelect.addEventListener('change', () => {
     preset = (presetSelect.value as ScanPreset) ?? DEFAULT_SCAN_PRESET;
+    savePrefs();
   });
+
+  function savePrefs(): void {
+    options.prefs?.set({ preset, smoothing });
+  }
 
   /** Colour handling for the cleaned board. Themed first — it is the default. */
   const COLOR_MODE_LABELS: readonly (readonly [ScanColorMode, string])[] = [
@@ -510,6 +539,35 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     colorMode = (colorSelect.value as ScanColorMode) ?? DEFAULT_SCAN_COLOR_MODE;
     builtCache = null;
     if (stage === 'review' && reviewView !== 'photo') {
+      showReview();
+    }
+  });
+
+  /** Trace simplification for the review's stroke build. Standard first. */
+  const SMOOTHING_LABELS: readonly (readonly [ScanSmoothing, string])[] = [
+    ['precise', 'Precise'],
+    ['standard', 'Standard'],
+    ['simplified', 'Simplified'],
+  ];
+
+  const smoothingSelect = document.createElement('select');
+  smoothingSelect.className = 'wb-scan-select';
+  smoothingSelect.title =
+    'How much the traced strokes are simplified — Precise keeps small handwriting detail, ' +
+    'Simplified straightens long diagram lines. Affects traced strokes, not the cleaned image.';
+  smoothingSelect.setAttribute('aria-label', 'Stroke smoothing');
+  for (const [value, label] of SMOOTHING_LABELS) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    smoothingSelect.append(option);
+  }
+  smoothingSelect.value = smoothing;
+  smoothingSelect.addEventListener('change', () => {
+    smoothing = (smoothingSelect.value as ScanSmoothing) ?? DEFAULT_SCAN_SMOOTHING;
+    savePrefs();
+    builtCache = null;
+    if (stage === 'review' && reviewView === 'vector') {
       showReview();
     }
   });
@@ -1196,7 +1254,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     if (!traced || !cleaned) {
       return null;
     }
-    const key = `${colorMode}|${[...remap.entries()]
+    const key = `${colorMode}|${smoothing}|${[...remap.entries()]
       .map(([from, to]) => `${from}>${to}`)
       .sort()
       .join(',')}`;
@@ -1207,6 +1265,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
           mode: colorMode,
           remap,
           transform: IDENTITY_TRANSFORM,
+          epsilonFactor: SCAN_SMOOTHING[smoothing],
         }),
       };
     }
@@ -1335,6 +1394,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
           )
         : null,
       reviewView !== 'photo' ? colorSelect : null,
+      reviewView === 'vector' ? smoothingSelect : null,
       ocrOutcome?.status === 'ok' && ocrPlainText(ocrOutcome.lines).length > 0
         ? button('Copy text', 'Copy the recognized handwriting as plain text', copyRecognizedText)
         : null,
@@ -1514,35 +1574,71 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     if (!save || !rectified) {
       return;
     }
+    // A debug button must never fail SILENTLY — if assembling any artifact
+    // throws, say which one and still insert; a partial dump beats nothing.
     const files: ScanDebugFile[] = [];
+    let buildError: string | null = null;
+    const tryBuild = (name: string, build: () => ScanDebugFile | null): void => {
+      try {
+        const file = build();
+        if (file) {
+          files.push(file);
+        }
+      } catch (error) {
+        buildError = `${name}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
     if (sourcePhoto) {
-      const decoded = decodeDataUrl(sourcePhoto.dataUrl);
-      const ext = decoded?.mime === 'image/png' ? 'png' : 'jpg';
-      files.push({
-        name: `1-source.${ext}`,
-        kind: 'base64',
-        data: base64Payload(sourcePhoto.dataUrl),
+      tryBuild('1-source', () => {
+        const decoded = decodeDataUrl(sourcePhoto!.dataUrl);
+        const ext = decoded?.mime === 'image/png' ? 'png' : 'jpg';
+        return {
+          name: `1-source.${ext}`,
+          kind: 'base64',
+          data: base64Payload(sourcePhoto!.dataUrl),
+        };
       });
     }
-    const straightened = encodeJpeg(rectified, 0.92);
-    if (straightened) {
-      files.push({ name: '2-straightened.jpg', kind: 'base64', data: base64Payload(straightened) });
-    }
+    tryBuild('2-straightened', () => {
+      const straightened = encodeJpeg(rectified!, 0.92);
+      return straightened
+        ? { name: '2-straightened.jpg', kind: 'base64', data: base64Payload(straightened) }
+        : null;
+    });
     if (cleaned) {
-      const png = encodePng(composeCleanedForDisplay());
-      if (png) {
-        files.push({ name: '3-cleaned.png', kind: 'base64', data: base64Payload(png) });
-      }
+      tryBuild('3-cleaned', () => {
+        const png = encodePng(composeCleanedForDisplay());
+        return png ? { name: '3-cleaned.png', kind: 'base64', data: base64Payload(png) } : null;
+      });
+      // What the filters dropped, tinted by reason (see REMOVAL_TINTS) — the
+      // artifact to open when ink is missing from 3-cleaned.
+      tryBuild('3b-removed', () => {
+        const removedPng = encodePng(composeRemovedDebug(cleaned!));
+        return removedPng
+          ? { name: '3b-removed.png', kind: 'base64', data: base64Payload(removedPng) }
+          : null;
+      });
     }
-    const built = ensureBuilt();
-    if (built) {
-      files.push({ name: '4-traced.svg', kind: 'text', data: debugSvg(built, rectified) });
+    tryBuild('4-traced', () => {
+      const built = ensureBuilt();
+      return built
+        ? { name: '4-traced.svg', kind: 'text', data: debugSvg(built, rectified!) }
+        : null;
+    });
+    if (buildError !== null) {
+      options.onNotice(`A debug artifact could not be built (${buildError}).`);
     }
 
     // Insert FIRST — the write is the side errand, and the user should not be
     // waiting on a disk round-trip to see their board.
     const hasStrokes = traced !== null && traced.components.length > 0;
-    insert(hasStrokes ? 'strokes' : 'photo');
+    try {
+      insert(hasStrokes ? 'strokes' : 'photo');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      options.onNotice(`The scan could not be inserted (${message}).`);
+      return;
+    }
     try {
       const folder = await save(files);
       options.onNotice(
@@ -1550,8 +1646,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
           ? 'The scan debug files could not be saved.'
           : `Scan debug files saved to "${folder}".`,
       );
-    } catch {
-      options.onNotice('The scan debug files could not be saved.');
+    } catch (error) {
+      // Name the failure — "could not be saved" with no reason sends whoever
+      // is debugging the debugger straight to the devtools console.
+      const message = error instanceof Error ? error.message : String(error);
+      options.onNotice(`The scan debug files could not be saved (${message}).`);
     }
   }
 
@@ -1568,6 +1667,7 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
         colors: cleaned.colors,
         mode: colorMode,
         remap: new Map(remap),
+        smoothing,
         // Captured BEFORE close() wipes the panel — the promise is the only
         // thing that carries a still-running recognition to the adapter.
         ocr: ocrPromise ?? Promise.resolve({ status: 'unavailable' }),
@@ -1622,6 +1722,15 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
 
   function open(source: ScanSource): void {
     const mine = ++generation;
+    // Re-read remembered tuning on every open — another scan (or another
+    // window) may have changed it since this panel was constructed.
+    const prefs = options.prefs?.get();
+    if (prefs) {
+      preset = prefs.preset;
+      presetSelect.value = preset;
+      smoothing = prefs.smoothing;
+      smoothingSelect.value = smoothing;
+    }
     element.hidden = false;
     element.focus({ preventScroll: true });
     showAcquiring(

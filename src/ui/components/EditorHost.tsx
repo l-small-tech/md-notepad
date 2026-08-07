@@ -144,14 +144,27 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                   // macOS/Linux is what makes the scan record "unavailable".
                   recognize: scanTextRecognizer(),
                   // "Debug insert": the same insert, plus every intermediate
-                  // written into a dated folder in local app storage for later
-                  // analysis (the path only names the folder — see
-                  // ui/scan-debug.ts). Injected for the same layering reason as
-                  // the camera — the editor must not know about storage.
+                  // written into a dated folder BESIDE the board (app-local
+                  // storage only for a never-saved board — see ui/scan-debug.ts).
+                  // Injected for the same layering reason as the camera — the
+                  // editor must not know about storage.
                   saveDebug: createScanDebugSaver(() => {
                     const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
                     return t ? (t.filePath ?? t.notePath) : null;
                   }),
+                  // The scan panel remembers its tuning across scans and
+                  // relaunches; the settings store is the persistence, the
+                  // panel never sees it directly (I9).
+                  prefs: {
+                    get: () => ({
+                      preset: settingsStore.getState().settings.scanPreset,
+                      smoothing: settingsStore.getState().settings.scanSmoothing,
+                    }),
+                    set: ({ preset, smoothing }) =>
+                      settingsStore
+                        .getState()
+                        .update({ scanPreset: preset, scanSmoothing: smoothing }),
+                  },
                 },
               });
               registerWhiteboardAdapter(tabId, adapter);

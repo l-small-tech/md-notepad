@@ -39,6 +39,8 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'blue',
       imagePasteLocation: 'workspaceRoot',
       imageFolderName: 'assets',
+      scanPreset: 'balanced',
+      scanSmoothing: 'precise',
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
@@ -62,6 +64,8 @@ describe('normalizeSettings', () => {
       imageFolderName: 'assets',
       explorerCollapsedWorkspaces: [],
       explorerExpandedDirs: [],
+      scanPreset: 'balanced',
+      scanSmoothing: 'precise',
     });
   });
 
@@ -103,8 +107,21 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'mauve',
       imagePasteLocation: 'wherever',
       imageFolderName: 42,
+      scanPreset: 'ultra',
+      scanSmoothing: 'extreme',
     });
     expect(settings).toEqual(DEFAULT_SETTINGS);
+  });
+
+  test('scan prefs round-trip and reject unknown values', () => {
+    expect(normalizeSettings({ scanPreset: 'fast', scanSmoothing: 'simplified' })).toMatchObject({
+      scanPreset: 'fast',
+      scanSmoothing: 'simplified',
+    });
+    expect(normalizeSettings({ scanPreset: 3600, scanSmoothing: 2 })).toMatchObject({
+      scanPreset: DEFAULT_SETTINGS.scanPreset,
+      scanSmoothing: DEFAULT_SETTINGS.scanSmoothing,
+    });
   });
 
   test('workspaces keeps well-formed entries and drops malformed ones', () => {
