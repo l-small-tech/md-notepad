@@ -17,7 +17,8 @@ your notes and any other folders you care about.
 Handy things to know:
 
 - Click a section heading to collapse or expand it. Click a folder to see
-  inside it.
+  inside it. The **double chevron** at the top of the drawer shuts the whole
+  tree at once (▲▲); press it again (▼▼) to reopen the workspaces.
 - **Single-click** a file to peek at it: it opens in a *preview* tab (shown
   in italics) that gets reused as you click around, so you don't pile up
   tabs. **Double-click** — or just start editing — to keep it open for
@@ -38,7 +39,8 @@ Right-click gets you everywhere:
 
 - **Right-click a workspace or folder** → **New file** or **New folder**.
   A new file opens immediately with its name ready to type.
-- **Right-click a file** → **Rename** or **Delete** (delete asks first —
+- **Right-click a file** → **Rename**, **Reveal in explorer** (shows the
+  file in your system's file manager), or **Delete** (delete asks first —
   there is no undo).
 - **Drag a file onto a folder** (or a workspace heading) to move it there.
   The app asks before moving; you can turn that question off in Settings.
@@ -46,8 +48,8 @@ Right-click gets you everywhere:
 ## Getting files in from elsewhere
 
 - **Drag files from your computer** onto a workspace or folder in the
-  sidebar to **copy** them in. Markdown files and images are accepted;
-  anything else is skipped. The originals stay where they were.
+  sidebar to **copy** them in. Markdown files, plain text (`.txt`)
+  files, and images are accepted; anything else is skipped. The originals stay where they were.
 - **Drop a document anywhere else** in the window (over the editor, say)
   to just open it in a tab without copying anything.
 - **Paste** works too: copy a file or a screenshot, click the workspace or
