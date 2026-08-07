@@ -122,7 +122,8 @@ function applyDomSettings(): void {
 
 applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
-// Follow the OS live while the setting is "system".
+// Follow the OS live while the setting is "system", and the selected plugin's
+// declared mode once the theme registry loads (or reloads).
 subscribeDark(applyDomSettings);
 
 // Android: base.css pins the body (position: fixed) under this flag so the

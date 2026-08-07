@@ -48,8 +48,8 @@ function currentLightGreenFile(): string {
   return JSON.stringify({
     name: lightGreen.name,
     version: SEED_VERSION,
-    light: lightGreen.light,
-    dark: lightGreen.dark,
+    mode: lightGreen.mode,
+    branding: lightGreen.branding,
     syntax: lightGreen.syntax,
   });
 }
@@ -66,8 +66,8 @@ describe('loadThemePlugins — built-in refresh', () => {
     // loader must never overwrite it — doing so would destroy the user's content.
     const userAtBuiltInId = JSON.stringify({
       name: 'My Light Green',
-      light: { bg: '#123456' },
-      dark: { bg: '#654321' },
+      mode: 'light',
+      branding: { bg: '#123456' },
     });
     const { writes } = mockThemesFolder({ [lgPath]: userAtBuiltInId });
 
@@ -81,12 +81,12 @@ describe('loadThemePlugins — built-in refresh', () => {
     // The loaded plugin is the user's, not the shipped built-in.
     const lg = plugins.find((p) => p.id === 'light-green')!;
     expect(lg.name).toBe('My Light Green');
-    expect(lg.light.bg).toBe('#123456');
-    expect(lg.dark.bg).toBe('#654321');
+    expect(lg.branding.bg).toBe('#123456');
   });
 
-  test('refreshes a built-in copy stamped with an older version', async () => {
-    // A genuine older built-in copy: carries a `version` stamp below SEED_VERSION.
+  test('refreshes a stamped-stale built-in copy into the new branding format', async () => {
+    // A genuine older built-in copy in the RETIRED light/dark shape: carries a
+    // `version` stamp below SEED_VERSION, so the refresh rewrites it in place.
     const stale = JSON.stringify({
       name: 'Light Green',
       version: SEED_VERSION - 1,
@@ -101,11 +101,15 @@ describe('loadThemePlugins — built-in refresh', () => {
     expect(rewrite, 'a stamped-stale built-in should be rewritten').toBeDefined();
     const written = JSON.parse(rewrite!.text);
     expect(written.version).toBe(SEED_VERSION);
+    expect(written.mode).toBe('light');
+    expect(written.branding).toBeDefined();
+    expect(written.light).toBeUndefined();
+    expect(written.dark).toBeUndefined();
     expect(written.syntax).toBeDefined();
 
     const lg = plugins.find((p) => p.id === 'light-green')!;
-    expect(lg.dark.bg).toBe(lightGreen.dark.bg);
-    expect(lg.syntax?.light.heading1).toBe(lightGreen.syntax?.light.heading1);
+    expect(lg.branding.primary).toBe(lightGreen.branding.primary);
+    expect(lg.syntax?.heading1).toBe(lightGreen.syntax?.heading1);
   });
 
   test('leaves an up-to-date built-in copy untouched', async () => {
@@ -125,13 +129,32 @@ describe('loadThemePlugins — built-in refresh', () => {
   });
 
   test('never rewrites a user-authored (non-built-in) theme', async () => {
-    const user = JSON.stringify({ name: 'Mine', light: { bg: '#123456' } });
+    const user = JSON.stringify({ name: 'Mine', mode: 'light', branding: { bg: '#123456' } });
     const userPath = `${DIR}/my-cool-theme.json`;
     const { writes } = mockThemesFolder({ [userPath]: user });
 
     await loadThemePlugins(DIR);
 
     expect(writes.find((w) => w.path === userPath)).toBeUndefined();
+  });
+
+  test('a stamp-less old-format user file is skipped, never rewritten or deleted', async () => {
+    // Legacy user-authored file in the retired light/dark shape: it no longer
+    // parses (no `branding`), so it silently drops out of the picker — but the
+    // loader must not touch the file itself (it is the user's content).
+    const legacy = JSON.stringify({
+      name: 'My Old Theme',
+      light: { bg: '#111111' },
+      dark: { bg: '#222222' },
+    });
+    const path = `${DIR}/my-old-theme.json`;
+    const { writes, deletes } = mockThemesFolder({ [path]: legacy });
+
+    const plugins = await loadThemePlugins(DIR);
+
+    expect(plugins.some((p) => p.id === 'my-old-theme')).toBe(false);
+    expect(writes.find((w) => w.path === path)).toBeUndefined();
+    expect(deletes).not.toContain(path);
   });
 
   test('deletes a seeded copy of a retired built-in (carries a version stamp)', async () => {
@@ -156,8 +179,8 @@ describe('loadThemePlugins — built-in refresh', () => {
     // No `version` stamp = user-authored (or user-adopted) — never delete it.
     const user = JSON.stringify({
       name: 'My Gruvbox',
-      light: { bg: '#111111' },
-      dark: { bg: '#222222' },
+      mode: 'dark',
+      branding: { bg: '#222222' },
     });
     const path = `${DIR}/gruvbox.json`;
     const { deletes } = mockThemesFolder({ [path]: user });

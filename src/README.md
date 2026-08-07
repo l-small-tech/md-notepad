@@ -66,8 +66,10 @@ components never add window-level listeners themselves.
 
 - Plain CSS files imported from components; CSS variables from
   `styles/base.css` only — components never hardcode colors.
-- Both themes are defined as variable sets on `:root`; theme switching is
-  `data-theme` on `<html>`, nothing else re-renders.
+- Both default palettes are defined as variable sets on `:root`; theme
+  switching is `data-theme` + `data-color-scheme` on `<html>`, nothing else
+  re-renders. While a theme plugin is selected, `data-theme` is pinned to the
+  plugin's declared `mode` (see `ui/theme.ts`).
 - Content is always monospace: `var(--font-mono)`, whose stack main.tsx
   swaps per the "Editor font" setting (bundled OFL faces, core/fonts.ts).
   UI chrome uses `var(--font-ui)`, which defaults to following

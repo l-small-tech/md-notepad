@@ -10,8 +10,9 @@
  * renders as a solid arrow glyph in fonts that have it. The user-facing
  * "ligatures" setting toggles the `no-ligatures` class on <html>.
  *
- * Theming: `data-theme` on <html> is "light" or "dark", set by the settings
- * store (following the OS when the setting is "system"). Every component
+ * Theming: `data-theme` on <html> is "light" or "dark" — the selected theme
+ * plugin's declared `mode` when one is active, else the settings store's
+ * appearance (following the OS when the setting is "system"). Every component
  * styles itself exclusively through these variables.
  */
 
@@ -41,23 +42,38 @@
   --danger: #c62828;
   --selection: #cfe6a9; /* pale-lime highlight */
 
-  /* Whiteboard ink slots — DERIVED from the theme palette above, so every
-     theme (and both modes) gets a matching board without declaring anything:
-     the surface is the writing surface, the pen is the ink, and the chromatic
-     slots blend the theme's accent/danger hues. Theme-plugin JSONs may still
-     pin exact colors via a "whiteboard" section. The draw adapter copies the
-     RESOLVED values onto each board's <svg> as inline vars; the saved file
-     itself falls back to the fixed hexes in core/whiteboard/tool-settings.ts
-     (PALETTE / PALETTE_DARK), which foreign renderers see. */
+  /* Brand trio — a theme's identity colors (--brand-primary/-secondary/
+     -tertiary, set by theme plugins' `branding` blocks). The defaults derive
+     from the semantic palette, so every theme — and the plugin-less default —
+     gets a working trio without declaring one. */
+  --brand-primary: var(--accent);
+  --brand-secondary: var(--danger);
+  --brand-tertiary: color-mix(in oklab, var(--accent) 55%, var(--fg));
+
+  /* Whiteboard ink slots — DERIVED from the brand trio (plus the theme's ink
+     and the board surface), so every theme gets a matching board without
+     declaring anything. The draw adapter copies the RESOLVED values onto each
+     board's <svg> as inline vars; the saved file itself falls back to the
+     fixed hexes in core/whiteboard/tool-settings.ts (PALETTE / PALETTE_DARK),
+     which foreign renderers see. */
   --wb-bg: var(--editor-bg);
-  --wb-c0: var(--fg); /* pen — the theme's ink */
-  --wb-c1: var(--accent); /* the theme's signature color */
-  --wb-c2: color-mix(in oklab, var(--accent) 55%, var(--fg)); /* deep accent */
-  --wb-c3: color-mix(in oklab, var(--accent) 55%, var(--editor-bg)); /* soft accent */
+  --wb-deepen: #101010; /* the tone inks deepen toward; near-white in dark */
+  --wb-c0: var(--fg); /* ink — the theme's pen */
+  --wb-c1: var(--brand-primary);
+  --wb-c2: var(--brand-secondary);
+  --wb-c3: var(--brand-tertiary);
   --wb-c4: var(--fg-muted); /* pencil */
-  --wb-c5: var(--danger); /* alert */
-  --wb-c6: color-mix(in oklab, var(--danger) 55%, var(--accent)); /* warm blend */
-  --wb-c7: color-mix(in oklab, var(--danger) 40%, var(--fg)); /* deep warm */
+  --wb-c5: color-mix(in oklab, var(--brand-primary) 70%, var(--wb-deepen)); /* deep primary */
+  --wb-c6: color-mix(
+    in oklab,
+    var(--brand-primary) 50%,
+    var(--brand-secondary)
+  ); /* primary blend */
+  --wb-c7: color-mix(
+    in oklab,
+    var(--brand-secondary) 50%,
+    var(--brand-tertiary)
+  ); /* secondary blend */
 }
 
 :root[data-theme='dark'] {
@@ -75,8 +91,9 @@
   --danger: #e5766a;
   --selection: #21503a; /* forest highlight */
 
-  /* No --wb-* here: the light block derives them from the palette vars, which
-     this block already redefines — the whiteboard follows automatically. */
+  /* The trio/ink derivations above re-resolve against this block's palette;
+     only the deepen anchor flips (inks lighten on a dark board). */
+  --wb-deepen: #f2f2f2;
 }
 
 * {

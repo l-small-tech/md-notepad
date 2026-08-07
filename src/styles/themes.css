@@ -1,18 +1,22 @@
 /*
- * Color schemes are now PLUGGABLE — this file no longer hard-codes them.
+ * Color schemes are PLUGGABLE — this file no longer hard-codes them.
  *
  * Each non-default scheme is a JSON theme file in the user's themes folder,
  * loaded at boot and injected as a <style id="theme-plugins"> element by
- * main.tsx (see core/theme-plugins.ts, ipc/theme-loader.ts). The seven
- * built-in examples (Solarized, Nord, Gruvbox, Everforest, Rosé Pine, plus the
- * UFV-inspired Light Green and Dark Green) are seeded into that folder on first
- * run as editable examples (core/theme-seeds.ts).
+ * main.tsx (see core/theme-plugins.ts, ipc/theme-loader.ts). The built-in
+ * examples (Light Green, Paper, Solarized Light/Dark, Nord Light/Dark,
+ * Dark Green, Dracula, Monokai) are seeded into that folder on first run as
+ * editable examples (core/theme-seeds.ts).
  *
- * The mechanism is unchanged: every scheme redefines the same ten variables
- * base.css declares (--bg, --editor-bg, --bg-alt, --bg-hover, --fg, --fg-muted,
- * --accent, --border, --danger, --selection), selected by `data-color-scheme`
- * on <html> with a `[data-theme='dark']` block winning by specificity. 'default'
- * still has no block — it IS base.css's palette.
+ * The mechanism: every theme is a single `branding` block — the ten semantic
+ * variables base.css declares (--bg, --editor-bg, --bg-alt, --bg-hover, --fg,
+ * --fg-muted, --accent, --border, --danger, --selection) plus the brand trio
+ * (--brand-primary/-secondary/-tertiary) — rendered as one
+ * `:root[data-color-scheme='<id>']` block. A theme declares its `mode`
+ * ('light' | 'dark'); while it is selected, `data-theme` on <html> is pinned
+ * to that mode so base.css's matching mode block supplies defaults for any
+ * variable the theme omits. 'default' still has no block — it IS base.css's
+ * palette.
  *
  * This file is kept (imported by main.tsx) as the documented home of that
  * contract; add nothing here — ship a theme plugin instead.

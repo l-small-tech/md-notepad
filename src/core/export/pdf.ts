@@ -100,18 +100,18 @@ function hexOr(fallback: string, ...candidates: (string | undefined)[]): string 
 }
 
 /**
- * A `PdfTheme` from one mode of a theme plugin, mirroring the CSS fallback
+ * A `PdfTheme` from a theme plugin's branding, mirroring the CSS fallback
  * chains of the HTML export (`--md-heading1 → --md-heading → --fg`, `--md-link
  * → --accent`, …). Non-hex values (plugins allow any safe CSS color) fall back
  * to the neutral default for that slot. `null` returns the default theme.
  */
-export function pdfThemeFromPlugin(plugin: ThemePlugin | null, mode: 'light' | 'dark'): PdfTheme {
+export function pdfThemeFromPlugin(plugin: ThemePlugin | null): PdfTheme {
   if (!plugin) {
     return DEFAULT_PDF_THEME;
   }
   const d = DEFAULT_PDF_THEME;
-  const palette = plugin[mode];
-  const syntax = plugin.syntax?.[mode];
+  const palette = plugin.branding;
+  const syntax = plugin.syntax;
   const fg = hexOr(d.fg, palette.fg);
   const headingBase = hexOr(fg, syntax?.heading);
   const headingKeys = [

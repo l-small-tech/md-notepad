@@ -81,7 +81,8 @@ describe('pdfThemeFromPlugin', () => {
   const plugin: ThemePlugin = {
     id: 'test',
     name: 'Test',
-    light: {
+    mode: 'light',
+    branding: {
       editorBg: '#fefefe',
       fg: '#111111',
       accent: '#ff0000',
@@ -89,25 +90,21 @@ describe('pdfThemeFromPlugin', () => {
       border: '#dddddd',
       fgMuted: '#777777',
     },
-    dark: { fg: 'rgb(20, 20, 20)' },
-    syntax: {
-      light: { heading: '#222222', heading2: '#333333', link: '#0000ff', code: '#005500' },
-      dark: {},
-    },
+    syntax: { heading: '#222222', heading2: '#333333', link: '#0000ff', code: '#005500' },
   };
 
   test('null plugin returns the neutral default', () => {
-    expect(pdfThemeFromPlugin(null, 'light')).toEqual(DEFAULT_PDF_THEME);
+    expect(pdfThemeFromPlugin(null)).toEqual(DEFAULT_PDF_THEME);
   });
 
-  test('maps palette + syntax with CSS-matching fallback chains', () => {
-    const theme = pdfThemeFromPlugin(plugin, 'light');
+  test('maps branding + syntax with CSS-matching fallback chains', () => {
+    const theme = pdfThemeFromPlugin(plugin);
     expect(theme.pageBg).toBe('#fefefe');
     expect(theme.fg).toBe('#111111');
     expect(theme.headings[0]).toBe('#222222'); // heading base
     expect(theme.headings[1]).toBe('#333333'); // per-level override
     expect(theme.headings[5]).toBe('#222222'); // falls back to heading base
-    expect(theme.link).toBe('#0000ff'); // syntax.link beats palette.accent
+    expect(theme.link).toBe('#0000ff'); // syntax.link beats branding.accent
     expect(theme.codeFg).toBe('#005500');
     expect(theme.codeBg).toBe('#eeeeee');
     expect(theme.border).toBe('#dddddd');
@@ -115,8 +112,12 @@ describe('pdfThemeFromPlugin', () => {
   });
 
   test('non-hex values fall back to the slot default', () => {
-    const theme = pdfThemeFromPlugin(plugin, 'dark');
-    // dark.fg is rgb(...) — not hex — so the default fg applies.
+    const theme = pdfThemeFromPlugin({
+      ...plugin,
+      branding: { fg: 'rgb(20, 20, 20)' },
+      syntax: undefined,
+    });
+    // fg is rgb(...) — not hex — so the default fg applies.
     expect(theme.fg).toBe(DEFAULT_PDF_THEME.fg);
     expect(theme.pageBg).toBe(DEFAULT_PDF_THEME.pageBg);
   });

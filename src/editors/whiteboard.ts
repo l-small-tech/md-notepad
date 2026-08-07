@@ -327,12 +327,13 @@ const NUDGE_KEYS: Record<string, Point | undefined> = {
 };
 
 /**
- * The themable ink variables (phase 2.5). base.css defines them per app
- * light/dark and theme-plugin JSONs may override them; the adapter copies the
- * RESOLVED values onto the board `<svg>` (and the drag-preview overlay) as
- * inline style. Inline beats the file's embedded palette `<style>` block, so a
- * forced app theme renders correctly even when the OS scheme disagrees —
- * exactly the layering the plan's "themable ink" section calls for.
+ * The themable ink variables (phase 2.5). base.css derives them from the
+ * current theme's brand trio (--brand-primary/-secondary/-tertiary) and ink
+ * colors; the adapter copies the RESOLVED values onto the board `<svg>` (and
+ * the drag-preview overlay) as inline style. Inline beats the file's embedded
+ * palette `<style>` block, so a forced app theme renders correctly even when
+ * the OS scheme disagrees — exactly the layering the plan's "themable ink"
+ * section calls for.
  */
 const WB_THEME_VARS = [
   '--wb-bg',
@@ -639,7 +640,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    * Copy the app's resolved `--wb-*` values onto the board and overlay roots.
    * Reading computed style off <html> keeps this module ignorant of the ui
    * layer's theme plumbing (I9) while still honouring base.css, `data-theme`
-   * and any theme-plugin `whiteboard` override, all at once.
+   * and the selected theme's brand trio, all at once.
    */
   function applyInkTheme(): void {
     const resolved = getComputedStyle(document.documentElement);
