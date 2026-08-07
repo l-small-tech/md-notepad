@@ -48,6 +48,15 @@ The polished result, full-width, with nothing editable — ideal for actually
   all the app chrome, press again to fill the whole screen. **Esc** steps
   back out.
 
+Full screen works in every mode, including drawings. Once the chrome is
+hidden, there are two ways back:
+
+- **Mouse and keyboard** — move the pointer to the top of the window for the
+  floating controls, or press **Esc** / **F11**.
+- **Touch or pen** — press and hold anywhere for a moment. A small menu
+  appears with **Exit full screen**, **Workspaces** and **Outline**. On a
+  drawing, the hold that opens the menu doesn't leave a mark.
+
 How wide the text column is in Read mode is up to you — see **Read mode
 margins** in [Settings](settings.md).
 

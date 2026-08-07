@@ -22,6 +22,7 @@ import { DiagramViewer } from './components/DiagramViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
+import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
@@ -33,6 +34,9 @@ export function App() {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
   const fullscreenView = useUiStore((s) => s.fullscreenView);
+
+  // Tap-and-hold anywhere in full screen opens the escape-hatch menu.
+  useFullscreenLongPress(fullscreenView !== 'normal');
 
   useEffect(() => {
     const sync = tabsStore.getState().tabs.find((t) => t.id === activeTabId)?.modeSync;
@@ -87,14 +91,18 @@ export function App() {
       <CommandPalette />
       <SearchPanel />
       <VoiceComments />
-      {fullscreenView !== 'normal' && <FullscreenControls stage={fullscreenView} />}
+      {/* Desktop keeps the hover-revealed cluster; Android's way out is the
+          tap-and-hold menu (which works on a board too, where the old
+          double-tap-the-edge gesture never reached the window). */}
+      {fullscreenView !== 'normal' && !isAndroid() && <FullscreenControls stage={fullscreenView} />}
+      <FullscreenMenu />
       {/* The 'window' stage hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as
           the grab-to-move handle in every mode. It fires only on itself, so content
           below stays interactive. In Read mode it's tall (~3 lines of top
           whitespace); in edit modes it's titlebar-height so it doesn't swallow the
-          first editor lines. Android has no draggable OS window (and the strip would
-          sit in the double-tap reveal zone), so it's desktop-only. */}
+          first editor lines. Android has no draggable OS window, so it's
+          desktop-only. */}
       {fullscreenView === 'window' && !isAndroid() && (
         <div
           className={`fullscreen-drag-strip${activeMode === 'read' ? ' fullscreen-drag-strip-read' : ''}`}
@@ -107,33 +115,26 @@ export function App() {
 
 /**
  * The chrome (with the ribbon's fullscreen button) is hidden in full screen, so
- * this floating cluster is the way back. F11 cycles stages and Esc steps back;
- * the cluster holds the stage toggle for the stage you're NOT in (⛶ = full
- * screen from 'window', ⤢ = full window from 'screen') — desktop-only, since
- * Android has a single stage — an exit ✕, and — when browsing a followed link
- * in the preview — a ← Back that pops the page. Back lives here (not as an
- * in-pane bar) in full screen so it hides with the rest.
+ * this floating cluster is the DESKTOP way back. F11 cycles stages and Esc steps
+ * back; the cluster holds the stage toggle for the stage you're NOT in (⛶ = full
+ * screen from 'window', ⤢ = full window from 'screen'), an exit ✕, and — when
+ * browsing a followed link in the preview — a ← Back that pops the page. Back
+ * lives here (not as an in-pane bar) in full screen so it hides with the rest.
  *
- * Desktop: the cluster is tucked just above the top-CENTER edge and slides down
- * when summoned. Android: it docks above the BOTTOM edge instead — top-center
- * is where punch-hole cameras live (a Pixel's lens sat exactly over the ✕), and
- * the bottom is thumb territory on a phone. Nothing spans the full width (that
- * full-width reveal bar read as cheap/janky). Window dragging in the 'window'
- * stage lives in a separate strip over the top of the view (see App), not here.
+ * The cluster is tucked just above the top-CENTER edge and slides down when
+ * summoned. Nothing spans the full width (that full-width reveal bar read as
+ * cheap/janky). Window dragging in the 'window' stage lives in a separate strip
+ * over the top of the view (see App), not here.
  *
- * Reveal is JS-driven (not `:hover`) so the behaviour matches the input:
- *  - Desktop: appears while the pointer is in the top reveal zone; once it drops
- *    below, it lingers briefly then hides. Overshooting the top edge fires no
- *    further movement, so the cluster stays put and stays clickable there.
- *  - Android: a DOUBLE-TAP near the top OR bottom edge toggles it (the top zone
- *    is the long-standing gesture, the bottom zone is where the buttons now
- *    appear; an edge swipe would fight the notification shade / gesture nav);
- *    when shown it auto-hides after a few seconds. In normal (non-full-screen)
- *    mode the ribbon is visible, so this only matters in full screen.
+ * Reveal is JS-driven (not `:hover`) so the cluster survives the pointer
+ * overshooting the top edge: it appears while the pointer is in the top reveal
+ * zone and, once the pointer drops below, lingers briefly then hides.
  * `:focus-within` (CSS) also holds it open so it's reachable by keyboard.
+ *
+ * Android has no cluster at all — the tap-and-hold menu (FullscreenMenu) is its
+ * single, mode-independent way out, including on a whiteboard.
  */
 function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
-  const android = isAndroid();
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
@@ -141,11 +142,10 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
-    const HIDE_MS = android ? 3500 : 600; // linger before auto-hiding
+    const HIDE_MS = 600; // linger before auto-hiding
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    // Local mirror of the reveal state — lets the desktop listener gate on
-    // "currently shown" without a render-time ref read (setRevealed is the only
-    // writer, and the effect is keyed on `android`, so this stays in sync).
+    // Local mirror of the reveal state — lets the listener gate on "currently
+    // shown" without a render-time ref read (setRevealed is the only writer).
     let shown = false;
     const clearHide = () => {
       if (hideTimer !== undefined) {
@@ -168,45 +168,9 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
       hideTimer = setTimeout(hide, HIDE_MS);
     };
 
-    if (android) {
-      // Double-tap near the top or bottom edge toggles the cluster. Two taps
-      // in either band within the double-tap window flip it; showing arms an
-      // auto-hide. An edge swipe is deliberately NOT used — it collides with
-      // Android's notification shade (top) and gesture nav (bottom).
-      const EDGE_ZONE = 140; // px band at each edge where the double-tap counts
-      const DOUBLE_MS = 300; // max gap between the two taps
-      let lastTap = 0;
-      const onTap = (e: TouchEvent) => {
-        const t = e.changedTouches[0];
-        const inZone =
-          t !== undefined &&
-          (t.clientY <= EDGE_ZONE || t.clientY >= window.innerHeight - EDGE_ZONE);
-        if (!inZone) {
-          lastTap = 0; // a tap outside the zones breaks any pending double-tap
-          return;
-        }
-        if (e.timeStamp - lastTap < DOUBLE_MS) {
-          lastTap = 0;
-          if (shown) {
-            hide();
-          } else {
-            show();
-            scheduleHide();
-          }
-        } else {
-          lastTap = e.timeStamp;
-        }
-      };
-      window.addEventListener('touchend', onTap, { passive: true });
-      return () => {
-        window.removeEventListener('touchend', onTap);
-        clearHide();
-      };
-    }
-
-    // Desktop: reveal near the top; once the pointer drops below the zone, a
-    // single linger timer hides it (continued movement below doesn't reset it,
-    // so it hides promptly instead of clinging while the mouse wanders).
+    // Reveal near the top; once the pointer drops below the zone, a single
+    // linger timer hides it (continued movement below doesn't reset it, so it
+    // hides promptly instead of clinging while the mouse wanders).
     const REVEAL_Y = 72;
     const onMove = (e: MouseEvent) => {
       if (e.clientY <= REVEAL_Y) {
@@ -220,7 +184,7 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
       window.removeEventListener('mousemove', onMove);
       clearHide();
     };
-  }, [android]);
+  }, []);
 
   const buttons = (
     <>
@@ -239,31 +203,28 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
           ←
         </button>
       )}
-      {/* The stage toggle (full window ⇄ full screen) is desktop-only. On Android
-          the OS window already fills the screen, so there is a single
-          distraction-free stage ('window') and no second stage to switch to. */}
-      {!android &&
-        (stage === 'screen' ? (
-          <button
-            className="fullscreen-btn"
-            aria-label="Full window"
-            title="Full window (Esc)"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setFullscreen('window')}
-          >
-            ⤢
-          </button>
-        ) : (
-          <button
-            className="fullscreen-btn"
-            aria-label="Full screen"
-            title="Full screen (F11)"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setFullscreen('screen')}
-          >
-            ⛶
-          </button>
-        ))}
+      {/* The stage toggle (full window ⇄ full screen). */}
+      {stage === 'screen' ? (
+        <button
+          className="fullscreen-btn"
+          aria-label="Full window"
+          title="Full window (Esc)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setFullscreen('window')}
+        >
+          ⤢
+        </button>
+      ) : (
+        <button
+          className="fullscreen-btn"
+          aria-label="Full screen"
+          title="Full screen (F11)"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setFullscreen('screen')}
+        >
+          ⛶
+        </button>
+      )}
       <button
         className="fullscreen-btn"
         aria-label="Exit full screen"
@@ -276,6 +237,5 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
     </>
   );
 
-  const dock = android ? 'fullscreen-bottomcenter' : 'fullscreen-topcenter';
-  return <div className={`${dock}${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
+  return <div className={`fullscreen-topcenter${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
 }

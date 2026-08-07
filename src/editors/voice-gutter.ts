@@ -28,13 +28,22 @@ export interface VoiceGutterOptions {
   longPressMs?: number;
 }
 
-/** The speech-bubble glyph shown in the gutter for an anchored line. */
+/**
+ * The speech-bubble glyph shown in the gutter for an anchored line. A flat
+ * `currentColor` outline, not the 💬 emoji: the emoji renders in the OS's own
+ * colours and weight, which shouted over the text it annotates and matched
+ * nothing else in the app.
+ */
 class VoiceMarker extends GutterMarker {
   toDOM(): Node {
     const el = document.createElement('span');
     el.className = 'cm-voice-marker';
-    el.textContent = '💬';
     el.setAttribute('aria-label', 'Voice comment');
+    el.innerHTML =
+      '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor"' +
+      ' stroke-width="1.6" stroke-linejoin="round">' +
+      '<path d="M16.5 11.3a1.8 1.8 0 0 1-1.8 1.8H8.2L5 15.8v-2.7h-.2a1.8 1.8 0 0 1-1.3-1.8V6' +
+      'a1.8 1.8 0 0 1 1.8-1.8h9.4A1.8 1.8 0 0 1 16.5 6z"/></svg>';
     return el;
   }
 }
@@ -71,13 +80,17 @@ const gutterTheme = EditorView.theme({
     cursor: 'pointer',
   },
   '.cm-voice-marker': {
-    display: 'inline-block',
+    display: 'flex',
     width: '100%',
-    textAlign: 'center',
-    fontSize: '0.85em',
-    lineHeight: 'inherit',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
     // Sits slightly muted until hovered so it doesn't shout over the text.
-    opacity: '0.85',
+    opacity: '0.8',
+  },
+  '.cm-voice-marker svg': {
+    width: '1em',
+    height: '1em',
   },
   '.cm-voice-gutter .cm-gutterElement:hover .cm-voice-marker': {
     opacity: '1',

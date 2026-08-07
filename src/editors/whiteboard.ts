@@ -238,6 +238,14 @@ export interface WhiteboardAdapter extends EditorAdapter {
   startScan(source?: ScanSource): void;
   /** Whether the scan screen is available at all (the ribbon's button). */
   canScan(): boolean;
+  /**
+   * Throw away whatever gesture is in flight, leaving the board exactly as the
+   * last commit left it. The full-screen long-press menu calls this when it
+   * opens: holding still is how you summon the menu, and on a board that same
+   * hold is a stroke — without this every visit to the menu would leave an ink
+   * blob behind.
+   */
+  abortGesture(): void;
   uiState(): WhiteboardUiState;
 }
 
@@ -1735,6 +1743,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         selection = [];
         commit(history.redo(), false);
       }
+    },
+
+    abortGesture() {
+      cancelGesture();
     },
 
     deleteSelection() {

@@ -494,11 +494,12 @@
   padding: 0 6px;
 }
 
-/* SVG ribbon glyphs (panel toggles) — sized to match the 24px text glyphs
-   around them. */
+/* SVG ribbon glyphs. Sized in `em` so each one matches the text glyphs it sits
+   beside — 21px in a `.ribbon-btn-lg` (24px chrome icons), ~16px in a plain
+   `.ribbon-btn` (18px format controls) — instead of needing a size per row. */
 .ribbon-icon {
-  width: 21px;
-  height: 21px;
+  width: 0.88em;
+  height: 0.88em;
 }
 
 .ribbon-btn:hover {
@@ -618,22 +619,23 @@
 
 /* Both full-screen stages ('window' and 'screen') hide every piece of chrome
    so the active tab is the only thing left; the 'screen' stage additionally
-   makes the OS window fullscreen (see ui/fullscreen). */
+   makes the OS window fullscreen (see ui/fullscreen).
+
+   The explorer and outline panels are NOT in this list: they render nothing
+   unless opened, and the tap-and-hold menu can open them from inside full
+   screen — hiding them there would make those two menu items do nothing. */
 .app-fullscreen .tabbar,
 .app-fullscreen .ribbon,
-.app-fullscreen .statusbar,
-.app-fullscreen .file-explorer,
-.app-fullscreen .explorer-resize,
-.app-fullscreen .outline-panel {
+.app-fullscreen .statusbar {
   display: none;
 }
 
-/* A small cluster tucked just above the top-center edge that slides down when
-   summoned — by the pointer nearing the top (desktop) or a pull-down from the
-   top edge (Android). Reveal is JS-driven (App toggles `is-revealed`) so the
-   cluster survives the pointer overshooting the top edge and lingers before
-   hiding; `:focus-within` also holds it open for the keyboard. Nothing spans
-   the full width. */
+/* A small DESKTOP cluster tucked just above the top-center edge that slides
+   down when the pointer nears the top. Reveal is JS-driven (App toggles
+   `is-revealed`) so the cluster survives the pointer overshooting the top edge
+   and lingers before hiding; `:focus-within` also holds it open for the
+   keyboard. Nothing spans the full width. Touch devices get the tap-and-hold
+   menu below instead. */
 .fullscreen-topcenter {
   position: fixed;
   top: 8px;
@@ -655,36 +657,20 @@
   transform: translate(-50%, 0);
 }
 
-/* Android: the exit cluster docks above the BOTTOM edge instead. Top-center
-   is exactly where punch-hole cameras sit (edge-to-edge draws under the
-   display cutout, and env(safe-area-inset-top) covers the status BAR, not the
-   deeper camera circle — on a Pixel the ✕ landed under the lens), and the
-   bottom is where a thumb actually is on a phone. Slides up when summoned by
-   the double-tap (App.tsx); auto-hides after a few seconds. */
-.fullscreen-bottomcenter {
-  position: fixed;
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  z-index: 42;
-  display: flex;
-  gap: 10px;
-  /* Tucked fully below the bottom edge until revealed. */
-  transform: translate(-50%, calc(100% + 32px + env(safe-area-inset-bottom, 0px)));
-  transition: transform 160ms ease;
-}
-
-.fullscreen-bottomcenter.is-revealed,
-.fullscreen-bottomcenter:focus-within {
-  transform: translate(-50%, 0);
-}
-
-/* Finger-sized buttons (48px ≈ the Android touch-target guideline). */
-.fullscreen-bottomcenter .fullscreen-btn {
-  width: 48px;
-  height: 48px;
-  font-size: 20px;
+/* The tap-and-hold menu (components/FullscreenMenu) — a `.tab-menu` popover
+   sized for fingers, since touch is what summons it (48px ≈ the Android
+   touch-target guideline). JS positions it at the press point and clamps it
+   inside the viewport before the first paint, so only the look lives here. */
+.fullscreen-menu {
+  min-width: 200px;
   border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+.fullscreen-menu-item {
+  height: 48px;
+  padding: 0 14px;
+  border-radius: 7px;
+  font-size: 15px;
 }
 
 /* 'window' stage: an invisible strip over the top of the view that grabs-to-move

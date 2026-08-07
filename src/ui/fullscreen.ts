@@ -22,8 +22,10 @@
  *
  * The stage is a global view state, independent of the active tab: switching
  * mode (Read → Split), switching tabs, or closing a tab all keep the current
- * stage. The floating exit controls (App.tsx) show in every mode, so there is
- * never a fullscreen tab with no way out.
+ * stage. There is never a fullscreen tab with no way out: desktop gets the
+ * floating cluster (App.tsx) plus F11/Esc, and touch/pen get the tap-and-hold
+ * menu (components/FullscreenMenu), which works in every mode — including on a
+ * whiteboard, whose stage swallows the gestures the cluster used to rely on.
  */
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -117,6 +119,13 @@ function apply(requested: FullscreenStage): void {
   const previous = uiStore.getState().fullscreenView;
   if (previous === stage) {
     return;
+  }
+  // Entering full screen from normal shuts the side panels: full screen means
+  // the document and nothing else. They are no longer hidden by CSS while
+  // full screen (the tap-and-hold menu can open either one from in there), so
+  // without this an explorer left open would simply stay on screen.
+  if (previous === 'normal') {
+    uiStore.getState().closePanels();
   }
   uiStore.getState().setFullscreenView(stage);
   // Only the 'screen' boundary touches the OS window; normal↔window is pure

@@ -336,6 +336,13 @@ window.addEventListener('keydown', (event) => {
     uiStore.getState().closeSettings();
     return;
   }
+  // Escape closes the full-screen tap-and-hold menu before it steps the stage
+  // back — the menu is the innermost thing open.
+  if (event.key === 'Escape' && uiStore.getState().fullscreenMenu !== null) {
+    event.preventDefault();
+    uiStore.getState().closeFullscreenMenu();
+    return;
+  }
   // Escape steps the full-screen view back one stage (screen → window →
   // normal; checked after the settings modal so a dialog opened while
   // fullscreen closes first).

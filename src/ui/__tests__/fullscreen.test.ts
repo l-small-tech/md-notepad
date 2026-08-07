@@ -108,6 +108,32 @@ describe('OS-fullscreen transitions are serialized (rapid toggles)', () => {
   });
 });
 
+describe('entering full screen clears what full screen is meant to hide', () => {
+  test('the side panels close on the way in, and only on the way in', () => {
+    uiStore.getState().openExplorer();
+    uiStore.getState().openOutline();
+
+    setFullscreen('window');
+    expect(uiStore.getState().explorerOpen).toBe(false);
+    expect(uiStore.getState().outlineOpen).toBe(false);
+
+    // Opened FROM full screen (the tap-and-hold menu's job), a panel must
+    // survive the stage change that follows — the CSS no longer hides it.
+    uiStore.getState().openOutline();
+    setFullscreen('screen');
+    expect(uiStore.getState().outlineOpen).toBe(true);
+  });
+
+  test('the tap-and-hold menu never outlives the stage it was summoned from', () => {
+    setFullscreen('window');
+    uiStore.getState().openFullscreenMenu({ x: 10, y: 20 });
+    expect(uiStore.getState().fullscreenMenu).toEqual({ x: 10, y: 20 });
+
+    setFullscreen('normal');
+    expect(uiStore.getState().fullscreenMenu).toBeNull();
+  });
+});
+
 describe('fullscreen stages — Android (single stage)', () => {
   beforeEach(() => {
     platform.android = true;

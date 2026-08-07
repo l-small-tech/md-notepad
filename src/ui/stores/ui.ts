@@ -22,6 +22,12 @@ export interface CursorReadout {
 /** Full-screen view stage — see `fullscreenView` below. */
 export type FullscreenStage = 'normal' | 'window' | 'screen';
 
+/** Where the full-screen long-press menu was summoned (viewport px). */
+export interface MenuPoint {
+  x: number;
+  y: number;
+}
+
 export interface UiState {
   notice: string | null;
   cursor: CursorReadout | null;
@@ -48,6 +54,14 @@ export interface UiState {
    * owned by `../fullscreen`, which is the only writer.
    */
   fullscreenView: FullscreenStage;
+  /**
+   * The full-screen tap-and-hold menu's anchor point, or null when it is
+   * closed. Full screen hides every piece of chrome, so a touch device has no
+   * button to press; a long press anywhere summons this menu instead. Kept
+   * here (not in the component) so the one global Escape handler in main.tsx
+   * can close it before Escape steps the full-screen stage back.
+   */
+  fullscreenMenu: MenuPoint | null;
   /** Show a status-bar notice that auto-clears after `ms` (default 6s). */
   showNotice: (message: string, ms?: number) => void;
   clearNotice: () => void;
@@ -60,6 +74,12 @@ export interface UiState {
   togglePalette: () => void;
   toggleExplorer: () => void;
   toggleOutline: () => void;
+  openExplorer: () => void;
+  openOutline: () => void;
+  /** Shut both side panels — what entering full screen does. */
+  closePanels: () => void;
+  openFullscreenMenu: (at: MenuPoint) => void;
+  closeFullscreenMenu: () => void;
   setDropTarget: (dir: string | null) => void;
   refreshExplorer: () => void;
   setFullscreenView: (stage: FullscreenStage) => void;
@@ -77,6 +97,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   dropTargetDir: null,
   explorerRefresh: 0,
   fullscreenView: 'normal',
+  fullscreenMenu: null,
 
   showNotice(message, ms = 6000) {
     if (noticeTimer !== null) {
@@ -132,6 +153,26 @@ export const uiStore = createStore<UiState>()((set) => ({
     set((s) => ({ outlineOpen: !s.outlineOpen }));
   },
 
+  openExplorer() {
+    set({ explorerOpen: true });
+  },
+
+  openOutline() {
+    set({ outlineOpen: true });
+  },
+
+  closePanels() {
+    set({ explorerOpen: false, outlineOpen: false });
+  },
+
+  openFullscreenMenu(at) {
+    set({ fullscreenMenu: at });
+  },
+
+  closeFullscreenMenu() {
+    set((s) => (s.fullscreenMenu === null ? s : { fullscreenMenu: null }));
+  },
+
   setDropTarget(dir) {
     // Drag-over events fire continuously; only re-render on actual change.
     set((s) => (s.dropTargetDir === dir ? s : { dropTargetDir: dir }));
@@ -142,7 +183,9 @@ export const uiStore = createStore<UiState>()((set) => ({
   },
 
   setFullscreenView(stage) {
-    set({ fullscreenView: stage });
+    // The menu belongs to the full-screen view it was summoned from — leaving
+    // (or changing) the stage must never leave it floating over the chrome.
+    set({ fullscreenView: stage, fullscreenMenu: null });
   },
 }));
 

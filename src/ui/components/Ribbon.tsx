@@ -105,6 +105,63 @@ function zoom(step: number | 'reset'): void {
 }
 
 /**
+ * Line-art ribbon glyphs.
+ *
+ * The link / attach / image / comment buttons used to be emoji (🔗 📎 🖼 💬),
+ * which the OS renders in full colour at its own weight — beside the flat
+ * monochrome B / I / H of the rest of the strip they read as stickers. These
+ * are the same 20-unit, 1.4-weight `currentColor` outlines as the explorer and
+ * outline toggles, so the whole toolbar is one drawing.
+ */
+function RibbonIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      className="ribbon-icon"
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** Two chain links — a hyperlink. */
+const LinkIcon = (
+  <RibbonIcon>
+    <path d="M8.4 11.6a3 3 0 0 0 4.3 0l2.6-2.6a3 3 0 0 0-4.3-4.3l-1.3 1.3" />
+    <path d="M11.6 8.4a3 3 0 0 0-4.3 0l-2.6 2.6a3 3 0 0 0 4.3 4.3l1.3-1.3" />
+  </RibbonIcon>
+);
+
+/** A paperclip — attach a file. */
+const AttachIcon = (
+  <RibbonIcon>
+    <path d="M14.6 9.3l-5.2 5.2a3 3 0 0 1-4.2-4.2l6-6a2.1 2.1 0 0 1 3 3l-6 6a1.1 1.1 0 0 1-1.6-1.6l5.2-5.2" />
+  </RibbonIcon>
+);
+
+/** A framed picture with a hill and a sun. */
+const ImageIcon = (
+  <RibbonIcon>
+    <rect x="3" y="4.5" width="14" height="11" rx="1.6" />
+    <circle cx="7.4" cy="8.4" r="1.2" />
+    <path d="M3.4 13.6l3.8-3.4 3.1 2.7 2.3-1.9 4 3.5" />
+  </RibbonIcon>
+);
+
+/** A speech bubble — a voice comment. */
+const CommentIcon = (
+  <RibbonIcon>
+    <path d="M16.5 11.3a1.8 1.8 0 0 1-1.8 1.8H8.2L5 15.8v-2.7h-.2a1.8 1.8 0 0 1-1.3-1.8V6a1.8 1.8 0 0 1 1.8-1.8h9.4A1.8 1.8 0 0 1 16.5 6z" />
+  </RibbonIcon>
+);
+
+/**
  * Copy the active tab's raw markdown to the clipboard, with an appended block of
  * Claude-Code-CLI `@path` mentions for every local file/image it links to.
  * Relative link paths are auto-resolved to absolute against the document's own
@@ -422,7 +479,7 @@ function FormatControls() {
 
       <span className="ribbon-divider" role="separator" />
 
-      <RibbonButton action="link" title="Link (text + URL)" label="🔗" />
+      <RibbonButton action="link" title="Link (text + URL)" label={LinkIcon} />
       <button
         className="ribbon-btn"
         aria-label="Link to a file"
@@ -430,7 +487,7 @@ function FormatControls() {
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => insertFileLink({ image: false, absolute: !e.altKey })}
       >
-        📎
+        {AttachIcon}
       </button>
       <button
         className="ribbon-btn"
@@ -439,7 +496,7 @@ function FormatControls() {
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => insertFileLink({ image: true, absolute: !e.altKey })}
       >
-        🖼
+        {ImageIcon}
       </button>
 
       <span className="ribbon-divider" role="separator" />
@@ -451,7 +508,7 @@ function FormatControls() {
         onMouseDown={(e) => e.preventDefault()}
         onClick={addVoiceCommentAtCaret}
       >
-        💬
+        {CommentIcon}
       </button>
     </div>
   );
@@ -784,7 +841,7 @@ function ReaderControls() {
         onMouseDown={(e) => e.preventDefault()}
         onClick={openVoiceComments}
       >
-        💬
+        {CommentIcon}
       </button>
     </div>
   );
