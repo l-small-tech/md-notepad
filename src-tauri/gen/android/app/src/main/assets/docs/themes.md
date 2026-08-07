@@ -4,14 +4,21 @@ A **theme** sets the colors the app uses — the background, the text, the accen
 on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
-Pick a theme in **Settings → Theme**. That one dropdown starts with **System /
-Light / Dark** (the app's built-in palette, following your computer's light/dark
-setting), then — below a divider — every theme: seven ready-made examples ship
-with the app — five popular community schemes (**Solarized**, **Nord**,
-**Gruvbox**, **Everforest**, and **Rosé Pine**) plus two originals, **Light
-Green** and **Dark Green** (a fresh, forest-green pair). Each theme comes in both
-a light and a dark version, and the app automatically uses the right one based on
-your computer's light/dark setting.
+Pick a theme in the **☰ menu → Themes** — every installed theme is listed
+there, with a ✓ on the one you're using, and picking one applies it instantly.
+(The same list is also in **Settings → Theme**.) It starts with **System**
+(**Light Green** when your computer is in light mode, **Dark Green** in dark
+mode, switching live when it changes), then the themes in three groups:
+
+- **Light** — **Light Green**, **Paper** (warm sepia stationery),
+  **Solarized Light**, and **Nord Light**.
+- **Dark** — **Dark Green**, **Solarized Dark**, **Nord Dark**, **Dracula**,
+  and **Monokai**.
+- **Custom** — any theme you add or create yourself.
+
+Unlike **System**, each named theme keeps its one look — light stays light and
+dark stays dark, whatever your computer's light/dark setting. You pick the
+mood, not the machine.
 
 The best part: **themes are just small files you can edit or create yourself** —
 no programming needed, and an AI assistant can write a whole theme for you in
@@ -19,8 +26,8 @@ seconds. Read on.
 
 ## The themes folder
 
-Every theme is one small `.json` file in your **themes folder**. In Settings,
-the **Themes folder** row (just under the Theme dropdown) has three buttons:
+Every theme is one small `.json` file in your **themes folder**. Below the
+theme list in **☰ menu → Themes** are the buttons for managing it:
 
 - **Open folder** — opens the themes folder in your file manager, so you can
   see the files, drop new ones in, or make copies. *(Desktop only.)*
@@ -28,8 +35,9 @@ the **Themes folder** row (just under the Theme dropdown) has three buttons:
   selects it, and reveals it so you can start editing.
 - **Reload** — re-reads the folder after you've edited or added files, so your
   changes show up right away.
+- **Help** — opens this page.
 
-The seven example themes live here too — open any of them to see exactly how a
+The nine example themes live here too — open any of them to see exactly how a
 theme is built, or copy one as a starting point.
 
 ## What a theme file looks like

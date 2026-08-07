@@ -21,6 +21,22 @@ which are the same everywhere).
 | Ctrl+S | Save (on a note tab: Save As) |
 | Ctrl+Shift+S | Save As |
 
+## Editing (Raw and Split modes)
+
+| Shortcut | What it does |
+| --- | --- |
+| Enter (on a list line) | Continue the list with a new bullet/number |
+| Tab (on a list line) | Indent one level, with any nested items below it |
+| Shift+Tab (on a list line) | Un-indent one level, with any nested items below it |
+
+Indenting works like a word processor. Bullet markers change with depth — `*` at
+the left margin, `-` one level in, `+` two levels in, then repeating — so
+un-indenting a nested `- item` twice brings back `* item` at the margin. Ordered
+lists are renumbered as you go: nesting an item restarts it at `1.` and closes
+the gap it left behind. (Markdown has no letter numbering, so nested ordered
+lists stay numeric.) The first item at any depth has nothing to nest under, so
+Tab leaves it where it is.
+
 ## Viewing modes
 
 | Shortcut | What it does |
@@ -43,9 +59,12 @@ which are the same everywhere).
 
 | Shortcut | What it does |
 | --- | --- |
+| Ctrl+K | Command palette — type to search every command |
+| Ctrl+Shift+O | Toggle the outline panel (jump between headings) |
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
-| Esc | Close Settings / leave full screen |
+| Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
+| Esc | Close Settings / the command palette / leave full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,
 double-click a tab name to rename it, drag tabs to reorder them, and

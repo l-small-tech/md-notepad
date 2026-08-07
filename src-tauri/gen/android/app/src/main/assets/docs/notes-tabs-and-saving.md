@@ -44,6 +44,17 @@ open files are written automatically as you type, like notes.
 - **Ctrl+Shift+S** — Save As: save a copy under a new name or location. The
   tab switches over to the new file.
 
+### Export and print
+
+- **Export as HTML** — the ⇩ button on the ribbon (or the command palette)
+  saves the current document as a single standalone `.html` file: styling is
+  built in, local images are embedded, and mermaid diagrams are rendered —
+  ready to share or open in any browser.
+- **Print / Save as PDF** — in the command palette (desktop only). Opens the
+  system print dialog with a clean, print-styled copy of the document; on
+  Windows the dialog includes "Save as PDF". On Android, use Export as HTML
+  instead.
+
 ### If a file changes behind your back
 
 If another program (or a sync service like Dropbox) changes a file while
