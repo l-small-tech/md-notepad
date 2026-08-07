@@ -72,6 +72,29 @@ export async function resolveThemesDir(platform: Runtime = detectRuntime()): Pro
 }
 
 /**
+ * Where "Debug insert" drops its scan intermediates (see ui/scan-debug.ts).
+ *
+ * App-owned local storage, never beside the board: one dump is a full-resolution
+ * camera photo plus three derived rasters — tens of megabytes of throwaway
+ * diagnostics. Written into a cloud-synced workspace they get uploaded, and on
+ * Google Drive streaming mode a folder of large remotely-created binaries is
+ * exactly what makes Explorer hang hydrating thumbnails. Same placement rule as
+ * `resolveThemesDir`: the app-specific EXTERNAL files dir on Android so the
+ * files are reachable from a file manager (the whole point of a debug dump),
+ * internal app data on desktop.
+ */
+export async function resolveScanDebugDir(platform: Runtime = detectRuntime()): Promise<string> {
+  const base = await appDataDir();
+  if (platform === 'android') {
+    const ext = await ipc.externalFilesDir().catch(() => null);
+    if (ext) {
+      return await join(ext, 'scan-debug');
+    }
+  }
+  return await join(base, 'scan-debug');
+}
+
+/**
  * The bundled user documentation folder (tauri.conf.json bundles ../docs as a
  * `docs` resource). Null when resolution fails (e.g. outside a Tauri webview);
  * the Settings "Open docs" button degrades to a notice then.
