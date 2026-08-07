@@ -11,10 +11,23 @@ there, with a ✓ on the one you're using, and picking one applies it instantly.
 mode, switching live when it changes), then every theme grouped by its declared
 mode:
 
-- **Light** — **Light Green**, **Paper** (warm sepia stationery),
-  **Solarized Light**, **Nord Light**, and any light theme you add yourself.
-- **Dark** — **Dark Green**, **Solarized Dark**, **Nord Dark**, **Dracula**,
-  **Monokai**, and any dark theme you add yourself.
+- **Light** — **Light Green**, **Beacon** (maximum-contrast black-on-white),
+  **Skylark** (color-vision-friendly), **Lagoon** (shallow tropical water),
+  **Marmalade** (orange), **Honeycomb** (yellow), **Ultramarine** (blue),
+  **Dragonfruit** (magenta), and any light theme you add yourself.
+- **Dark** — **Dark Green**, **Vantablack** (maximum-contrast white-on-black),
+  **Nightjar** (color-vision-friendly), **Abyss** (lightless deep ocean),
+  **Garnet** (red), **Cyanotype** (blueprint cyan), **Amethyst** (violet), and
+  any dark theme you add yourself.
+
+Two pairs deserve a special note:
+
+- **Beacon / Vantablack** are the high-contrast pair — pure black-and-white
+  grounds with hard borders and a loud selection color, for harsh glare,
+  low-vision use, and OLED screens.
+- **Skylark / Nightjar** are built entirely from the Okabe–Ito palette, whose
+  colors stay distinguishable under the common forms of color-vision
+  deficiency — nothing in them relies on telling red from green.
 
 Unlike **System**, each named theme keeps its one look — light stays light and
 dark stays dark, whatever your computer's light/dark setting. You pick the
@@ -37,8 +50,8 @@ theme list in **☰ menu → Themes** are the buttons for managing it:
   changes show up right away.
 - **Help** — opens this page.
 
-The nine example themes live here too — open any of them to see exactly how a
-theme is built, or copy one as a starting point.
+The fifteen example themes live here too — open any of them to see exactly how
+a theme is built, or copy one as a starting point.
 
 ## What a theme file looks like
 
@@ -218,6 +231,6 @@ reload again.
 - **Multiple windows** — a newly added theme shows up in other open windows
   after you click **Reload** in each (or restart the app).
 
-The nine example themes are yours to modify — if you change one and want the
+The fifteen example themes are yours to modify — if you change one and want the
 original back, just delete your version and reopen Settings (the app re-creates
 any missing example on the next launch).

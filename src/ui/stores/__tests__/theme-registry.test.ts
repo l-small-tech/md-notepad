@@ -19,11 +19,11 @@ const plugin = (id: string, mode: ThemeMode, name = id): ThemePlugin => ({
 });
 
 const PLUGINS = [
-  plugin('monokai', 'dark', 'Monokai'),
+  plugin('vantablack', 'dark', 'Vantablack'),
   plugin('my-theme', 'light', 'My Theme'),
   plugin('light-green', 'light', 'Light Green'),
   plugin('dark-green', 'dark', 'Dark Green'),
-  plugin('nord-light', 'light', 'Nord Light'),
+  plugin('skylark', 'light', 'Skylark'),
   plugin('my-night', 'dark', 'My Night'),
 ];
 
@@ -32,12 +32,12 @@ describe('exportThemeGroups', () => {
     const groups = exportThemeGroups(PLUGINS);
     expect(groups.map((g) => g.label)).toEqual(['Light', 'Dark']);
     // Built-ins first (seed order), user themes after (alphabetical).
-    expect(groups[0]!.options.map((o) => o.value)).toEqual([
-      'light-green',
-      'nord-light',
-      'my-theme',
+    expect(groups[0]!.options.map((o) => o.value)).toEqual(['light-green', 'skylark', 'my-theme']);
+    expect(groups[1]!.options.map((o) => o.value)).toEqual([
+      'dark-green',
+      'vantablack',
+      'my-night',
     ]);
-    expect(groups[1]!.options.map((o) => o.value)).toEqual(['dark-green', 'monokai', 'my-night']);
     expect(groups.some((g) => g.options.some((o) => o.value === 'system'))).toBe(false);
   });
 
