@@ -31,7 +31,11 @@ sibling `session/` folder).
 - [ ] Mode segment: raw⇄split⇄wysiwyg switch shows the honest "coming in
       M4/M5" pane and switches back losslessly.
 - [ ] OS dark mode on launch → dark theme; flip OS theme while running →
-      app follows live (editor included).
+      app follows live (editor included). With a theme selected the app pins
+      that theme's declared mode instead: a dark theme under a light OS shows
+      dark chrome AND dark mermaid diagrams.
+- [ ] Drop an old-format (`light`/`dark` keys) theme file in the themes folder
+      + Reload → it is silently absent from the list; the file is untouched.
 - [ ] Resize window small (400×300): layout stays usable, no overflow.
 
 ## M2 — Session persistence

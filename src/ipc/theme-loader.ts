@@ -7,7 +7,9 @@
  * any missing built-in example and refresh any stale one (an older SEED_VERSION
  * stamp) → read + validate each. Invalid or unreadable files are skipped
  * individually, never failing the batch, so one bad hand-edit can't strip every
- * theme.
+ * theme. Files in the retired `{ light, dark }` format have no `branding` and
+ * are skipped by the parser — deliberately never rewritten or deleted (only
+ * seeded copies, identified by their `version` stamp, are ever touched).
  *
  * The themes folder is always app-owned local storage (internal on desktop, the
  * external files dir on Android), never a SAF synced tree, so this talks to the
@@ -20,8 +22,9 @@ import { ipc, IpcError } from './commands';
 import {
   parseThemePlugin,
   type ThemePlugin,
-  type Palette,
-  type SyntaxColors,
+  type ThemeMode,
+  type Branding,
+  type SyntaxPalette,
 } from '../core/theme-plugins';
 import { BUILT_IN_THEMES, RETIRED_THEME_IDS } from '../core/theme-seeds';
 
@@ -41,15 +44,15 @@ function toFileJson(plugin: ThemePlugin): string {
   const body: {
     name: string;
     version?: number;
-    light: Palette;
-    dark: Palette;
-    syntax?: SyntaxColors;
+    mode: ThemeMode;
+    branding: Branding;
+    syntax?: SyntaxPalette;
     css?: string;
   } = {
     name: plugin.name,
     ...(plugin.version !== undefined ? { version: plugin.version } : {}),
-    light: plugin.light,
-    dark: plugin.dark,
+    mode: plugin.mode,
+    branding: plugin.branding,
     ...(plugin.syntax ? { syntax: plugin.syntax } : {}),
     ...(plugin.css ? { css: plugin.css } : {}),
   };
@@ -225,14 +228,18 @@ export async function writeThemeTemplate(
   return { id, path };
 }
 
-/** Starter palette = the app's default (base.css) light/dark values; the
- *  template fills all ten keys for both modes so the user edits in place. The
+/** Starter palette = the app's default (base.css) light values plus a brand
+ *  trio; the template fills every branding key so the user edits in place. The
  *  optional `syntax` block demonstrates recoloring markdown elements (the
  *  `--md-*` vars) — seeded with the app's defaults so it's a no-op until edited. */
 const TEMPLATE: ThemePlugin = {
   id: 'my-theme',
   name: 'My Theme',
-  light: {
+  mode: 'light',
+  branding: {
+    primary: '#3574f0',
+    secondary: '#c42b1c',
+    tertiary: '#8a63d2',
     bg: '#ffffff',
     editorBg: '#f7f7f5',
     bgAlt: '#f5f5f5',
@@ -244,36 +251,13 @@ const TEMPLATE: ThemePlugin = {
     danger: '#c42b1c',
     selection: '#b5d1ff',
   },
-  dark: {
-    bg: '#1e1e1e',
-    editorBg: '#1a1a1a',
-    bgAlt: '#252526',
-    bgHover: '#2e2e30',
-    fg: '#e8e8e8',
-    fgMuted: '#9a9a9a',
-    accent: '#6ea1ff',
-    border: '#3c3c3c',
-    danger: '#ff6b5e',
-    selection: '#2a4a78',
-  },
   syntax: {
-    light: {
-      heading: '#3574f0',
-      bold: '#1f1f1f',
-      italic: '#6e6e6e',
-      link: '#3574f0',
-      code: '#c42b1c',
-      quote: '#6e6e6e',
-      list: '#6e6e6e',
-    },
-    dark: {
-      heading: '#6ea1ff',
-      bold: '#e8e8e8',
-      italic: '#9a9a9a',
-      link: '#6ea1ff',
-      code: '#ff6b5e',
-      quote: '#9a9a9a',
-      list: '#9a9a9a',
-    },
+    heading: '#3574f0',
+    bold: '#1f1f1f',
+    italic: '#6e6e6e',
+    link: '#3574f0',
+    code: '#c42b1c',
+    quote: '#6e6e6e',
+    list: '#6e6e6e',
   },
 };

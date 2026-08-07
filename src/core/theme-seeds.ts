@@ -5,14 +5,17 @@
  * doesn't name (e.g. a recessed --editor-bg or a --selection tint). 'default'
  * is NOT here: it is the base.css palette and needs no plugin.
  *
- * Every built-in is MODE-LOCKED: it presents ONE character — light or dark —
- * no matter the OS light/dark setting, because that character *is* the point:
- * you pick the mood, not the machine. Adaptive schemes were split into
- * explicit variants (Solarized Light / Solarized Dark, …) so the picker can
- * group all themes by Light / Dark. The lock is achieved by giving `light` and
- * `dark` the SAME palette (see `locked`): the renderer's dark block (higher
- * specificity) then also overrides base.css's own dark defaults, so the look
- * holds in either OS mode.
+ * Every theme presents ONE character — light or dark — no matter the OS
+ * light/dark setting, because that character *is* the point: you pick the
+ * mood, not the machine. Adaptive schemes were split into explicit variants
+ * (Solarized Light / Solarized Dark, …). The lock is DECLARED via each
+ * theme's `mode`, which groups the picker and pins `data-theme` on <html>
+ * while the theme is selected.
+ *
+ * Each built-in's `branding` carries the brand trio (primary/secondary/
+ * tertiary) — the theme's three identity colors, which drive the whiteboard
+ * ink derivation in styles/base.css. primary is the theme's accent; secondary
+ * and tertiary are picked from each palette's strongest supporting colors.
  *
  * Each seeded file is stamped with SEED_VERSION. The loader (ipc/theme-loader.ts)
  * writes a built-in when absent AND refreshes a copy whose stamped version is
@@ -22,10 +25,10 @@
  * any definition below changes.
  */
 
-import type { Palette, SyntaxPalette, ThemePlugin } from './theme-plugins';
+import type { ThemePlugin } from './theme-plugins';
 
 /** Bump when any built-in definition below changes (see module comment). */
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
 
 /**
  * Built-ins we used to seed but no longer ship. Gruvbox/Everforest/Rosé Pine
@@ -43,17 +46,6 @@ export const RETIRED_THEME_IDS: readonly string[] = [
   'nord',
 ];
 
-/** A mode-locked theme: `dark` mirrors `light` (see module comment). */
-function locked(id: string, name: string, palette: Palette, syntax?: SyntaxPalette): ThemePlugin {
-  return {
-    id,
-    name,
-    light: palette,
-    dark: palette,
-    ...(syntax ? { syntax: { light: syntax, dark: syntax } } : {}),
-  };
-}
-
 const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // Two originals drawn straight from the University of the Fraser Valley's live
   // web palette (ufv.ca): PANTONE 349 forest green #00703c ("growth and
@@ -64,10 +56,14 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   //     and meetings — near-white green-tinted paper, forest-green ink.
   //   • "Dark Green" is a low-light dark theme that's easy on the eyes for long
   //     or late sessions — deep emerald-forest with a soft (non-white) fg.
-  locked(
-    'light-green',
-    'Light Green',
-    {
+  {
+    id: 'light-green',
+    name: 'Light Green',
+    mode: 'light',
+    branding: {
+      primary: '#00703c', // UFV forest green
+      secondary: '#b5451f', // burnt orange
+      tertiary: '#7cb232', // fresh leaf-green
       bg: '#eaf1e4', // app chrome: pale green-grey
       editorBg: '#fbfdf8', // writing surface: near-white, faint green warmth, bright for glare
       bgAlt: '#e0ebd8', // raised panels / cards
@@ -80,7 +76,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       selection: '#cfe6a9', // UFV pale-lime highlight
     },
     // Headings walk UFV's forest-green → fresh-leaf-green range for hierarchy.
-    {
+    syntax: {
       heading1: '#005c31', // deepest forest
       heading2: '#00703c', // UFV primary
       heading3: '#2f7d43',
@@ -95,14 +91,18 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#4e7358',
       list: '#4f9e3c',
     },
-  ),
+  },
   // "Paper": warm sepia stationery — cream paper, brown-black ink, a leather-
   // brown accent. The calm reading-room counterpart to Light Green's daylight
   // brightness.
-  locked(
-    'paper',
-    'Paper',
-    {
+  {
+    id: 'paper',
+    name: 'Paper',
+    mode: 'light',
+    branding: {
+      primary: '#8c5a2b', // leather brown
+      secondary: '#b3402e', // sealing-wax red
+      tertiary: '#3d6b6b', // ink-teal
       bg: '#efe6d5', // aged-paper chrome
       editorBg: '#faf5e9', // cream writing sheet
       bgAlt: '#e7dcc6',
@@ -114,7 +114,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       danger: '#b3402e', // sealing-wax red
       selection: '#e9d9a9', // soft parchment highlight
     },
-    {
+    syntax: {
       heading: '#7a4a21', // darker leather for all heading levels
       bold: '#2c2418',
       italic: '#6b5d45',
@@ -124,63 +124,99 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#84765f',
       list: '#8c5a2b',
     },
-  ),
+  },
   // Solarized (Ethan Schoonover): the canonical beige/slate pair, split into
-  // its two published halves.
-  locked('solarized-light', 'Solarized Light', {
-    bg: '#fdf6e3',
-    editorBg: '#f7f1de',
-    bgAlt: '#eee8d5',
-    bgHover: '#e4dcc4',
-    fg: '#586e75',
-    fgMuted: '#93a1a1',
-    accent: '#268bd2',
-    border: '#e5ddc8',
-    danger: '#dc322f',
-    selection: '#cfe0ef',
-  }),
-  locked('solarized-dark', 'Solarized Dark', {
-    bg: '#002b36',
-    editorBg: '#00252e',
-    bgAlt: '#073642',
-    bgHover: '#0a4451',
-    fg: '#93a1a1',
-    fgMuted: '#657b83',
-    accent: '#268bd2',
-    border: '#0f4b58',
-    danger: '#dc322f',
-    selection: '#124651',
-  }),
+  // its two published halves. Both share the canonical blue/red/green accents.
+  {
+    id: 'solarized-light',
+    name: 'Solarized Light',
+    mode: 'light',
+    branding: {
+      primary: '#268bd2',
+      secondary: '#dc322f',
+      tertiary: '#859900',
+      bg: '#fdf6e3',
+      editorBg: '#f7f1de',
+      bgAlt: '#eee8d5',
+      bgHover: '#e4dcc4',
+      fg: '#586e75',
+      fgMuted: '#93a1a1',
+      accent: '#268bd2',
+      border: '#e5ddc8',
+      danger: '#dc322f',
+      selection: '#cfe0ef',
+    },
+  },
+  {
+    id: 'solarized-dark',
+    name: 'Solarized Dark',
+    mode: 'dark',
+    branding: {
+      primary: '#268bd2',
+      secondary: '#dc322f',
+      tertiary: '#859900',
+      bg: '#002b36',
+      editorBg: '#00252e',
+      bgAlt: '#073642',
+      bgHover: '#0a4451',
+      fg: '#93a1a1',
+      fgMuted: '#657b83',
+      accent: '#268bd2',
+      border: '#0f4b58',
+      danger: '#dc322f',
+      selection: '#124651',
+    },
+  },
   // Nord: frosty blue-greys, split into its Snow Storm (light) and Polar Night
-  // (dark) halves.
-  locked('nord-light', 'Nord Light', {
-    bg: '#eceff4',
-    editorBg: '#e9edf3',
-    bgAlt: '#e5e9f0',
-    bgHover: '#dbe1ea',
-    fg: '#2e3440',
-    fgMuted: '#5b6577',
-    accent: '#5e81ac',
-    border: '#d8dee9',
-    danger: '#bf616a',
-    selection: '#d2dbe8',
-  }),
-  locked('nord-dark', 'Nord Dark', {
-    bg: '#2e3440',
-    editorBg: '#2b303b',
-    bgAlt: '#3b4252',
-    bgHover: '#434c5e',
-    fg: '#d8dee9',
-    fgMuted: '#8a93a5',
-    accent: '#88c0d0',
-    border: '#3b4252',
-    danger: '#bf616a',
-    selection: '#434c5e',
-  }),
-  locked(
-    'dark-green',
-    'Dark Green',
-    {
+  // (dark) halves. Trios from the frost and aurora accent groups.
+  {
+    id: 'nord-light',
+    name: 'Nord Light',
+    mode: 'light',
+    branding: {
+      primary: '#5e81ac', // frost blue
+      secondary: '#bf616a', // aurora red
+      tertiary: '#b48ead', // aurora purple
+      bg: '#eceff4',
+      editorBg: '#e9edf3',
+      bgAlt: '#e5e9f0',
+      bgHover: '#dbe1ea',
+      fg: '#2e3440',
+      fgMuted: '#5b6577',
+      accent: '#5e81ac',
+      border: '#d8dee9',
+      danger: '#bf616a',
+      selection: '#d2dbe8',
+    },
+  },
+  {
+    id: 'nord-dark',
+    name: 'Nord Dark',
+    mode: 'dark',
+    branding: {
+      primary: '#88c0d0', // frost cyan
+      secondary: '#bf616a', // aurora red
+      tertiary: '#a3be8c', // aurora green
+      bg: '#2e3440',
+      editorBg: '#2b303b',
+      bgAlt: '#3b4252',
+      bgHover: '#434c5e',
+      fg: '#d8dee9',
+      fgMuted: '#8a93a5',
+      accent: '#88c0d0',
+      border: '#3b4252',
+      danger: '#bf616a',
+      selection: '#434c5e',
+    },
+  },
+  {
+    id: 'dark-green',
+    name: 'Dark Green',
+    mode: 'dark',
+    branding: {
+      primary: '#56c07a', // lifted emerald
+      secondary: '#e0a878', // warm sand
+      tertiary: '#a6d96a', // lifted leaf-green
       bg: '#111c15', // deep-forest chrome
       editorBg: '#0c150f', // deepest writing surface
       bgAlt: '#18261c', // raised panels
@@ -193,7 +229,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       selection: '#21503a', // forest highlight
     },
     // Lifted greens on the deep bg; a warm-sand code color for contrast.
-    {
+    syntax: {
       heading1: '#7fd39b', // brightest mint at the top level
       heading2: '#6ac98a',
       heading3: '#56c07a', // accent emerald
@@ -208,13 +244,17 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#8aa891',
       list: '#8ecb62',
     },
-  ),
+  },
   // Dracula (draculatheme.com): vivid purple-and-pink on cool navy — canonically
-  // a dark theme, shipped as one.
-  locked(
-    'dracula',
-    'Dracula',
-    {
+  // a dark theme, shipped as one. The purple/pink/cyan trio is the brand.
+  {
+    id: 'dracula',
+    name: 'Dracula',
+    mode: 'dark',
+    branding: {
+      primary: '#bd93f9', // purple
+      secondary: '#ff79c6', // pink
+      tertiary: '#8be9fd', // cyan
       bg: '#282a36',
       editorBg: '#21222c',
       bgAlt: '#343746',
@@ -228,7 +268,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
     },
     // The canonical Dracula accents: pink headings, orange bold, yellow italic,
     // cyan links, green code.
-    {
+    syntax: {
       heading: '#bd93f9',
       bold: '#ffb86c',
       italic: '#f1fa8c',
@@ -238,13 +278,17 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#6272a4',
       list: '#ff79c6',
     },
-  ),
+  },
   // Monokai (the classic TextMate/Sublime palette): warm charcoal with
   // high-energy magenta/green/yellow pops — canonically dark, shipped as such.
-  locked(
-    'monokai',
-    'Monokai',
-    {
+  {
+    id: 'monokai',
+    name: 'Monokai',
+    mode: 'dark',
+    branding: {
+      primary: '#f92672', // magenta
+      secondary: '#a6e22e', // green
+      tertiary: '#66d9ef', // cyan
       bg: '#272822',
       editorBg: '#1e1f1c',
       bgAlt: '#34352f',
@@ -258,7 +302,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
     },
     // Monokai's syntax spread: green headings, orange bold, purple italic,
     // cyan links, yellow code, magenta list markers.
-    {
+    syntax: {
       heading: '#a6e22e',
       bold: '#fd971f',
       italic: '#ae81ff',
@@ -268,20 +312,17 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#75715e',
       list: '#f92672',
     },
-  ),
+  },
 ];
 
-/** Built-in light themes, in picker order (headed by the green "system
- *  default" — base.css is itself green-tinted). */
-export const LIGHT_THEME_IDS: readonly string[] = [
+/** Seeded picker order (light themes first, headed by the green "system
+ *  default" — base.css is itself green-tinted). Used only for SORTING the
+ *  theme list; grouping comes from each plugin's `mode`. */
+export const BUILT_IN_ORDER: readonly string[] = [
   'light-green',
   'paper',
   'solarized-light',
   'nord-light',
-];
-
-/** Built-in dark themes, in picker order. */
-export const DARK_THEME_IDS: readonly string[] = [
   'dark-green',
   'solarized-dark',
   'nord-dark',

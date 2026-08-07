@@ -8,13 +8,13 @@ Pick a theme in the **☰ menu → Themes** — every installed theme is listed
 there, with a ✓ on the one you're using, and picking one applies it instantly.
 (The same list is also in **Settings → Theme**.) It starts with **System**
 (**Light Green** when your computer is in light mode, **Dark Green** in dark
-mode, switching live when it changes), then the themes in three groups:
+mode, switching live when it changes), then every theme grouped by its declared
+mode:
 
 - **Light** — **Light Green**, **Paper** (warm sepia stationery),
-  **Solarized Light**, and **Nord Light**.
+  **Solarized Light**, **Nord Light**, and any light theme you add yourself.
 - **Dark** — **Dark Green**, **Solarized Dark**, **Nord Dark**, **Dracula**,
-  and **Monokai**.
-- **Custom** — any theme you add or create yourself.
+  **Monokai**, and any dark theme you add yourself.
 
 Unlike **System**, each named theme keeps its one look — light stays light and
 dark stays dark, whatever your computer's light/dark setting. You pick the
@@ -42,25 +42,17 @@ theme is built, or copy one as a starting point.
 
 ## What a theme file looks like
 
-A theme is a small block of colors for **light** mode and **dark** mode, plus a
-name. Here's a complete one:
+A theme is a name, a **mode** (`"light"` or `"dark"` — the look it presents),
+and one **branding** block of colors. Here's a complete one:
 
 ```json
 {
   "name": "Midnight",
-  "light": {
-    "bg": "#ffffff",
-    "editorBg": "#f7f7f5",
-    "bgAlt": "#f0f0f0",
-    "bgHover": "#e8e8e8",
-    "fg": "#1a1a1a",
-    "fgMuted": "#6a6a6a",
-    "accent": "#3060d0",
-    "border": "#e0e0e0",
-    "danger": "#c42b1c",
-    "selection": "#b5d1ff"
-  },
-  "dark": {
+  "mode": "dark",
+  "branding": {
+    "primary": "#6ea1ff",
+    "secondary": "#ff6b5e",
+    "tertiary": "#8a63d2",
     "bg": "#0f1419",
     "editorBg": "#0b0f14",
     "bgAlt": "#1a212b",
@@ -76,14 +68,25 @@ name. Here's a complete one:
 ```
 
 Save it as, say, `midnight.json` in the themes folder, click **Reload**, and
-"Midnight" appears in the Theme dropdown. The **file name** (without
-`.json`) is the theme's id, so keep it simple: lowercase letters, numbers, and
-dashes.
+"Midnight" appears in the Theme dropdown's Dark group. The **file name**
+(without `.json`) is the theme's id, so keep it simple: lowercase letters,
+numbers, and dashes.
 
-### The ten colors
+### The branding colors
 
 Colors can be written as hex (`#rrggbb`), `rgb(...)`, `hsl(...)`, or a named
 color like `navy`.
+
+First, the **brand trio** — your theme's three identity colors. They drive the
+whiteboard's themed ink palette (the pens automatically match your theme):
+
+| Key         | What it is |
+| ----------- | ---------- |
+| `primary`   | The theme's signature color — usually the same as `accent`. |
+| `secondary` | The strongest supporting color. |
+| `tertiary`  | A third distinct color to round out the set. |
+
+Then the ten interface colors:
 
 | Key          | What it colors |
 | ------------ | -------------- |
@@ -98,38 +101,31 @@ color like `navy`.
 | `danger`     | Warnings and destructive actions (e.g. delete). |
 | `selection`  | The highlight behind selected text. |
 
-You don't have to include all ten — any you leave out simply use the Default
-theme's value. But for a polished result, set them all for both light and dark.
+You don't have to include everything — any key you leave out simply uses the
+Default value for your theme's mode, and a missing trio is derived from your
+`accent`, `danger`, and `fg`. But for a polished result, set them all.
 
 ### Coloring markdown elements (optional)
 
-The ten colors above cover the whole app. If you also want to recolor
+The branding colors cover the whole app. If you also want to recolor
 **individual markdown elements** — give headings their own color, tint links,
-make code stand out — add an optional `"syntax"` block. It has a `light` and a
-`dark` palette of its own, and any key you set applies in every view (source,
-Rich, and Read). Leave the block out entirely, or leave any key unset, and that
-element keeps its normal color.
+make code stand out — add an optional `"syntax"` block. Any key you set applies
+in every view (source, Rich, and Read). Leave the block out entirely, or leave
+any key unset, and that element keeps its normal color.
 
 ```json
 {
   "name": "Inky",
-  "light": { "bg": "#ffffff", "fg": "#1f1f1f", "accent": "#3574f0" },
-  "dark": { "bg": "#1e1e1e", "fg": "#e8e8e8", "accent": "#6ea1ff" },
+  "mode": "light",
+  "branding": { "bg": "#ffffff", "fg": "#1f1f1f", "accent": "#3574f0" },
   "syntax": {
-    "light": {
-      "heading": "#8a101f",
-      "bold": "#1f1f1f",
-      "italic": "#6e6e6e",
-      "link": "#3574f0",
-      "code": "#b23a2b",
-      "quote": "#6e6e6e",
-      "list": "#6e6e6e"
-    },
-    "dark": {
-      "heading": "#ff8a97",
-      "link": "#6ea1ff",
-      "code": "#ff6b5e"
-    }
+    "heading": "#8a101f",
+    "bold": "#1f1f1f",
+    "italic": "#6e6e6e",
+    "link": "#3574f0",
+    "code": "#b23a2b",
+    "quote": "#6e6e6e",
+    "list": "#6e6e6e"
   }
 }
 ```
@@ -161,8 +157,8 @@ know CSS.
 ```json
 {
   "name": "Airy",
-  "light": { "bg": "#fbfbfa", "fg": "#2b2b2b" },
-  "dark": { "bg": "#1b1b1b", "fg": "#dddddd" },
+  "mode": "light",
+  "branding": { "bg": "#fbfbfa", "fg": "#2b2b2b" },
   "css": ".markdown-body { line-height: 1.8; }"
 }
 ```
@@ -174,9 +170,12 @@ assistant (ChatGPT, Claude, Gemini, …), describe the mood you want, and drop t
 result into your themes folder.
 
 > I'm making a color theme for a markdown notepad app. A theme is a JSON file
-> with a `name`, a `light` palette, and a `dark` palette. Each palette has these
-> ten keys, all color strings (hex is fine):
+> with a `name`, a `mode` (either `"light"` or `"dark"` — the one look the
+> theme presents), and a `branding` palette. The palette has these keys, all
+> color strings (hex is fine):
 >
+> - `primary`, `secondary`, `tertiary` — the theme's three identity colors
+>   (`primary` is usually the same as `accent`)
 > - `bg` — main app background
 > - `editorBg` — the writing surface (a hair off `bg`)
 > - `bgAlt` — secondary panels
@@ -188,15 +187,14 @@ result into your themes folder.
 > - `danger` — warnings/delete
 > - `selection` — selected-text highlight
 >
-> Optionally also add a `syntax` object with `light` and `dark` palettes to
-> recolor markdown elements, using any of these keys: `heading` (or
-> `heading1`…`heading6` for per-level), `bold`, `italic`, `strikethrough`,
-> `link`, `code`, `quote`, `list`.
+> Optionally also add a flat `syntax` object to recolor markdown elements,
+> using any of these keys: `heading` (or `heading1`…`heading6` for per-level),
+> `bold`, `italic`, `strikethrough`, `link`, `code`, `quote`, `list`.
 >
 > Please output only a valid JSON file. Make it **[describe what you want — e.g.
-> "a warm, low-contrast sepia theme that's easy on the eyes at night"]**. Ensure
-> the light palette has dark text on light backgrounds and the dark palette has
-> light text on dark backgrounds, with enough contrast to read comfortably.
+> "a warm, low-contrast sepia theme that's easy on the eyes at night"]**. If the
+> mode is light, use dark text on light backgrounds; if dark, light text on dark
+> backgrounds — with enough contrast to read comfortably.
 
 Save the AI's output as `something.json` in your themes folder, click
 **Reload**, and select it. If it doesn't look right, ask the AI to adjust and
@@ -206,10 +204,12 @@ reload again.
 
 - **It's not in the list** — click **Reload**. Make sure the file ends in
   `.json` and is valid JSON (a missing comma or quote will make the app skip
-  it). Pasting the file's contents back to your AI and asking it to "fix the
-  JSON" usually sorts it out.
+  it), and that the colors sit inside a `"branding"` block — files from older
+  versions with separate `"light"`/`"dark"` blocks are skipped. Pasting the
+  file's contents back to your AI and asking it to "convert to the branding
+  format" usually sorts it out.
 - **Some colors look wrong** — you may have left those keys out (they fall back
-  to Default) or set light/dark values that are too close in brightness.
+  to Default) or set a `mode` that doesn't match your palette's brightness.
 - **A theme disappeared** — if you delete a theme's file while it's selected,
   the app quietly falls back to the Default palette. Pick another scheme, or add
   the file back.
@@ -218,6 +218,6 @@ reload again.
 - **Multiple windows** — a newly added theme shows up in other open windows
   after you click **Reload** in each (or restart the app).
 
-The seven example themes are yours to modify — if you change one and want the
+The nine example themes are yours to modify — if you change one and want the
 original back, just delete your version and reopen Settings (the app re-creates
 any missing example on the next launch).

@@ -27,7 +27,7 @@
 import type { DocSource } from '../../core/export/doc-source';
 import { imageMimeType, localImageToInline } from '../../core/images';
 import { baseName, dirName } from '../../core/session/plan-flush';
-import { themeModeDeclarations, type ThemePlugin } from '../../core/theme-plugins';
+import { themeDeclarations, type ThemePlugin } from '../../core/theme-plugins';
 import { slugifyTitle, stripExtension } from '../../core/title';
 import { buildStandaloneHtml } from '../../preview/export';
 import exportCss from '../../preview/export.css?raw';
@@ -42,10 +42,17 @@ const HTML_FILTERS = [{ name: 'HTML', extensions: ['html'] }];
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }];
 const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }];
 
-/** The theme applied to an export: a plugin (or none = default palette) + mode. */
+/** The theme applied to an export: a plugin (or none = default palette). The
+ *  `dark` seed only matters for the default palette — a chosen plugin's own
+ *  declared `mode` decides the export's darkness. */
 interface ExportTheme {
   plugin: ThemePlugin | null;
   dark: boolean;
+}
+
+/** The effective darkness of an export theme (see ExportTheme). */
+function isDarkTheme(theme: ExportTheme): boolean {
+  return theme.plugin ? theme.plugin.mode === 'dark' : theme.dark;
 }
 
 /** Intrinsic pixel size of an image data: URL, or null if it won't decode. */
@@ -127,14 +134,12 @@ export function createExport(ctx: SessionCtx) {
   function buildDocHtml(src: DocSource, theme: ExportTheme): Promise<string> {
     const docDir = src.docPath ? dirName(src.docPath) : null;
     const cache = new Map<string, string>();
-    const declarations = theme.plugin
-      ? themeModeDeclarations(theme.plugin, theme.dark ? 'dark' : 'light')
-      : '';
+    const declarations = theme.plugin ? themeDeclarations(theme.plugin) : '';
     const css = declarations.length > 0 ? `${exportCss}\n:root {\n${declarations}\n}` : exportCss;
     return buildStandaloneHtml(src.markdown, {
       title: src.title,
       css,
-      dark: theme.dark,
+      dark: isDarkTheme(theme),
       async resolveImage(imgSrc) {
         const abs = localImageToInline(docDir, imgSrc);
         if (!abs) {
@@ -192,7 +197,7 @@ export function createExport(ctx: SessionCtx) {
         await import('../../core/export/pdf');
       const base64 = await markdownToPdfBase64(src.markdown, {
         title: src.title,
-        theme: pdfThemeFromPlugin(theme.plugin, theme.dark ? 'dark' : 'light'),
+        theme: pdfThemeFromPlugin(theme.plugin),
         async resolveImage(imgSrc) {
           const abs = localImageToInline(docDir, imgSrc);
           if (!abs || !pdfImageType(abs)) {

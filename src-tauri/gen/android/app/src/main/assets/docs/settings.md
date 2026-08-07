@@ -9,12 +9,13 @@ remembered. Press Esc or click outside the panel to close it.
 - **Theme** — one list that combines the light/dark mode and the color scheme:
   - **System** follows your computer's light/dark setting, switching live
     when it changes: **Light Green** in light mode, **Dark Green** in dark.
-  - Below it the themes are grouped **Light** (**Light Green**, **Paper**,
-    **Solarized Light**, **Nord Light**), **Dark** (**Dark Green**,
-    **Solarized Dark**, **Nord Dark**, **Dracula**, **Monokai**), and
-    **Custom** (themes you add yourself). They all ship as example *theme
-    files* you can edit, and each keeps its one look — light or dark —
-    whatever your computer's light/dark setting.
+  - Below it every theme is grouped by its declared mode: **Light**
+    (**Light Green**, **Paper**, **Solarized Light**, **Nord Light**) and
+    **Dark** (**Dark Green**, **Solarized Dark**, **Nord Dark**, **Dracula**,
+    **Monokai**) — themes you add yourself join the group their `mode`
+    declares. They all ship as example *theme files* you can edit, and each
+    keeps its one look — light or dark — whatever your computer's light/dark
+    setting.
 
   See **[Themes](themes.md)** for how to make your own (an AI can write one for
   you in seconds) — a theme can set the whole palette *and* recolor individual
@@ -53,7 +54,9 @@ remembered. Press Esc or click outside the panel to close it.
   ([explained here](editing-modes.md)) a new tab starts in: Raw, Split,
   Rich, or Read.
 - **Live save** — when on, files you've opened save themselves as you type,
-  just like notes do. When off (the default), files wait for Ctrl+S.
+  just like notes do. When off (the default), files wait for Ctrl+S. You can
+  also flip it without opening Settings: press and hold the toolbar's save
+  button and pick **Auto save**.
 - **Confirm before moving files between folders** — whether dragging a file
   to a new folder in the sidebar asks "are you sure?" first.
 - **Preview tabs** — when on (the default), single-clicking a file in the

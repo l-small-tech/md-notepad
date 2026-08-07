@@ -1,29 +1,37 @@
 /**
  * Theme plugins — the pure model behind pluggable color schemes.
  *
- * The whole app styles itself through ten CSS variables (see styles/base.css),
- * redefined per light/dark and selected by `data-color-scheme` on <html>. A
- * "theme plugin" is those ten variables for light and dark, plus an optional
- * `syntax` block that recolors individual markdown elements (headings, bold,
- * links, …) — authored as a small JSON file the user drops in the themes folder
- * (loaded by ipc/theme-loader.ts). This module is DOM/Tauri-free: it validates a
- * parsed JSON blob into a `ThemePlugin` and renders a plugin to the scoped CSS
- * the app injects at boot.
+ * The whole app styles itself through a small set of CSS variables (see
+ * styles/base.css), selected by `data-color-scheme` on <html>. A "theme plugin"
+ * is a single `branding` palette — the ten semantic variables plus the brand
+ * trio (primary/secondary/tertiary) — a declared `mode` ('light' | 'dark'),
+ * and an optional flat `syntax` block that recolors individual markdown
+ * elements (headings, bold, links, …) — authored as a small JSON file the user
+ * drops in the themes folder (loaded by ipc/theme-loader.ts). This module is
+ * DOM/Tauri-free: it validates a parsed JSON blob into a `ThemePlugin` and
+ * renders a plugin to the scoped CSS the app injects at boot.
  *
  * Design notes:
- * - Palette/syntax values are validated as *safe* color strings — anything
+ * - A theme presents ONE look; `mode` declares whether it is a light or dark
+ *   look. The UI groups the theme picker by mode and pins `data-theme` on
+ *   <html> to it while the theme is selected, so base.css's mode-matching
+ *   defaults are the fallback for any key the theme omits.
+ * - Branding/syntax values are validated as *safe* color strings — anything
  *   containing `;{}:` or a newline is dropped, so a hand-edited value can't break
  *   out of its declaration and corrupt the whole stylesheet. Missing keys are
  *   simply omitted; the app falls back to base.css's default for that variable
  *   (and each `--md-*` var itself falls back to a palette var in the consuming
  *   stylesheet), so a partial theme still works.
+ * - The brand trio feeds the whiteboard ink derivation in base.css; when a
+ *   theme omits it, base.css derives a trio from the theme's own
+ *   accent/danger/fg.
  * - `css` is an intentional escape hatch: verbatim CSS the author scopes
  *   themselves (for spacing/font tweaks the variables can't express). It is
  *   emitted as-is — the themes folder is the user's own machine.
  */
 
-/** The ten palette keys (JSON field → CSS custom property). Every scheme block
- *  in the app is exactly these variables; see styles/base.css. */
+/** The ten semantic palette keys (JSON field → CSS custom property). Every
+ *  scheme block in the app is these variables; see styles/base.css. */
 export const PALETTE_KEYS = {
   bg: '--bg',
   editorBg: '--editor-bg',
@@ -36,6 +44,17 @@ export const PALETTE_KEYS = {
   danger: '--danger',
   selection: '--selection',
 } as const;
+
+/** The brand trio (JSON field → CSS custom property): the theme's identity
+ *  colors, consumed by the whiteboard ink derivation in styles/base.css. */
+export const BRAND_KEYS = {
+  primary: '--brand-primary',
+  secondary: '--brand-secondary',
+  tertiary: '--brand-tertiary',
+} as const;
+
+/** The branding keys: the ten semantic palette keys plus the brand trio. */
+export const BRANDING_KEYS = { ...PALETTE_KEYS, ...BRAND_KEYS } as const;
 
 /**
  * Optional markdown-element colors (JSON field → CSS custom property). Each maps
@@ -61,66 +80,34 @@ export const SYNTAX_KEYS = {
   list: '--md-list',
 } as const;
 
-/**
- * Optional whiteboard ink slots (JSON field → CSS custom property). `bg` is the
- * board backdrop; `c0`–`c7` are the eight marker slots, index-aligned with
- * `core/whiteboard/tool-settings.ts` PALETTE. base.css DERIVES defaults from
- * the theme palette vars (--editor-bg/--fg/--accent/--danger blends), so a
- * theme only needs this section to pin exact inks. The draw adapter copies the
- * resolved values onto the board's `<svg>` as inline style, so a theme override
- * wins over the file's own embedded palette block.
- */
-export const WHITEBOARD_KEYS = {
-  bg: '--wb-bg',
-  c0: '--wb-c0',
-  c1: '--wb-c1',
-  c2: '--wb-c2',
-  c3: '--wb-c3',
-  c4: '--wb-c4',
-  c5: '--wb-c5',
-  c6: '--wb-c6',
-  c7: '--wb-c7',
-} as const;
+export type ThemeMode = 'light' | 'dark';
 
 export type PaletteKey = keyof typeof PALETTE_KEYS;
+export type BrandKey = keyof typeof BRAND_KEYS;
+export type BrandingKey = keyof typeof BRANDING_KEYS;
 export type SyntaxKey = keyof typeof SYNTAX_KEYS;
-export type WhiteboardKey = keyof typeof WHITEBOARD_KEYS;
 
 export const PALETTE_KEY_LIST = Object.keys(PALETTE_KEYS) as PaletteKey[];
+export const BRANDING_KEY_LIST = Object.keys(BRANDING_KEYS) as BrandingKey[];
 export const SYNTAX_KEY_LIST = Object.keys(SYNTAX_KEYS) as SyntaxKey[];
-export const WHITEBOARD_KEY_LIST = Object.keys(WHITEBOARD_KEYS) as WhiteboardKey[];
 
-/** A light or dark palette: any subset of the ten keys → color string. */
-export type Palette = Partial<Record<PaletteKey, string>>;
-/** A light or dark markdown-element palette: any subset of the syntax keys. */
+/** A theme's palette: any subset of the branding keys → color string. */
+export type Branding = Partial<Record<BrandingKey, string>>;
+/** A markdown-element palette: any subset of the syntax keys. */
 export type SyntaxPalette = Partial<Record<SyntaxKey, string>>;
-/** A light or dark whiteboard ink palette: any subset of bg/c0…c7. */
-export type WhiteboardPalette = Partial<Record<WhiteboardKey, string>>;
-
-/** Per-mode markdown-element colors. */
-export interface SyntaxColors {
-  light: SyntaxPalette;
-  dark: SyntaxPalette;
-}
-
-/** Per-mode whiteboard ink slot colors. */
-export interface WhiteboardColors {
-  light: WhiteboardPalette;
-  dark: WhiteboardPalette;
-}
 
 export interface ThemePlugin {
   /** Slug (from the filename); also the `data-color-scheme` value. */
   id: string;
   /** Display name for the settings dropdown. */
   name: string;
-  light: Palette;
-  dark: Palette;
-  /** Optional per-mode markdown-element colors (the `--md-*` vars). */
-  syntax?: SyntaxColors;
-  /** Optional per-mode whiteboard ink slot colors (the `--wb-*` vars). */
-  whiteboard?: WhiteboardColors;
-  /** Optional verbatim CSS appended after the palette blocks. */
+  /** The one look this theme presents, whatever the OS setting. Groups the
+   *  picker and drives `data-theme` while the theme is selected. */
+  mode: ThemeMode;
+  branding: Branding;
+  /** Optional markdown-element colors (the `--md-*` vars), flat. */
+  syntax?: SyntaxPalette;
+  /** Optional verbatim CSS appended after the branding block. */
   css?: string;
   /** Seed-content version, stamped only on the built-in examples we write to the
    *  themes folder. Lets the loader refresh a stale copy when the shipped
@@ -159,48 +146,35 @@ function pickSafe<K extends string>(raw: unknown, keys: readonly K[]): Partial<R
 
 /**
  * Validate a parsed JSON blob into a `ThemePlugin`. Returns null only when the
- * input is unusable (not an object, or no *palette* values at all after
+ * input is unusable (not an object, or no `branding` values at all after
  * validation) — a lenient parse so a slightly-malformed theme degrades rather
- * than disappearing. A theme with only `syntax` colors and no palette is treated
- * as invalid (there'd be nothing to distinguish it from the default palette).
- * `id` is supplied by the caller (the filename slug).
+ * than disappearing. The empty-branding guard is also what rejects files in the
+ * retired `{ light, dark }` format. A missing or misspelled `mode` defaults to
+ * 'light' (the theme still works, it just lands in the Light group). `id` is
+ * supplied by the caller (the filename slug).
  */
 export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
   if (!isRecord(raw)) {
     return null;
   }
-  const light = pickSafe(raw.light, PALETTE_KEY_LIST);
-  const dark = pickSafe(raw.dark, PALETTE_KEY_LIST);
-  if (Object.keys(light).length === 0 && Object.keys(dark).length === 0) {
+  const branding = pickSafe(raw.branding, BRANDING_KEY_LIST);
+  if (Object.keys(branding).length === 0) {
     // Nothing to apply — treat as invalid so the loader skips it.
     return null;
   }
+  const mode: ThemeMode = raw.mode === 'dark' ? 'dark' : 'light';
   const name = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : id;
   const css = typeof raw.css === 'string' && raw.css.trim().length > 0 ? raw.css : undefined;
 
-  const syntaxRaw = isRecord(raw.syntax) ? raw.syntax : undefined;
-  const syntaxLight = pickSafe(syntaxRaw?.light, SYNTAX_KEY_LIST);
-  const syntaxDark = pickSafe(syntaxRaw?.dark, SYNTAX_KEY_LIST);
-  const syntax =
-    Object.keys(syntaxLight).length > 0 || Object.keys(syntaxDark).length > 0
-      ? { light: syntaxLight, dark: syntaxDark }
-      : undefined;
-
-  const wbRaw = isRecord(raw.whiteboard) ? raw.whiteboard : undefined;
-  const wbLight = pickSafe(wbRaw?.light, WHITEBOARD_KEY_LIST);
-  const wbDark = pickSafe(wbRaw?.dark, WHITEBOARD_KEY_LIST);
-  const whiteboard =
-    Object.keys(wbLight).length > 0 || Object.keys(wbDark).length > 0
-      ? { light: wbLight, dark: wbDark }
-      : undefined;
+  const syntaxPicked = pickSafe(raw.syntax, SYNTAX_KEY_LIST);
+  const syntax = Object.keys(syntaxPicked).length > 0 ? syntaxPicked : undefined;
 
   return {
     id,
     name,
-    light,
-    dark,
+    mode,
+    branding,
     ...(syntax ? { syntax } : {}),
-    ...(whiteboard ? { whiteboard } : {}),
     ...(css ? { css } : {}),
   };
 }
@@ -223,52 +197,36 @@ function declarations<K extends string>(
     .join('\n');
 }
 
-/** Join the palette, syntax and whiteboard declarations for one mode. */
-function modeDeclarations(
-  palette: Palette,
-  syntax: SyntaxPalette | undefined,
-  whiteboard?: WhiteboardPalette,
-): string {
+/**
+ * Bare `--x: value;` declarations (branding + syntax) of a plugin — for
+ * injecting a chosen theme into the standalone export stylesheet, where no
+ * `data-theme`/`data-color-scheme` attributes exist to scope against. The
+ * caller wraps them in its own `:root { … }` block.
+ */
+export function themeDeclarations(plugin: ThemePlugin): string {
   return [
-    declarations(palette, PALETTE_KEYS, PALETTE_KEY_LIST),
-    syntax ? declarations(syntax, SYNTAX_KEYS, SYNTAX_KEY_LIST) : '',
-    whiteboard ? declarations(whiteboard, WHITEBOARD_KEYS, WHITEBOARD_KEY_LIST) : '',
+    declarations(plugin.branding, BRANDING_KEYS, BRANDING_KEY_LIST),
+    plugin.syntax ? declarations(plugin.syntax, SYNTAX_KEYS, SYNTAX_KEY_LIST) : '',
   ]
     .filter((block) => block.length > 0)
     .join('\n');
 }
 
 /**
- * Bare `--x: value;` declarations (palette + syntax) for one mode of a plugin —
- * for injecting a chosen theme into the standalone export stylesheet, where no
- * `data-theme`/`data-color-scheme` attributes exist to scope against. The
- * caller wraps them in its own `:root { … }` block.
- */
-export function themeModeDeclarations(plugin: ThemePlugin, mode: 'light' | 'dark'): string {
-  return modeDeclarations(plugin[mode], plugin.syntax?.[mode], plugin.whiteboard?.[mode]);
-}
-
-/**
- * Render a plugin to the CSS the app injects: a light block scoped
- * `:not([data-theme='dark'])` plus a `[data-theme='dark']` block, then the
- * verbatim `css`. base.css signals dark with `data-theme='dark'` on <html> and
- * this stylesheet is appended AFTER it, so the light block MUST exclude dark
- * mode — otherwise a theme that sets a `light` key but omits the same `dark` key
- * would tie base.css's dark rule on specificity and (winning by source order)
- * leak its light color into OS dark mode. Excluding dark preserves the contract
- * that a missing key falls back to base.css's default in BOTH modes.
- * Palette and `--md-*` syntax vars share each mode's block.
+ * Render a plugin to the CSS the app injects: one `:root[data-color-scheme]`
+ * block holding the branding + syntax declarations, then the verbatim `css`.
+ * The block is deliberately NOT scoped by `data-theme` — a theme presents one
+ * look, and the UI pins `data-theme` to the plugin's `mode` while it is
+ * selected, so base.css's matching mode block supplies the defaults for any
+ * key the theme omits. This stylesheet is appended after base.css, so at equal
+ * specificity the theme's own declarations win by source order.
  */
 export function themePluginToCss(plugin: ThemePlugin): string {
   const attr = escapeAttrValue(plugin.id);
   const blocks: string[] = [];
-  const light = modeDeclarations(plugin.light, plugin.syntax?.light, plugin.whiteboard?.light);
-  if (light) {
-    blocks.push(`:root[data-color-scheme='${attr}']:not([data-theme='dark']) {\n${light}\n}`);
-  }
-  const dark = modeDeclarations(plugin.dark, plugin.syntax?.dark, plugin.whiteboard?.dark);
-  if (dark) {
-    blocks.push(`:root[data-color-scheme='${attr}'][data-theme='dark'] {\n${dark}\n}`);
+  const decls = themeDeclarations(plugin);
+  if (decls) {
+    blocks.push(`:root[data-color-scheme='${attr}'] {\n${decls}\n}`);
   }
   if (plugin.css) {
     blocks.push(plugin.css);

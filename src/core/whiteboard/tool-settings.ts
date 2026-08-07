@@ -40,8 +40,8 @@ export const PALETTE: readonly string[] = [
  * near-black flips to near-white, chromatic slots are lifted toward a tone
  * legible on a dark board. These are the DEFAULTS the serializer bakes into a
  * file's palette `<style>` block — the dark-scheme fallback a foreign renderer
- * sees. IN-APP, base.css derives `--wb-c0…c7` from the current theme's palette
- * vars instead, and a theme JSON's `whiteboard` section may pin exact values.
+ * sees. IN-APP, base.css derives `--wb-c0…c7` from the current theme's brand
+ * trio (--brand-primary/-secondary/-tertiary) and ink colors instead.
  */
 export const PALETTE_DARK: readonly string[] = [
   '#e6e6e6',
@@ -77,20 +77,20 @@ export const STATIC_PALETTE: readonly string[] = [
 
 /**
  * Ribbon labels for the themed slots. IN-APP the slots render through the
- * `--wb-*` vars, which base.css derives from the current theme's palette
- * (ink/alert/accent blends) — so a hue name would lie; these describe the
- * slot's ROLE instead. The {@link PALETTE} hexes above remain what a saved
- * file falls back to in a foreign, CSS-less renderer.
+ * `--wb-*` vars, which base.css derives from the current theme's brand trio
+ * (primary/secondary/tertiary) and ink colors — so a hue name would lie; these
+ * describe the slot's ROLE instead. The {@link PALETTE} hexes above remain
+ * what a saved file falls back to in a foreign, CSS-less renderer.
  */
 export const THEMED_SLOT_NAMES: readonly string[] = [
   'Ink',
-  'Accent',
-  'Deep accent',
-  'Soft accent',
+  'Primary',
+  'Secondary',
+  'Tertiary',
   'Pencil',
-  'Alert',
-  'Warm',
-  'Deep warm',
+  'Deep primary',
+  'Primary blend',
+  'Secondary blend',
 ];
 
 /** Which swatch row the ribbon shows: theme-following slots or fixed colours. */
