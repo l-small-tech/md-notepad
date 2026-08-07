@@ -34,8 +34,9 @@ import { distanceTransform } from './distance';
 import { thinInPlace } from './thin';
 import { traceSkeletonPaths } from './skeleton';
 import { traceContours } from './contour';
-import type { CleanResult, ScanColorMode } from './clean';
+import type { CleanResult } from './clean';
 import { SCAN_PALETTE, type ColorAssignment, type MarkerColor } from './color';
+import { paletteSlot } from '../tool-settings';
 import type { InkComponent } from './components';
 
 /** Same threshold as the raster filters: P²/A at or above this is a stroke. */
@@ -665,9 +666,6 @@ export interface ScanTransform {
 export const IDENTITY_TRANSFORM: ScanTransform = { scale: 1, dx: 0, dy: 0 };
 
 export interface ScanElementOptions {
-  /** Themed strokes carry the canonical palette hex (themeable classes for
-   *  free); true keeps the measured colour, literal in every scheme. */
-  readonly mode: ScanColorMode;
   /** Review-screen colour remap/merge: bucket → replacement bucket. */
   readonly remap?: ReadonlyMap<MarkerColor, MarkerColor>;
   /** Rectified-image pixels → scene coordinates. */
@@ -686,7 +684,15 @@ export interface ScanElements {
   readonly reduced: boolean;
 }
 
-/** One traced board → scene elements, at a given ε. Geometry only. */
+/**
+ * One traced board → scene elements, at a given ε. Geometry only.
+ *
+ * Colour is DUAL-EMITTED: every element carries its measured (true) hex in
+ * `stroke` — the literal colour any renderer shows in fixed mode — plus its
+ * snapped palette slot, stored on the element when the hex can't name it.
+ * Which one displays is the document's `colorMode`, not a build option, so
+ * switching modes later is a metadata flip that never re-runs the trace.
+ */
 export function buildScanElements(
   trace: TraceResult,
   colors: ColorAssignment,
@@ -696,23 +702,28 @@ export function buildScanElements(
   const epsilon = EPSILON_FACTOR * trace.strokeWidth * (options.epsilonFactor ?? 1);
   const map = (p: Point): Point => ({ x: p.x * scale + dx, y: p.y * scale + dy });
 
-  const colorFor = (label: number): string => {
+  const colorFor = (label: number): { stroke: string; slot?: number } => {
     const color = colors.byLabel.get(label);
     if (!color) {
-      return SCAN_PALETTE.black;
+      return { stroke: SCAN_PALETTE.black };
     }
     const target = options.remap?.get(color.bucket);
     if (target !== undefined && target !== color.bucket) {
       // A remapped colour has no measured value — the canonical hex IS the
-      // user's chosen answer, in either mode.
-      return SCAN_PALETTE[target];
+      // user's chosen answer, and being a palette hex it derives its own slot.
+      return { stroke: SCAN_PALETTE[target] };
     }
-    return options.mode === 'themed' ? color.snapped : color.measured;
+    const slot = paletteSlot(color.snapped);
+    // Stored only when the measured hex can't derive it (the normal case; a
+    // measurement that happens to equal the palette hex needs no storage).
+    return slot >= 0 && slot !== paletteSlot(color.measured)
+      ? { stroke: color.measured, slot }
+      : { stroke: color.measured };
   };
 
   const elements: StrokeElement[] = [];
   for (const component of trace.components) {
-    const stroke = colorFor(component.label);
+    const { stroke, slot } = colorFor(component.label);
     if (component.kind === 'fill') {
       const d = component.loops
         .map((loop) => {
@@ -736,6 +747,7 @@ export function buildScanElements(
         strokeWidth: 0,
         opacity: null,
         widths: null,
+        ...(slot !== undefined ? { slot } : {}),
       });
       continue;
     }
@@ -756,6 +768,7 @@ export function buildScanElements(
         strokeWidth: Math.max(0.1, Math.round(component.pathWidths[i]! * scale * 100) / 100),
         opacity: null,
         widths: widths.join(' '),
+        ...(slot !== undefined ? { slot } : {}),
       });
     }
   }

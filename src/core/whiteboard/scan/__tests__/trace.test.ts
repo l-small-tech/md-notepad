@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { createCleaner, type CleanResult } from '../clean';
 import { SCAN_PALETTE, type MarkerColor } from '../color';
+import { PALETTE } from '../../tool-settings';
 import {
   buildScanElements,
   createTracer,
@@ -163,7 +164,7 @@ describe('vector-level despeckle', () => {
   });
 
   it('gives each path its own width instead of one component-wide median', () => {
-    const elements = buildScanElements(result, cleaned.colors, { mode: 'true' });
+    const elements = buildScanElements(result, cleaned.colors, {});
     const pens = elements.filter((e) => e.tool === 'pen' && polylineLength(e.d) > 30);
     const widths = pens.map((p) => p.strokeWidth);
     // The fat bar and the hairline must NOT share a width — and the hairline
@@ -270,47 +271,55 @@ describe('buildScanElements', () => {
   const cleaned = clean();
   const result = trace(cleaned);
 
-  it('emits pen strokes with palette colours and per-vertex widths (themed)', () => {
-    const elements = buildScanElements(result, cleaned.colors, { mode: 'themed' });
+  /** The element's THEME hex: its stored slot, or one derived from its colour. */
+  const themeHexOf = (e: { stroke: string; slot?: number }): string | null => {
+    const slot = e.slot ?? PALETTE.indexOf(e.stroke);
+    return slot >= 0 ? PALETTE[slot]! : null;
+  };
+
+  it('emits pen strokes with per-vertex widths and BOTH colourings', () => {
+    const elements = buildScanElements(result, cleaned.colors, {});
     const pens = elements.filter((e) => e.tool === 'pen');
     expect(pens.length).toBe(2);
     for (const pen of pens) {
-      expect(Object.values(SCAN_PALETTE)).toContain(pen.stroke);
+      // The literal colour is the MEASURED one; the theme identity (stored
+      // slot or derivable) snaps to the scan palette.
+      expect(Object.values(SCAN_PALETTE)).toContain(themeHexOf(pen));
       expect(pen.widths).not.toBeNull();
       expect(pen.widths!.split(' ').length).toBeGreaterThan(0);
     }
-    expect(pens.some((p) => p.stroke === SCAN_PALETTE.blue)).toBe(true);
-    expect(pens.some((p) => p.stroke === SCAN_PALETTE.red)).toBe(true);
+    expect(pens.some((p) => themeHexOf(p) === SCAN_PALETTE.blue)).toBe(true);
+    expect(pens.some((p) => themeHexOf(p) === SCAN_PALETTE.red)).toBe(true);
   });
 
-  it('emits the block as an evenodd fill in its voted colour', () => {
-    const elements = buildScanElements(result, cleaned.colors, { mode: 'themed' });
+  it('emits the block as an evenodd fill, theme identity black', () => {
+    const elements = buildScanElements(result, cleaned.colors, {});
     const fills = elements.filter((e) => e.tool === 'scanfill');
     expect(fills.length).toBe(1);
-    expect(fills[0]!.stroke).toBe(SCAN_PALETTE.black);
+    expect(themeHexOf(fills[0]!)).toBe(SCAN_PALETTE.black);
     expect(fills[0]!.d.endsWith('Z')).toBe(true);
   });
 
-  it('keeps measured colours in true mode', () => {
-    const elements = buildScanElements(result, cleaned.colors, { mode: 'true' });
+  it('keeps the measured colours as the literal stroke values', () => {
+    const elements = buildScanElements(result, cleaned.colors, {});
     const palette = new Set(Object.values(SCAN_PALETTE));
     // Measured colours are medians of the synthetic ink, not canonical hexes.
     expect(elements.some((e) => !palette.has(e.stroke))).toBe(true);
   });
 
-  it('follows a remap in every mode', () => {
+  it('a remap collapses BOTH colourings to the canonical hex (no stored slot)', () => {
     const remap = new Map<MarkerColor, MarkerColor>([['blue', 'green']]);
-    for (const mode of ['themed', 'true'] as const) {
-      const elements = buildScanElements(result, cleaned.colors, { mode, remap });
-      expect(elements.some((e) => e.stroke === SCAN_PALETTE.green)).toBe(true);
-      expect(elements.some((e) => e.stroke === SCAN_PALETTE.blue)).toBe(false);
-    }
+    const elements = buildScanElements(result, cleaned.colors, { remap });
+    const greens = elements.filter((e) => e.stroke === SCAN_PALETTE.green);
+    expect(greens.length).toBeGreaterThan(0);
+    // Canonical hex derives its own slot — storing one would be redundant.
+    expect(greens.every((e) => e.slot === undefined)).toBe(true);
+    expect(elements.some((e) => themeHexOf(e) === SCAN_PALETTE.blue)).toBe(false);
   });
 
   it('bakes the transform into coordinates and widths', () => {
-    const identity = buildScanElements(result, cleaned.colors, { mode: 'themed' });
+    const identity = buildScanElements(result, cleaned.colors, {});
     const scaled = buildScanElements(result, cleaned.colors, {
-      mode: 'themed',
       transform: { scale: 0.5, dx: 100, dy: 40 },
     });
     const bar = identity.find((e) => e.tool === 'pen' && polylineLength(e.d) > 50)!;
@@ -325,7 +334,7 @@ describe('fitScanElements', () => {
   const result = trace(cleaned);
 
   it('measures the build and does not coarsen a small board', () => {
-    const fitted = fitScanElements(result, cleaned.colors, { mode: 'themed' });
+    const fitted = fitScanElements(result, cleaned.colors, {});
     expect(fitted.strokes).toBe(3);
     expect(fitted.bytes).toBeGreaterThan(0);
     expect(fitted.epsilonFactor).toBe(1);
@@ -335,9 +344,8 @@ describe('fitScanElements', () => {
   it('honours a caller epsilonFactor (the Smoothing control) without reporting reduced', () => {
     // Precise keeps at least as many bytes of geometry as Simplified: ε scales
     // with the factor, and fewer vertices survive a coarser ε.
-    const precise = fitScanElements(result, cleaned.colors, { mode: 'themed', epsilonFactor: 0.6 });
+    const precise = fitScanElements(result, cleaned.colors, { epsilonFactor: 0.6 });
     const simplified = fitScanElements(result, cleaned.colors, {
-      mode: 'themed',
       epsilonFactor: 2,
     });
     expect(precise.epsilonFactor).toBe(0.6);

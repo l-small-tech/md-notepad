@@ -61,6 +61,8 @@
 import { parseWhiteboard, WhiteboardParseError } from '../core/whiteboard/parse';
 import {
   ARROW_MARKER_ID,
+  colorModeOf,
+  isThemed,
   serializeElement,
   serializeWhiteboard,
 } from '../core/whiteboard/serialize';
@@ -78,6 +80,7 @@ import {
   removeLayer,
   renameLayer,
   setBackground,
+  setColorMode,
   setLayerLocked,
   setLayerVisible,
   targetLayerId,
@@ -356,6 +359,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let chromeGroup: SVGGElement | null = null;
   let zoomLabel: HTMLSpanElement | null = null;
   let pageButton: HTMLButtonElement | null = null;
+  let colorModeButton: HTMLButtonElement | null = null;
   let layersPanel: LayersPanel | null = null;
   /** Built on first use — a session that never scans never pays for it. */
   let scanPanel: ScanPanel | null = null;
@@ -597,8 +601,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // app CSP forbids inline script regardless.
     canvas.replaceChildren(document.importNode(svg, true), live);
     // The overlay joins the board's palette scope so an in-flight stroke is
-    // themed exactly like it will be once committed.
-    live.classList.toggle('wb-board', parsed.meta.themed !== false);
+    // themed exactly like it will be once committed — including the fixed-mode
+    // opt-out, which the palette rules honour via `:not(.wb-fixed)`.
+    live.classList.toggle('wb-board', isThemed(parsed));
+    live.classList.toggle('wb-fixed', isThemed(parsed) && colorModeOf(parsed) === 'fixed');
     applyInkTheme();
     // Infinite boards: the stage IS the surface (no page edge, no clipping),
     // and the Page control flips its meaning.
@@ -609,6 +615,19 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       pageButton.title = infinite
         ? 'Add a background page around the content'
         : 'Remove the background page (infinite board)';
+    }
+    if (colorModeButton) {
+      // Meaningless on a `themed: false` document — there is no palette
+      // machinery to switch, so the button says so instead of lying.
+      const themable = isThemed(parsed);
+      const fixed = themable && colorModeOf(parsed) === 'fixed';
+      colorModeButton.disabled = !themable;
+      colorModeButton.setAttribute('aria-pressed', String(fixed));
+      colorModeButton.title = !themable
+        ? 'This document opted out of theming ("themed": false)'
+        : fixed
+          ? 'Showing true colours — switch to theme colours'
+          : 'Showing theme colours — switch to true colours';
     }
     activeLayerId = targetLayerId(parsed, activeLayerId);
     layersPanel?.render(parsed, activeLayerId);
@@ -1608,7 +1627,6 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const maxHeight = area.height * 0.84;
     const fit = Math.min(maxWidth / payload.trace.width, maxHeight / payload.trace.height);
     const fitted = fitScanElements(payload.trace, payload.colors, {
-      mode: payload.mode,
       remap: payload.remap,
       // The same ε the review previewed — what you saw is what lands.
       epsilonFactor: SCAN_SMOOTHING[payload.smoothing],
@@ -1627,7 +1645,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const added = addLayerWith(scene, nextLayerName(scene, 'Scan'), elements, 'scan');
     activeLayerId = added.layerId;
     selection = [];
-    commit(added.doc);
+    // Every element carries BOTH colourings (measured hex + theme slot); the
+    // review's choice only sets how the DOCUMENT displays them. `themed: false`
+    // documents have no mode to set and are left alone.
+    const withMode = isThemed(added.doc)
+      ? setColorMode(added.doc, payload.mode === 'themed' ? 'themed' : 'fixed')
+      : added.doc;
+    commit(withMode);
     if (fitted.reduced) {
       options.scan?.onNotice(
         'Dense board — the traced ink was simplified so the file stays a reasonable size.',
@@ -1684,6 +1708,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         recognize: config.recognize,
         saveDebug: config.saveDebug ?? null,
         prefs: config.prefs ?? null,
+        // The review's colour select starts where the open board already is —
+        // re-read per open, since the mode toggle may have flipped it since.
+        initialColorMode: () =>
+          scene && isThemed(scene) && colorModeOf(scene) === 'fixed' ? 'true' : 'themed',
       });
       root.append(scanPanel.element);
     }
@@ -1857,11 +1885,19 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         withScene((doc) => setBackground(doc, doc.background === null ? DEFAULT_BACKGROUND : null)),
       );
 
+      // Both colourings live in every saved element; this flips which one the
+      // document DISPLAYS (`colorMode` metadata + the root `wb-fixed` token) —
+      // an ordinary, undoable edit that never recolours an element.
+      colorModeButton = button('◐', 'Switch between theme colours and true colours', () =>
+        withScene((doc) => setColorMode(doc, colorModeOf(doc) === 'fixed' ? 'themed' : 'fixed')),
+      );
+
       const controls = document.createElement('div');
       controls.className = 'wb-controls';
       controls.append(
         button('▤', 'Layers', () => adapter.toggleLayers()),
         pageButton,
+        colorModeButton,
         button('−', 'Zoom out', () => zoomByStep(1 / DIAGRAM_ZOOM_STEP)),
         zoomLabel,
         button('+', 'Zoom in', () => zoomByStep(DIAGRAM_ZOOM_STEP)),
@@ -1991,6 +2027,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       live = null;
       zoomLabel = null;
       pageButton = null;
+      colorModeButton = null;
       layersPanel = null;
       scene = null;
       history = null;

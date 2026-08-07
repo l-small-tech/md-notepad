@@ -30,6 +30,12 @@ import type { DocModel } from '../core/doc-model';
 import { imageMimeType, localImageToInline } from '../core/images';
 import { createWritebackGuard, type EditorAdapter, type WritebackGuard } from '../core/mode-sync';
 import { dirName } from '../core/session/plan-flush';
+import {
+  boardThemeFingerprint,
+  injectBoardThemeVars,
+  isThemableBoardSvg,
+  WB_THEME_VAR_NAMES,
+} from '../core/whiteboard/theme-inject';
 import { ipc } from '../ipc/commands';
 import { markdownNormalizes, shouldShowNormalizationHint } from './wysiwyg-normalize';
 import { imageFilesFromDataTransfer, readImageFile } from './image-paste';
@@ -43,6 +49,20 @@ import '../styles/wysiwyg.css';
  * normalize it.
  */
 const PROGRAMMATIC_META = 'md-notepad-programmatic';
+
+/** The app theme's resolved `--wb-*` palette, read off `<html>` — the same
+ *  source the draw adapter and the preview pane use (no ui import; I9). */
+function readBoardThemeVars(): Map<string, string> {
+  const resolved = getComputedStyle(document.documentElement);
+  const vars = new Map<string, string>();
+  for (const name of WB_THEME_VAR_NAMES) {
+    const value = resolved.getPropertyValue(name).trim();
+    if (value.length > 0) {
+      vars.set(name, value);
+    }
+  }
+  return vars;
+}
 
 export interface MilkdownOptions {
   /**
@@ -108,18 +128,29 @@ function createImageNodeView(
       img.setAttribute('src', raw);
       return;
     }
-    const cached = cache.get(abs);
+    // A whiteboard `.svg` gets the app theme's resolved `--wb-*` palette baked
+    // into its data URL — inside an `<img>` the page's variables can't reach
+    // it (see core/whiteboard/theme-inject.ts). The cache key carries the theme
+    // fingerprint so a theme change misses instead of pinning stale colours.
+    const svg = abs.toLowerCase().endsWith('.svg');
+    const themeVars = svg ? readBoardThemeVars() : null;
+    const key = themeVars ? `${abs}|${boardThemeFingerprint(themeVars)}` : abs;
+    const cached = cache.get(key);
     if (cached !== undefined) {
       img.setAttribute('src', cached);
       return;
     }
     // Blank until the bytes arrive, to avoid a broken-image flash on the path.
     img.removeAttribute('src');
-    void ipc
-      .readFileBase64(abs)
-      .then((b64) => {
-        const dataUrl = `data:${imageMimeType(abs)};base64,${b64}`;
-        cache.set(abs, dataUrl);
+    const load = themeVars
+      ? ipc.readTextFile(abs).then(({ text }) => {
+          const themed = isThemableBoardSvg(text) ? injectBoardThemeVars(text, themeVars) : text;
+          return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(themed)}`;
+        })
+      : ipc.readFileBase64(abs).then((b64) => `data:${imageMimeType(abs)};base64,${b64}`);
+    void load
+      .then((dataUrl) => {
+        cache.set(key, dataUrl);
         if (img.dataset.mdSrc === raw) {
           img.setAttribute('src', dataUrl);
         }

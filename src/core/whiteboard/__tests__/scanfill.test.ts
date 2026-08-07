@@ -1,8 +1,9 @@
 /**
  * The `wb:tool="scanfill"` element — phase 6's contour fallback. It must
  * round-trip as a first-class stroke (colour in `fill`, painted evenodd),
- * hit-test anywhere inside its area (holes excepted), and never gain a
- * palette-slot class (the palette block's stroke rule would outline it).
+ * hit-test anywhere inside its area (holes excepted), and theme through its
+ * own FILL class (`wb-fN`) — the palette block's stroke rule (`wb-cN`) would
+ * outline it instead of recolouring it.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -31,14 +32,21 @@ function boardWith(element: StrokeElement): string {
 }
 
 describe('scanfill serialization', () => {
-  it('paints with fill, not stroke, and takes no slot class', () => {
+  it('paints with fill, not stroke, and themes via the FILL class, never wb-cN', () => {
     const markup = serializeElement(DONUT);
     expect(markup).toContain('wb:tool="scanfill"');
     expect(markup).toContain('fill="#1a1a1a"');
     expect(markup).toContain('fill-rule="evenodd"');
     expect(markup).toContain('stroke="none"');
-    expect(markup).not.toContain('class=');
+    // #1a1a1a is palette slot 0 — the blob derives its fill class from it.
+    expect(markup).toContain('class="wb-f0"');
+    expect(markup).not.toContain('wb-c0');
     expect(markup).not.toContain('stroke-width');
+  });
+
+  it('a custom-colour blob stays classless — literal in every scheme', () => {
+    const markup = serializeElement({ ...DONUT, stroke: '#123456' });
+    expect(markup).not.toContain('class=');
   });
 
   it('round-trips as a fixed point with its colour intact', () => {

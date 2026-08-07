@@ -13,6 +13,7 @@
 import {
   createLayer,
   freshLayerId,
+  type BoardColorMode,
   type Layer,
   type LayerKind,
   type SceneDoc,
@@ -215,4 +216,26 @@ export function removeElements(doc: SceneDoc, refs: readonly ElementRef[]): Scen
  */
 export function setBackground(doc: SceneDoc, background: string | null): SceneDoc {
   return doc.background === background ? doc : { ...doc, background };
+}
+
+/**
+ * Flip how the document renders its dual colour representation: `'themed'`
+ * (the default — theme vars override each element's literal colour) or
+ * `'fixed'` (literal presentation attributes render everywhere). Purely a
+ * metadata change; no element is recoloured, which is the whole point of
+ * keeping both representations in the file. `'themed'` DELETES the key so a
+ * default-mode document serializes exactly as it always has.
+ */
+export function setColorMode(doc: SceneDoc, mode: BoardColorMode): SceneDoc {
+  const current = doc.meta.colorMode === 'fixed' ? 'fixed' : 'themed';
+  if (current === mode) {
+    return doc;
+  }
+  const meta = { ...doc.meta };
+  if (mode === 'fixed') {
+    meta.colorMode = 'fixed';
+  } else {
+    delete meta.colorMode;
+  }
+  return { ...doc, meta };
 }

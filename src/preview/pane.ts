@@ -12,6 +12,13 @@ import type { DocModel } from '../core/doc-model';
 import { imageMimeType, isImagePath, localImageToInline } from '../core/images';
 import { isLocalLinkTarget } from '../core/link-mentions';
 import { dirName, toAbsolutePath } from '../core/session/plan-flush';
+import {
+  boardThemeFingerprint,
+  injectBoardThemeVars,
+  isThemableBoardSvg,
+  WB_THEME_VAR_NAMES,
+  type BoardThemeVars,
+} from '../core/whiteboard/theme-inject';
 import { ipc } from '../ipc/commands';
 import { renderMermaidBlocks } from './mermaid';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
@@ -59,6 +66,14 @@ export interface PreviewPane {
   /** Mermaid bakes colors in at render time — a theme flip needs a fresh render. */
   setDark(dark: boolean): void;
   /**
+   * The selected theme changed WITHOUT flipping light/dark (one light theme to
+   * another). Whiteboard images bake the theme's `--wb-*` palette into their
+   * data URLs, so they need a re-render even though mermaid's boolean didn't
+   * move. Deferred a frame so the new theme's CSS is applied before the vars
+   * are read.
+   */
+  refreshTheme(): void;
+  /**
    * Update the previewed document's path (e.g. an untitled note just got saved
    * to disk). Relative link/image resolution starts using the new directory. A
    * no-op when the directory is unchanged, so it's safe to call on every store
@@ -78,6 +93,23 @@ export interface PreviewPane {
 
 function isExternalLink(href: string): boolean {
   return /^https?:/i.test(href);
+}
+
+/**
+ * The app theme's resolved `--wb-*` palette, read off `<html>` — the same
+ * source the draw adapter themes the live board from (base.css derives these
+ * from the current theme's brand trio, so I9 stays intact: no ui import).
+ */
+export function readBoardThemeVars(): BoardThemeVars {
+  const resolved = getComputedStyle(document.documentElement);
+  const vars = new Map<string, string>();
+  for (const name of WB_THEME_VAR_NAMES) {
+    const value = resolved.getPropertyValue(name).trim();
+    if (value.length > 0) {
+      vars.set(name, value);
+    }
+  }
+  return vars;
 }
 
 export function attachPreviewPane(
@@ -129,23 +161,40 @@ export function attachPreviewPane(
    * after each render; bails the moment a newer render supersedes this one so
    * it never mutates stale DOM. External (http/https) and already-inlined
    * (data:) images are left untouched.
+   *
+   * A whiteboard `.svg` gets the app theme BAKED IN on the way past: an SVG
+   * inside an `<img>` is a sealed document the page's `--wb-*` variables can
+   * never reach, so the resolved values are injected as an inline `style` on
+   * its root (inline beats the file's embedded palette block — the same trick
+   * the draw adapter plays on the live board). The cache key carries the theme
+   * fingerprint, so a theme change re-inlines while typing stays one read.
    */
   async function inlineLocalImages(token: number): Promise<void> {
     const dir = currentDir();
     if (!dir) {
       return;
     }
+    const themeVars = readBoardThemeVars();
+    const fingerprint = boardThemeFingerprint(themeVars);
     for (const img of [...host.querySelectorAll('img')]) {
       const raw = img.getAttribute('src') ?? '';
       const abs = localImageToInline(dir, raw);
       if (!abs) {
         continue;
       }
-      let dataUrl = imageCache.get(abs);
+      const svg = abs.toLowerCase().endsWith('.svg');
+      const key = svg ? `${abs}|${fingerprint}` : abs;
+      let dataUrl = imageCache.get(key);
       if (dataUrl === undefined) {
         try {
-          dataUrl = `data:${imageMimeType(abs)};base64,${await ipc.readFileBase64(abs)}`;
-          imageCache.set(abs, dataUrl);
+          if (svg) {
+            const { text } = await ipc.readTextFile(abs);
+            const themed = isThemableBoardSvg(text) ? injectBoardThemeVars(text, themeVars) : text;
+            dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(themed)}`;
+          } else {
+            dataUrl = `data:${imageMimeType(abs)};base64,${await ipc.readFileBase64(abs)}`;
+          }
+          imageCache.set(key, dataUrl);
         } catch {
           continue; // missing/unreadable — leave the broken img as the signal
         }
@@ -285,6 +334,19 @@ export function attachPreviewPane(
       dark = next;
       clearTimer();
       void render();
+    },
+    refreshTheme() {
+      if (disposed) {
+        return;
+      }
+      // Next frame: the caller reacts to the same store tick that swaps the
+      // theme's stylesheet, and the vars must be READ after they are applied.
+      requestAnimationFrame(() => {
+        if (!disposed) {
+          clearTimer();
+          void render();
+        }
+      });
     },
     setDocPath(next) {
       if (disposed) {

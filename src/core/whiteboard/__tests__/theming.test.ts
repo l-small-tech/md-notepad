@@ -11,12 +11,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { setColorMode } from '../layers';
 import { parseWhiteboard } from '../parse';
 import { createLayer, createScene, type SceneElement, type StrokeElement } from '../scene';
-import { isThemed, serializeElement, serializeWhiteboard } from '../serialize';
+import { colorModeOf, isThemed, serializeElement, serializeWhiteboard } from '../serialize';
 import { BOARD_BACKGROUND_DARK, PALETTE, PALETTE_DARK } from '../tool-settings';
 
-function stroke(color: string): StrokeElement {
+function stroke(color: string, slot?: number): StrokeElement {
   return {
     kind: 'stroke',
     id: null,
@@ -26,6 +27,7 @@ function stroke(color: string): StrokeElement {
     strokeWidth: 3,
     opacity: null,
     widths: null,
+    ...(slot !== undefined ? { slot } : {}),
   };
 }
 
@@ -42,9 +44,24 @@ describe('the palette style block', () => {
     // A blank board is INFINITE — no page rect; the surface colour comes from
     // the block's background rule on the svg viewport itself.
     expect(blank).not.toContain('wb:role="background"');
-    expect(blank).toContain('svg.wb-board{background:var(--wb-bg,#ffffff)}');
+    expect(blank).toContain('svg.wb-board:not(.wb-fixed){background:var(--wb-bg,#ffffff)}');
     // Never :root — the file gets inlined into HTML contexts.
     expect(blank).not.toContain(':root');
+  });
+
+  it('guards every colour-application rule with :not(.wb-fixed), and pins a fixed board white', () => {
+    // The var DEFINITIONS stay unguarded; the APPLICATIONS carry the guard so
+    // the wb-fixed root token turns theming off without removing the map.
+    expect(blank).toContain('svg.wb-board:not(.wb-fixed) .wb-bg{fill:var(--wb-bg,#ffffff)}');
+    expect(blank).toContain('svg.wb-board.wb-fixed{background:#ffffff}');
+    PALETTE.forEach((hex, slot) => {
+      expect(blank).toContain(
+        `svg.wb-board:not(.wb-fixed) .wb-c${slot}:not(text){stroke:var(--wb-c${slot},${hex})}`,
+      );
+      expect(blank).toContain(
+        `svg.wb-board:not(.wb-fixed) .wb-f${slot}{fill:var(--wb-c${slot},${hex})}`,
+      );
+    });
   });
 
   it('tags the page rect wb-bg on a page board', () => {
@@ -142,6 +159,90 @@ describe('palette-slot classes', () => {
   it('serializeElement defaults to themed — the drag preview matches the commit', () => {
     expect(serializeElement(stroke(PALETTE[3]!))).toContain('class="wb-c3"');
     expect(serializeElement(stroke(PALETTE[3]!), false)).not.toContain('class');
+  });
+});
+
+describe('the dual colour representation (stored slots + colorMode)', () => {
+  it('a stored slot rides a measured hex: literal colour AND theme class', () => {
+    const out = serializeWhiteboard(boardWith([stroke('#8b3a3a', 5)]));
+    expect(out).toContain('class="wb-c5"');
+    expect(out).toContain('stroke="#8b3a3a"');
+  });
+
+  it('round-trips a stored slot as a fixed point, and re-reads it', () => {
+    const first = serializeWhiteboard(boardWith([stroke('#8b3a3a', 5)]));
+    const back = parseWhiteboard(first);
+    const strokes = back.layers.flatMap((l) => l.elements);
+    expect(strokes[0]).toMatchObject({ kind: 'stroke', stroke: '#8b3a3a', slot: 5 });
+    expect(serializeWhiteboard(back)).toBe(first);
+  });
+
+  it('a DERIVABLE slot is never stored on parse — old files stay structurally identical', () => {
+    const out = serializeWhiteboard(boardWith([stroke(PALETTE[2]!)]));
+    const back = parseWhiteboard(out);
+    const element = back.layers.flatMap((l) => l.elements)[0] as StrokeElement;
+    expect(element.stroke).toBe(PALETTE[2]);
+    expect('slot' in element).toBe(false);
+  });
+
+  it('a scanfill blob with a slot gets the wb-fN fill class and round-trips', () => {
+    const blob: StrokeElement = {
+      kind: 'stroke',
+      id: null,
+      tool: 'scanfill',
+      d: 'M0 0L4 0L4 4Z',
+      stroke: '#5a4d3c',
+      strokeWidth: 0,
+      opacity: null,
+      widths: null,
+      slot: 0,
+    };
+    const first = serializeWhiteboard(boardWith([blob]));
+    expect(first).toContain('class="wb-f0"');
+    expect(first).toContain('fill="#5a4d3c"');
+    const back = parseWhiteboard(first);
+    expect(back.layers.flatMap((l) => l.elements)[0]).toMatchObject({
+      tool: 'scanfill',
+      stroke: '#5a4d3c',
+      slot: 0,
+    });
+    expect(serializeWhiteboard(back)).toBe(first);
+  });
+
+  it('an out-of-range stored slot is ignored, not emitted', () => {
+    const out = serializeWhiteboard(boardWith([stroke('#8b3a3a', 12)]));
+    expect(out).not.toContain('class="wb-c');
+  });
+
+  it("colorMode 'fixed' adds the wb-fixed root token and survives the round trip", () => {
+    const doc = setColorMode(boardWith([stroke('#8b3a3a', 5)]), 'fixed');
+    const out = serializeWhiteboard(doc);
+    expect(out).toContain('class="wb-board wb-fixed"');
+    expect(out).toContain('"colorMode":"fixed"');
+    // The map stays in the file even in fixed mode — that is the whole point.
+    expect(out).toContain('class="wb-c5"');
+    expect(out).toContain('wb:role="palette"');
+    const back = parseWhiteboard(out);
+    expect(colorModeOf(back)).toBe('fixed');
+    expect(serializeWhiteboard(back)).toBe(out);
+  });
+
+  it("setColorMode('themed') deletes the key — the default document is unchanged bytes", () => {
+    const themed = boardWith([stroke(PALETTE[1]!)]);
+    const flipped = setColorMode(setColorMode(themed, 'fixed'), 'themed');
+    expect(serializeWhiteboard(flipped)).toBe(serializeWhiteboard(themed));
+    expect(setColorMode(themed, 'themed')).toBe(themed); // no-op keeps identity
+  });
+
+  it('wb-fixed merges with a foreign root class without duplication', () => {
+    const foreign = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" class="inkscape-doc">
+  <g wb:layer="aaaa" wb:name="L"/>
+</svg>`;
+    const doc = setColorMode(parseWhiteboard(foreign), 'fixed');
+    const first = serializeWhiteboard(doc);
+    expect(first).toContain('class="wb-board wb-fixed inkscape-doc"');
+    const second = serializeWhiteboard(parseWhiteboard(first));
+    expect(second).toBe(first);
   });
 });
 

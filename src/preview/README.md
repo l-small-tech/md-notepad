@@ -71,6 +71,13 @@ preview (toggling belongs to wysiwyg mode).
   touching the DOM.
 - Theme: re-render (or at minimum re-run `renderMermaidBlocks`) when the
   theme changes — mermaid diagrams bake their colors at render time.
+- Local images inline as data URLs (`inlineLocalImages`). A whiteboard `.svg`
+  additionally gets the app theme's resolved `--wb-*` values baked into its
+  root tag (`core/whiteboard/theme-inject.ts`) — an SVG inside an `<img>` is
+  sealed off from page CSS, so this is the only way it can follow the app
+  theme. Cache keys carry a theme fingerprint; `refreshTheme()` (called by
+  EditorHost on a same-darkness theme switch) re-renders so open previews
+  recolor.
 
 ## Link policy
 

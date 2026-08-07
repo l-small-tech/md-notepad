@@ -20,6 +20,7 @@ what a whiteboard *is* lives here.
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
+| `theme-inject.ts` | bake resolved theme vars into a board's root tag (for `<img>` contexts) |
 | `scan/` | the photo→SVG pipeline (see below) |
 
 `tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws
@@ -171,9 +172,12 @@ A saved board follows the viewer's colour scheme without ever depending on it:
 
 - Every element keeps its **concrete light-theme hex** in the presentation
   attribute (the truth for any CSS-less renderer). An element whose colour is
-  one of the 8 `PALETTE` slots additionally gains `class="wb-cN"`; the white
-  background rect gains `wb-bg`. Classes are **derived from the colour at
-  serialize time, never stored** — that is what keeps the fixed point trivial.
+  one of the 8 `PALETTE` slots additionally gains `class="wb-cN"` (a
+  fill-painted scanfill blob gains `wb-fN` — the stroke rule would outline
+  it); the white background rect gains `wb-bg`. Classes are **derived from
+  the colour at serialize time** — except for an element carrying a STORED
+  `slot` (see the dual representation below), whose literal hex cannot name
+  its theme slot.
 - One serializer-owned `<style wb:role="palette">` block defines
   `--wb-bg`/`--wb-c0…c7` (light defaults + a `prefers-color-scheme: dark`
   override from `PALETTE_DARK`) and maps the classes to `var(--wb-cN, <hex>)`.
@@ -198,6 +202,31 @@ A saved board follows the viewer's colour scheme without ever depending on it:
 - The STATIC palette (`STATIC_PALETTE`, named SVG colours) is the opt-out made
   convenient: named colours never equal a `PALETTE` hex, so static strokes are
   literal by construction — no format machinery at all.
+
+### The dual colour representation (`colorMode` + stored slots)
+
+A scanned drawing holds BOTH colourings in one file, and a metadata switch
+decides which one renders:
+
+- A scan element carries its **measured (true) hex** in the presentation
+  attribute and its **snapped palette slot** as `class="wb-cN"`/`wb-fN`. The
+  slot is stored on the element (`SceneElement.slot`, parsed back from the
+  class) exactly when the hex can't derive it; a derivable slot is never
+  stored, so drawn ink and pre-dual files stay structurally identical.
+- `colorMode` in the `wb:doc` metadata (`'themed'` default / `'fixed'`) is the
+  switch. Fixed adds `wb-fixed` to the root class, and every palette rule that
+  APPLIES colour is scoped `svg.wb-board:not(.wb-fixed)` — so fixed mode
+  renders the literal attribute colours in the app, a browser and an export
+  alike, while the map stays in the file. `svg.wb-board.wb-fixed` pins the
+  surface white (measured colours were measured against white). Flipping the
+  mode (`setColorMode`, the board's `◐` control, the scan review's colour
+  select) is a one-token, undoable metadata edit that never recolours an
+  element and never re-runs a trace.
+- `theme-inject.ts` is the display half for `<img>` contexts: an SVG inside an
+  `<img>` is sealed off from the page's `--wb-*` variables, so the preview
+  pane and the rich editor bake the RESOLVED app-theme values into the root
+  tag as an inline `style` when building the data URL (theme-fingerprinted
+  cache keys). Fixed-mode and foreign SVGs pass through byte-identical.
 
 ## Infinite vs page boards
 

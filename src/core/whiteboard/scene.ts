@@ -39,6 +39,18 @@ export interface SceneAttr {
   readonly value: string;
 }
 
+/**
+ * How a themable document RENDERS its dual colour representation:
+ * `'themed'` (the default) puts the `wb-board` class on the root so the
+ * palette `<style>` block's `var()` rules override each element's literal
+ * colour; `'fixed'` adds `wb-fixed`, whose `:not(.wb-fixed)` guard turns
+ * those rules off so the literal presentation attributes render everywhere.
+ * Both representations stay in the file either way — flipping the mode is a
+ * one-token change, never a recolour. Stored as `colorMode` in the `wb:doc`
+ * metadata; only meaningful while `themed !== false`.
+ */
+export type BoardColorMode = 'themed' | 'fixed';
+
 /* ------------------------------- elements -------------------------------- */
 
 /**
@@ -62,6 +74,14 @@ export interface StrokeElement {
    * variable-width brush. v1 renders constant width and never reads this.
    */
   readonly widths: string | null;
+  /**
+   * STORED palette slot (`class="wb-cN"` / `wb-fN` in the file), for elements
+   * whose literal colour is NOT a palette hex — a true-colour scan stroke
+   * carries its measured hex in `stroke` and its theme identity here, which is
+   * what lets one file hold both representations. Absent (the normal case) the
+   * slot is DERIVED from the colour at serialize time, exactly as before.
+   */
+  readonly slot?: number;
 }
 
 export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow';
@@ -84,6 +104,8 @@ export interface ShapeElement {
   /** `'none'` or a color. */
   readonly fill: string;
   readonly opacity: number | null;
+  /** Stored palette slot — see {@link StrokeElement.slot}. */
+  readonly slot?: number;
 }
 
 export interface TextElement {
@@ -106,6 +128,8 @@ export interface TextElement {
    * authoring time, and the file renders identically forever.
    */
   readonly lines: readonly string[];
+  /** Stored palette slot — see {@link StrokeElement.slot}. */
+  readonly slot?: number;
 }
 
 /** A raster image: a scan's "insert as photo" fallback, or a pasted picture. */

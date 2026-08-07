@@ -422,6 +422,52 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 
+  test('a whiteboard .svg is read as text and gets the app theme baked into its data URL', async () => {
+    const board =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" class="wb-board">\n</svg>\n';
+    readTextFileMock.mockResolvedValue({ text: board, mtimeMs: 0 });
+    // The pane reads the resolved `--wb-*` values off <html>; jsdom's computed
+    // style doesn't carry custom properties, so resolve them here.
+    const realGcs = window.getComputedStyle.bind(window);
+    const gcs = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      if (el !== document.documentElement) {
+        return realGcs(el as Element, pseudo);
+      }
+      return {
+        getPropertyValue: (name: string) =>
+          name === '--wb-bg' ? '#101418' : name === '--wb-c0' ? '#e6e6e6' : '',
+      } as CSSStyleDeclaration;
+    });
+
+    const model = createDocModel('![board](board.svg)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(readTextFileMock).toHaveBeenCalledWith('/ws/board.svg');
+    expect(readFileBase64Mock).not.toHaveBeenCalled();
+    const src = el.querySelector('img')!.getAttribute('src')!;
+    expect(src.startsWith('data:image/svg+xml;charset=utf-8,')).toBe(true);
+    const decoded = decodeURIComponent(src.slice(src.indexOf(',') + 1));
+    expect(decoded).toContain('style="--wb-bg:#101418;--wb-c0:#e6e6e6"');
+    gcs.mockRestore();
+    pane.dispose();
+  });
+
+  test('a fixed-mode board and a foreign .svg pass through without theme injection', async () => {
+    const fixed =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" class="wb-board wb-fixed">\n</svg>\n';
+    readTextFileMock.mockResolvedValue({ text: fixed, mtimeMs: 0 });
+    const model = createDocModel('![board](board.svg)');
+    const el = host();
+    const pane = attachPreviewPane(el, model, { dark: false, docPath: '/ws/note.md' });
+    await vi.runOnlyPendingTimersAsync();
+
+    const src = el.querySelector('img')!.getAttribute('src')!;
+    expect(decodeURIComponent(src.slice(src.indexOf(',') + 1))).toBe(fixed);
+    pane.dispose();
+  });
+
   test('a stale in-flight render is discarded so it never clobbers newer content', async () => {
     const model = createDocModel('first');
     const el = host();

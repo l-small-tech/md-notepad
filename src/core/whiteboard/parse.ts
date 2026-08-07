@@ -41,6 +41,7 @@ import {
   type StrokeElement,
   type TextElement,
 } from './scene';
+import { paletteSlot } from './tool-settings';
 
 export class WhiteboardParseError extends Error {
   constructor(
@@ -228,10 +229,11 @@ function extrasOf(element: XmlElement, owned: ReadonlySet<string>): SceneAttr[] 
 }
 
 /**
- * Root extras, with the serializer's own `wb-board` token removed from any
- * `class` attribute — serialize re-adds it (merged in front of a foreign
- * class), so leaving it here would emit the attribute twice and grow a
- * duplicate token on every round trip.
+ * Root extras, with the serializer's own `wb-board` / `wb-fixed` tokens
+ * removed from any `class` attribute — serialize re-derives both (wb-board
+ * merged in front of a foreign class, wb-fixed from the metadata colorMode),
+ * so leaving them here would emit the attribute twice and grow duplicate
+ * tokens on every round trip.
  */
 function rootExtrasOf(root: XmlElement): SceneAttr[] {
   return extrasOf(root, OWNED_ROOT_ATTRS).flatMap((a) => {
@@ -240,7 +242,7 @@ function rootExtrasOf(root: XmlElement): SceneAttr[] {
     }
     const rest = a.value
       .split(/\s+/)
-      .filter((token) => token.length > 0 && token !== 'wb-board')
+      .filter((token) => token.length > 0 && token !== 'wb-board' && token !== 'wb-fixed')
       .join(' ');
     return rest.length > 0 ? [{ name: 'class', value: rest }] : [];
   });
@@ -269,6 +271,28 @@ function readLayer(source: string, group: XmlElement): Layer {
   };
 }
 
+/**
+ * The palette slot named by an element's `class` (`wb-cN` for stroked ink and
+ * text, `wb-fN` for fill-painted scan blobs), as `{ slot?: number }` ready to
+ * spread into the element. Stored ONLY when it cannot be re-derived from the
+ * colour — an element whose colour IS the slot's palette hex parses slot-free,
+ * so pre-dual files and freshly drawn ink stay structurally identical.
+ */
+function storedSlot(element: XmlElement, color: string): { slot?: number } {
+  const classAttr = attr(element, 'class');
+  if (classAttr === null) {
+    return {};
+  }
+  for (const token of classAttr.split(/\s+/)) {
+    const match = /^wb-[cf]([0-7])$/.exec(token);
+    if (match) {
+      const slot = Number(match[1]);
+      return slot === paletteSlot(color) ? {} : { slot };
+    }
+  }
+  return {};
+}
+
 function readElement(source: string, node: XmlNode): SceneElement {
   if (node.type !== 'element') {
     return { kind: 'raw', xml: rawSource(source, node) };
@@ -287,29 +311,33 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
     const tool = attr(element, 'wb:tool');
     if (tool === 'scanfill') {
       // A traced blob: colour rides in `fill`; `stroke` is literally "none".
+      const fill = attr(element, 'fill') ?? '#000000';
       return {
         kind: 'stroke',
         id,
         tool,
         d: attr(element, 'd') ?? '',
-        stroke: attr(element, 'fill') ?? '#000000',
+        stroke: fill,
         strokeWidth: 0,
         opacity,
         widths: null,
+        ...storedSlot(element, fill),
       } satisfies StrokeElement;
     }
     if (tool !== 'pen' && tool !== 'highlighter') {
       return null; // foreign geometry — keep as-is
     }
+    const stroke = attr(element, 'stroke') ?? '#000000';
     return {
       kind: 'stroke',
       id,
       tool,
       d: attr(element, 'd') ?? '',
-      stroke: attr(element, 'stroke') ?? '#000000',
+      stroke,
       strokeWidth: numAttr(element, 'stroke-width', 1),
       opacity,
       widths: attr(element, 'wb:widths'),
+      ...storedSlot(element, stroke),
     } satisfies StrokeElement;
   }
 
@@ -359,6 +387,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       tspans.length > 0
         ? tspans.map((t) => textContent(source, t))
         : [textContent(source, element)];
+    const fill = attr(element, 'fill') ?? '#000000';
     return {
       kind: 'text',
       id,
@@ -366,8 +395,9 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       y: numAttr(element, 'y', 0),
       fontSize: numAttr(element, 'font-size', 16),
       fontFamily: attr(element, 'font-family') ?? null,
-      fill: attr(element, 'fill') ?? '#000000',
+      fill,
       lines,
+      ...storedSlot(element, fill),
     } satisfies TextElement;
   }
 
@@ -392,15 +422,17 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
 }
 
 function shape(element: XmlElement, kind: ShapeKind, geom: Record<string, number>): ShapeElement {
+  const stroke = attr(element, 'stroke') ?? '#000000';
   return {
     kind: 'shape',
     id: attr(element, 'wb:id'),
     shape: kind,
     geom,
-    stroke: attr(element, 'stroke') ?? '#000000',
+    stroke,
     strokeWidth: numAttr(element, 'stroke-width', 1),
     fill: attr(element, 'fill') ?? 'none',
     opacity: optionalNum(element, 'opacity'),
+    ...storedSlot(element, stroke),
   };
 }
 

@@ -112,6 +112,8 @@ export interface ScanResult {
 export interface ScanStrokesResult {
   readonly trace: TraceResult;
   readonly colors: ColorAssignment;
+  /** The review's display choice — the adapter stores it as the document's
+   *  `colorMode`. The elements themselves always carry BOTH colourings. */
   readonly mode: ScanColorMode;
   readonly remap: ReadonlyMap<MarkerColor, MarkerColor>;
   /** Trace simplification chosen on the review screen — the adapter's
@@ -182,6 +184,13 @@ export interface ScanPanelOptions {
     readonly get: () => ScanPrefs;
     readonly set: (prefs: ScanPrefs) => void;
   } | null;
+  /**
+   * The open document's current colour mode, re-read on every open, so the
+   * review screen's colour select starts where the board already is (the
+   * insert writes the choice back as the document's `colorMode`). Board
+   * output only; omitted, the default applies.
+   */
+  readonly initialColorMode?: (() => ScanColorMode) | null;
 }
 
 /** How the panel is opened. A `ScanPhoto` skips acquisition (paste / drop). */
@@ -375,11 +384,14 @@ function resolveThemedInk(
   return (color) => resolved.get(color.bucket) ?? hexTriple(color.snapped);
 }
 
-/** Canonical scan hex → the resolved app-theme CSS colour (for the canvas). */
-function resolveThemedCss(host: HTMLElement): Map<string, string> {
-  const out = new Map<string, string>();
+/** Palette SLOT → the resolved app-theme CSS colour (for the canvas). */
+function resolveThemedCssBySlot(host: HTMLElement): Map<number, string> {
+  const out = new Map<number, string>();
   for (const [bucket, triple] of resolveThemedTriples(host)) {
-    out.set(SCAN_PALETTE[bucket], `rgb(${triple[0]}, ${triple[1]}, ${triple[2]})`);
+    const slot = PALETTE.indexOf(SCAN_PALETTE[bucket]);
+    if (slot >= 0) {
+      out.set(slot, `rgb(${triple[0]}, ${triple[1]}, ${triple[2]})`);
+    }
   }
   return out;
 }
@@ -427,12 +439,15 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   /** The identity-transform build shown in the vector preview, cached per
    *  (mode, remap) so toggling views is free. */
   let builtCache: { key: string; built: ScanElements } | null = null;
-  /** Which colours the cleaned view paints ink in. Themed is the default on a
-   *  board: snapped ink matches the drawing palette and stays themeable when
-   *  phase 6 vectorizes it; "true" keeps the voted measured colours. A
-   *  standalone image file defaults to true colours — it is a document, and
+  /** Which colours the review paints ink in — a DISPLAY choice: the build
+   *  carries both colourings and the insert stores both, so this only decides
+   *  the document's initial `colorMode`. Themed is the default on a board
+   *  (seeded from the open document's own mode when the adapter supplies it);
+   *  a standalone image file defaults to true colours — it is a document, and
    *  themed ink on a transparent sheet belongs to the theme it was saved in. */
-  let colorMode: ScanColorMode = imageOutput ? 'true' : DEFAULT_SCAN_COLOR_MODE;
+  let colorMode: ScanColorMode = imageOutput
+    ? 'true'
+    : (options.initialColorMode?.() ?? DEFAULT_SCAN_COLOR_MODE);
   /** What the review screen is showing. Strokes are the deliverable, so they
    *  are what the user judges first. */
   let reviewView: 'vector' | 'cleaned' | 'photo' = 'vector';
@@ -536,8 +551,9 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   const colorSelect = document.createElement('select');
   colorSelect.className = 'wb-scan-select';
   colorSelect.title =
-    'Theme colours snap ink to the marker palette, so scanned ink matches drawn ink ' +
-    'and follows themes. True colours keep what the markers actually looked like.';
+    'How the result DISPLAYS — both colourings are always saved in the file, so this ' +
+    'can be flipped later without re-scanning. Theme colours snap ink to the marker ' +
+    'palette and follow themes; true colours show what the markers actually looked like.';
   colorSelect.setAttribute('aria-label', 'Ink colours');
   for (const [value, label] of COLOR_MODE_LABELS) {
     const option = document.createElement('option');
@@ -548,7 +564,8 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
   colorSelect.value = colorMode;
   colorSelect.addEventListener('change', () => {
     colorMode = (colorSelect.value as ScanColorMode) ?? DEFAULT_SCAN_COLOR_MODE;
-    builtCache = null;
+    // No cache invalidation: the build carries BOTH colours (measured hex +
+    // theme slot); the mode only decides which one the preview paints.
     if (stage === 'review' && reviewView !== 'photo') {
       showReview();
     }
@@ -1267,12 +1284,14 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     );
   }
 
-  /** The identity-space build the preview shows — cached per (mode, remap). */
+  /** The identity-space build the preview shows — cached per (smoothing,
+   *  remap). Colour is DUAL-EMITTED by the build (measured hex + theme slot),
+   *  so the colour-mode toggle repaints without rebuilding. */
   function ensureBuilt(): ScanElements | null {
     if (!traced || !cleaned) {
       return null;
     }
-    const key = `${colorMode}|${smoothing}|${[...remap.entries()]
+    const key = `${smoothing}|${[...remap.entries()]
       .map(([from, to]) => `${from}>${to}`)
       .sort()
       .join(',')}`;
@@ -1280,7 +1299,6 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       builtCache = {
         key,
         built: fitScanElements(traced, cleaned.colors, {
-          mode: colorMode,
           remap,
           transform: IDENTITY_TRANSFORM,
           epsilonFactor: SCAN_SMOOTHING[smoothing],
@@ -1312,12 +1330,15 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, photoCanvas.width, photoCanvas.height);
     }
-    const resolved = themed ? resolveThemedCss(element) : null;
+    const resolved = themed ? resolveThemedCssBySlot(element) : null;
     context.lineCap = 'round';
     context.lineJoin = 'round';
     for (const stroke of built.elements) {
       const path = new Path2D(stroke.d);
-      const css = resolved?.get(stroke.stroke) ?? stroke.stroke;
+      // Dual colours: `stroke.stroke` is the measured (true) hex; the theme
+      // identity is the stored slot, or derived when the hex IS a palette one.
+      const slot = stroke.slot ?? PALETTE.indexOf(stroke.stroke);
+      const css = (slot >= 0 ? resolved?.get(slot) : undefined) ?? stroke.stroke;
       if (stroke.tool === 'scanfill') {
         context.fillStyle = css;
         context.fill(path, 'evenodd');
@@ -1491,7 +1512,13 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       parts.push(`${rectified.width} × ${rectified.height} px`);
     }
     if (built !== null) {
-      const colours = new Set(built.elements.map((e) => e.stroke)).size;
+      // In theme mode distinct SLOTS are what the eye sees; in true-colour
+      // mode the measured hexes are.
+      const colours = new Set(
+        built.elements.map((e) =>
+          colorMode === 'themed' ? `s${e.slot ?? PALETTE.indexOf(e.stroke)}` : e.stroke,
+        ),
+      ).size;
       parts.push(
         `${built.strokes} editable stroke${built.strokes === 1 ? '' : 's'} in ` +
           `${colours} colour${colours === 1 ? '' : 's'}`,
@@ -1761,6 +1788,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
       presetSelect.value = preset;
       smoothing = prefs.smoothing;
       smoothingSelect.value = smoothing;
+    }
+    // The board's mode may have been toggled since the panel was built.
+    if (!imageOutput && options.initialColorMode) {
+      colorMode = options.initialColorMode();
+      colorSelect.value = colorMode;
     }
     element.hidden = false;
     element.focus({ preventScroll: true });

@@ -296,6 +296,18 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     registerPreviewGoBack(tabId, () => pane.goBack());
     registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
+    // A theme change that KEEPS the light/dark boolean (one light theme to
+    // another) still recolours the `--wb-*` palette, which whiteboard images
+    // bake into their data URLs — tell the pane so it re-inlines them.
+    // setDark's render wins the race when both fire (same render sequence).
+    let lastScheme = settingsStore.getState().settings.colorScheme;
+    const unsubscribeScheme = settingsStore.subscribe(() => {
+      const scheme = settingsStore.getState().settings.colorScheme;
+      if (scheme !== lastScheme) {
+        lastScheme = scheme;
+        pane.refreshTheme();
+      }
+    });
     // A freshly-created untitled note has no path yet; the flusher assigns one
     // later. Keep the pane's docDir in sync so in-pane relative links/images
     // resolve once the note is saved — WITHOUT re-keying this effect (which
@@ -312,6 +324,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     return () => {
       unsubscribeDark();
+      unsubscribeScheme();
       unsubscribePath();
       unregisterPreviewGoBack(tabId);
       unregisterPreviewReveal(tabId);

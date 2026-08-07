@@ -235,7 +235,7 @@ describe.runIf(dir)('scan photo harness', () => {
     );
 
     // Built elements at identity transform for the vector renderer.
-    const fitted = fitScanElements(trace, clean.colors, { mode: 'true' });
+    const fitted = fitScanElements(trace, clean.colors, {});
     out(
       `fitted: strokes=${fitted.strokes} bytes=${fitted.bytes} epsilonFactor=${fitted.epsilonFactor} reduced=${fitted.reduced}`,
     );
