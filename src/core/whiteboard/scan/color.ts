@@ -25,6 +25,21 @@ import type { InkExtraction } from './components';
 
 /** Chroma (0–1) below which a component votes black regardless of hue. */
 const BLACK_CHROMA = 0.12;
+/**
+ * The 2-D arm of the black test: black ink under a warm residual cast picks
+ * up chroma just past `BLACK_CHROMA`, but stays DARK in every channel —
+ * measured on a real board, black cores sit at luminance 0.26–0.33 while the
+ * dimmest real marker core (a dark blue) is above 0.35 and every marker with
+ * chroma this low is far brighter. So: black also when chroma < 0.20 AND
+ * luminance < 0.30.
+ */
+const BLACK_DARK_CHROMA = 0.2;
+const BLACK_DARK_LUM = 0.3;
+
+/** Is a (chroma, luminance) vote black? Both in 0–1. The table tests pin this. */
+export function isBlackVote(chroma: number, lum: number): boolean {
+  return chroma < BLACK_CHROMA || (chroma < BLACK_DARK_CHROMA && lum < BLACK_DARK_LUM);
+}
 
 /**
  * Half-width, in units of the page's stroke width `w`, below which a component
@@ -101,7 +116,76 @@ export function rgbToHueChroma(r: number, g: number, b: number): { hue: number; 
 /** Classify a single (white-balanced) RGB — the table tests target this. */
 export function classifyRgb(r: number, g: number, b: number): MarkerColor {
   const { hue, chroma } = rgbToHueChroma(r, g, b);
-  return chroma < BLACK_CHROMA ? 'black' : binHue(hue);
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return isBlackVote(chroma, lum) ? 'black' : binHue(hue);
+}
+
+/**
+ * Estimate the page's marker hues from weighted hue votes: a 360-bin circular
+ * histogram, smoothed with a triangular kernel (±15°), local maxima at least
+ * 30° apart (strongest first), at most 6, sorted ascending. Deterministic —
+ * no seeding, no iteration-order dependence.
+ *
+ * This is what makes colour assignment PAGE-CONSISTENT: a marker whose per-
+ * component votes straddle a hue-bin edge (teal at 160–175 against the 165°
+ * green/teal boundary — a real board split one pen across two buckets) snaps
+ * to one peak, and the PEAK is binned, so every stroke of that pen lands in
+ * one bucket.
+ */
+export function estimateMarkerHues(
+  votes: readonly { readonly hue: number; readonly weight: number }[],
+): number[] {
+  if (votes.length === 0) {
+    return [];
+  }
+  const RADIUS = 15;
+  const SEPARATION = 30;
+  const histogram = new Float64Array(360);
+  for (const v of votes) {
+    const bin = ((Math.round(v.hue) % 360) + 360) % 360;
+    histogram[bin] = histogram[bin]! + v.weight;
+  }
+  const smoothed = new Float64Array(360);
+  for (let bin = 0; bin < 360; bin++) {
+    let sum = 0;
+    for (let d = -RADIUS; d <= RADIUS; d++) {
+      sum += histogram[(bin + d + 360) % 360]! * (RADIUS + 1 - Math.abs(d));
+    }
+    smoothed[bin] = sum;
+  }
+  // Local maxima: strictly above everything within ±SEPARATION that isn't an
+  // equal-valued earlier bin (plateaus yield their first bin).
+  const candidates: { bin: number; value: number }[] = [];
+  for (let bin = 0; bin < 360; bin++) {
+    const value = smoothed[bin]!;
+    if (value === 0) {
+      continue;
+    }
+    let isPeak = true;
+    for (let d = 1; d <= SEPARATION && isPeak; d++) {
+      const before = smoothed[(bin - d + 360) % 360]!;
+      const after = smoothed[(bin + d) % 360]!;
+      if (before >= value || after > value) {
+        isPeak = false;
+      }
+    }
+    if (isPeak) {
+      candidates.push({ bin, value });
+    }
+  }
+  candidates.sort((a, b) => b.value - a.value || a.bin - b.bin);
+  const peaks: number[] = [];
+  for (const c of candidates) {
+    if (peaks.length >= 6) {
+      break;
+    }
+    if (
+      peaks.every((p) => Math.min(Math.abs(p - c.bin), 360 - Math.abs(p - c.bin)) >= SEPARATION)
+    ) {
+      peaks.push(c.bin);
+    }
+  }
+  return peaks.sort((a, b) => a - b);
 }
 
 export interface ComponentColor {
@@ -166,12 +250,22 @@ export function assignColors(normalized: RgbaImage, extraction: InkExtraction): 
     sin: number;
     cos: number;
     chromaSum: number;
+    lumSum: number;
     count: number;
   }
   const accumulators = new Map<number, Accumulator>();
   const coreFloor = new Map<number, number>();
   for (const c of components) {
-    accumulators.set(c.label, { r: [], g: [], b: [], sin: 0, cos: 0, chromaSum: 0, count: 0 });
+    accumulators.set(c.label, {
+      r: [],
+      g: [],
+      b: [],
+      sin: 0,
+      cos: 0,
+      chromaSum: 0,
+      lumSum: 0,
+      count: 0,
+    });
     coreFloor.set(c.label, 0.6 * c.dtMax);
   }
   for (const c of components) {
@@ -195,30 +289,67 @@ export function assignColors(normalized: RgbaImage, extraction: InkExtraction): 
         acc.sin += Math.sin(radians) * chroma;
         acc.cos += Math.cos(radians) * chroma;
         acc.chromaSum += chroma;
+        acc.lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
         acc.count++;
       }
     }
   }
 
-  const byLabel = new Map<number, ComponentColor>();
+  // Page-level hue peaks from the chromatic components' votes: a component's
+  // own hue snaps to the nearest peak and the PEAK is binned, so a marker
+  // whose strokes straddle a bin edge still lands in one bucket page-wide.
+  interface Vote {
+    readonly hue: number | null; // null = black
+    readonly measured: string;
+  }
+  const votes = new Map<number, Vote>();
   for (const c of components) {
     const acc = accumulators.get(c.label)!;
-    let bucket: MarkerColor;
-    let measured: string;
     if (acc.count === 0) {
-      bucket = 'black';
-      measured = SCAN_PALETTE.black;
+      votes.set(c.label, { hue: null, measured: SCAN_PALETTE.black });
+      continue;
+    }
+    const measured = toHex(channelMedian(acc.r), channelMedian(acc.g), channelMedian(acc.b));
+    const meanChroma = acc.chromaSum / acc.count;
+    const meanLum = acc.lumSum / acc.count;
+    if (isBlackVote(meanChroma, meanLum)) {
+      votes.set(c.label, { hue: null, measured });
     } else {
-      measured = toHex(channelMedian(acc.r), channelMedian(acc.g), channelMedian(acc.b));
-      const meanChroma = acc.chromaSum / acc.count;
-      if (meanChroma < BLACK_CHROMA) {
-        bucket = 'black';
-      } else {
-        const hue = (Math.atan2(acc.sin, acc.cos) * 180) / Math.PI;
-        bucket = binHue(hue);
+      const hue = ((Math.atan2(acc.sin, acc.cos) * 180) / Math.PI + 360) % 360;
+      votes.set(c.label, { hue, measured });
+    }
+  }
+  const peaks = estimateMarkerHues(
+    components.flatMap((c) => {
+      const vote = votes.get(c.label)!;
+      const acc = accumulators.get(c.label)!;
+      return vote.hue === null ? [] : [{ hue: vote.hue, weight: acc.chromaSum }];
+    }),
+  );
+  const snapHue = (hue: number): number => {
+    let best = hue;
+    let bestDist = Infinity;
+    for (const p of peaks) {
+      const d = Math.abs(hue - p) % 360;
+      const dist = d > 180 ? 360 - d : d;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = p;
       }
     }
-    byLabel.set(c.label, { label: c.label, bucket, snapped: SCAN_PALETTE[bucket], measured });
+    return best;
+  };
+
+  const byLabel = new Map<number, ComponentColor>();
+  for (const c of components) {
+    const vote = votes.get(c.label)!;
+    const bucket: MarkerColor = vote.hue === null ? 'black' : binHue(snapHue(vote.hue));
+    byLabel.set(c.label, {
+      label: c.label,
+      bucket,
+      snapped: SCAN_PALETTE[bucket],
+      measured: vote.measured,
+    });
   }
 
   /*

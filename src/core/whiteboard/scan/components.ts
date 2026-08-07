@@ -52,6 +52,15 @@ export interface InkComponent {
   readonly glareRatio: number;
 }
 
+/** Why a component was removed — one slot per filter, `removed`'s keys. */
+export type RemovalReason = 'ghost' | 'speckle' | 'faint' | 'blob' | 'border' | 'glare';
+
+/** A removed component with the filter that killed it — the debug artifact's input. */
+export interface RemovedComponent {
+  readonly component: InkComponent;
+  readonly reason: RemovalReason;
+}
+
 export interface InkExtraction {
   /** The kept-ink mask, `width × height`. */
   readonly mask: Uint8Array;
@@ -72,6 +81,10 @@ export interface InkExtraction {
     readonly border: number;
     readonly glare: number;
   };
+  /** Every removed component with its reason — `removed` is this list's histogram. */
+  readonly removedComponents: readonly RemovedComponent[];
+  /** Pre-filter labels over the whole weak mask — how removed components are painted. */
+  readonly weakLabels: Int32Array;
 }
 
 /** Reject: area < 0.5·w² — sensor noise, dust, dry-erase residue dots. */
@@ -86,6 +99,17 @@ const BLOB_STRONG_RATIO = 0.5;
 const BLOB_AREA = 40;
 /** Frame/furniture: touches the border AND area > 200·w². */
 const BORDER_AREA = 200;
+/** How far (in `w`) rescued strong ink keeps its weak halo in a border split. */
+const BORDER_HALO_REACH = 2;
+/**
+ * Strong pixels at or above this normalized luminance (0–255) are coloured
+ * LIGHT, not ink, inside a border split. A tinted reflection (an LED strip on
+ * a glossy board) passes the chroma gate at luminance ≈ 210, while marker ink
+ * — even yellow — absorbs enough to stay under ≈ 180 (measured on the UAT
+ * photo). Such pixels never seed a rescue and never bridge two subs, which is
+ * what separates a box outline from the glare streak it runs through.
+ */
+const BORDER_GLARE_LUM = 190;
 /** Reject when ≥60% of the pixels sit inside the glare mask. */
 const GLARE_RATIO = 0.6;
 /** The i-dot rule's reach, in stroke widths. */
@@ -96,6 +120,228 @@ export interface Bounds {
   readonly minY: number;
   readonly maxX: number;
   readonly maxY: number;
+}
+
+/**
+ * Split a border-removed component and RESCUE the real ink inside it.
+ *
+ * The border filter's failure mode (UAT, a real board): a diffuse light-glare
+ * streak binarizes weak, runs to the frame edge, and 8-connects with genuine
+ * strokes — a box, a word — into ONE oversized border-touching component,
+ * which the filter then drops whole. The split is decided on STRONG evidence:
+ *
+ * 1. Label the component's strong pixels into sub-components — excluding
+ *    BRIGHT strong pixels (`BORDER_GLARE_LUM`): a tinted reflection passes
+ *    the chroma gate but is light, not ink, and must neither seed a rescue
+ *    nor weld a stroke to the frame.
+ * 2. A strong sub touching the image border is furniture (the frame itself);
+ *    one smaller than the speckle floor is grit. Neither seeds a rescue.
+ * 3. Multi-source BFS from every remaining sub claims the component's weak
+ *    pixels out to `2·w` (the i-dot reach — a stroke's anti-aliased halo is
+ *    well inside it). Furniture subs claim at the same time, so ink halo and
+ *    frame halo are attributed to their true owners. Weak pixels no seed
+ *    reaches — the diffuse streak — stay removed.
+ *
+ * Rescued subs come back as NEW components (labels from `firstLabel`), their
+ * pixels written into `out`. A real frame's strong pixels touch the border,
+ * so a frame is never resurrected by this rule.
+ */
+function rescueBorderInk(
+  c: InkComponent,
+  weakLabels: Int32Array,
+  masks: InkMasks,
+  distance: Float32Array,
+  glare: Uint8Array | undefined,
+  width: number,
+  height: number,
+  w: number,
+  firstLabel: number,
+  out: Int32Array,
+): InkComponent[] {
+  const bw = c.maxX - c.minX + 1;
+  const bh = c.maxY - c.minY + 1;
+  const local = (x: number, y: number) => (y - c.minY) * bw + (x - c.minX);
+  // 1. Strong sub-components, 8-connected, local labels from 1.
+  const sub = new Int32Array(bw * bh);
+  interface StrongSub {
+    area: number;
+    touchesBorder: boolean;
+  }
+  const subs: StrongSub[] = [];
+  const stack: number[] = [];
+  const inky = (i: number) => masks.strong[i] !== 0 && masks.luminance[i]! < BORDER_GLARE_LUM;
+  for (let y = c.minY; y <= c.maxY; y++) {
+    for (let x = c.minX; x <= c.maxX; x++) {
+      const i = y * width + x;
+      if (!inky(i) || weakLabels[i] !== c.label || sub[local(x, y)] !== 0) {
+        continue;
+      }
+      const id = subs.length + 1;
+      const info: StrongSub = { area: 0, touchesBorder: false };
+      subs.push(info);
+      stack.push(i);
+      sub[local(x, y)] = id;
+      while (stack.length > 0) {
+        const p = stack.pop()!;
+        const px = p % width;
+        const py = (p / width) | 0;
+        info.area++;
+        if (px === 0 || px === width - 1 || py === 0 || py === height - 1) {
+          info.touchesBorder = true;
+        }
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = px + dx;
+            const ny = py + dy;
+            if (nx < c.minX || nx > c.maxX || ny < c.minY || ny > c.maxY) {
+              continue;
+            }
+            const n = ny * width + nx;
+            if (inky(n) && weakLabels[n] === c.label && sub[local(nx, ny)] === 0) {
+              sub[local(nx, ny)] = id;
+              stack.push(n);
+            }
+          }
+        }
+      }
+    }
+  }
+  // 2. Seed classes: 0 = none (grit), -1 = furniture, else the NEW label.
+  const seedClass = new Int32Array(subs.length + 1);
+  let rescuedCount = 0;
+  for (let s = 0; s < subs.length; s++) {
+    if (subs[s]!.touchesBorder) {
+      seedClass[s + 1] = -1;
+    } else if (subs[s]!.area >= SPECKLE_AREA * w * w) {
+      seedClass[s + 1] = firstLabel + rescuedCount++;
+    }
+  }
+  if (rescuedCount === 0) {
+    return [];
+  }
+  // 3. Multi-source BFS over the component's weak pixels, capped at 2·w.
+  const claim = new Int32Array(bw * bh);
+  let frontier: number[] = [];
+  for (let y = c.minY; y <= c.maxY; y++) {
+    for (let x = c.minX; x <= c.maxX; x++) {
+      const cls = seedClass[sub[local(x, y)]!]!;
+      if (cls !== 0) {
+        claim[local(x, y)] = cls;
+        frontier.push(y * width + x);
+      }
+    }
+  }
+  const maxDepth = Math.ceil(BORDER_HALO_REACH * w);
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const next: number[] = [];
+    for (const p of frontier) {
+      const px = p % width;
+      const py = (p / width) | 0;
+      const cls = claim[local(px, py)]!;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = px + dx;
+          const ny = py + dy;
+          if (nx < c.minX || nx > c.maxX || ny < c.minY || ny > c.maxY) {
+            continue;
+          }
+          const n = ny * width + nx;
+          if (weakLabels[n] === c.label && claim[local(nx, ny)] === 0) {
+            claim[local(nx, ny)] = cls;
+            next.push(n);
+          }
+        }
+      }
+    }
+    frontier = next;
+  }
+  // 4. Stats per rescued label, and the pixel write-out.
+  interface Acc {
+    area: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    strong: number;
+    chroma: number;
+    glare: number;
+    dtMax: number;
+    perimeter: number;
+  }
+  const accs = new Map<number, Acc>();
+  for (let y = c.minY; y <= c.maxY; y++) {
+    for (let x = c.minX; x <= c.maxX; x++) {
+      const cls = claim[local(x, y)]!;
+      if (cls <= 0) {
+        continue;
+      }
+      const i = y * width + x;
+      out[i] = cls;
+      let acc = accs.get(cls);
+      if (acc === undefined) {
+        acc = {
+          area: 0,
+          minX: x,
+          minY: y,
+          maxX: x,
+          maxY: y,
+          strong: 0,
+          chroma: 0,
+          glare: 0,
+          dtMax: 0,
+          perimeter: 0,
+        };
+        accs.set(cls, acc);
+      }
+      acc.area++;
+      acc.minX = Math.min(acc.minX, x);
+      acc.minY = Math.min(acc.minY, y);
+      acc.maxX = Math.max(acc.maxX, x);
+      acc.maxY = Math.max(acc.maxY, y);
+      if (masks.strong[i] !== 0) {
+        acc.strong++;
+      }
+      acc.chroma += masks.chroma[i]!;
+      if (glare !== undefined && glare[i] !== 0) {
+        acc.glare++;
+      }
+      if (distance[i]! > acc.dtMax) {
+        acc.dtMax = distance[i]!;
+      }
+      const boundary =
+        x === 0 ||
+        x === width - 1 ||
+        y === 0 ||
+        y === height - 1 ||
+        (x > c.minX ? claim[local(x - 1, y)] !== cls : true) ||
+        (x < c.maxX ? claim[local(x + 1, y)] !== cls : true) ||
+        (y > c.minY ? claim[local(x, y - 1)] !== cls : true) ||
+        (y < c.maxY ? claim[local(x, y + 1)] !== cls : true);
+      if (boundary) {
+        acc.perimeter++;
+      }
+    }
+  }
+  const rescued: InkComponent[] = [];
+  for (const [label, a] of accs) {
+    rescued.push({
+      label,
+      area: a.area,
+      minX: a.minX,
+      minY: a.minY,
+      maxX: a.maxX,
+      maxY: a.maxY,
+      perimeter: a.perimeter,
+      thinness: (a.perimeter * a.perimeter) / a.area,
+      strongRatio: a.strong / a.area,
+      meanChroma: a.chroma / a.area,
+      dtMax: a.dtMax,
+      touchesBorder: false,
+      glareRatio: a.glare / a.area,
+    });
+  }
+  rescued.sort((a, b) => a.label - b.label);
+  return rescued;
 }
 
 /** Gap between two bboxes (0 when they touch or overlap). */
@@ -231,20 +477,13 @@ export function extractInk(
       pending = rest;
     }
   }
-  let ghostRemoved = 0;
-  for (const component of labelled.components) {
-    if (surviving[component.label] === 0) {
-      ghostRemoved++;
-    }
-  }
-
+  // Stats for EVERY weak component, ghosts included — removed components keep
+  // their stats so the debug artifact can explain each removal.
+  const removedComponents: RemovedComponent[] = [];
   const candidates: InkComponent[] = [];
   for (const c of labelled.components) {
-    if (surviving[c.label] === 0) {
-      continue;
-    }
     const p = perimeter[c.label]!;
-    candidates.push({
+    const stats: InkComponent = {
       label: c.label,
       area: c.area,
       minX: c.minX,
@@ -258,14 +497,29 @@ export function extractInk(
       dtMax: dtMax[c.label]!,
       touchesBorder: c.touchesBorder.some(Boolean),
       glareRatio: glareCount[c.label]! / c.area,
-    });
+    };
+    if (surviving[c.label] === 0) {
+      removedComponents.push({ component: stats, reason: 'ghost' });
+    } else {
+      candidates.push(stats);
+    }
   }
 
   // The filters. Speckle rejections are provisional — the i-dot pass below
   // may revive them; every other rejection is final.
-  const removed = { ghost: ghostRemoved, speckle: 0, faint: 0, blob: 0, border: 0, glare: 0 };
+  const removed = {
+    ghost: removedComponents.length,
+    speckle: 0,
+    faint: 0,
+    blob: 0,
+    border: 0,
+    glare: 0,
+  };
   const kept: InkComponent[] = [];
   const speckles: InkComponent[] = [];
+  // Pixels of components RESCUED out of a border removal, labelled from here.
+  let extra: Int32Array | null = null;
+  let nextLabel = labelled.components.length + 1;
   for (const c of candidates) {
     // A component is STROKE-SHAPED when its core half-width fits the page's
     // ink and its outline is long relative to its area. Faint ink that keeps
@@ -275,18 +529,39 @@ export function extractInk(
     const strokeShaped = c.dtMax <= w && c.thinness >= BLOB_THINNESS;
     if (c.glareRatio >= GLARE_RATIO) {
       removed.glare++;
+      removedComponents.push({ component: c, reason: 'glare' });
     } else if (rescued[c.label] === 0 && c.strongRatio < FAINT_STRONG_RATIO && !strokeShaped) {
       // The faint filter judges diffuse strong-poor components; a rescued one
       // was admitted on shape + continuity and is exempt by construction.
       removed.faint++;
+      removedComponents.push({ component: c, reason: 'faint' });
     } else if (c.touchesBorder && c.area > BORDER_AREA * w2) {
       removed.border++;
+      removedComponents.push({ component: c, reason: 'border' });
+      // Strong ink that merely CONNECTED to border furniture through weak
+      // pixels (a glare streak reaching the frame) is split back out.
+      extra ??= new Int32Array(width * height);
+      const rescued = rescueBorderInk(
+        c,
+        labelled.labels,
+        masks,
+        distance,
+        glare,
+        width,
+        height,
+        w,
+        nextLabel,
+        extra,
+      );
+      nextLabel += rescued.length;
+      kept.push(...rescued);
     } else if (
       c.thinness < BLOB_THINNESS &&
       c.strongRatio < BLOB_STRONG_RATIO &&
       c.area > BLOB_AREA * w2
     ) {
       removed.blob++;
+      removedComponents.push({ component: c, reason: 'blob' });
     } else if (c.area < SPECKLE_AREA * w2) {
       speckles.push(c);
     } else {
@@ -318,13 +593,16 @@ export function extractInk(
       kept.push(speckle);
     } else {
       removed.speckle++;
+      removedComponents.push({ component: speckle, reason: 'speckle' });
     }
   }
   kept.sort((a, b) => a.label - b.label);
 
   const keptFlags = new Uint8Array(labelled.components.length + 1);
   for (const c of kept) {
-    keptFlags[c.label] = 1;
+    if (c.label <= labelled.components.length) {
+      keptFlags[c.label] = 1;
+    }
   }
   const mask = new Uint8Array(width * height);
   const labels = new Int32Array(width * height);
@@ -333,7 +611,19 @@ export function extractInk(
     if (label !== 0 && keptFlags[label] !== 0) {
       mask[i] = 1;
       labels[i] = label;
+    } else if (extra !== null && extra[i] !== 0) {
+      mask[i] = 1;
+      labels[i] = extra[i]!;
     }
   }
-  return { mask, labels, components: kept, strokeWidth: w, distance, removed };
+  return {
+    mask,
+    labels,
+    components: kept,
+    strokeWidth: w,
+    distance,
+    removed,
+    removedComponents,
+    weakLabels: labelled.labels,
+  };
 }

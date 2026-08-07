@@ -8,7 +8,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { composeCleaned, createCleaner, type CleanResult } from '../clean';
+import {
+  composeCleaned,
+  composeRemovedDebug,
+  createCleaner,
+  REMOVAL_TINTS,
+  type CleanResult,
+} from '../clean';
 import { SCAN_PALETTE } from '../color';
 import type { RgbaImage } from '../types';
 
@@ -327,6 +333,52 @@ describe('the clean pipeline (S2–S4)', () => {
     const ink = (58 * W + 100) * 4;
     expect(cleaned.data[ink + 3]).toBe(255);
     expect([cleaned.data[ink], cleaned.data[ink + 1], cleaned.data[ink + 2]]).toEqual([1, 2, 3]);
+  });
+
+  it('records every removal with its reason — counters are the histogram', () => {
+    const result = getResult();
+    const { removed, removedComponents } = result.extraction;
+    const histogram = { ghost: 0, speckle: 0, faint: 0, blob: 0, border: 0, glare: 0 };
+    for (const { reason } of removedComponents) {
+      histogram[reason]++;
+    }
+    expect(histogram).toEqual(removed);
+    // The ghost band (hysteresis) and the isolated speckle are both here.
+    expect(removed.ghost).toBeGreaterThanOrEqual(1);
+    expect(removed.speckle).toBeGreaterThanOrEqual(1);
+  });
+
+  it('paints removed components tinted by reason, kept ink light gray', () => {
+    const result = getResult();
+    const vis = composeRemovedDebug(result);
+    const hex = (s: string) => [
+      parseInt(s.slice(1, 3), 16),
+      parseInt(s.slice(3, 5), 16),
+      parseInt(s.slice(5, 7), 16),
+    ];
+    const px = (x: number, y: number) => {
+      const p = (y * W + x) * 4;
+      return [vis.data[p]!, vis.data[p + 1]!, vis.data[p + 2]!];
+    };
+    // The ghost band was killed before the filters — its weak pixels paint in
+    // the ghost tint (the band's core never even reaches the weak gate, so
+    // scan the region rather than probe its center).
+    let ghostTinted = 0;
+    const ghostTint = hex(REMOVAL_TINTS.ghost);
+    for (let y = GHOST.y0; y <= GHOST.y1; y++) {
+      for (let x = GHOST.x0; x <= GHOST.x1; x++) {
+        const [r, g, b] = px(x, y);
+        if (r === ghostTint[0] && g === ghostTint[1] && b === ghostTint[2]) {
+          ghostTinted++;
+        }
+      }
+    }
+    expect(ghostTinted).toBeGreaterThan(0);
+    // The isolated grit → speckle tint.
+    expect(px(SPECKLE.x, SPECKLE.y)).toEqual(hex(REMOVAL_TINTS.speckle));
+    // Kept ink is light gray; background stays white.
+    expect(px(100, 58)).toEqual([0xc8, 0xc8, 0xc8]);
+    expect(px(20, 20)).toEqual([255, 255, 255]);
   });
 
   it('colour-mode switching never changes the ink mask', () => {

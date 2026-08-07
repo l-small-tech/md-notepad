@@ -63,7 +63,12 @@ function errorResponse(error: unknown): ScanRecognizeResponse {
 async function recognizeAndroid(request: ScanRecognizeRequest): Promise<ScanRecognizeResponse> {
   if (request.lines.length > 0) {
     try {
-      const result = await ipc.inkRecognize(JSON.stringify({ lines: request.lines }));
+      // The UI language, explicitly — the Kotlin side falls back to the
+      // device locale, but the text on the board is usually the language the
+      // user runs the app in, and the ink model is picked per language.
+      const result = await ipc.inkRecognize(
+        JSON.stringify({ lines: request.lines, language: navigator.language }),
+      );
       if (result.lines.some((line) => line.text.trim().length > 0)) {
         return { kind: 'ink', engine: 'mlkit-ink', texts: result.lines };
       }

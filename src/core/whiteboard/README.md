@@ -224,9 +224,10 @@ ink-extraction, vectorizing and OCR stages beside these, in the same shape.
 | `illumination.ts` | S2: flat-field estimate (van Herk dilation) + division; glare detection |
 | `distance.ts` | exact Euclidean distance transform (Felzenszwalb–Huttenlocher); stroke-width estimate |
 | `binarize.ts` | S3a: Sauvola-modulated strong/weak luminance gates + free-standing chroma gates |
-| `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule |
-| `color.ts` | S4: core-pixel colour voting, hue bins, snap to the drawing `PALETTE` |
-| `clean.ts` | the resumable S2–S4 job (`createCleaner`) and the mode-switchable `composeCleaned` |
+| `components.ts` | S3b: hysteresis, per-component stats and filters, the i-dot rule, the border split rescue |
+| `separate.ts` | S4.5: split mixed-marker components (crossing strokes) along page-level colour clusters |
+| `color.ts` | S4: core-pixel colour voting, page-level hue peaks, 2-D black test, snap to the drawing `PALETTE` |
+| `clean.ts` | the resumable S2–S4.5 job (`createCleaner`), the mode-switchable `composeCleaned`, and `composeRemovedDebug` |
 | `thin.ts` | S5: Zhang–Suen thinning, active-frontier queue (O(ink pixels)) |
 | `skeleton.ts` | S5: skeleton → polylines (junction clustering, spur pruning, angle-paired continuation) |
 | `contour.ts` | S5: marching-squares boundary loops — the blob fallback |
@@ -269,6 +270,34 @@ Phase 5's own decisions (beyond the table in the plan):
   came back with black specks and a black-dashed arrow. Such a component takes
   the answer of the nearest cored component within `3·w`; with nothing in
   reach it keeps its own vote. Donors must be cored, so fragments never chain.
+
+Post-phase-7 UAT revisions (a real wiring-board photo — the failures were
+colour consistency and a vanished box):
+
+- **Colour is PAGE-CONSISTENT, not just component-consistent.** Component
+  votes snap to the page's marker-hue peaks (`estimateMarkerHues`: circular
+  histogram, smoothed, peaks ≥30° apart) and the PEAK is binned — a teal pen
+  whose strokes straddle the 165° bin edge no longer splits across two
+  buckets. The black test is 2-D (`isBlackVote`): low chroma, OR moderate
+  chroma while dark — warm lighting pushes black ink's chroma past the flat
+  cutoff but cannot brighten it.
+- **Crossing strokes are SEPARATED before voting** (`separate.ts`, stage
+  S4.5). Wires cross on real boards, and one 8-connected component holding
+  two markers votes as one — the black wire came back red. Ridge pixels
+  (distance-transform maxima) are classified into page colour clusters; a
+  component whose ridge holds ≥2 real clusters is split by multi-source BFS
+  from those ridge seeds into per-cluster components. Single-marker
+  components pass through untouched, object-identical.
+- **A border removal SPLITS instead of swallowing** (`rescueBorderInk`). A
+  diffuse glare streak can run from real ink to the frame edge and weld them
+  into one oversized border-touching component. Strong DARK pixels (bright
+  chromatic pixels are reflections, not ink — `BORDER_GLARE_LUM`) that do not
+  themselves touch the border come back as new components with a `2·w` weak
+  halo; the streak and the frame stay removed.
+- **Every removal is attributed.** `InkExtraction.removedComponents` records
+  each removed component with its reason; `composeRemovedDebug` paints them
+  tinted by reason (the scan panel's Debug insert writes it as
+  `3b-removed.png`). "My box vanished" is now a one-file diagnosis.
 
 Four things here are decisions, not implementation details:
 
@@ -357,6 +386,15 @@ Phase 7's own decisions (S6 — OCR):
 - **Confidence is nullable, never invented.** ML Kit ink candidates and
   Windows OCR report none; the schema records `null` there and the real number
   where the raster engine has one.
+- **OCR accuracy expectations** (recorded after "48v" read as "49v"): none of
+  the engines expose a character allowlist or a correction hook, digits in
+  handwriting are genuinely unreliable (Windows's printed-text engine
+  especially), and no post-processing is applied — a heuristic that "fixes"
+  digits corrupts text that was right. The strokes themselves are always
+  preserved verbatim; OCR text only reaches the `<desc>`, the hidden text
+  group and "Copy text", so a misread digit costs search/copy fidelity, never
+  ink. Android sends the UI language with the ink payload so the model choice
+  is explicit.
 
 Fixtures are GENERATED in-test, never committed as bytes: a JPEG decoder
 differs across platforms and pixel-exact goldens on photos are a maintenance

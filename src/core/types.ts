@@ -6,6 +6,8 @@
  * preview/ui, no DOM types in runtime code, no Tauri. Pure logic only.
  */
 
+import type { ScanPreset, ScanSmoothing } from './whiteboard/scan/types';
+
 /**
  * The edit modes. 'split' = raw editor plus a live preview pane; 'read' = a
  * full-width, read-only rendered view (no editor, optimized for reading). Both
@@ -267,4 +269,11 @@ export interface Settings {
    */
   explorerCollapsedWorkspaces: string[];
   explorerExpandedDirs: string[];
+  /**
+   * Whiteboard-scan panel: last-used quality preset and trace smoothing.
+   * Not dialog fields — the scan panel's own selects write them, so the next
+   * scan opens the way the previous one was tuned.
+   */
+  scanPreset: ScanPreset;
+  scanSmoothing: ScanSmoothing;
 }

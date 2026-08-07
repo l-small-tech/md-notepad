@@ -10,7 +10,13 @@
  */
 
 import { quadAspectRatio, rectifyTransform, sideLengthAspect, warpRows } from './homography';
-import { SCAN_PRESETS, type Quad, type RgbaImage, type ScanPreset } from './types';
+import {
+  DEFAULT_SCAN_PRESET,
+  SCAN_PRESETS,
+  type Quad,
+  type RgbaImage,
+  type ScanPreset,
+} from './types';
 
 /** Never emit a rectified board smaller than this on either edge. */
 const MIN_OUTPUT_EDGE = 16;
@@ -39,7 +45,7 @@ export interface RectifyPlan {
 export function planRectify(
   image: RgbaImage,
   quad: Quad,
-  preset: ScanPreset = 'balanced',
+  preset: ScanPreset = DEFAULT_SCAN_PRESET,
 ): RectifyPlan {
   const recovered = quadAspectRatio(quad, image.width, image.height);
   const aspect = recovered ?? sideLengthAspect(quad);
@@ -87,7 +93,7 @@ const DEFAULT_BAND = 48;
 export function createRectifier(
   image: RgbaImage,
   quad: Quad,
-  preset: ScanPreset = 'balanced',
+  preset: ScanPreset = DEFAULT_SCAN_PRESET,
 ): RectifyJob | null {
   const plan = planRectify(image, quad, preset);
   const h = rectifyTransform(quad, plan.width, plan.height);

@@ -144,11 +144,13 @@ import {
   type ScanDebugFile,
   type ScanPanel,
   type ScanPhoto,
+  type ScanPrefs,
   type ScanResult,
   type ScanSource,
   type ScanStrokesResult,
 } from './whiteboard-scan';
 import { fitScanElements } from '../core/whiteboard/scan/trace';
+import { SCAN_SMOOTHING } from '../core/whiteboard/scan/types';
 import { applyScanOcr, type ScanRecognizeFn } from '../core/whiteboard/scan/ocr';
 import '../styles/whiteboard.css';
 
@@ -206,6 +208,11 @@ export interface WhiteboardAdapterOptions {
     /** Write the scan's intermediates beside this document for later analysis
      *  (the review screen's "Debug insert"); null hides that button. */
     saveDebug?: ((files: readonly ScanDebugFile[]) => Promise<string | null>) | null;
+    /** Remembered scan tuning (preset + smoothing), backed by settings. */
+    prefs?: {
+      get: () => ScanPrefs;
+      set: (prefs: ScanPrefs) => void;
+    } | null;
   };
 }
 
@@ -1602,6 +1609,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const fitted = fitScanElements(payload.trace, payload.colors, {
       mode: payload.mode,
       remap: payload.remap,
+      // The same ε the review previewed — what you saw is what lands.
+      epsilonFactor: SCAN_SMOOTHING[payload.smoothing],
       transform: {
         scale: fit,
         dx: area.x + (area.width - payload.trace.width * fit) / 2,
@@ -1673,6 +1682,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         onClose: () => stage?.focus({ preventScroll: true }),
         recognize: config.recognize,
         saveDebug: config.saveDebug ?? null,
+        prefs: config.prefs ?? null,
       });
       root.append(scanPanel.element);
     }

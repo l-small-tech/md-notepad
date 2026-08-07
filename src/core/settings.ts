@@ -15,6 +15,14 @@ import {
   UI_FONT_IDS,
   WORKSPACE_COLORS,
 } from './types';
+import {
+  DEFAULT_SCAN_PRESET,
+  DEFAULT_SCAN_SMOOTHING,
+  SCAN_PRESETS,
+  SCAN_SMOOTHING,
+  type ScanPreset,
+  type ScanSmoothing,
+} from './whiteboard/scan/types';
 import type {
   CursorStyle,
   EditorFontId,
@@ -46,6 +54,8 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolderName: 'images',
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
+  scanPreset: DEFAULT_SCAN_PRESET,
+  scanSmoothing: DEFAULT_SCAN_SMOOTHING,
 };
 
 /**
@@ -199,5 +209,13 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.imageFolderName,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
+    scanPreset:
+      typeof r.scanPreset === 'string' && r.scanPreset in SCAN_PRESETS
+        ? (r.scanPreset as ScanPreset)
+        : d.scanPreset,
+    scanSmoothing:
+      typeof r.scanSmoothing === 'string' && r.scanSmoothing in SCAN_SMOOTHING
+        ? (r.scanSmoothing as ScanSmoothing)
+        : d.scanSmoothing,
   };
 }

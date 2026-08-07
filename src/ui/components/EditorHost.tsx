@@ -151,6 +151,19 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                     const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
                     return t ? (t.filePath ?? t.notePath) : null;
                   }),
+                  // The scan panel remembers its tuning across scans and
+                  // relaunches; the settings store is the persistence, the
+                  // panel never sees it directly (I9).
+                  prefs: {
+                    get: () => ({
+                      preset: settingsStore.getState().settings.scanPreset,
+                      smoothing: settingsStore.getState().settings.scanSmoothing,
+                    }),
+                    set: ({ preset, smoothing }) =>
+                      settingsStore
+                        .getState()
+                        .update({ scanPreset: preset, scanSmoothing: smoothing }),
+                  },
                 },
               });
               registerWhiteboardAdapter(tabId, adapter);

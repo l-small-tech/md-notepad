@@ -20,7 +20,8 @@
 
 import { normalizeIllumination, detectGlare } from './illumination';
 import { binarize } from './binarize';
-import { extractInk, type InkExtraction } from './components';
+import { extractInk, type InkExtraction, type RemovalReason } from './components';
+import { separateColors } from './separate';
 import { assignColors, type ColorAssignment, type ComponentColor } from './color';
 import type { RgbaImage } from './types';
 
@@ -56,7 +57,14 @@ export interface CleanJob {
  * The stage weights the progress bar reports. Rough measured proportions;
  * exactness does not matter, monotonicity does.
  */
-const STAGES = { light: 0.35, glare: 0.1, ink: 0.3, components: 0.2, color: 0.05 } as const;
+const STAGES = {
+  light: 0.35,
+  glare: 0.1,
+  ink: 0.3,
+  components: 0.15,
+  separate: 0.05,
+  color: 0.05,
+} as const;
 
 /**
  * Start cleaning a rectified board photo. Each `step()` runs ONE stage of the
@@ -102,6 +110,11 @@ export function createCleaner(image: RgbaImage): CleanJob {
         case 'components':
           extraction = extractInk(masks!, image.width, image.height, glare!.mask);
           progress += STAGES.components;
+          stage = 'separate';
+          break;
+        case 'separate':
+          extraction = separateColors(normalized!, extraction!);
+          progress += STAGES.separate;
           stage = 'color';
           break;
         case 'color':
@@ -186,6 +199,70 @@ export function composeCleaned(
       data[p] = lut[label * 3]!;
       data[p + 1] = lut[label * 3 + 1]!;
       data[p + 2] = lut[label * 3 + 2]!;
+      data[p + 3] = 255;
+    }
+  }
+  return { width, height, data };
+}
+
+/** Tint per removal reason in the removed-components debug artifact. */
+export const REMOVAL_TINTS: Readonly<Record<RemovalReason, string>> = {
+  ghost: '#9e9e9e',
+  speckle: '#0f8f8f',
+  faint: '#e07b00',
+  blob: '#8a3fd1',
+  border: '#1f6fd0',
+  glare: '#d02f2f',
+};
+
+/** Kept ink's colour in the artifact — light enough that tints dominate. */
+const KEPT_TINT = '#c8c8c8';
+
+/**
+ * Paint what the filters REMOVED, tinted by reason ({@link REMOVAL_TINTS}),
+ * over the kept ink in light gray. This is the artifact that makes "my box
+ * vanished" diagnosable — every removal is visible, attributed, and findable
+ * by colour. Pure and one-pass, like `composeCleaned`.
+ */
+export function composeRemovedDebug(result: CleanResult): RgbaImage {
+  const { width, height } = result;
+  const { weakLabels, labels, removedComponents } = result.extraction;
+  let maxLabel = 0;
+  for (let i = 0; i < weakLabels.length; i++) {
+    if (weakLabels[i]! > maxLabel) {
+      maxLabel = weakLabels[i]!;
+    }
+  }
+  const lut = new Uint8ClampedArray((maxLabel + 1) * 3);
+  const painted = new Uint8Array(maxLabel + 1);
+  for (const { component, reason } of removedComponents) {
+    const [r, g, b] = parseHex(REMOVAL_TINTS[reason]);
+    lut[component.label * 3] = r;
+    lut[component.label * 3 + 1] = g;
+    lut[component.label * 3 + 2] = b;
+    painted[component.label] = 1;
+  }
+  const [kr, kg, kb] = parseHex(KEPT_TINT);
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < weakLabels.length; i++) {
+    const p = i * 4;
+    // Kept pixels first (the post-filter labels include border-rescued ink,
+    // whose WEAK label belongs to a removed component); then removal tints.
+    const weak = weakLabels[i]!;
+    if (labels[i]! !== 0) {
+      data[p] = kr;
+      data[p + 1] = kg;
+      data[p + 2] = kb;
+      data[p + 3] = 255;
+    } else if (weak === 0 || painted[weak] === 0) {
+      data[p] = 255;
+      data[p + 1] = 255;
+      data[p + 2] = 255;
+      data[p + 3] = 255;
+    } else {
+      data[p] = lut[weak * 3]!;
+      data[p + 1] = lut[weak * 3 + 1]!;
+      data[p + 2] = lut[weak * 3 + 2]!;
       data[p + 3] = 255;
     }
   }
