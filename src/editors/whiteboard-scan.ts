@@ -1574,41 +1574,71 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
     if (!save || !rectified) {
       return;
     }
+    // A debug button must never fail SILENTLY — if assembling any artifact
+    // throws, say which one and still insert; a partial dump beats nothing.
     const files: ScanDebugFile[] = [];
+    let buildError: string | null = null;
+    const tryBuild = (name: string, build: () => ScanDebugFile | null): void => {
+      try {
+        const file = build();
+        if (file) {
+          files.push(file);
+        }
+      } catch (error) {
+        buildError = `${name}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
     if (sourcePhoto) {
-      const decoded = decodeDataUrl(sourcePhoto.dataUrl);
-      const ext = decoded?.mime === 'image/png' ? 'png' : 'jpg';
-      files.push({
-        name: `1-source.${ext}`,
-        kind: 'base64',
-        data: base64Payload(sourcePhoto.dataUrl),
+      tryBuild('1-source', () => {
+        const decoded = decodeDataUrl(sourcePhoto!.dataUrl);
+        const ext = decoded?.mime === 'image/png' ? 'png' : 'jpg';
+        return {
+          name: `1-source.${ext}`,
+          kind: 'base64',
+          data: base64Payload(sourcePhoto!.dataUrl),
+        };
       });
     }
-    const straightened = encodeJpeg(rectified, 0.92);
-    if (straightened) {
-      files.push({ name: '2-straightened.jpg', kind: 'base64', data: base64Payload(straightened) });
-    }
+    tryBuild('2-straightened', () => {
+      const straightened = encodeJpeg(rectified!, 0.92);
+      return straightened
+        ? { name: '2-straightened.jpg', kind: 'base64', data: base64Payload(straightened) }
+        : null;
+    });
     if (cleaned) {
-      const png = encodePng(composeCleanedForDisplay());
-      if (png) {
-        files.push({ name: '3-cleaned.png', kind: 'base64', data: base64Payload(png) });
-      }
+      tryBuild('3-cleaned', () => {
+        const png = encodePng(composeCleanedForDisplay());
+        return png ? { name: '3-cleaned.png', kind: 'base64', data: base64Payload(png) } : null;
+      });
       // What the filters dropped, tinted by reason (see REMOVAL_TINTS) — the
       // artifact to open when ink is missing from 3-cleaned.
-      const removedPng = encodePng(composeRemovedDebug(cleaned));
-      if (removedPng) {
-        files.push({ name: '3b-removed.png', kind: 'base64', data: base64Payload(removedPng) });
-      }
+      tryBuild('3b-removed', () => {
+        const removedPng = encodePng(composeRemovedDebug(cleaned!));
+        return removedPng
+          ? { name: '3b-removed.png', kind: 'base64', data: base64Payload(removedPng) }
+          : null;
+      });
     }
-    const built = ensureBuilt();
-    if (built) {
-      files.push({ name: '4-traced.svg', kind: 'text', data: debugSvg(built, rectified) });
+    tryBuild('4-traced', () => {
+      const built = ensureBuilt();
+      return built
+        ? { name: '4-traced.svg', kind: 'text', data: debugSvg(built, rectified!) }
+        : null;
+    });
+    if (buildError !== null) {
+      options.onNotice(`A debug artifact could not be built (${buildError}).`);
     }
 
     // Insert FIRST — the write is the side errand, and the user should not be
     // waiting on a disk round-trip to see their board.
     const hasStrokes = traced !== null && traced.components.length > 0;
-    insert(hasStrokes ? 'strokes' : 'photo');
+    try {
+      insert(hasStrokes ? 'strokes' : 'photo');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      options.onNotice(`The scan could not be inserted (${message}).`);
+      return;
+    }
     try {
       const folder = await save(files);
       options.onNotice(
@@ -1616,8 +1646,11 @@ export function createScanPanel(options: ScanPanelOptions): ScanPanel {
           ? 'The scan debug files could not be saved.'
           : `Scan debug files saved to "${folder}".`,
       );
-    } catch {
-      options.onNotice('The scan debug files could not be saved.');
+    } catch (error) {
+      // Name the failure — "could not be saved" with no reason sends whoever
+      // is debugging the debugger straight to the devtools console.
+      const message = error instanceof Error ? error.message : String(error);
+      options.onNotice(`The scan debug files could not be saved (${message}).`);
     }
   }
 
