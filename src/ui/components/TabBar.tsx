@@ -994,7 +994,16 @@ export function TabBar() {
       role="tablist"
       data-tauri-drag-region=""
     >
-      <div className="tabbar-scroller" ref={scrollerRef} onScroll={measure}>
+      {/* data-tauri-drag-region fires only on the element itself, so the free
+          space AFTER the last tab drags the window while the tabs keep their
+          own interactions. The scroller grows to fill the row, so that free
+          space lives here; `.tabbar-spacer` is the guaranteed floor. */}
+      <div
+        className="tabbar-scroller"
+        ref={scrollerRef}
+        onScroll={measure}
+        data-tauri-drag-region=""
+      >
         {items.map((item) =>
           item.kind === 'chip' ? (
             <GroupChip
@@ -1034,6 +1043,9 @@ export function TabBar() {
           if (e.altKey) {
             openPicker();
           } else {
+            // The button's own pointerdown stops the menu's dismiss handler,
+            // so a plain click while it is open has to close it itself.
+            uiStore.getState().closeNewTabMenu();
             newTabDefault();
           }
         }}
