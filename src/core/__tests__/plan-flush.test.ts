@@ -398,14 +398,30 @@ describe('parseManifest', () => {
     expect(parsed).toEqual(plan.manifest);
   });
 
-  test('rejects garbage, wrong schema, and malformed tabs', () => {
+  test('rejects garbage and the wrong schema', () => {
     expect(parseManifest('not json at all {{{')).toBeNull();
     expect(parseManifest('null')).toBeNull();
     expect(parseManifest(JSON.stringify({ schema: 2, tabs: [] }))).toBeNull();
-    expect(parseManifest(JSON.stringify({ schema: 1, tabs: [{ id: 42 }] }))).toBeNull();
-    expect(
-      parseManifest(JSON.stringify({ schema: 1, tabs: [{ id: 'a', kind: 'nope' }] })),
-    ).toBeNull();
+    expect(parseManifest(JSON.stringify({ schema: 1, tabs: 'nope' }))).toBeNull();
+  });
+
+  test('drops malformed and unknown-kind tabs instead of condemning the manifest', () => {
+    const parsed = parseManifest(
+      JSON.stringify({
+        schema: 1,
+        activeTabId: 'a',
+        tabs: [
+          { id: 'a', kind: 'note' },
+          { id: 42, kind: 'note' },
+          { id: 'b', kind: 'nope' },
+          'not even an object',
+          null,
+          { id: 'c', kind: 'file' },
+        ],
+      }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.tabs.map((t) => t.id)).toEqual(['a', 'c']);
   });
 
   test('a pre-groups manifest (no groups key) still parses', () => {

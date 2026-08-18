@@ -128,6 +128,12 @@ export interface SessionManifest {
   groups?: TabGroup[];
 }
 
+const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import'];
+
+function isKnownTabKind(value: unknown): value is TabKind {
+  return (KNOWN_TAB_KINDS as readonly unknown[]).includes(value);
+}
+
 /** Safe manifest parse: null on any structural problem (caller self-heals). */
 export function parseManifest(raw: string): SessionManifest | null {
   let value: unknown;
@@ -143,22 +149,22 @@ export function parseManifest(raw: string): SessionManifest | null {
   if (m.schema !== 1 || !Array.isArray(m.tabs)) {
     return null;
   }
-  for (const tab of m.tabs) {
+  // Tabs are filtered LENIENTLY, not validated strictly: a tab whose `kind`
+  // this build does not understand (a newer version wrote it) is DROPPED,
+  // never a reason to condemn the whole manifest. Downgrading after opening
+  // a newer tab kind therefore costs you that tab, not the session.
+  const tabs = (m.tabs as unknown[]).filter((tab): tab is PersistedTab => {
     if (typeof tab !== 'object' || tab === null) {
-      return null;
+      return false;
     }
     const t = tab as Record<string, unknown>;
-    if (
-      typeof t.id !== 'string' ||
-      (t.kind !== 'note' && t.kind !== 'file' && t.kind !== 'image' && t.kind !== 'import')
-    ) {
-      return null;
-    }
-  }
+    return typeof t.id === 'string' && isKnownTabKind(t.kind);
+  });
   // Groups are an optional, non-structural extra: a malformed groups array
   // degrades to "no groups" (memberships pointing nowhere are dropped at
   // restore) rather than condemning the whole manifest to self-heal.
   const manifest = value as SessionManifest;
+  manifest.tabs = tabs;
   if ('groups' in m) {
     manifest.groups = Array.isArray(m.groups)
       ? (m.groups as unknown[]).filter((g): g is TabGroup => {
