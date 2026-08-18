@@ -1096,7 +1096,19 @@ export function Ribbon() {
   );
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   return (
-    <div className="ribbon">
+    <div
+      className="ribbon"
+      onContextMenu={(e) => {
+        // Free bar space has no menu of its own — swallow the event so the
+        // webview default (Back / Reload / Inspect) never shows. Buttons and
+        // the ☰ popover keep their own handling; their events merely bubble
+        // through here.
+        if ((e.target as HTMLElement).closest('button, .tab-menu')) {
+          return;
+        }
+        e.preventDefault();
+      }}
+    >
       <div className="ribbon-left">
         {/* A folder reads as "files"; the outline button uses a heading-list
             icon so the two panel toggles aren't mirror images of each other. */}
