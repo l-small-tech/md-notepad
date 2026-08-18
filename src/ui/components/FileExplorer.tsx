@@ -16,7 +16,9 @@
  * Getting files IN:
  * - Paste (Ctrl+V with focus in the drawer): clipboard images/files are
  *   written into the SELECTED workspace/folder (click a header or folder row
- *   to select; the default workspace is selected initially).
+ *   to select; the default workspace is selected initially). The selection
+ *   lives in `uiStore.selectedExplorerDir`, which is also the directory a new
+ *   terminal tab starts in (see `terminal-open.ts`).
  * - OS drag-drop: main.tsx hit-tests Tauri's drag-drop events against the
  *   `data-drop-dir` attributes rendered here and copies the dropped md/image
  *   files into the hovered dir (`uiStore.dropTargetDir` drives the highlight).
@@ -148,8 +150,13 @@ export function FileExplorer() {
   // raw compare would silently never match and the rename input would never
   // appear on a freshly created file.
   const [renaming, setRenaming] = useState<string | null>(null);
-  /** Paste destination; null = the default workspace. */
-  const [selectedDir, setSelectedDir] = useState<string | null>(null);
+  /**
+   * Paste destination — and the directory a new terminal starts in; null = the
+   * default workspace. Kept in the ui store rather than here because
+   * `terminal-open.ts` reads it too.
+   */
+  const selectedDir = useUiStore((s) => s.selectedExplorerDir);
+  const setSelectedDir = (dir: string | null) => uiStore.getState().setSelectedExplorerDir(dir);
   /** True while a manual refresh is in flight (Drive re-fetch can take seconds). */
   const [refreshing, setRefreshing] = useState(false);
   const { rootRef, dragConsumedClick, explorerWidth, startResizeDrag, startFileDrag } =

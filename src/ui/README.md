@@ -106,6 +106,15 @@ explicitly (and one entry per terminal profile when there is more than one),
 so the inference is never the only route. mod+N follows the same rule — the
 binding has always been labelled "New tab", not "New note".
 
+### Where a new terminal starts
+
+`terminal-open.ts` gives every new terminal tab the **selected workspace's
+directory** as its cwd: `uiStore.selectedExplorerDir` (whatever header or
+folder was last clicked in the explorer), falling back to the default notes-dir
+workspace, and to the app's own cwd for a synced (`saf://`) selection. It does
+not inherit from the tab in front. A profile's own `cwd` still wins
+(`TerminalPane`), and splitting a pane still inherits that pane's cwd.
+
 ## TerminalTab — the keep-your-box rule (I10)
 
 The opposite of I7's `display: none`, for the opposite reason. A terminal

@@ -54,6 +54,14 @@ export interface UiState {
    *  (paste/drop) so the explorer re-lists. */
   explorerRefresh: number;
   /**
+   * The directory selected in the explorer (a workspace header or one of its
+   * folders), or null for "none picked yet" — which every reader treats as
+   * the default (notes dir) workspace. It lives here rather than in
+   * `FileExplorer` because non-explorer code reads it: a new terminal starts
+   * in this directory (`terminal-open.ts`). Session-only, never persisted.
+   */
+  selectedExplorerDir: string | null;
+  /**
    * Full screen (any mode), in two stages: 'window' hides all app chrome but
    * keeps the window as-is; 'screen' additionally makes the OS window
    * fullscreen. Only the value lives here — the window-API side effect is
@@ -89,6 +97,7 @@ export interface UiState {
   openFullscreenMenu: (at: MenuPoint) => void;
   closeFullscreenMenu: () => void;
   setDropTarget: (dir: string | null) => void;
+  setSelectedExplorerDir: (dir: string | null) => void;
   refreshExplorer: () => void;
   setFullscreenView: (stage: FullscreenStage) => void;
 }
@@ -105,6 +114,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   outlineOpen: false,
   dropTargetDir: null,
   explorerRefresh: 0,
+  selectedExplorerDir: null,
   fullscreenView: 'normal',
   fullscreenMenu: null,
 
@@ -193,6 +203,10 @@ export const uiStore = createStore<UiState>()((set) => ({
   setDropTarget(dir) {
     // Drag-over events fire continuously; only re-render on actual change.
     set((s) => (s.dropTargetDir === dir ? s : { dropTargetDir: dir }));
+  },
+
+  setSelectedExplorerDir(dir) {
+    set((s) => (s.selectedExplorerDir === dir ? s : { selectedExplorerDir: dir }));
   },
 
   refreshExplorer() {
