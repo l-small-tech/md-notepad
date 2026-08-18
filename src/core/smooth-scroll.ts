@@ -1,10 +1,14 @@
 /**
- * Smooth scrolling — the shared physics.
+ * Smooth scrolling — the physics behind the terminal canvas.
  *
- * Two very different surfaces animate their scroll position: DOM scrollers
- * (`ui/smooth-scroll.ts` drives `scrollTop`) and the terminal canvas
- * (`renderer/view.ts` drives the viewport offset in lines). Both want the same
- * feel, so the math lives here — pure numbers, no DOM, unit-tested.
+ * The terminal is the one surface that animates its own scroll position
+ * (`renderer/view.ts` drives the viewport offset in lines; a canvas has no
+ * native scrolling to lean on). DOM surfaces — editor, preview, wysiwyg,
+ * explorer — deliberately scroll natively instead: the webview engine
+ * animates wheel scrolls on its compositor thread, which a main-thread JS
+ * animation cannot match (one was built here and removed — see
+ * src/ui/README.md, "Smooth scrolling"). The math is pure numbers, no DOM,
+ * unit-tested.
  *
  * The curve is a critically damped spring, not a fixed-duration tween and not
  * a plain exponential decay. The spring carries a velocity state, which is
@@ -26,11 +30,11 @@
  *
  * The third half is distance. Webviews disagree wildly on how many pixels one
  * wheel notch is worth (WebKitGTK ~40, Chromium/X11 ~53, WebView2 100–120), so
- * animating the raw delta makes the same wheel crawl on Linux and leap on
- * Windows. `NotchUnitTracker` learns the device's per-notch step and converts
- * deltas into whole NOTCHES; every surface then scrolls `NOTCH_LINES` lines per
- * notch, in its own line unit — the one distance that reads the same at every
- * font size on every platform.
+ * dividing the raw delta by the cell height makes the same wheel crawl on
+ * Linux and leap on Windows. `NotchUnitTracker` learns the device's per-notch
+ * step and converts deltas into whole NOTCHES; the terminal then scrolls a
+ * fixed number of lines per notch — the one distance that reads the same at
+ * every font size on every platform.
  */
 
 /**
@@ -90,29 +94,6 @@ export function springStep(
     return { position: target, velocity: 0 };
   }
   return { position, velocity };
-}
-
-/**
- * A wheel event's delta in pixels, whatever unit it arrived in: `deltaMode`
- * 0 is already pixels, 1 counts lines (touchpads on X11/Wayland, some mice)
- * and 2 counts pages.
- */
-export function wheelPixels(
-  delta: number,
-  deltaMode: number,
-  lineHeightPx: number,
-  pageHeightPx: number,
-): number {
-  if (!Number.isFinite(delta)) {
-    return 0;
-  }
-  if (deltaMode === 1) {
-    return delta * lineHeightPx;
-  }
-  if (deltaMode === 2) {
-    return delta * pageHeightPx;
-  }
-  return delta;
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -202,19 +183,13 @@ export class WheelSourceTracker {
 // Notch distance normalization
 // ---------------------------------------------------------------------------
 
-/**
- * Lines one wheel notch scrolls, on every platform and every surface — the OS
- * convention (Windows and most Linux desktops default to 3 lines per notch).
- */
-export const NOTCH_LINES = 3;
-
 /** No webview reports a per-notch step outside this range (see header). */
 const NOTCH_UNIT_MAX_PX = 150;
 
 /**
  * Learns the wheel's per-notch pixel step and converts a `deltaMode` 0 delta
- * into whole notches, so the caller can scroll `NOTCH_LINES` lines per notch
- * instead of trusting the platform's pixel convention.
+ * into whole notches, so the caller can scroll a fixed number of lines per
+ * notch instead of trusting the platform's pixel convention.
  *
  * The unit is the smallest notch-sized magnitude seen so far (clamped to the
  * known per-notch range): the first notch of a session defines it, and an

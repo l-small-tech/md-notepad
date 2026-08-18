@@ -306,25 +306,19 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   takes a sibling's settings minus the theme, which is also what stops the echo
   of our own broadcast from undoing the pin. Not persisted — it lasts as long
   as the window.
-- **Smooth scrolling** is one window-level `wheel` listener, installed once from
-  `main.tsx` (`ui/smooth-scroll.ts`) and toggled by the setting: it finds the
-  scroller the wheel would have moved and springs its `scrollTop` (physics in
-  `core/smooth-scroll.ts` — velocity carries across notches, so a fast run
-  gathers momentum), so every scrollable surface — source editor, preview/read,
-  wysiwyg, explorer, dialogs — eases without any host opting in. Distance is
-  line-based: one notch scrolls `NOTCH_LINES` lines of the target scroller
-  (`NotchUnitTracker` learns the webview's per-notch pixel step), the same
-  visual travel on WebKitGTK, Chromium and WebView2. A mid-flight
-  `scrollHeight` change (CM6 measuring blocks the glide reveals, which
-  re-anchors `scrollTop`) shifts the glide instead of aborting it; only a
-  same-height external scroll (search jump, scrollbar drag) wins and stops it.
-  While a glide is in flight the scroller carries `will-change:
-  scroll-position`, keeping the per-frame writes on a compositor layer. It
-  skips events a surface already
-  claimed (`defaultPrevented`), zoom gestures, horizontal wheels, and —
-  deliberately — touchpad/momentum streams (`WheelSourceTracker`): those carry
-  the OS's own inertia and are left to the webview's native path so the finger
-  tracks 1:1. The terminal eases its own viewport instead (renderer/README).
+- **Smooth scrolling** is the ENGINE's, on purpose — do not reintroduce a JS
+  scroll animation. One was built (a window-level wheel listener springing
+  `scrollTop` per rAF) and removed: it ran on the main thread, so every frame
+  fought CM6's viewport re-render and the result was jitter no spring tuning
+  could fix, while `preventDefault` suppressed the engine's own
+  compositor-thread animation that does this properly. Now DOM surfaces scroll
+  natively everywhere, and the setting means: on Linux, `main.tsx` flips
+  WebKitGTK's `enable-smooth-scrolling` via `ipc.setSmoothScrolling`
+  (`src-tauri/src/commands/webview.rs`); on Windows, WebView2 (Chromium)
+  already animates wheel scrolls and there is nothing to flip; on macOS,
+  wheels step and trackpads carry OS momentum. The terminal is the exception
+  that still animates — a canvas has no native scrolling — with the spring in
+  `core/smooth-scroll.ts` (renderer/README), gated by the same setting.
 - **Font size is CSS-variable driven** (`--editor-font-size`): CM6, preview,
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor

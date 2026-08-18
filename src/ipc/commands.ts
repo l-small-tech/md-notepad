@@ -154,6 +154,11 @@ export const ipc = {
    *  anything under them changes. Not registered on Android — only call
    *  behind a platform check. */
   watchDirs: (dirs: string[]) => call<void>('watch_dirs', { dirs }),
+  /** Desktop only: flip the engine's own smooth wheel scrolling for THIS
+   *  window (WebKitGTK's enable-smooth-scrolling; a no-op on Windows/macOS,
+   *  whose engines have their own behavior). Not registered on Android —
+   *  only call behind a platform check. */
+  setSmoothScrolling: (enabled: boolean) => call<void>('set_smooth_scrolling', { enabled }),
   renamePath: (from: string, to: string) => call<void>('rename_path', { from, to }),
   deletePath: (path: string) => call<void>('delete_path', { path }),
   statPath: (path: string) => call<PathStat>('stat_path', { path }),

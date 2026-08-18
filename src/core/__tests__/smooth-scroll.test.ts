@@ -8,7 +8,6 @@ import {
   clamp,
   restingSpring,
   springStep,
-  wheelPixels,
   type ScrollSpring,
 } from '../smooth-scroll';
 
@@ -83,21 +82,6 @@ describe('springStep', () => {
       expect(spring.position).toBeLessThanOrEqual(100);
       if (spring.position === 100 && spring.velocity === 0) break;
     }
-  });
-});
-
-describe('wheelPixels', () => {
-  it('passes pixel deltas through', () => {
-    expect(wheelPixels(120, 0, 16, 400)).toBe(120);
-  });
-
-  it('scales line and page deltas', () => {
-    expect(wheelPixels(3, 1, 16, 400)).toBe(48);
-    expect(wheelPixels(-1, 2, 16, 400)).toBe(-400);
-  });
-
-  it('treats a non-finite delta as no movement', () => {
-    expect(wheelPixels(Number.NaN, 0, 16, 400)).toBe(0);
   });
 });
 

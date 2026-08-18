@@ -145,6 +145,8 @@ pub fn run() {
             #[cfg(desktop)]
             commands::watch::watch_dirs,
             #[cfg(desktop)]
+            commands::webview::set_smooth_scrolling,
+            #[cfg(desktop)]
             default_shell,
             #[cfg(desktop)]
             commands::pty::pty_spawn,

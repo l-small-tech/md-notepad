@@ -60,6 +60,12 @@ tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+# WebKitGTK's own settings object (commands/webview.rs flips its
+# enable-smooth-scrolling). Same crate+version wry already pulls in — this
+# adds no new code to the build, only visibility.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+
 # Android-only. Native Context APIs Tauri's path API can't resolve (the
 # app-specific EXTERNAL files dir, content:// reads, incoming intents) live in a
 # local mobile plugin whose Kotlin holds the Activity/Context — pure-Rust JNI

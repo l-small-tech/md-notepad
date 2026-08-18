@@ -10,3 +10,5 @@ pub mod pty;
 pub mod search;
 #[cfg(desktop)]
 pub mod watch;
+#[cfg(desktop)]
+pub mod webview;

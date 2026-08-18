@@ -46,7 +46,6 @@ import { App } from './ui/App';
 import { installLinkGuard } from './ui/link-guard';
 import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
-import { installSmoothScroll } from './ui/smooth-scroll';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
@@ -127,12 +126,26 @@ function applyDomSettings(): void {
 applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
 
-/* ---- Smooth scrolling (every DOM scroller; the terminal eases its own) --- */
+/* ---- Smooth scrolling (the engine's; the terminal eases its own) -------- */
 
-const smoothScroll = installSmoothScroll();
+// DOM surfaces scroll natively: the webview engine animates wheel scrolls on
+// its compositor thread, off the main thread a big CM6 document keeps busy —
+// which is why there is deliberately NO JS scroll animation here (one was
+// built and removed; it re-implemented the engine's path with main-thread
+// jank). The setting flips WebKitGTK's engine switch (a no-op elsewhere —
+// WebView2 always smooth-scrolls, macOS has OS momentum) and the terminal's
+// own canvas easing (TerminalPane).
+let appliedSmoothScrolling: boolean | null = null;
 
 function applySmoothScrolling(): void {
-  smoothScroll.setEnabled(settingsStore.getState().settings.smoothScrolling);
+  const enabled = settingsStore.getState().settings.smoothScrolling;
+  if (isAndroid() || enabled === appliedSmoothScrolling) {
+    return;
+  }
+  appliedSmoothScrolling = enabled;
+  ipc.setSmoothScrolling(enabled).catch(() => {
+    // Cosmetic; a failure must never block boot.
+  });
 }
 
 applySmoothScrolling();
