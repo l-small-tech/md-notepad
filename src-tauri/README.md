@@ -21,7 +21,10 @@ session concepts in Rust, stop and move it to `src/core`.
   (reader → bounded channel → emitter, a waiter, and a writer fed by a
   bounded queue so `write()` never blocks the caller), output coalesced
   into ≤64 KB chunks every 4 ms. Deliberately Tauri-free so its tests run a real
-  shell. `src/shell.rs` resolves the login shell.
+  shell. `src/shell.rs` resolves the default shell when the frontend's
+  profile names no program: PowerShell 7 (else Windows PowerShell) on
+  Windows, zsh on macOS, bash on Linux — each probed on `PATH` first, then
+  `$SHELL`, then a shell that always exists.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and

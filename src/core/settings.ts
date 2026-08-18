@@ -16,9 +16,11 @@ import {
   TERMINAL_BELLS,
   TERMINAL_CURSOR_STYLES,
   TERMINAL_EXIT_BEHAVIORS,
+  TERMINAL_FONT_IDS,
   UI_FONT_IDS,
   WORKSPACE_COLORS,
 } from './types';
+import { AUTO_SHELL, normalizeShell } from './terminal-shells';
 import {
   DEFAULT_SCAN_PRESET,
   DEFAULT_SCAN_SMOOTHING,
@@ -34,6 +36,7 @@ import type {
   TerminalBell,
   TerminalCursorStyle,
   TerminalExitBehavior,
+  TerminalFontId,
   TerminalProfile,
   UiFontId,
   WorkspaceColor,
@@ -41,8 +44,9 @@ import type {
 } from './types';
 
 /**
- * The profiles a fresh install offers. The first is the login shell, which is
- * why it names no program: Rust resolves `$SHELL` at spawn time. The second is
+ * The profiles a fresh install offers. The first names no program, which means
+ * "whatever `settings.terminalShell` says" — and, when that is automatic too,
+ * the platform default Rust picks at spawn time. The second is
  * an example agentic-CLI profile — harmless when `claude` is not installed
  * (the pane shows the spawn error and nothing else breaks).
  */
@@ -92,6 +96,8 @@ export const DEFAULT_SETTINGS: Settings = {
 
   terminalProfiles: DEFAULT_TERMINAL_PROFILES.map((profile) => ({ ...profile })),
   defaultTerminalProfile: SHELL_PROFILE_ID,
+  terminalShell: AUTO_SHELL,
+  terminalFont: 'fira-code',
   terminalScrollback: 10_000,
   terminalScrollLines: 3,
   terminalCursorStyle: 'block',
@@ -410,6 +416,13 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.terminalConfirmCloseRunning === 'boolean'
         ? r.terminalConfirmCloseRunning
         : d.terminalConfirmCloseRunning,
+    // Any program is legal here — the picker's list is a convenience, not a
+    // whitelist — so this only trims. A bad name surfaces as a spawn error in
+    // the pane, which is more useful than silently running something else.
+    terminalShell: normalizeShell(r.terminalShell),
+    terminalFont: (TERMINAL_FONT_IDS as readonly unknown[]).includes(r.terminalFont)
+      ? (r.terminalFont as TerminalFontId)
+      : d.terminalFont,
   };
 }
 
@@ -421,4 +434,21 @@ export function resolveTerminalProfile(settings: Settings, id?: string): Termina
   }
   const fallback = settings.terminalProfiles.find((p) => p.id === settings.defaultTerminalProfile);
   return fallback ?? settings.terminalProfiles[0] ?? { ...DEFAULT_TERMINAL_PROFILES[0]! };
+}
+
+/**
+ * What to actually spawn for a profile: the program it names, else the
+ * app-wide shell setting, else `undefined` for "let Rust pick the platform
+ * default" (`src-tauri/src/shell.rs`).
+ *
+ * A profile that names its own `program` is a deliberate "run THIS", so it
+ * wins over the setting. Resolved here rather than folded into
+ * `resolveTerminalProfile` so that function keeps returning the SAME object
+ * every call — `TerminalPane` re-applies settings whenever the profile
+ * identity changes.
+ */
+export function terminalProgram(settings: Settings, profile: TerminalProfile): string | undefined {
+  return (
+    profile.program ?? (settings.terminalShell === AUTO_SHELL ? undefined : settings.terminalShell)
+  );
 }

@@ -10,8 +10,14 @@
  * flow (folder picker → optional move) via the module-level dispatcher.
  */
 
-import { Fragment } from 'react';
-import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
+import { Fragment, useState } from 'react';
+import type {
+  EditorFontId,
+  EditorMode,
+  Settings,
+  TerminalFontId,
+  UiFontId,
+} from '../../core/types';
 import {
   DEFAULT_SETTINGS,
   MAX_FONT_SIZE,
@@ -20,10 +26,11 @@ import {
   TERMINAL_SCROLL_LINES_RANGE,
 } from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
+import { AUTO_SHELL, isListedShell, shellOptions } from '../../core/terminal-shells';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
-import { isAndroid } from '../platform';
+import { desktopOs, isAndroid } from '../platform';
 import { pinThemeToWindow, selectTheme, unpinThemeFromWindow } from '../theme-actions';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import {
@@ -458,15 +465,77 @@ export function SettingsDialog() {
 }
 
 /**
- * Terminal settings. Profiles are SELECTED here, not edited: a full profile
- * editor (program, args, cwd, env, per-profile font) is a form of its own and
- * would double the size of this dialog for something most people set once.
- * `settings.json` holds the list — hand-editing it is the documented route,
- * and `normalizeSettings` clamps whatever comes back, so a bad edit degrades
- * to the defaults rather than breaking the app.
+ * Terminal settings.
+ *
+ * The SHELL is one global choice (`terminalShell`), not a per-profile one:
+ * this is a notepad with a terminal in it, and a profile manager belongs to a
+ * terminal emulator. Profiles still exist for anyone who wants them, and are
+ * SELECTED here rather than edited — a full editor (program, args, cwd, env,
+ * per-profile font) is a form of its own. `settings.json` holds the list;
+ * hand-editing it is the documented route, and `normalizeSettings` clamps
+ * whatever comes back, so a bad edit degrades to the defaults.
  *
  * The whole section is absent on Android, which has no pty.
  */
+/**
+ * The shell picker: this OS's usual shells, plus "Custom…" for anything else.
+ *
+ * "Custom" is a UI state, not a stored one — `settings.terminalShell` is only
+ * ever the program to spawn. A hand-edited `settings.json` naming something
+ * exotic therefore opens the dialog already in the custom row, instead of
+ * being silently snapped back to a listed shell.
+ */
+function ShellRow({ shell }: { shell: string }) {
+  const os = desktopOs();
+  const [custom, setCustom] = useState(() => shell !== AUTO_SHELL && !isListedShell(os, shell));
+
+  return (
+    <>
+      <label className="settings-row">
+        <span className="settings-label">Shell</span>
+        <select
+          className="settings-control"
+          value={custom ? 'custom' : shell}
+          onChange={(e) => {
+            if (e.target.value === 'custom') {
+              setCustom(true);
+              return;
+            }
+            setCustom(false);
+            update({ terminalShell: e.target.value });
+          }}
+        >
+          {shellOptions(os).map((option) => (
+            <option key={option.value || 'auto'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+
+      {custom && (
+        <label className="settings-row">
+          <span className="settings-label">Shell command</span>
+          <input
+            className="settings-control"
+            type="text"
+            spellCheck={false}
+            placeholder={os === 'windows' ? 'C:\\msys64\\usr\\bin\\bash.exe' : '/usr/bin/fish'}
+            value={shell}
+            onChange={(e) => update({ terminalShell: e.target.value })}
+          />
+        </label>
+      )}
+
+      <p className="settings-hint">
+        Takes effect in terminals opened from now on; shells already running keep the one they
+        started with.
+      </p>
+    </>
+  );
+}
+
 function TerminalSection({ settings }: { settings: Settings }) {
   if (!terminalsAvailable()) {
     return null;
@@ -474,6 +543,24 @@ function TerminalSection({ settings }: { settings: Settings }) {
   return (
     <>
       <h3 className="settings-heading">Terminal</h3>
+
+      <ShellRow shell={settings.terminalShell} />
+
+      <label className="settings-row">
+        <span className="settings-label">Font</span>
+        <select
+          className="settings-control"
+          value={settings.terminalFont}
+          onChange={(e) => update({ terminalFont: e.target.value as TerminalFontId })}
+        >
+          <option value="match">Match editor font</option>
+          {EDITOR_FONTS.map((f) => (
+            <option key={f.id} value={f.id} style={{ fontFamily: f.stack }}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <label className="settings-row">
         <span className="settings-label">Default profile</span>
@@ -491,9 +578,9 @@ function TerminalSection({ settings }: { settings: Settings }) {
       </label>
 
       <p className="settings-hint">
-        Profiles (program, arguments, folder, environment) are edited in <code>settings.json</code>{' '}
-        under <code>terminalProfiles</code>. A profile with no <code>program</code> runs your login
-        shell.
+        Profiles (arguments, folder, environment) are edited in <code>settings.json</code> under{' '}
+        <code>terminalProfiles</code>. A profile with no <code>program</code> of its own runs the
+        shell chosen above.
       </p>
 
       <label className="settings-row">

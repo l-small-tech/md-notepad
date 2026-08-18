@@ -29,6 +29,7 @@ do not rewrite them.
 | `smooth-scroll.ts` | terminal | the terminal viewport's scroll physics (renderer/ is the only consumer — DOM surfaces scroll natively, see ui/README): critically damped spring (velocity carries across retargets), the wheel-vs-touchpad classifier, and the notch-unit tracker that makes one notch scroll the same lines on every platform |
 | `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
 | `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
+| `terminal-shells.ts` | terminal | the shells the settings picker offers per desktop OS; `settings.terminalShell` is ONE global choice, not one per profile |
 | `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor; an optional `terminal` block in a theme merges over it |
 
 ## Contracts you must not break

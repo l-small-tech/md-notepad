@@ -134,6 +134,26 @@ workspace, and to the app's own cwd for a synced (`saf://`) selection. It does
 not inherit from the tab in front. A profile's own `cwd` still wins
 (`TerminalPane`), and splitting a pane still inherits that pane's cwd.
 
+### Which shell a terminal runs, and in which typeface
+
+One global choice each, both in the Settings dialog's Terminal section — the
+app stays a notepad with a terminal in it, not a terminal emulator with
+per-profile launch configs.
+
+- **Shell** (`settings.terminalShell`) — a program name resolved against
+  `PATH`, an absolute path, or empty for the platform default that
+  `src-tauri/src/shell.rs` picks (PowerShell 7 / zsh / bash). The picker lists
+  the usual shells for `desktopOs()` plus "Custom…"; `core/terminal-shells.ts`
+  owns those lists. `core/settings.ts`'s `terminalProgram` folds the setting
+  into a profile at spawn time, so a profile that names its OWN `program`
+  (the bundled `claude` one) still wins. It applies to shells started from
+  now on — a running pty is never restarted by a settings change.
+- **Font** (`settings.terminalFont`) — defaults to Fira Code rather than
+  following the editor font, because box-drawing and column alignment are not
+  what a prose typeface is chosen for; `'match'` opts back in. Only the
+  FAMILY is separate: the size still follows `--editor-font-size`, so mod+=/-/0
+  keeps driving terminal cells.
+
 ## TerminalTab — the keep-your-box rule (I10)
 
 The opposite of I7's `display: none`, for the opposite reason. A terminal

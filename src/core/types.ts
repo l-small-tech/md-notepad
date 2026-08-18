@@ -149,6 +149,16 @@ export const EDITOR_FONT_IDS = [
 export type EditorFontId = (typeof EDITOR_FONT_IDS)[number];
 
 /**
+ * Terminal cells get their own typeface choice, defaulting to Fira Code
+ * rather than following the editor: a terminal is box-drawing, powerline
+ * glyphs and column alignment, and a proportional-feeling or narrow face that
+ * reads well in prose can wreck a TUI. 'match' opts back into the editor font.
+ */
+export const TERMINAL_FONT_IDS = ['match', ...EDITOR_FONT_IDS] as const;
+
+export type TerminalFontId = (typeof TERMINAL_FONT_IDS)[number];
+
+/**
  * Typeface for the UI chrome (tabs, sidebar, dialogs — not the note text).
  * 'match' follows the editor font (the app's classic monospace-everywhere
  * look); 'inter' is the bundled Inter sans; 'system' is the OS UI font.
@@ -356,6 +366,15 @@ export interface Settings {
   terminalProfiles: TerminalProfile[];
   /** Id of the profile a plain "New terminal" uses. */
   defaultTerminalProfile: string;
+  /**
+   * The shell every terminal runs — one choice for the whole app, not one per
+   * profile (see `core/terminal-shells.ts`). A program name resolved against
+   * `PATH` or an absolute path; empty means the platform default, picked in
+   * Rust. A profile that names its own `program` still wins over this.
+   */
+  terminalShell: string;
+  /** Typeface for terminal cells. Default 'fira-code'; 'match' follows the editor. */
+  terminalFont: TerminalFontId;
   /** Lines of scrollback kept per pane (0…1,000,000). */
   terminalScrollback: number;
   /** Lines scrolled per wheel notch. */

@@ -10,6 +10,8 @@
  * round-trip so this can run on the boot-critical path (`resolvePaths`).
  */
 
+import type { DesktopOs } from '../core/terminal-shells';
+
 export type Runtime = 'android' | 'desktop';
 
 /** Pure predicate over a user-agent string (kept separate so it's unit-testable). */
@@ -36,6 +38,27 @@ export function isWindowsUA(ua: string): boolean {
  *  (`Windows.Media.Ocr`); macOS/Linux report it unavailable. */
 export function isWindows(): boolean {
   return typeof navigator !== 'undefined' && !isAndroid() && isWindowsUA(navigator.userAgent);
+}
+
+/** Pure predicate over a user-agent string. Every WebKit UA on macOS says so. */
+export function isMacUA(ua: string): boolean {
+  return /Mac OS X|Macintosh/i.test(ua);
+}
+
+/**
+ * Which desktop OS this is — the granularity the terminal's shell picker
+ * needs, and the reason it is here rather than in `keymap.ts` (which only
+ * cares whether the modifier key is Cmd). Android reports 'linux'; nothing
+ * there opens a terminal, so the answer never reaches a user.
+ */
+export function desktopOsFromUA(ua: string): DesktopOs {
+  if (isWindowsUA(ua)) return 'windows';
+  if (!/Android/i.test(ua) && isMacUA(ua)) return 'mac';
+  return 'linux';
+}
+
+export function desktopOs(): DesktopOs {
+  return desktopOsFromUA(typeof navigator === 'undefined' ? '' : navigator.userAgent);
 }
 
 export function detectRuntime(): Runtime {

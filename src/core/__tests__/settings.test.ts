@@ -82,6 +82,8 @@ describe('normalizeSettings', () => {
       // Not supplied above, so every terminal field comes back at its default.
       terminalProfiles: DEFAULT_SETTINGS.terminalProfiles,
       defaultTerminalProfile: 'shell',
+      terminalShell: '',
+      terminalFont: 'fira-code',
       terminalScrollback: 10_000,
       terminalScrollLines: 3,
       terminalCursorStyle: 'block',

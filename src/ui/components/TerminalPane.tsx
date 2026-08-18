@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { terminalProgram } from '../../core/settings';
 import type { Settings, TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
 import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
@@ -151,7 +152,7 @@ export function TerminalPane({
       terminal: term,
       theme: initialTheme,
       font: {
-        ...currentFont(),
+        ...currentFont(initialSettings.terminalFont),
         ...(initialProfile.fontSize ? { size: initialProfile.fontSize } : {}),
       },
       padding: PADDING,
@@ -339,13 +340,15 @@ export function TerminalPane({
     // The profile's directory wins over the inherited one: a profile that names
     // a project directory means it, wherever the tab was opened from.
     const startCwd = initialProfile.cwd ?? initialCwd;
+    // Unset = the platform default, resolved in Rust at spawn time.
+    const program = terminalProgram(initialSettings, initialProfile);
 
     void (async () => {
       try {
         const handle = await getPtyProvider().spawn(
           {
             ...view.gridSize,
-            ...(initialProfile.program ? { program: initialProfile.program } : {}),
+            ...(program ? { program } : {}),
             args: initialProfile.args,
             ...(startCwd ? { cwd: startCwd } : {}),
             env: initialProfile.env,
@@ -402,7 +405,7 @@ export function TerminalPane({
     if (!view || !input || !term) {
       return;
     }
-    const font = currentFont();
+    const font = currentFont(settings.terminalFont);
     view.setFont({ ...font, size: Math.max(1, (profile.fontSize ?? font.size) + zoom) });
     view.setCursorStyle(settings.terminalCursorStyle, settings.terminalCursorBlink);
     view.setSmoothScroll(settings.smoothScrolling);

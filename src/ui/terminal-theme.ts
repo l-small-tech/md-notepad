@@ -15,8 +15,10 @@
  */
 
 import { parseColor } from '../core/color';
+import { editorFontStack } from '../core/fonts';
 import { terminalColorsFor, type TerminalColors } from '../core/terminal-palette';
 import type { ThemePlugin } from '../core/theme-plugins';
+import type { TerminalFontId } from '../core/types';
 import { DEFAULT_FONT, type FontSpec, type TerminalTheme } from '../renderer';
 import { themeRegistryStore } from './stores/theme-registry';
 import { settingsStore } from './stores/settings';
@@ -73,13 +75,22 @@ export function currentTerminalTheme(): TerminalTheme {
   return terminalThemeFor(plugin, isDark());
 }
 
-/** The cell font, from the CSS variables `applyDomSettings` maintains. */
-export function currentFont(): FontSpec {
+/**
+ * The cell font: the family from `settings.terminalFont`, the size from the
+ * CSS variable `applyDomSettings` maintains.
+ *
+ * The SIZE still follows the editor, so mod+=/-/0 keeps driving terminal cells
+ * for free. The FAMILY does not, because a terminal and a prose editor want
+ * different things from a typeface — the terminal's own setting defaults to
+ * Fira Code and only follows `--font-mono` when set to 'match'.
+ */
+export function currentFont(font: TerminalFontId = 'fira-code'): FontSpec {
   if (typeof document === 'undefined') {
     return DEFAULT_FONT;
   }
   const style = getComputedStyle(document.documentElement);
-  const family = style.getPropertyValue('--font-mono').trim();
+  const family =
+    font === 'match' ? style.getPropertyValue('--font-mono').trim() : editorFontStack(font);
   const size = Number.parseFloat(style.getPropertyValue('--editor-font-size'));
   return {
     family: family || DEFAULT_FONT.family,
