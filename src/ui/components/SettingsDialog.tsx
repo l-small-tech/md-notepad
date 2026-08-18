@@ -336,6 +336,15 @@ export function SettingsDialog() {
           <label className="settings-row settings-row-inline">
             <input
               type="checkbox"
+              checked={settings.smoothScrolling}
+              onChange={(e) => update({ smoothScrolling: e.target.checked })}
+            />
+            <span className="settings-label">Smooth scrolling (editor, preview and terminal)</span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
               checked={settings.ligatures}
               onChange={(e) => update({ ligatures: e.target.checked })}
             />

@@ -40,6 +40,9 @@ function fakeCanvas() {
     lineTo: (...args: number[]) => calls.push({ op: 'lineTo', args }),
     quadraticCurveTo: (...args: number[]) => calls.push({ op: 'quadraticCurveTo', args }),
     setLineDash: () => calls.push({ op: 'setLineDash', args: [] }),
+    rect: (...args: number[]) => calls.push({ op: 'rect', args }),
+    clip: () => calls.push({ op: 'clip', args: [] }),
+    translate: (...args: number[]) => calls.push({ op: 'translate', args }),
     stroke: () => calls.push({ op: 'stroke', args: [] }),
   };
   const canvas = {
@@ -317,5 +320,60 @@ describe('CanvasRenderer', () => {
     expect(drawn).toContain('line3');
     // The live cursor is below the viewport now, so it must not be painted.
     expect(ops(calls, 'fillRect')).toHaveLength(0);
+  });
+});
+
+describe('sub-line scrolling', () => {
+  /** Fill the scrollback so there is history to scroll back into. */
+  function withHistory() {
+    const harness = setup();
+    for (let i = 0; i < ROWS * 3; i++) harness.terminal.write(`line ${i}\r\n`);
+    harness.terminal.scrollViewport(2);
+    harness.renderer.render();
+    harness.calls.length = 0;
+    return harness;
+  }
+
+  it('shifts the whole grid and paints one extra row below it', () => {
+    const { calls, renderer } = withHistory();
+    renderer.setScrollFraction(0.5);
+    renderer.render();
+    expect(ops(calls, 'translate').at(-1)!.args).toEqual([0, -METRICS.height * 0.5]);
+    // Every row plus the one filling the gap the shift opened at the bottom.
+    expect(ops(calls, 'clearRect')).toHaveLength(ROWS + 1);
+    expect(ops(calls, 'clip')).toHaveLength(1);
+  });
+
+  it('repaints everything while shifted, dirty rows or not', () => {
+    const { calls, terminal, renderer } = withHistory();
+    renderer.setScrollFraction(0.25);
+    renderer.render();
+    calls.length = 0;
+
+    terminal.write('\x1b[1;1Hx');
+    renderer.render();
+    expect(ops(calls, 'clearRect')).toHaveLength(ROWS + 1);
+  });
+
+  it('goes back to whole rows and the dirty-row fast path at zero', () => {
+    const { calls, terminal, renderer } = withHistory();
+    renderer.setScrollFraction(0.5);
+    renderer.render();
+    renderer.setScrollFraction(0);
+    renderer.render();
+    calls.length = 0;
+
+    terminal.write('\x1b[3;1Hhi');
+    renderer.render();
+    expect(ops(calls, 'translate')).toHaveLength(0);
+    expect(ops(calls, 'clearRect').length).toBeLessThan(ROWS);
+  });
+
+  it('paints no extra row on the live screen, where none exists below', () => {
+    const { calls, renderer, terminal } = setup();
+    terminal.write('hello');
+    renderer.setScrollFraction(0.5);
+    renderer.render();
+    expect(ops(calls, 'clearRect')).toHaveLength(ROWS);
   });
 });

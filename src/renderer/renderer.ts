@@ -77,6 +77,14 @@ export class CanvasRenderer {
   private lastCursor = { x: 0, y: 0 };
   /** DECSCNM, sampled once per frame rather than once per row. */
   private reverseVideo = false;
+  /**
+   * Sub-line scroll offset, in cells (0 ≤ f < 1), while a smooth scroll is in
+   * flight: the grid is painted `f` cells higher than the engine's integer
+   * viewport offset says, and one extra row is painted below to fill the gap
+   * the shift opens. Zero whenever nothing is animating, which is the only
+   * state the dirty-row fast path runs in.
+   */
+  private scrollFraction = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -192,6 +200,19 @@ export class CanvasRenderer {
     this.invalidate();
   }
 
+  /**
+   * Sub-line scroll position for a smooth scroll in flight (see
+   * `scrollFraction`). The caller keeps the engine's integer offset at the
+   * floor of the animated position and passes the remainder here; `TermView`
+   * owns that arithmetic. Anything outside [0, 1) is clamped.
+   */
+  setScrollFraction(fraction: number): void {
+    const next = Number.isFinite(fraction) ? Math.min(0.999_999, Math.max(0, fraction)) : 0;
+    if (next === this.scrollFraction) return;
+    this.scrollFraction = next;
+    this.invalidate();
+  }
+
   /** Force a full repaint on the next `render()`. */
   invalidate(): void {
     this.fullRepaint = true;
@@ -222,9 +243,12 @@ export class CanvasRenderer {
     this.reverseVideo = this.terminal.modes().reverseVideo;
     const engineDirty = this.terminal.takeDirty();
     const offset = this.terminal.viewportOffset;
+    const shift = this.scrollFraction * this.metrics.height;
 
     let targets: number[];
-    if (this.fullRepaint || engineDirty.all) {
+    // A shifted grid has no stable rows: every row moved, so incremental
+    // repainting is meaningless while a smooth scroll is in flight.
+    if (shift !== 0 || this.fullRepaint || engineDirty.all) {
       targets = [];
       for (let y = 0; y < rows; y++) targets.push(y);
     } else {
@@ -239,9 +263,26 @@ export class CanvasRenderer {
 
     this.fullRepaint = false;
     this.dirtyRows.clear();
+
+    if (shift !== 0) {
+      // Clip to the grid box first: the top row is painted partly above it and
+      // the extra bottom row partly below, and neither may bleed into the
+      // pane's padding.
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.rect(0, this.padding, this.widthPx, rows * this.metrics.height);
+      this.ctx.clip();
+      this.ctx.translate(0, -shift);
+    }
     for (const y of targets) this.paintRow(y);
+    // The row that fills the gap the shift opened at the bottom. It only
+    // exists when the engine is scrolled back at all — at offset 0 the grid's
+    // last row IS the last row there is, and the fraction is on its way to
+    // zero anyway (see `TermView.scrollLines`).
+    if (shift !== 0 && offset > 0) this.paintRow(rows);
 
     this.paintCursor();
+    if (shift !== 0) this.ctx.restore();
     return true;
   }
 

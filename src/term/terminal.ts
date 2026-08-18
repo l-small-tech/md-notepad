@@ -145,6 +145,11 @@ export class Terminal {
     this.screen.scrollViewport(delta);
   }
 
+  /** Absolute viewport offset in lines back from the live screen (clamped). */
+  setViewportOffset(offset: number): void {
+    this.screen.setViewportOffset(offset);
+  }
+
   scrollToBottom(): void {
     this.screen.scrollToBottom();
   }

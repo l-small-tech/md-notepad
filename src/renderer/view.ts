@@ -15,6 +15,7 @@
  */
 
 import { fitGrid, sameGrid, type GridSize } from '../core/geometry';
+import { approach, clamp } from '../core/smooth-scroll';
 import type { Terminal } from '../term';
 import { urlAt, type DetectedLink } from './links';
 import {
@@ -37,6 +38,8 @@ export interface TermViewOptions {
   padding?: number;
   cursorStyle?: CursorStyle;
   cursorBlink?: boolean;
+  /** Ease the viewport between lines instead of jumping (settings). */
+  smoothScroll?: boolean;
 }
 
 /** A link under the pointer: OSC 8 (with a uri from the engine) or a bare URL. */
@@ -55,6 +58,12 @@ const BLINK_INTERVAL_MS = 530;
  * must not freeze the terminal.
  */
 const SYNC_TIMEOUT_MS = 150;
+
+/**
+ * Where a smooth scroll stops chasing its target, in lines. Anything finer
+ * than this is below a device pixel on any sane cell height.
+ */
+const SCROLL_EPSILON_LINES = 0.02;
 
 export class TermView {
   readonly canvas: HTMLCanvasElement;
@@ -76,6 +85,20 @@ export class TermView {
   private hovered: HoveredLink | null = null;
   private disposed = false;
 
+  /**
+   * Smooth scrolling (see core/smooth-scroll.ts). `scrollPosition` is the
+   * animated viewport offset in lines — its floor is what the engine holds and
+   * its remainder is the renderer's sub-line shift; `scrollTarget` is where it
+   * is heading. Both are meaningless while `scrolling` is false.
+   */
+  private smoothScroll: boolean;
+  private scrolling = false;
+  private scrollPosition = 0;
+  private scrollTarget = 0;
+  private scrollFrameAt = 0;
+  /** The offset this class last wrote, so engine-side moves can be detected. */
+  private scrollApplied = -1;
+
   constructor(
     private container: HTMLElement,
     options: TermViewOptions,
@@ -84,6 +107,7 @@ export class TermView {
     this.font = options.font ?? DEFAULT_FONT;
     this.padding = options.padding ?? 0;
     this.blinkEnabled = options.cursorBlink ?? true;
+    this.smoothScroll = options.smoothScroll ?? false;
 
     this.canvas = container.ownerDocument.createElement('canvas');
     this.canvas.className = 'term-canvas';
@@ -121,9 +145,11 @@ export class TermView {
     this.frame = requestAnimationFrame(this.onFrame);
   }
 
-  private onFrame = (): void => {
+  private onFrame = (frameTime = 0): void => {
     this.frame = 0;
+    const animating = this.stepScroll(frameTime);
     const painted = this.renderer.render();
+    if (animating) this.requestRender();
     if (painted) {
       this.blockedSince = 0;
       return;
@@ -149,6 +175,109 @@ export class TermView {
   refresh(): void {
     this.renderer.invalidate();
     this.requestRender();
+  }
+
+  // ------------------------------------------------------------------ scroll
+
+  /**
+   * Move the viewport by `lines` (positive = back into history).
+   *
+   * With smooth scrolling on this eases: the animated position is kept here,
+   * its integer part is the engine's viewport offset and its remainder is the
+   * renderer's sub-line shift, so a run of wheel notches reads as one glide
+   * rather than a sequence of jumps. With it off — or on the alternate screen,
+   * which has no scrollback to glide through — the offset simply moves.
+   */
+  scrollLines(lines: number): void {
+    if (lines === 0) return;
+    if (!this.smoothScroll || this.terminal.modes().altScreen) {
+      this.cancelScroll();
+      this.terminal.scrollViewport(lines);
+      this.requestRender();
+      return;
+    }
+    if (!this.scrolling) {
+      this.scrolling = true;
+      this.scrollPosition = this.terminal.viewportOffset;
+      this.scrollTarget = this.scrollPosition;
+      this.scrollFrameAt = 0;
+      this.scrollApplied = this.terminal.viewportOffset;
+    }
+    this.scrollTarget = clamp(this.scrollTarget + lines, 0, this.terminal.scrollbackLength);
+    this.requestRender();
+  }
+
+  /** Back to the live screen at once — what a keystroke or paste does. */
+  scrollToBottom(): void {
+    this.cancelScroll();
+    this.terminal.scrollToBottom();
+    this.requestRender();
+  }
+
+  setSmoothScroll(enabled: boolean): void {
+    if (enabled === this.smoothScroll) return;
+    this.smoothScroll = enabled;
+    if (!enabled) {
+      this.cancelScroll();
+      this.requestRender();
+    }
+  }
+
+  /** Drop any glide in flight and put the grid back on whole lines. */
+  private cancelScroll(): void {
+    if (!this.scrolling) return;
+    this.scrolling = false;
+    this.scrollApplied = -1;
+    this.renderer.setScrollFraction(0);
+  }
+
+  /**
+   * Advance a glide by one frame. Returns true while it still has somewhere to
+   * go, which is what keeps the frame loop running.
+   */
+  private stepScroll(now: number): boolean {
+    if (!this.scrolling) return false;
+    const max = this.terminal.scrollbackLength;
+    // The engine moves the offset itself: output arriving while the view is
+    // scrolled back pushes it up to keep the text pinned, and a reset or the
+    // alternate screen zeroes it. Follow that move rather than fighting it —
+    // the glide continues relative to wherever the engine put the view.
+    const drift = this.terminal.viewportOffset - this.scrollApplied;
+    if (drift !== 0) {
+      this.scrollPosition = clamp(this.scrollPosition + drift, 0, max);
+      this.scrollTarget = clamp(this.scrollTarget + drift, 0, max);
+      if (this.scrollPosition === 0 && this.scrollTarget === 0) {
+        this.cancelScroll();
+        return false;
+      }
+    }
+    const dt = this.scrollFrameAt === 0 ? 16 : now - this.scrollFrameAt;
+    this.scrollFrameAt = now;
+    this.scrollPosition = approach(
+      this.scrollPosition,
+      this.scrollTarget,
+      dt,
+      SCROLL_EPSILON_LINES,
+    );
+    const offset = Math.floor(this.scrollPosition);
+    // At offset 0 there is no row below the grid to fill the gap a sub-line
+    // shift opens, so the last fraction of a scroll back to the live screen is
+    // snapped away — a single frame, under one line, on the way to a stop.
+    const fraction = offset === 0 ? 0 : this.scrollPosition - offset;
+    this.terminal.setViewportOffset(offset);
+    this.scrollApplied = this.terminal.viewportOffset;
+    this.renderer.setScrollFraction(fraction);
+    if (this.scrollPosition === this.scrollTarget) {
+      this.cancelScroll();
+      return false;
+    }
+    // The engine refused the offset (scrollback shrank, the alternate screen
+    // took over): chasing a target it will never reach would spin forever.
+    if (this.scrollApplied !== offset) {
+      this.cancelScroll();
+      return false;
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------ layout

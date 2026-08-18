@@ -43,6 +43,16 @@ class FakeView implements InputView {
   requestRender() {
     this.renders++;
   }
+
+  scrollLines(lines: number) {
+    this.terminal.scrollViewport(lines);
+    this.renders++;
+  }
+
+  scrollToBottom() {
+    this.terminal.scrollToBottom();
+    this.renders++;
+  }
 }
 
 interface Harness {

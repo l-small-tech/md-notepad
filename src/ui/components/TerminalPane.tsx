@@ -153,6 +153,7 @@ export function TerminalPane({
       padding: PADDING,
       cursorStyle: initialSettings.terminalCursorStyle,
       cursorBlink: initialSettings.terminalCursorBlink,
+      smoothScroll: initialSettings.smoothScrolling,
     });
     // Seed OSC 10/11/12 so an application querying the background color learns
     // the theme's, and gets light/dark detection right.
@@ -270,15 +271,13 @@ export function TerminalPane({
           scrollBy(term.scrollbackLength);
           return;
         case 'bottom':
-          term.scrollToBottom();
-          view.requestRender();
+          view.scrollToBottom();
           return;
       }
     }
 
     function scrollBy(lines: number): void {
-      term.scrollViewport(lines);
-      view.requestRender();
+      view.scrollLines(lines);
     }
 
     term.setHandlers({
@@ -402,6 +401,7 @@ export function TerminalPane({
     const font = currentFont();
     view.setFont({ ...font, size: Math.max(1, (profile.fontSize ?? font.size) + zoom) });
     view.setCursorStyle(settings.terminalCursorStyle, settings.terminalCursorBlink);
+    view.setSmoothScroll(settings.smoothScrolling);
     view.setTheme(theme);
     term.setScrollbackLimit(settings.terminalScrollback);
     input.configure({

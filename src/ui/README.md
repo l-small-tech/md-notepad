@@ -301,6 +301,14 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   takes a sibling's settings minus the theme, which is also what stops the echo
   of our own broadcast from undoing the pin. Not persisted — it lasts as long
   as the window.
+- **Smooth scrolling** is one window-level `wheel` listener, installed once from
+  `main.tsx` (`ui/smooth-scroll.ts`) and toggled by the setting: it finds the
+  scroller the wheel would have moved and animates its `scrollTop`, so every
+  scrollable surface — source editor, preview/read, wysiwyg, explorer, dialogs —
+  eases without any host opting in. It skips events a surface already claimed
+  (`defaultPrevented`), zoom gestures and horizontal wheels, which is what keeps
+  the terminal panes and the diagram/whiteboard zoom-pan stages on their own
+  wheel handling. The terminal eases its own viewport instead (renderer/README).
 - **Font size is CSS-variable driven** (`--editor-font-size`): CM6, preview,
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor

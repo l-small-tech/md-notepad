@@ -282,6 +282,12 @@ export interface Settings {
    */
   ligatures: boolean;
   readerMargins: ReaderMargins;
+  /**
+   * Animate scrolling instead of jumping: wheel scrolling glides in every
+   * scrollable surface (source editor, preview, wysiwyg, explorer, dialogs)
+   * and the terminal viewport eases between lines. Default on.
+   */
+  smoothScrolling: boolean;
   /** Editor caret shape/weight. Default 'bar'. */
   cursorStyle: CursorStyle;
   /**

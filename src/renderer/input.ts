@@ -46,6 +46,10 @@ export interface InputView {
   setFocused(focused: boolean): void;
   setSelection(selection: Selection | null): void;
   requestRender(): void;
+  /** Move the viewport by whole lines; the view decides whether it eases. */
+  scrollLines(lines: number): void;
+  /** Back to the live screen at once (a keystroke, a paste). */
+  scrollToBottom(): void;
 }
 
 export interface TermInputOptions {
@@ -230,8 +234,7 @@ export class TermInput {
   /** Bytes for the application: a keypress always returns to the live screen. */
   private send(data: string | Uint8Array): void {
     if (this.terminal.viewportOffset > 0) {
-      this.terminal.scrollToBottom();
-      this.view.requestRender();
+      this.view.scrollToBottom();
     }
     this.options.write(data);
   }
@@ -308,8 +311,7 @@ export class TermInput {
       if (this.disposed) return;
     }
     if (this.terminal.viewportOffset > 0) {
-      this.terminal.scrollToBottom();
-      this.view.requestRender();
+      this.view.scrollToBottom();
     }
     for (const chunk of chunks) this.options.write(chunk);
   }
@@ -526,7 +528,11 @@ export class TermInput {
     doc.removeEventListener('mouseup', this.onDocumentMouseUp);
   }
 
-  /** Dragging past the top or bottom edge scrolls the viewport. */
+  /**
+   * Dragging past the top or bottom edge scrolls the viewport — one line per
+   * event, and deliberately NOT eased: the pointer is picking cells, and a
+   * grid gliding under it would select rows the user is not pointing at.
+   */
   private autoScroll(event: MouseEvent): void {
     const rect = this.view.canvas.getBoundingClientRect();
     if (event.clientY < rect.top) this.terminal.scrollViewport(1);
@@ -591,8 +597,7 @@ export class TermInput {
       return;
     }
 
-    this.terminal.scrollViewport(lines);
-    this.view.requestRender();
+    this.view.scrollLines(lines);
   };
 
   /**

@@ -46,6 +46,7 @@ import { App } from './ui/App';
 import { installLinkGuard } from './ui/link-guard';
 import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
+import { installSmoothScroll } from './ui/smooth-scroll';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
@@ -125,6 +126,17 @@ function applyDomSettings(): void {
 
 applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
+
+/* ---- Smooth scrolling (every DOM scroller; the terminal eases its own) --- */
+
+const smoothScroll = installSmoothScroll();
+
+function applySmoothScrolling(): void {
+  smoothScroll.setEnabled(settingsStore.getState().settings.smoothScrolling);
+}
+
+applySmoothScrolling();
+settingsStore.subscribe(applySmoothScrolling);
 // Follow the OS live while the setting is "system", and the selected plugin's
 // declared mode once the theme registry loads (or reloads).
 subscribeDark(applyDomSettings);

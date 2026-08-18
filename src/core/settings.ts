@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lineNumbers: false,
   ligatures: true,
   readerMargins: 'normal',
+  smoothScrolling: true,
   cursorStyle: 'bar',
   confirmFileMove: true,
   liveSave: false,
@@ -324,6 +325,7 @@ export function normalizeSettings(raw: unknown): Settings {
       r.readerMargins === 'narrow' || r.readerMargins === 'normal' || r.readerMargins === 'wide'
         ? r.readerMargins
         : d.readerMargins,
+    smoothScrolling: typeof r.smoothScrolling === 'boolean' ? r.smoothScrolling : d.smoothScrolling,
     cursorStyle: (CURSOR_STYLES as readonly unknown[]).includes(r.cursorStyle)
       ? (r.cursorStyle as CursorStyle)
       : d.cursorStyle,
