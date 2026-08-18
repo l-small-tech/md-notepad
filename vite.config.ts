@@ -27,7 +27,13 @@ export default defineConfig({
   // (Tauri CLI output shares the terminal), ignore src-tauri for HMR.
   clearScreen: false,
   server: {
-    host: host || false,
+    // Desktop pins 127.0.0.1 rather than the default localhost: Node binds
+    // whichever loopback family the resolver lists first (observed ::1-only
+    // on Fedora), and a webview that resolves localhost to the other family
+    // gets "connection refused" — seen once from a torn-off window on Linux.
+    // A literal address on both sides (devUrl in tauri.conf.json matches)
+    // takes name resolution out of the path entirely.
+    host: host || '127.0.0.1',
     port,
     strictPort: true,
     hmr: host ? { protocol: 'ws', host, port: port + 1 } : undefined,
