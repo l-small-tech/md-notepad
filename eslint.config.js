@@ -7,6 +7,11 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Maintenance scripts run under Node, not in the app.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', fetch: 'readonly' } },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
@@ -37,8 +42,60 @@ export default tseslint.config(
               message: 'core/ must stay framework-free (invariant I9). Use zustand/vanilla.',
             },
             {
-              group: ['../ipc/*', '../editors/*', '../preview/*', '../ui/*'],
+              group: [
+                '../ipc/*',
+                '../editors/*',
+                '../preview/*',
+                '../term/*',
+                '../renderer/*',
+                '../ui/*',
+              ],
               message: 'core/ is the bottom layer — it must not import from sibling layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Invariant I9: the terminal engine is a self-contained library — bytes in,
+    // screen state out. Keeping it free of DOM, Tauri and React is what makes it
+    // fully unit-testable and host-agnostic.
+    files: ['src/term/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@tauri-apps/*', 'react', 'react-dom'],
+              message: 'term/ is a pure library — no Tauri, no React, no DOM.',
+            },
+            {
+              group: ['../ipc/*', '../renderer/*', '../editors/*', '../preview/*', '../ui/*'],
+              message: 'term/ must not import from sibling layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Invariant I9: the renderer owns the DOM/canvas, but stays Tauri- and
+    // React-free so any host can mount it. It may import term/ and core/.
+    files: ['src/renderer/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@tauri-apps/*', 'react', 'react-dom'],
+              message: 'renderer/ mounts into a plain element — no Tauri, no React.',
+            },
+            {
+              group: ['../ipc/*', '../editors/*', '../preview/*', '../ui/*'],
+              message: 'renderer/ must not import from sibling layers.',
             },
           ],
         },

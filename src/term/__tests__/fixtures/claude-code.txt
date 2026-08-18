@@ -1,0 +1,24 @@
+
+╭─── Claude Code v2.1.233 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Logan!                │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Added GitLab merge req… │
+│     Fable 5 with medium effort · Claude Max ·      │ Added an opt-in `forwa… │
+│     yklogansmall@gmail.com's Organization          │ Added opt-in memory cg… │
+│            ~/workspace/smooth-terminal             │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+                                                             ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────
+❯ hello terminal fixture
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

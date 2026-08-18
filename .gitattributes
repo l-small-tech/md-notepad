@@ -2,6 +2,10 @@
 # it, and CRLF working copies would fail `prettier --check` on Windows.
 * text=auto eol=lf
 
+# Terminal replay fixtures are captured byte streams and the exact screen
+# they must reproduce — line-ending normalization would corrupt both.
+src/term/__tests__/fixtures/** -text
+
 # Binary assets
 *.png binary
 *.ico binary

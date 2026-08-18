@@ -22,6 +22,9 @@ do not rewrite them.
 | `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |
 | `export/pdf.ts` | feature | markdown → .pdf via a pure pdfmake doc-definition (same parse/degrades as docx.ts; theme colors via `pdfThemeFromPlugin`; no print dialog) |
 | `session/debounce.ts` | reference | idle+maxWait debouncer with drain semantics |
+| `panes.ts` | terminal | the split tree — immutable binary tree of panes, one per terminal tab |
+| `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
+| `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
 
 ## Contracts you must not break
 

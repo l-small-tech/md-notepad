@@ -1,0 +1,24 @@
+bold red 256 orange truecolor
+under inv ital strike curly
+[
+7z
+abrt
+abrt-action-analyze-backtrace
+abrt-action-analyze-c
+wide: 中文 emoji: 😀
+link plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,24 @@
+lmtp            24/tcp                          # LMTP Mail Delivery
+lmtp            24/udp                          # LMTP Mail Delivery
+smtp            25/tcp          mail
+smtp            25/udp          mail
+time            37/tcp          timserver
+time            37/udp          timserver
+#rap             38/tcp                          # Route Access Protocol
+#rap             38/udp                          # Route Access Protocol
+rlp             39/tcp          resource        # resource location
+rlp             39/udp          resource        # resource location
+nameserver      42/tcp          name            # IEN 116
+nameserver      42/udp          name            # IEN 116
+nicname         43/tcp          whois
+nicname         43/udp          whois
+tacacs          49/tcp                          # Login Host Protocol (TACACS)
+tacacs          49/udp                          # Login Host Protocol (TACACS)
+re-mail-ck      50/tcp                          # Remote Mail Checking Protocol
+re-mail-ck      50/udp                          # Remote Mail Checking Protocol
+domain          53/tcp                          # name-domain server
+domain          53/udp
+whois++         63/tcp          whoispp
+whois++         63/udp          whoispp
+bootps          67/tcp                          # BOOTP server
+:

@@ -1,0 +1,24 @@
+Hello from vim fixture
+The quick brown fox
+line three
+line four
+helloline five
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+
