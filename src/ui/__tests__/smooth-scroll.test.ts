@@ -141,6 +141,57 @@ describe('installSmoothScroll', () => {
     expect(scroller.scrollTop).toBe(800);
   });
 
+  it('holds a compositor hint on the scroller for exactly the glide', () => {
+    const scroller = makeScroller();
+    wheel(scroller, 300);
+    vi.advanceTimersByTime(16);
+    expect(scroller.style.willChange).toBe('scroll-position');
+    settle();
+    expect(scroller.style.willChange).toBe('');
+  });
+
+  it('gathers speed across a run of notches instead of restarting the curve', () => {
+    const scroller = makeScroller();
+    wheel(scroller, 100);
+    vi.advanceTimersByTime(48);
+    const soloSpeed = scroller.scrollTop;
+    settle();
+
+    const second = makeScroller();
+    // The same three frames, but with two more notches folded into the flight.
+    wheel(second, 100);
+    vi.advanceTimersByTime(16);
+    wheel(second, 100);
+    vi.advanceTimersByTime(16);
+    wheel(second, 100);
+    vi.advanceTimersByTime(16);
+    expect(second.scrollTop).toBeGreaterThan(soloSpeed);
+    settle();
+    expect(second.scrollTop).toBe(300);
+  });
+
+  it('leaves a touchpad stream (fractional deltas) to the browser, 1:1', () => {
+    const scroller = makeScroller();
+    const event = wheel(scroller, 8.25);
+    expect(event.defaultPrevented).toBe(false);
+    settle();
+    expect(scroller.scrollTop).toBe(0); // native handling, which jsdom has none of
+  });
+
+  it('drops a glide the moment a touchpad stream lands on the surface', () => {
+    const scroller = makeScroller();
+    wheel(scroller, 400);
+    vi.advanceTimersByTime(32);
+    const inFlight = scroller.scrollTop;
+    expect(inFlight).toBeGreaterThan(0);
+
+    const stream = wheel(scroller, 8.25);
+    expect(stream.defaultPrevented).toBe(false);
+    expect(scroller.style.willChange).toBe(''); // hint released with the glide
+    settle();
+    expect(scroller.scrollTop).toBe(inFlight); // the spring stopped writing
+  });
+
   it('stops listening once disposed', () => {
     const scroller = makeScroller();
     controller.dispose();

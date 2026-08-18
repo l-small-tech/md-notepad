@@ -203,7 +203,7 @@ export class CanvasRenderer {
   /**
    * Sub-line scroll position for a smooth scroll in flight (see
    * `scrollFraction`). The caller keeps the engine's integer offset at the
-   * floor of the animated position and passes the remainder here; `TermView`
+   * CEILING of the animated position and passes the remainder here; `TermView`
    * owns that arithmetic. Anything outside [0, 1) is clamped.
    */
   setScrollFraction(fraction: number): void {

@@ -31,17 +31,20 @@ reads CSS variables or the DOM for configuration — everything is passed in.
 
 1. **No React, no Tauri.** The host wires callbacks; the renderer knows
    nothing about stores, tabs or IPC.
-2. **Scrolling goes through the view.** `TermView.scrollLines` / `scrollToBottom`
-   are the only way input and the host move the viewport, because smooth
-   scrolling splits the position in two: the engine holds the integer line
-   offset and the renderer holds the sub-line remainder (`setScrollFraction`),
-   which shifts the grid UP and paints one extra row below to fill the gap —
-   so the engine's offset is the CEILING of the animated position and the
-   fraction brings it forward, never the floor (which would render a whole line
-   ahead and snap back when the scroll stops). A shifted
-   grid disables the dirty-row fast path, so the fraction is 0 whenever nothing
-   is animating. Drag auto-scroll deliberately stays instant — the pointer is
-   picking cells.
+2. **Scrolling goes through the view.** `TermView.scrollLines` (wheel notches,
+   spring-animated) / `trackScroll` (touchpad streams, followed 1:1 at
+   fractional lines, settling onto a whole line when the stream goes quiet) /
+   `scrollToBottom` are the only way input and the host move the viewport,
+   because smooth scrolling splits the position in two: the engine holds the
+   integer line offset and the renderer holds the sub-line remainder
+   (`setScrollFraction`), which shifts the grid UP and paints one extra row
+   below to fill the gap — so the engine's offset is the CEILING of the
+   animated position and the fraction brings it forward, never the floor
+   (which would render a whole line ahead and snap back when the scroll
+   stops). A shifted grid disables the dirty-row fast path, so the fraction is
+   0 whenever nothing is animating — which is also why a quiet touchpad stream
+   settles onto a whole line instead of resting mid-line. Drag auto-scroll
+   deliberately stays instant — the pointer is picking cells.
 3. **Configuration is passed, not read.** Theme, font and cursor style arrive
    as options and are re-applied idempotently, which is what makes live
    re-theming a prop change rather than a shell restart.

@@ -49,6 +49,21 @@ class FakeView implements InputView {
     this.renders++;
   }
 
+  /** Every fractional line handed to the stream path, in call order. */
+  tracked: number[] = [];
+  private trackRemainder = 0;
+
+  trackScroll(lines: number) {
+    this.tracked.push(lines);
+    // Quantize like the real view does with smooth scrolling off, so combined
+    // notch+stream sequences still land on whole lines in these tests.
+    this.trackRemainder += lines;
+    const whole = Math.trunc(this.trackRemainder);
+    this.trackRemainder -= whole;
+    if (whole !== 0) this.terminal.scrollViewport(whole);
+    this.renders++;
+  }
+
   scrollToBottom() {
     this.terminal.scrollToBottom();
     this.renders++;
@@ -416,6 +431,22 @@ describe('wheel', () => {
   it('scrolls by whole notches for line-wise wheels', () => {
     wheel({ deltaY: -1, deltaMode: 1 });
     expect(h.term.viewportOffset).toBe(3);
+  });
+
+  it('routes a fractional touchpad stream to the view unquantized', () => {
+    // A fractional pixel delta marks a touchpad; from then on the stream goes
+    // to trackScroll as fractional lines rather than accumulating to notches.
+    wheel({ deltaY: -CELL.height / 4 - 0.5, deltaMode: 0 }); // -4.5px → 0.28125 lines
+    wheel({ deltaY: -CELL.height / 2, deltaMode: 0 });
+    expect(h.view.tracked).toEqual([4.5 / CELL.height, 0.5]);
+  });
+
+  it('keeps the alternate screen on whole-line arrows even for a stream', () => {
+    wheel({ deltaY: -0.5, deltaMode: 0 }); // latch the stream
+    h.term.write('\x1b[?1049h');
+    h.written.length = 0;
+    for (let i = 0; i < 4; i++) wheel({ deltaY: -CELL.height / 2, deltaMode: 0 });
+    expect(h.written.join('')).toBe('\x1b[A\x1b[A');
   });
 
   it('reports the wheel when an application asked for the mouse', () => {

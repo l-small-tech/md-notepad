@@ -15,7 +15,7 @@
  */
 
 import { fitGrid, sameGrid, type GridSize } from '../core/geometry';
-import { approach, clamp } from '../core/smooth-scroll';
+import { clamp, restingSpring, springStep, type ScrollSpring } from '../core/smooth-scroll';
 import type { Terminal } from '../term';
 import { urlAtColumn, type DetectedLink } from './links';
 import {
@@ -61,11 +61,19 @@ const SYNC_TIMEOUT_MS = 150;
 
 /**
  * Where a smooth scroll stops chasing its target, in lines — about a pixel at
- * a normal cell height. An exponential approach never arrives, and a tail
- * finer than a pixel is not motion any more: it is a stutter at the end of
- * every scroll while the grid rounds to the same pixels for frame after frame.
+ * a normal cell height. A spring never arrives exactly, and a tail finer than
+ * a pixel is not motion any more: it is a stutter at the end of every scroll
+ * while the grid rounds to the same pixels for frame after frame.
  */
 const SCROLL_EPSILON_LINES = 0.06;
+/**
+ * How long a touchpad stream may go quiet before the viewport settles onto a
+ * whole line. Long enough to bridge the gaps inside one gesture (momentum
+ * events thin out as they decay), short enough that the grid is back on whole
+ * lines — where hit-testing and the dirty-row fast path live — right after the
+ * fingers leave.
+ */
+const TRACK_SETTLE_MS = 150;
 
 export class TermView {
   readonly canvas: HTMLCanvasElement;
@@ -88,16 +96,25 @@ export class TermView {
   private disposed = false;
 
   /**
-   * Smooth scrolling (see core/smooth-scroll.ts). `scrollPosition` is the
-   * animated viewport offset in lines — its floor is what the engine holds and
-   * its remainder is the renderer's sub-line shift; `scrollTarget` is where it
-   * is heading. Both are meaningless while `scrolling` is false.
+   * Smooth scrolling (see core/smooth-scroll.ts). `spring.position` is the
+   * animated viewport offset in lines — its ceiling is what the engine holds
+   * and the remainder is the renderer's sub-line shift; `scrollTarget` is
+   * where it is heading. All of it is meaningless while `scrolling` is false.
+   *
+   * Two modes share the state: `glide` springs toward the target (wheel
+   * notches), `track` follows a touchpad stream 1:1 at fractional positions
+   * and, once the stream goes quiet, glides onto the nearest whole line so the
+   * grid never rests between lines.
    */
   private smoothScroll: boolean;
   private scrolling = false;
-  private scrollPosition = 0;
+  private scrollMode: 'glide' | 'track' = 'glide';
+  private spring: ScrollSpring = restingSpring(0);
   private scrollTarget = 0;
   private scrollFrameAt = 0;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Sub-line remainder for `trackScroll` while smooth scrolling is off. */
+  private trackRemainder = 0;
   /** The offset this class last wrote, so engine-side moves can be detected. */
   private scrollApplied = -1;
 
@@ -182,13 +199,15 @@ export class TermView {
   // ------------------------------------------------------------------ scroll
 
   /**
-   * Move the viewport by `lines` (positive = back into history).
+   * Move the viewport by `lines` (positive = back into history) — the wheel-
+   * notch path.
    *
-   * With smooth scrolling on this eases: the animated position is kept here,
-   * its integer part is the engine's viewport offset and its remainder is the
-   * renderer's sub-line shift, so a run of wheel notches reads as one glide
-   * rather than a sequence of jumps. With it off — or on the alternate screen,
-   * which has no scrollback to glide through — the offset simply moves.
+   * With smooth scrolling on this springs: the animated position is kept here,
+   * its ceiling is the engine's viewport offset and the remainder is the
+   * renderer's sub-line shift, so a run of wheel notches gathers momentum and
+   * reads as one glide rather than a sequence of jumps. With it off — or on
+   * the alternate screen, which has no scrollback to glide through — the
+   * offset simply moves.
    */
   scrollLines(lines: number): void {
     if (lines === 0) return;
@@ -198,14 +217,42 @@ export class TermView {
       this.requestRender();
       return;
     }
-    if (!this.scrolling) {
-      this.scrolling = true;
-      this.scrollPosition = this.terminal.viewportOffset;
-      this.scrollTarget = this.scrollPosition;
-      this.scrollFrameAt = 0;
-      this.scrollApplied = this.terminal.viewportOffset;
-    }
+    this.beginScroll('glide');
     this.scrollTarget = clamp(this.scrollTarget + lines, 0, this.terminal.scrollbackLength);
+    this.requestRender();
+  }
+
+  /**
+   * Follow a touchpad stream: move the viewport by `lines` (fractional —
+   * positive is back into history) right now, 1:1 with the fingers, no spring.
+   * The OS already put its inertia into these deltas; easing them again reads
+   * as float. When the stream goes quiet the viewport glides onto the nearest
+   * whole line (`TRACK_SETTLE_MS`), so a resting grid is always line-aligned.
+   * With smooth scrolling off — or on the alternate screen — the deltas
+   * quantize to whole lines instead, remainder kept.
+   */
+  trackScroll(lines: number): void {
+    if (lines === 0) return;
+    if (!this.smoothScroll || this.terminal.modes().altScreen) {
+      this.trackRemainder += lines;
+      const whole = Math.trunc(this.trackRemainder);
+      this.trackRemainder -= whole;
+      if (whole !== 0) {
+        this.cancelScroll();
+        this.terminal.scrollViewport(whole);
+        this.requestRender();
+      }
+      return;
+    }
+    this.beginScroll('track');
+    this.spring = restingSpring(
+      clamp(this.spring.position + lines, 0, this.terminal.scrollbackLength),
+    );
+    this.scrollTarget = this.spring.position;
+    this.applyScrollPosition();
+    // Back on the live screen exactly — nothing left to settle.
+    if (this.spring.position === 0) this.cancelScroll();
+    else this.armSettle();
     this.requestRender();
   }
 
@@ -225,17 +272,81 @@ export class TermView {
     }
   }
 
+  /** Enter (or continue) an animated scroll, switching modes in place. */
+  private beginScroll(mode: 'glide' | 'track'): void {
+    if (!this.scrolling) {
+      this.scrolling = true;
+      this.spring = restingSpring(this.terminal.viewportOffset);
+      this.scrollTarget = this.spring.position;
+      this.scrollFrameAt = 0;
+      this.scrollApplied = this.terminal.viewportOffset;
+    }
+    if (this.scrollMode !== mode) {
+      // A device switch mid-motion: keep the position, restart the clock, and
+      // let the new mode decide the velocity (track is always direct).
+      this.scrollMode = mode;
+      this.spring = restingSpring(this.spring.position);
+      this.scrollFrameAt = 0;
+    }
+    if (mode === 'glide') this.disarmSettle();
+  }
+
   /** Drop any glide in flight and put the grid back on whole lines. */
   private cancelScroll(): void {
+    this.disarmSettle();
     if (!this.scrolling) return;
     this.scrolling = false;
+    this.scrollMode = 'glide';
+    this.spring = restingSpring(0);
     this.scrollApplied = -1;
     this.renderer.setScrollFraction(0);
   }
 
+  private armSettle(): void {
+    this.disarmSettle();
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null;
+      if (!this.scrolling || this.scrollMode !== 'track') return;
+      // The stream went quiet: glide the short rest of the way onto a line.
+      this.scrollMode = 'glide';
+      this.scrollFrameAt = 0;
+      this.spring = restingSpring(this.spring.position);
+      this.scrollTarget = Math.round(this.spring.position);
+      this.requestRender();
+    }, TRACK_SETTLE_MS);
+  }
+
+  private disarmSettle(): void {
+    if (this.settleTimer === null) return;
+    clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+  }
+
   /**
-   * Advance a glide by one frame. Returns true while it still has somewhere to
-   * go, which is what keeps the frame loop running.
+   * Push the animated position into the engine and the renderer.
+   *
+   * CEILING, not floor: the renderer's fraction shifts the grid UP (it paints
+   * the extra row below), so the engine has to sit one line further back and
+   * the remainder brings it forward. Flooring would render a line ahead of
+   * the animated position and snap back by a whole line at the end of every
+   * scroll. It also keeps the extra row in existence: a non-zero fraction
+   * always means an offset of at least 1, which is the row below the grid.
+   *
+   * Returns false when the engine refused the offset (scrollback shrank, the
+   * alternate screen took over) — the animation must not chase it.
+   */
+  private applyScrollPosition(): boolean {
+    const offset = Math.ceil(this.spring.position);
+    const fraction = offset - this.spring.position;
+    this.terminal.setViewportOffset(offset);
+    this.scrollApplied = this.terminal.viewportOffset;
+    this.renderer.setScrollFraction(fraction);
+    return this.scrollApplied === offset;
+  }
+
+  /**
+   * Advance an animated scroll by one frame. Returns true while it still has
+   * somewhere to go, which is what keeps the frame loop running.
    */
   private stepScroll(now: number): boolean {
     if (!this.scrolling) return false;
@@ -243,42 +354,40 @@ export class TermView {
     // The engine moves the offset itself: output arriving while the view is
     // scrolled back pushes it up to keep the text pinned, and a reset or the
     // alternate screen zeroes it. Follow that move rather than fighting it —
-    // the glide continues relative to wherever the engine put the view.
+    // the animation continues relative to wherever the engine put the view.
     const drift = this.terminal.viewportOffset - this.scrollApplied;
     if (drift !== 0) {
-      this.scrollPosition = clamp(this.scrollPosition + drift, 0, max);
+      this.spring = {
+        position: clamp(this.spring.position + drift, 0, max),
+        velocity: this.spring.velocity,
+      };
       this.scrollTarget = clamp(this.scrollTarget + drift, 0, max);
-      if (this.scrollPosition === 0 && this.scrollTarget === 0) {
+      if (this.spring.position === 0 && this.scrollTarget === 0) {
         this.cancelScroll();
         return false;
       }
     }
+    if (this.scrollMode === 'track') {
+      // Tracking is driven by the wheel events themselves; the frame loop only
+      // keeps the engine and renderer in step with any drift.
+      if (drift !== 0 && !this.applyScrollPosition()) this.cancelScroll();
+      return false;
+    }
     const dt = this.scrollFrameAt === 0 ? 16 : now - this.scrollFrameAt;
     this.scrollFrameAt = now;
-    this.scrollPosition = approach(
-      this.scrollPosition,
-      this.scrollTarget,
-      dt,
-      SCROLL_EPSILON_LINES,
-    );
-    // CEILING, not floor: the renderer's fraction shifts the grid UP (it paints
-    // the extra row below), so the engine has to sit one line further back and
-    // the remainder brings it forward. Flooring would render a line ahead of
-    // the animated position and snap back by a whole line at the end of every
-    // scroll. It also keeps the extra row in existence: a non-zero fraction
-    // always means an offset of at least 1, which is the row below the grid.
-    const offset = Math.ceil(this.scrollPosition);
-    const fraction = offset - this.scrollPosition;
-    this.terminal.setViewportOffset(offset);
-    this.scrollApplied = this.terminal.viewportOffset;
-    this.renderer.setScrollFraction(fraction);
-    if (this.scrollPosition === this.scrollTarget) {
+    this.spring = springStep(this.spring, this.scrollTarget, dt, SCROLL_EPSILON_LINES);
+    // Momentum past either end of the scrollback stops dead — the engine
+    // cannot render past its history, so a bounce would clamp into a stutter.
+    if (this.spring.position < 0 || this.spring.position > max) {
+      this.spring = restingSpring(clamp(this.spring.position, 0, max));
+      this.scrollTarget = clamp(this.scrollTarget, 0, max);
+    }
+    const applied = this.applyScrollPosition();
+    if (this.spring.position === this.scrollTarget && this.spring.velocity === 0) {
       this.cancelScroll();
       return false;
     }
-    // The engine refused the offset (scrollback shrank, the alternate screen
-    // took over): chasing a target it will never reach would spin forever.
-    if (this.scrollApplied !== offset) {
+    if (!applied) {
       this.cancelScroll();
       return false;
     }
@@ -513,6 +622,7 @@ export class TermView {
 
   dispose(): void {
     this.disposed = true;
+    this.disarmSettle();
     if (this.frame) cancelAnimationFrame(this.frame);
     this.frame = 0;
     if (this.blinkTimer !== null) clearInterval(this.blinkTimer);

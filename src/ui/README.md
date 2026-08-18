@@ -303,12 +303,16 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   as the window.
 - **Smooth scrolling** is one window-level `wheel` listener, installed once from
   `main.tsx` (`ui/smooth-scroll.ts`) and toggled by the setting: it finds the
-  scroller the wheel would have moved and animates its `scrollTop`, so every
-  scrollable surface — source editor, preview/read, wysiwyg, explorer, dialogs —
-  eases without any host opting in. It skips events a surface already claimed
-  (`defaultPrevented`), zoom gestures and horizontal wheels, which is what keeps
-  the terminal panes and the diagram/whiteboard zoom-pan stages on their own
-  wheel handling. The terminal eases its own viewport instead (renderer/README).
+  scroller the wheel would have moved and springs its `scrollTop` (physics in
+  `core/smooth-scroll.ts` — velocity carries across notches, so a fast run
+  gathers momentum), so every scrollable surface — source editor, preview/read,
+  wysiwyg, explorer, dialogs — eases without any host opting in. While a glide
+  is in flight the scroller carries `will-change: scroll-position`, keeping the
+  per-frame writes on a compositor layer. It skips events a surface already
+  claimed (`defaultPrevented`), zoom gestures, horizontal wheels, and —
+  deliberately — touchpad/momentum streams (`WheelSourceTracker`): those carry
+  the OS's own inertia and are left to the webview's native path so the finger
+  tracks 1:1. The terminal eases its own viewport instead (renderer/README).
 - **Font size is CSS-variable driven** (`--editor-font-size`): CM6, preview,
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor

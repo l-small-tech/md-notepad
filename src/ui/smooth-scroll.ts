@@ -2,7 +2,7 @@
  * Smooth wheel scrolling for every DOM surface.
  *
  * One window-level `wheel` listener, installed once at boot (main.tsx), that
- * finds the scroller the event would have moved and animates `scrollTop`
+ * finds the scroller the event would have moved and springs `scrollTop`
  * toward the new target instead of letting the web view step it. That covers
  * every scrollable tab type and panel at once — source editor, preview and
  * read mode, wysiwyg, whiteboard/image panes, the explorer, dialogs — without
@@ -18,11 +18,31 @@
  *     a diagram's zoom-pan surface) and is left alone;
  *   - a zoom gesture (ctrl/meta + wheel) is not scrolling;
  *   - a mostly-horizontal wheel is left to the browser;
+ *   - a touchpad/momentum **stream** (see `WheelSourceTracker`) is left to the
+ *     browser too — the OS already applied its inertia, and native handling is
+ *     the webview's fastest path (compositor-thread scrolling where it has
+ *     one), so the finger tracks 1:1 instead of floating behind a second
+ *     easing;
  *   - a scroller already pinned at the edge in the wheel's direction is left
- *     alone too, so the parent surface scrolls exactly as it natively would.
+ *     alone, so the parent surface scrolls exactly as it natively would.
+ *
+ * While a glide is in flight the scroller carries `will-change:
+ * scroll-position` — the standing hint that keeps its contents on a compositor
+ * layer, so each frame's `scrollTop` write is a GPU layer reposition rather
+ * than a repaint. The hint is removed when the glide ends so the layer memory
+ * is not held forever. The spring itself must run on the main thread (rAF is
+ * all the web exposes for custom curves); the physics in core/smooth-scroll.ts
+ * clamps stalled frames so jank never turns into a teleport.
  */
 
-import { MAX_FRAME_MS, approach, clamp, wheelPixels } from '../core/smooth-scroll';
+import {
+  WheelSourceTracker,
+  clamp,
+  restingSpring,
+  springStep,
+  wheelPixels,
+  type ScrollSpring,
+} from '../core/smooth-scroll';
 
 /** Below this the animation is not worth starting — just jump. */
 const MIN_ANIMATED_PX = 2;
@@ -84,16 +104,22 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
   let enabled = false;
   let element: HTMLElement | null = null;
   let target = 0;
-  let position = 0;
+  let spring: ScrollSpring = restingSpring(0);
   let frame = 0;
   let lastFrameAt = 0;
   /** What we last wrote, so a scroll from anywhere else cancels the glide. */
   let applied = -1;
+  /** The scroller's own will-change, restored when the glide ends. */
+  let priorWillChange = '';
+  const tracker = new WheelSourceTracker();
 
   function stop(): void {
     if (frame !== 0) {
       view.cancelAnimationFrame(frame);
       frame = 0;
+    }
+    if (element) {
+      element.style.willChange = priorWillChange;
     }
     element = null;
     applied = -1;
@@ -112,19 +138,27 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
       stop();
       return;
     }
-    const dt = lastFrameAt === 0 ? MAX_FRAME_MS : now - lastFrameAt;
+    const dt = lastFrameAt === 0 ? 16 : now - lastFrameAt;
     lastFrameAt = now;
-    position = approach(position, target, dt, EPSILON_PX);
-    scroller.scrollTop = position;
+    spring = springStep(spring, target, dt, EPSILON_PX);
+    // Momentum may carry the spring past the document's end; the write below
+    // would clamp and read back as an abort, so clamp here and kill the
+    // velocity — hitting the end of a document stops, it does not bounce.
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    if (spring.position < 0 || spring.position > max) {
+      spring = restingSpring(clamp(spring.position, 0, max));
+      target = clamp(target, 0, max);
+    }
+    scroller.scrollTop = spring.position;
     // Read back: hitting the end of the document (or a layout change) clamps
     // the write, and the target has to follow or the rest of the glide is
     // spent animating a distance that no longer exists.
     applied = scroller.scrollTop;
-    if (Math.abs(applied - position) > 1) {
+    if (Math.abs(applied - spring.position) > 1) {
       stop();
       return;
     }
-    if (position === target) {
+    if (spring.position === target && spring.velocity === 0) {
       stop();
       return;
     }
@@ -136,6 +170,13 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
       return;
     }
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+      return;
+    }
+    // A touchpad/momentum stream is the browser's to handle natively, 1:1.
+    // If a wheel glide is still in flight when the fingers land, drop it —
+    // the two must not fight over scrollTop.
+    if (tracker.classify(event.deltaY, event.deltaMode, event.timeStamp) === 'stream') {
+      stop();
       return;
     }
     const scroller = scrollerFor(event.target, view, event.deltaY);
@@ -156,17 +197,21 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
 
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     // A notch on a different scroller (or after the last glide ended) starts
-    // from where that scroller actually is; one on the same scroller extends
-    // the flight, which is what makes a fast run of notches read as one glide.
+    // from where that scroller actually is, at rest; one on the same scroller
+    // extends the flight with its velocity intact, which is what makes a fast
+    // run of notches gather speed and read as one glide.
     const continuing = scroller === element && frame !== 0;
     if (!continuing) {
+      stop();
       element = scroller;
-      position = scroller.scrollTop;
+      spring = restingSpring(scroller.scrollTop);
       target = scroller.scrollTop;
       applied = -1;
+      priorWillChange = scroller.style.willChange;
+      scroller.style.willChange = 'scroll-position';
     }
     target = clamp(target + delta, 0, max);
-    if (Math.abs(target - position) < MIN_ANIMATED_PX) {
+    if (!continuing && Math.abs(target - spring.position) < MIN_ANIMATED_PX) {
       scroller.scrollTop = target;
       stop();
       return;

@@ -26,7 +26,7 @@ do not rewrite them.
 | `export/pdf.ts` | feature | markdown → .pdf via a pure pdfmake doc-definition (same parse/degrades as docx.ts; theme colors via `pdfThemeFromPlugin`; no print dialog) |
 | `session/debounce.ts` | reference | idle+maxWait debouncer with drain semantics |
 | `panes.ts` | terminal | the split tree — immutable binary tree of panes, one per terminal tab |
-| `smooth-scroll.ts` | reference | the easing curve smooth scrolling shares: exponential approach + wheel-delta units (DOM scrollers in ui/, the terminal viewport in renderer/) |
+| `smooth-scroll.ts` | reference | the physics smooth scrolling shares: critically damped spring (velocity carries across retargets), wheel-delta units, and the wheel-vs-touchpad classifier (DOM scrollers in ui/, the terminal viewport in renderer/) |
 | `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
 | `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
 | `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor; an optional `terminal` block in a theme merges over it |

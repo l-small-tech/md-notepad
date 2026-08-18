@@ -14,6 +14,7 @@
  * Framework-free, like the rest of `src/renderer`: React only creates it.
  */
 
+import { WheelSourceTracker } from '../core/smooth-scroll';
 import type { Terminal } from '../term';
 import { encodeKey, keyStateFromModes, type KeyEncodeState } from './keys';
 import { encodeFocus, encodeMouse, wantsMouse, type MouseInput, type MouseState } from './mouse';
@@ -48,6 +49,8 @@ export interface InputView {
   requestRender(): void;
   /** Move the viewport by whole lines; the view decides whether it eases. */
   scrollLines(lines: number): void;
+  /** Follow a touchpad stream by fractional lines, 1:1 (see `TermView`). */
+  trackScroll(lines: number): void;
   /** Back to the live screen at once (a keystroke, a paste). */
   scrollToBottom(): void;
 }
@@ -108,6 +111,7 @@ export class TermInput {
   /** The word/line range the drag started from, so extension can flip sides. */
   private dragOrigin: Range | null = null;
   private wheelRemainder = 0;
+  private wheelTracker = new WheelSourceTracker();
   private disposed = false;
 
   constructor(
@@ -571,15 +575,15 @@ export class TermInput {
   // ------------------------------------------------------------------- wheel
 
   private onWheel = (event: WheelEvent): void => {
-    const lines = this.wheelLines(event);
-    if (lines === 0) {
-      // Still swallow the event: the pane must never scroll like a document.
-      event.preventDefault();
-      return;
-    }
+    // Swallow the event whatever happens: the pane must never scroll like a
+    // document.
     event.preventDefault();
+    const raw = this.rawWheelLines(event);
+    if (raw === 0) return;
+    const kind = this.wheelTracker.classify(event.deltaY, event.deltaMode, event.timeStamp);
 
     if (this.appWantsMouse(event, 'wheel')) {
+      const lines = this.quantizeWheel(raw);
       const button = lines > 0 ? 0 : 1; // WHEEL_UP / WHEEL_DOWN
       for (let i = 0; i < Math.abs(lines); i++) {
         this.report(event, { kind: 'wheel', button });
@@ -591,31 +595,48 @@ export class TermInput {
     if (modes.altScreen) {
       // No scrollback on the alternate screen: full-screen apps that did not
       // ask for mouse reporting still expect the wheel to move their cursor.
+      const lines = this.quantizeWheel(raw);
+      if (lines === 0) return;
       const arrow = modes.applicationCursorKeys ? '\x1bO' : '\x1b[';
       const key = lines > 0 ? 'A' : 'B';
       this.options.write((arrow + key).repeat(Math.abs(lines)));
       return;
     }
 
-    this.view.scrollLines(lines);
+    if (kind === 'stream') {
+      // A touchpad stream tracks 1:1 at fractional lines — the view keeps the
+      // sub-line part, so the whole-line remainder here must not double-count.
+      this.wheelRemainder = 0;
+      this.view.trackScroll(raw);
+      return;
+    }
+    const lines = this.quantizeWheel(raw);
+    if (lines !== 0) this.view.scrollLines(lines);
   };
 
   /**
-   * Wheel deltas into whole lines, keeping the remainder so a touchpad's
-   * stream of small deltas still scrolls smoothly instead of being lost.
-   * Positive is up (back into history), matching `scrollViewport`.
+   * A wheel delta in lines, fractional. Positive is up (back into history),
+   * matching `scrollViewport`.
    */
-  private wheelLines(event: WheelEvent): number {
+  private rawWheelLines(event: WheelEvent): number {
     const perNotch = this.options.scrollLines ?? DEFAULT_SCROLL_LINES;
     const cell = this.view.cellMetrics.height || 16;
-    let delta: number;
-    if (event.deltaMode === 1) delta = event.deltaY * perNotch;
-    else if (event.deltaMode === 2) delta = event.deltaY * this.terminal.rows;
-    else delta = event.deltaY / cell;
-    this.wheelRemainder += delta;
+    if (event.deltaMode === 1) return -event.deltaY * perNotch;
+    if (event.deltaMode === 2) return -event.deltaY * this.terminal.rows;
+    return -event.deltaY / cell;
+  }
+
+  /**
+   * Fractional lines into whole ones, keeping the remainder so a stream of
+   * small deltas still adds up instead of being lost — for the consumers that
+   * can only take whole lines (mouse reporting, alternate-screen arrows, a
+   * ratcheted wheel's glide).
+   */
+  private quantizeWheel(lines: number): number {
+    this.wheelRemainder += lines;
     const whole = Math.trunc(this.wheelRemainder);
     this.wheelRemainder -= whole;
-    return -whole;
+    return whole;
   }
 
   // ---------------------------------------------------------------- teardown
