@@ -256,6 +256,12 @@ export interface TerminalSnapshot {
 }
 
 export interface Settings {
+  /**
+   * Schema version of the persisted blob, so a field whose *meaning* changed
+   * can be upgraded exactly once (see `SETTINGS_SCHEMA` and `normalizeSettings`).
+   * Not user-facing: no dialog field, no reason for anyone to set it by hand.
+   */
+  schemaVersion: number;
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
   theme: 'system' | 'light' | 'dark';

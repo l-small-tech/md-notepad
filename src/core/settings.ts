@@ -51,7 +51,19 @@ export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
   { id: 'claude', name: 'Claude Code', program: 'claude', args: [], env: {} },
 ];
 
+/**
+ * Current persisted-settings schema.
+ *
+ * 1 — the terminal bell became a three-way choice. Before it, the dialog had a
+ *     single "Visual bell" checkbox that wrote `'visual'` to mean *a bell at
+ *     all*, so a version-0 file saying `'visual'` is not a preference for the
+ *     flash and is upgraded to the quiet cursor bell. A choice made in the new
+ *     picker is stamped version 1 and left alone forever after.
+ */
+export const SETTINGS_SCHEMA = 1;
+
 export const DEFAULT_SETTINGS: Settings = {
+  schemaVersion: SETTINGS_SCHEMA,
   notesDir: null,
   theme: 'system',
   colorScheme: 'default',
@@ -246,10 +258,29 @@ function clampInt(raw: unknown, fallback: number, min: number, max: number): num
     : fallback;
 }
 
+/**
+ * The bell, with the one schema migration attached to it: a file written before
+ * the three-way picker existed says `'visual'` because the old checkbox had no
+ * other way to say "on", so that upgrades to the cursor bell. Anything stamped
+ * with the current schema is a real choice and passes through untouched.
+ */
+function normalizeBell(raw: unknown, schemaVersion: number): TerminalBell {
+  const bell = (TERMINAL_BELLS as readonly unknown[]).includes(raw)
+    ? (raw as TerminalBell)
+    : DEFAULT_SETTINGS.terminalBell;
+  if (schemaVersion < 1 && bell === 'visual') return 'cursor';
+  return bell;
+}
+
 /** Per-field validation; every invalid field falls back to its default. */
 export function normalizeSettings(raw: unknown): Settings {
   const r = isRecord(raw) ? raw : {};
   const d = DEFAULT_SETTINGS;
+  // A blob with no version predates versioning: version 0, migrations apply.
+  const schemaVersion =
+    typeof r.schemaVersion === 'number' && Number.isFinite(r.schemaVersion)
+      ? Math.max(0, Math.floor(r.schemaVersion))
+      : 0;
   // Any non-empty string is a valid scheme id now (themes are pluggable —
   // core/theme-plugins.ts). An id with no loaded theme falls through to the
   // default palette at render time, so no allowlist is needed here.
@@ -261,6 +292,7 @@ export function normalizeSettings(raw: unknown): Settings {
     r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme;
   const terminalProfiles = normalizeTerminalProfiles(r.terminalProfiles);
   return {
+    schemaVersion: SETTINGS_SCHEMA,
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
     // The Theme picker is unified (Settings): a plugin scheme always follows the
     // OS light/dark, so light/dark is only a meaningful override for the built-in
@@ -350,9 +382,7 @@ export function normalizeSettings(raw: unknown): Settings {
       : d.terminalCursorStyle,
     terminalCursorBlink:
       typeof r.terminalCursorBlink === 'boolean' ? r.terminalCursorBlink : d.terminalCursorBlink,
-    terminalBell: (TERMINAL_BELLS as readonly unknown[]).includes(r.terminalBell)
-      ? (r.terminalBell as TerminalBell)
-      : d.terminalBell,
+    terminalBell: normalizeBell(r.terminalBell, schemaVersion),
     terminalCopyOnSelect:
       typeof r.terminalCopyOnSelect === 'boolean' ? r.terminalCopyOnSelect : d.terminalCopyOnSelect,
     terminalConfirmMultilinePaste:
