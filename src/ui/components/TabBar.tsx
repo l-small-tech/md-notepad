@@ -3,7 +3,8 @@
  *
  * Interactions (src/ui/README): click activates; middle-click closes; the ×
  * button closes; double-click, F2, or the right-click / long-press context
- * menu starts an inline rename; pointer-event drag reorders tabs and moves
+ * menu starts an inline rename; right-clicking the bar's FREE space (not a
+ * tab) opens the strip's own menu, which is where "Close all tabs" lives; pointer-event drag reorders tabs and moves
  * around (no dnd dependency, and NOT HTML5 drag-and-drop —
  * Tauri's OS drag-drop interception swallows webview-internal HTML5 drags on
  * Windows, the same constraint the FileExplorer documents). The displayed
@@ -280,14 +281,13 @@ function Tab({
   );
 }
 
-function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
-  // Transient menu — a one-shot store read is fine (it closes on any change).
-  const s = tabsStore.getState();
-  const tab = s.tabs.find((t) => t.id === menu.tabId);
-  const isPreview = tab?.preview ?? false;
+/**
+ * Dismiss a transient menu on any outside interaction: a pointerdown that did
+ * not reach the menu (menus stop their own), Escape, resize, or window blur.
+ */
+function useMenuDismiss(onClose: () => void): void {
   useEffect(() => {
     const close = () => onClose();
-    // Any outside interaction, Escape, or scroll dismisses the menu.
     window.addEventListener('pointerdown', close);
     window.addEventListener('resize', close);
     window.addEventListener('blur', close);
@@ -304,6 +304,14 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       window.removeEventListener('keydown', onKey, true);
     };
   }, [onClose]);
+}
+
+function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
+  // Transient menu — a one-shot store read is fine (it closes on any change).
+  const s = tabsStore.getState();
+  const tab = s.tabs.find((t) => t.id === menu.tabId);
+  const isPreview = tab?.preview ?? false;
+  useMenuDismiss(onClose);
 
   return (
     <div
@@ -370,6 +378,38 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
 }
 
 /**
+ * The strip's own menu — right-clicking free tab-bar space (the slack after
+ * the last tab, or the spacer before the window controls). It carries the
+ * actions that belong to the bar rather than to one tab; "Close all tabs"
+ * lives here instead of as a permanent ⊗ button in the titlebar.
+ */
+function BarContextMenu({ at, onClose }: { at: { x: number; y: number }; onClose: () => void }) {
+  useMenuDismiss(onClose);
+  const count = useTabsStore((s) => s.tabs.length);
+
+  return (
+    <div
+      className="tab-menu"
+      role="menu"
+      style={{ left: at.x, top: at.y }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        disabled={count === 0}
+        onClick={() => {
+          closeAllTabs();
+          onClose();
+        }}
+      >
+        Close all tabs
+      </button>
+    </div>
+  );
+}
+
+/**
  * Dropdown listing the tabs the bar has no room for. Selecting one activates
  * it — the windowing math then slides the visible row to include it.
  */
@@ -385,24 +425,7 @@ function OverflowMenu({
   // A clipped tab has lost its stripe with its rect — the dot carries the
   // workspace cue into the list so the switcher reads like the strip.
   const colors = tabs.map((tab) => workspaceCueFor(tab)?.color ?? null);
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('blur', close);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [onClose]);
+  useMenuDismiss(onClose);
 
   return (
     <div
@@ -476,24 +499,7 @@ function usePhoneLayout(): boolean {
  */
 function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('blur', close);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [onClose]);
+  useMenuDismiss(onClose);
 
   function pick(run: () => void) {
     onClose();
@@ -560,6 +566,8 @@ export function TabBar() {
   const barRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<TabMenu | null>(null);
+  /** Where the bar's own (empty-space) context menu is open, if at all. */
+  const [barMenu, setBarMenu] = useState<{ x: number; y: number } | null>(null);
   const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
   /** Ids of the tabs the strip is currently cutting off, in strip order. */
   const [clipped, setClipped] = useState<readonly string[]>([]);
@@ -822,6 +830,16 @@ export function TabBar() {
       className={IS_MAC ? 'tabbar tabbar-mac' : 'tabbar'}
       role="tablist"
       data-tauri-drag-region=""
+      onContextMenu={(e) => {
+        // Free space only — a tab (or a button) opens its own menu and its
+        // event merely bubbles through here.
+        if ((e.target as HTMLElement).closest('.tab, button, .tab-menu')) {
+          return;
+        }
+        e.preventDefault();
+        setMenu(null);
+        setBarMenu({ x: e.clientX, y: e.clientY });
+      }}
     >
       {/* The scroller is only as wide as its tabs, so the free space after the
           last tab lives in `.tabbar-spacer`, which carries the drag region.
@@ -901,16 +919,9 @@ export function TabBar() {
         </button>
       )}
       <div className="tabbar-spacer" data-tauri-drag-region="" />
-      <button
-        className="tab-close-all"
-        aria-label="Close all tabs"
-        title="Close all tabs"
-        onClick={() => closeAllTabs()}
-      >
-        ⊗
-      </button>
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {barMenu && <BarContextMenu at={barMenu} onClose={() => setBarMenu(null)} />}
       {newTabMenuOpen && newTabAnchor && (
         <NewTabMenu anchor={newTabAnchor} onClose={() => uiStore.getState().closeNewTabMenu()} />
       )}

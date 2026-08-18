@@ -280,23 +280,6 @@
   color: var(--fg);
 }
 
-/* "Close all tabs" — right-justified past the spacer, before the window
-   controls; same footprint as the new-tab button. */
-.tab-close-all {
-  flex: 0 0 auto;
-  width: 30px;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 15px;
-  cursor: pointer;
-}
-
-.tab-close-all:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
-
 /* The overflow button, rendered only while something is actually clipped and
    listing exactly the clipped tabs. */
 .tab-overflow {
@@ -2440,12 +2423,6 @@ body.explorer-dragging * {
   .tabbar-spacer {
     flex: 0 0 auto;
     min-width: 0;
-  }
-
-  /* Close-all is desktop convenience; on a phone it's clutter next to the
-     switcher (still reachable via long-press → Close all). */
-  .tab-close-all {
-    display: none;
   }
 
   /* The overflow button becomes the tab switcher: a counter pill (TabBar
