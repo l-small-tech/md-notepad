@@ -22,7 +22,9 @@ import { isCommentsPath } from '../../core/comments';
 import { setFlushRequester } from '../stores/flush-signal';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, type RestoredTabInit } from '../stores/tabs';
+import { terminalsStore } from '../stores/terminals';
 import { uiStore } from '../stores/ui';
+import { isAndroid } from '../platform';
 import type { SessionCtx } from './context';
 import { cursorByTab, pathKey, persistedToInit } from './facade';
 
@@ -87,6 +89,8 @@ export function createFlushRestore(ctx: SessionCtx) {
         savedMtimeMs: t.savedMtimeMs,
         cursor: cursorByTab.get(t.id) ?? null,
         groupId: t.groupId,
+        // Terminal tabs contribute no text and no buffer — only their layout.
+        terminal: t.kind === 'terminal' ? terminalsStore.getState().snapshot(t.id) : null,
       })),
       groups,
       existingNoteFiles: ctx.existingNoteFiles,
@@ -148,6 +152,15 @@ export function createFlushRestore(ctx: SessionCtx) {
     const restored: RestoredTabInit[] = [];
     const missing: string[] = [];
     for (const pt of persisted) {
+      if (pt.kind === 'terminal') {
+        // Nothing to read: a terminal tab is pane metadata only, and the
+        // shells respawn when the panes mount. Android has no pty, so a
+        // manifest written on a desktop simply loses its terminal tabs there.
+        if (!isAndroid()) {
+          restored.push(persistedToInit(pt, ''));
+        }
+        continue;
+      }
       if (pt.kind === 'image' || pt.kind === 'import') {
         // Image and import tabs hold no text; just confirm the file still exists.
         if (!pt.filePath) {

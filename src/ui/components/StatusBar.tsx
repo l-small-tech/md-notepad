@@ -21,6 +21,9 @@ const MODE_META: Record<EditorMode, { label: string; hint: string }> = {
   wysiwyg: { label: 'Rich', hint: 'WYSIWYG (Ctrl/Cmd+3)' },
   read: { label: 'Read', hint: 'Reader — read-only (Ctrl/Cmd+4)' },
   draw: { label: 'Draw', hint: 'Vector graphics (Ctrl/Cmd+1)' },
+  // Never rendered: the status bar is hidden entirely on a terminal tab, and
+  // 'term' is the only mode its family allows so there is nothing to pick.
+  term: { label: 'Terminal', hint: 'Shell' },
 };
 
 function ModeSegments({

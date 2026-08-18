@@ -7,6 +7,7 @@
  * needs an explicit boolean rather than a CSS variable.
  */
 
+import { useSyncExternalStore } from 'react';
 import { settingsStore } from './stores/settings';
 import { themeRegistryStore } from './stores/theme-registry';
 
@@ -40,4 +41,14 @@ export function subscribeDark(listener: (dark: boolean) => void): () => void {
     unsubscribeRegistry();
     prefersDark.removeEventListener('change', check);
   };
+}
+
+/** React binding for {@link isDark}. */
+export function useDark(): boolean {
+  return useSyncExternalStore(
+    (onChange) => subscribeDark(onChange),
+    isDark,
+    // Server snapshot: there is no SSR here, but the hook requires one.
+    () => false,
+  );
 }

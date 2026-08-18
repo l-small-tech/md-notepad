@@ -316,6 +316,12 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 const platform = detectPlatform(navigator.platform);
 
 window.addEventListener('keydown', (event) => {
+  // Something nearer the event already claimed this key — a focused terminal
+  // pane resolving its own shortcut, most of all. Re-running the global
+  // dispatcher would fire the action twice.
+  if (event.defaultPrevented) {
+    return;
+  }
   // Escape closes the fullscreen diagram viewer first — it sits on top of
   // everything else (same custom-DOM-modal contract as the dialogs below).
   if (event.key === 'Escape' && diagramViewerStore.getState().open) {

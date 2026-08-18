@@ -15,6 +15,7 @@ import { OutlinePanel } from './components/OutlinePanel';
 import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
 import { ImportView } from './components/ImportView';
+import { TerminalTab } from './components/TerminalTab';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ExportPreviewDialog } from './components/ExportPreviewDialog';
@@ -33,6 +34,7 @@ export function App() {
   const tabs = useTabsStore((s) => s.tabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
+  const activeKind = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.kind);
   const fullscreenView = useUiStore((s) => s.fullscreenView);
 
   // Tap-and-hold anywhere in full screen opens the escape-hatch menu.
@@ -63,28 +65,40 @@ export function App() {
     };
   }, [activeTabId]);
 
+  // A terminal tab is not a document: the ribbon, explorer, outline and status
+  // bar all read editor state it does not have, so they are NOT RENDERED (not
+  // merely hidden) while one is in front. Their open/closed flags in uiStore
+  // are untouched, so switching back to a document restores exactly what was
+  // there. The TabBar stays — it is the window titlebar.
+  const terminalActive = activeKind === 'terminal';
+
   return (
-    <div className={fullscreenView === 'normal' ? 'app' : 'app app-fullscreen'}>
+    <div
+      className={fullscreenView === 'normal' ? 'app' : 'app app-fullscreen'}
+      data-tab-kind={activeKind ?? 'note'}
+    >
       <TabBar />
-      <Ribbon />
+      {!terminalActive && <Ribbon />}
       <div className="editor-area">
-        <FileExplorer />
+        {!terminalActive && <FileExplorer />}
         <div className="editor-stack">
           {tabs.map((tab) =>
-            // A tab's kind never changes to/from 'image' or 'import', so each
-            // branch is stable per key and never remounts an editor (I7 holds).
+            // A tab's kind never changes, so each branch is stable per key and
+            // never remounts an editor (I7 holds).
             tab.kind === 'image' ? (
               <ImageView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : tab.kind === 'import' ? (
               <ImportView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ) : tab.kind === 'terminal' ? (
+              <TerminalTab key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : (
               <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ),
           )}
         </div>
-        <OutlinePanel />
+        {!terminalActive && <OutlinePanel />}
       </div>
-      <StatusBar />
+      {!terminalActive && <StatusBar />}
       <SettingsDialog />
       <ExportPreviewDialog />
       <DiagramViewer />

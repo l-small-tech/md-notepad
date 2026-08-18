@@ -6,8 +6,10 @@ subdirectory README owns its own contracts.
 ## Layering (invariant I9 — lint-enforced)
 
 ```
-ui  ──▶  editors / preview / ipc / core     (ui may import everything)
+ui  ──▶  editors / preview / term / renderer / ipc / core   (ui imports everything)
 editors / preview  ──▶  core, ipc           (never ui, never each other)
+renderer  ──▶  term, core                   (no Tauri, no React, no ui)
+term  ──▶  NOTHING                          (pure library: bytes → screen state)
 ipc  ──▶  @tauri-apps/* only                (never core/editors/preview/ui)
 core ──▶  NOTHING app-local, no DOM, no Tauri, no React
 ```
@@ -17,6 +19,10 @@ core ──▶  NOTHING app-local, no DOM, no Tauri, no React
   sync if paths change.
 - `ipc/` — the only place `invoke()` and `@tauri-apps/api/*` calls live.
   UI code calls `ipc.*` wrappers, never `invoke` directly.
+- `term/` + `renderer/` — the terminal engine and its canvas surface, ported
+  from `smooth-terminal` as self-contained libraries and fenced by the same
+  `no-restricted-imports` rule. They know nothing about tabs, stores or IPC:
+  `ui/components/TerminalPane.tsx` is the single place they meet the app.
 - Type-only imports across layers are allowed downward only (an editor may
   import a core type; core imports no editor types).
 

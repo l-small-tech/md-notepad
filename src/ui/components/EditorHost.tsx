@@ -339,6 +339,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   return (
     <div
       className="editor-host"
+      // `display: none` on purpose, and deliberately NOT what a terminal tab
+      // does (invariant I10, TerminalTab.tsx): a hidden CM6/preview must not
+      // lay out, while a hidden terminal pane must keep its box or its pty is
+      // resized to 1x1. Same problem, opposite right answer.
       style={{ display: active ? 'flex' : 'none' }}
       data-mode={mode satisfies EditorMode}
     >

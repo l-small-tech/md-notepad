@@ -14,6 +14,9 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
 | `SettingsDialog` | M6 | plain form over the settings store |
 | `UpdateChip` | M7 | unobtrusive "Update available → restart" affordance |
+| `TerminalTab` | M9 | one terminal tab page: hosts its split tree — see I10 below |
+| `TerminalPane` | M9 | one pty + engine + canvas + input; the only place src/term and src/renderer meet the app |
+| `PaneTree` | M9 | places a tab's panes as keyed, absolutely-positioned SIBLINGS (nesting them would remount — and kill — a pty on every split) |
 
 ## EditorHost — the never-remount rule (I7)
 
@@ -63,6 +66,24 @@ Rules:
   `style.flex`, bypassing React state so dragging never re-renders. The
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
+
+## TerminalTab — the keep-your-box rule (I10)
+
+The opposite of I7's `display: none`, for the opposite reason. A terminal
+page is hidden with `visibility: hidden` (plus `pointer-events: none`) and
+is **never** unmounted while its tab exists.
+
+`display: none` would measure the pane at 0×0; its `ResizeObserver` would
+resize the pty to 1×1; and every TUI running in it would redraw into a
+corner — which the user sees the instant they switch back. A hidden CM6
+must not lay out, a hidden terminal must. Both call sites carry a comment
+pointing at the other; keep them that way.
+
+The chrome is HIDDEN on a terminal tab: `Ribbon`, `FileExplorer`,
+`OutlinePanel` and `StatusBar` are not rendered at all (they read editor
+state a terminal has none of), while the `TabBar` stays — it is the window
+titlebar. The explorer/outline open-closed flags in `uiStore` are left
+untouched, so switching back to a document restores exactly what was there.
 
 ## Multi-window (M8 tab tear-off)
 
@@ -120,6 +141,33 @@ elsewhere (`navigator.platform`-based helper).
 Don't intercept keys CM6 needs while the editor is focused unless the
 shortcut is in this table (the listener checks `defaultPrevented` and
 event target).
+
+### Terminal tabs
+
+A focused shell owns almost every key, so `keyEventToAction` takes a
+CONTEXT. In `'terminal'` it answers for a short allowlist and returns
+`null` for everything else, which is then encoded and sent to the child —
+mod+S is XOFF, mod+O and mod+U are readline, mod+1..4 mean whatever the
+running program says. `TerminalPane` asks the keymap first and calls
+`preventDefault()` only on what it handles; the global listener's
+`defaultPrevented` guard keeps the two from both firing.
+
+| Keys | Action |
+| --- | --- |
+| mod+Shift+C / mod+Shift+V | copy / paste |
+| mod+C | copy **only when something is selected** — otherwise it encodes as SIGINT |
+| mod+Shift+A | select all |
+| mod+Shift+K | clear scrollback |
+| mod+Shift+D / mod+Shift+E | split right / split down |
+| mod+Shift+X | close pane (the last one closes the tab) |
+| mod+Shift+[ / mod+Shift+] | previous / next pane |
+| Shift+PgUp / Shift+PgDn | scrollback by a page |
+| mod+Shift+↑ / ↓ | scrollback by a line |
+| mod+Shift+Home / End | scrollback to top / bottom |
+| mod+= / mod+- / mod+0 | zoom THIS pane only (not the app-wide editor font) |
+
+Still available from a terminal: new/close tab, next/prev tab, rename tab,
+settings, palette, full screen. Nothing else.
 
 ## UI conventions
 

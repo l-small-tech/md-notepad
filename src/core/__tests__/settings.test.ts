@@ -66,6 +66,21 @@ describe('normalizeSettings', () => {
       explorerExpandedDirs: [],
       scanPreset: 'balanced',
       scanSmoothing: 'precise',
+      // Not supplied above, so every terminal field comes back at its default.
+      terminalProfiles: DEFAULT_SETTINGS.terminalProfiles,
+      defaultTerminalProfile: 'shell',
+      terminalScrollback: 10_000,
+      terminalScrollLines: 3,
+      terminalCursorStyle: 'block',
+      terminalCursorBlink: true,
+      terminalBell: 'visual',
+      terminalCopyOnSelect: false,
+      terminalConfirmMultilinePaste: true,
+      terminalAllowOscClipboard: false,
+      terminalAltSendsEscape: true,
+      terminalBackspaceSendsDelete: true,
+      terminalOnExit: 'close',
+      terminalConfirmCloseRunning: true,
     });
   });
 

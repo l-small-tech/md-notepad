@@ -34,9 +34,22 @@ import { nanoid } from 'nanoid';
 import { createDocModel, type DocModel } from '../../core/doc-model';
 import { deriveTitle, slugifyTitle, stripExtension } from '../../core/title';
 import { baseName } from '../../core/session/plan-flush';
-import { defaultModeFor, docFamilyFor, isModeAllowed } from '../../core/doc-family';
+import {
+  defaultModeFor,
+  docFamilyFor,
+  docFamilyForTab,
+  isModeAllowed,
+} from '../../core/doc-family';
+import { resolveTerminalProfile } from '../../core/settings';
 import type { ModeSync } from '../../core/mode-sync';
-import type { EditorMode, TabGroup, TabKind, TabState, WorkspaceColor } from '../../core/types';
+import type {
+  EditorMode,
+  TabGroup,
+  TabKind,
+  TabState,
+  TerminalSnapshot,
+  WorkspaceColor,
+} from '../../core/types';
 import {
   deriveGroupForInsert,
   nextGroupColor,
@@ -46,6 +59,7 @@ import {
   type GroupedTab,
 } from '../../core/tab-groups';
 import { settingsStore } from './settings';
+import { terminalsStore } from './terminals';
 import { requestFlush } from './flush-signal';
 import { isMobile } from '../platform';
 
@@ -80,6 +94,12 @@ export interface TabEntry extends TabState {
    * from the file's path against settings at open/restore time (session.ts).
    */
   readOnly: boolean;
+  /**
+   * kind='terminal' only: the focused pane's OSC 0/2 title, mirrored here by
+   * the terminals store so `tabDisplayTitle` stays a pure function of the tab.
+   * Null until a shell sets one — the profile name is the fallback.
+   */
+  terminalTitle: string | null;
 }
 
 /** Everything needed to rebuild one tab at restore time (content already read). */
@@ -103,6 +123,12 @@ export interface RestoredTabInit {
   dirty?: boolean;
   /** The file lies in a read-only workspace (see TabEntry.readOnly). Default false. */
   readOnly?: boolean;
+  /** kind='terminal' only: the pane layout to respawn (from the manifest). */
+  terminal?: TerminalSnapshot | null;
+  /** kind='terminal' only: profile for a NEW session (ignored when `terminal` is set). */
+  terminalProfileId?: string;
+  /** kind='terminal' only: inherited working directory for a new session. */
+  terminalCwd?: string | null;
 }
 
 /** What the session controller applies back after a flush completes. */
@@ -220,6 +246,21 @@ export interface TabsState {
     readOnly?: boolean;
   }) => string;
   /** Image viewer tab — read-only, never flushed beyond the manifest. Returns its id. */
+  /**
+   * Open a terminal tab. The label is the profile's name until the shell sets
+   * its own OSC title (see `setTerminalTitle`). Desktop only — callers gate
+   * on `isAndroid()`.
+   */
+  openTerminalTab: (input: {
+    profileId: string;
+    /** Inherited working directory for the first pane. */
+    cwd?: string | null;
+    /** A restored layout (manifest), which wins over profileId/cwd. */
+    snapshot?: TerminalSnapshot | null;
+    groupId?: string | null;
+  }) => string;
+  /** Mirror the focused pane's shell title onto the tab label. */
+  setTerminalTitle: (tabId: string, title: string | null) => void;
   openImageTab: (input: {
     filePath: string;
     savedMtimeMs: number | null;
@@ -280,7 +321,13 @@ export function tabDisplayTitle(tab: {
   customTitle: string | null;
   title: string;
   charCount: number;
+  terminalTitle?: string | null;
 }): string {
+  if (tab.kind === 'terminal') {
+    // A shell's own OSC title wins; a user rename beats even that. `title`
+    // holds the profile name, set when the tab was opened.
+    return tab.customTitle ?? tab.terminalTitle ?? tab.title;
+  }
   if ((tab.kind === 'file' || tab.kind === 'image' || tab.kind === 'import') && tab.filePath) {
     return stripExtension(baseName(tab.filePath));
   }
@@ -326,7 +373,11 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       mode: init?.readOnly
         ? 'read'
         : defaultModeFor(
-            docFamilyFor(init?.filePath ?? init?.notePath),
+            docFamilyForTab({
+              kind: init?.kind ?? 'note',
+              filePath: init?.filePath,
+              notePath: init?.notePath,
+            }),
             init?.mode ?? settingsStore.getState().settings.defaultMode,
           ),
       savedMtimeMs: init?.savedMtimeMs ?? null,
@@ -340,7 +391,26 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       conflict: false,
       preview: false,
       readOnly: init?.readOnly ?? false,
+      terminalTitle: null,
     };
+
+    // A terminal tab's "content" is its pane layout, so it is created here —
+    // the one place every tab (new, restored, reordered) is built — rather
+    // than in each caller. `openSession` is idempotent per tab id.
+    if (entry.kind === 'terminal') {
+      const settings = settingsStore.getState().settings;
+      const profileId =
+        init?.terminal?.panes[0]?.profileId ??
+        init?.terminalProfileId ??
+        settings.defaultTerminalProfile;
+      terminalsStore.getState().openSession(id, {
+        profileId,
+        cwd: init?.terminalCwd ?? null,
+        snapshot: init?.terminal ?? null,
+      });
+      // The label until the shell sets its own OSC title.
+      entry.title = customTitle ?? resolveTerminalProfile(settings, profileId).name;
+    }
 
     model.subscribe((change) => {
       const state = get();
@@ -474,6 +544,11 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           : s.closedNotePaths;
       const obsoleteBufferTabIds =
         closing.kind === 'file' ? [...s.obsoleteBufferTabIds, closing.id] : s.obsoleteBufferTabIds;
+      // A terminal tab's ptys die with it: the panes unmount and kill their
+      // children, and this drops the layout so nothing outlives the tab.
+      if (closing.kind === 'terminal') {
+        terminalsStore.getState().closeSession(id);
+      }
 
       const remaining = s.tabs.filter((t) => t.id !== id);
       // Notepad behavior: closing the last tab leaves one fresh Untitled.
@@ -518,7 +593,13 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       // No closedNotePaths / obsoleteBufferTabIds entries: the tab's files are
-      // being handed to another window, not discarded.
+      // being handed to another window, not discarded. A terminal tab is the
+      // exception in kind rather than in principle: its ptys cannot move
+      // between webviews, so the layout is released here and the receiving
+      // window respawns the same shells in the same directories.
+      if (s.tabs[idx]!.kind === 'terminal') {
+        terminalsStore.getState().closeSession(id);
+      }
       const remaining = s.tabs.filter((t) => t.id !== id);
       if (remaining.length === 0) {
         const fresh = makeTab();
@@ -778,6 +859,13 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     },
 
     restoreSession({ tabs, activeTabId, groups = [] }) {
+      // The whole tab set is replaced, so every terminal layout the old set
+      // owned goes with it (their panes unmount and kill their ptys).
+      for (const old of get().tabs) {
+        if (old.kind === 'terminal') {
+          terminalsStore.getState().closeSession(old.id);
+        }
+      }
       const made = tabs.length > 0 ? tabs.map((t) => makeTab(t)) : [makeTab()];
       // Tolerate anything the manifest recorded: unknown memberships are
       // dropped, empty groups vanish, contiguity is re-established.
@@ -856,6 +944,37 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       addTab(tab, preview);
       requestFlush();
       return tab.id;
+    },
+
+    openTerminalTab({ profileId, cwd = null, snapshot = null, groupId = null }) {
+      const tab = makeTab({
+        id: nanoid(),
+        kind: 'terminal',
+        notePath: null,
+        filePath: null,
+        customTitle: null,
+        mode: 'term',
+        savedMtimeMs: null,
+        groupId,
+        text: '',
+        terminalProfileId: profileId,
+        terminalCwd: cwd,
+        terminal: snapshot,
+      });
+      addTab(tab, false);
+      requestFlush();
+      return tab.id;
+    },
+
+    setTerminalTitle(tabId, title) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.terminalTitle === title) {
+        return;
+      }
+      set({
+        tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, terminalTitle: title } : t)),
+      });
     },
 
     openImageTab({ filePath, savedMtimeMs, preview = false, readOnly = false }) {

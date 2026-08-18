@@ -752,5 +752,6 @@ export function persistedToInit(tab: PersistedTab, text: string, dirty = false):
     dirty,
     // Recomputed (not persisted): settings are loaded before restore runs.
     readOnly: isReadOnlyPath(tab.filePath),
+    ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
   };
 }

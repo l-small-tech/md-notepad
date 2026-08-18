@@ -6,6 +6,7 @@
  * preview/ui, no DOM types in runtime code, no Tauri. Pure logic only.
  */
 
+import type { PaneNode } from './panes';
 import type { ScanPreset, ScanSmoothing } from './whiteboard/scan/types';
 
 /**
@@ -17,8 +18,13 @@ import type { ScanPreset, ScanSmoothing } from './whiteboard/scan/types';
  * 'draw' is the whiteboard editor over a `.svg` file. Which modes a given tab
  * may actually use depends on its document family (core/doc-family.ts): a
  * markdown tab offers Raw/Split/Rich/Read, an SVG tab offers Draw/Raw.
+ *
+ * 'term' is the sentinel mode of a terminal tab — the one mode its family
+ * allows. It exists so a terminal tab's `mode` is a real value every switch
+ * can see rather than a lie ('raw') every consumer has to special-case; the
+ * mode picker and mod+1..4 filter it out for free via `isModeAllowed`.
  */
-export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw';
+export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw' | 'term';
 
 /**
  * 'note'  — an ephemeral Notepad-style tab, backed by a .md file in the
@@ -31,8 +37,13 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw';
  *           `filePath`: offers a one-click "Import as Markdown" (no dialog), or
  *           a link to the already-imported note. Like 'image', it holds no text
  *           and is only recorded in the manifest.
+ * 'terminal' — a shell (or several, in a split layout) instead of a document.
+ *           Holds no text: like 'image'/'import' it is never note-flushed and
+ *           never session-buffered, and the manifest records only the pane
+ *           layout needed to respawn it. Desktop only — there is no pty on
+ *           Android, so the new-tab menu never offers it there.
  */
-export type TabKind = 'note' | 'file' | 'image' | 'import';
+export type TabKind = 'note' | 'file' | 'image' | 'import' | 'terminal';
 
 export interface CursorPos {
   anchor: number;
@@ -205,6 +216,59 @@ export interface WorkspaceEntry {
   treeUri?: string;
 }
 
+/**
+ * Terminal cursor shapes. Deliberately NOT the editor's `CursorStyle`: the
+ * renderer speaks block/underline/bar, the CM6 caret speaks bar/thin/thick/
+ * underscore, and collapsing the two would mean translating in both
+ * directions forever.
+ */
+export const TERMINAL_CURSOR_STYLES = ['block', 'underline', 'bar'] as const;
+export type TerminalCursorStyle = (typeof TERMINAL_CURSOR_STYLES)[number];
+
+/** What a bell does. There is no audible option — a notepad should not beep. */
+export const TERMINAL_BELLS = ['off', 'visual'] as const;
+export type TerminalBell = (typeof TERMINAL_BELLS)[number];
+
+/** What happens to a pane whose shell exited. */
+export const TERMINAL_EXIT_BEHAVIORS = ['close', 'keep'] as const;
+export type TerminalExitBehavior = (typeof TERMINAL_EXIT_BEHAVIORS)[number];
+
+/**
+ * A terminal launch configuration. `program` unset means the user's login
+ * shell, which Rust resolves at spawn time — that way the default profile
+ * stays correct on a machine whose `$SHELL` differs from the one these
+ * settings were written on.
+ */
+export interface TerminalProfile {
+  id: string;
+  name: string;
+  /** Unset = the login shell (`default_shell`). */
+  program?: string;
+  args: string[];
+  /** Unset = inherit: a new terminal starts in the active pane's cwd. */
+  cwd?: string;
+  /** Extra environment on top of the inherited one. */
+  env: Record<string, string>;
+  /** Per-profile cell-size override, in CSS pixels. Unset = the editor font size. */
+  fontSize?: number;
+}
+
+/** The profile that runs the login shell. Always present. */
+export const SHELL_PROFILE_ID = 'shell';
+
+/**
+ * A terminal tab's persistable layout: enough to respawn the same shells in
+ * the same arrangement, and nothing more. Scrollback is never persisted — a
+ * restored terminal is a NEW shell in the recorded directory, which is the
+ * only honest thing a terminal can restore.
+ */
+export interface TerminalSnapshot {
+  /** The split tree, in the JSON shape `core/panes.ts` round-trips. */
+  tree: PaneNode;
+  activePaneId: string;
+  panes: { id: string; profileId: string; cwd?: string }[];
+}
+
 export interface Settings {
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
@@ -276,4 +340,37 @@ export interface Settings {
    */
   scanPreset: ScanPreset;
   scanSmoothing: ScanSmoothing;
+
+  /*
+   * Terminal tabs. Flat `terminal*` fields rather than a nested object,
+   * because every other setting here is flat and `normalizeSettings` and the
+   * settings dialog both assume that. Desktop-only in effect: Android never
+   * opens a terminal tab, so these simply go unread there.
+   */
+  /** Launch configurations offered by the new-tab menu. */
+  terminalProfiles: TerminalProfile[];
+  /** Id of the profile a plain "New terminal" uses. */
+  defaultTerminalProfile: string;
+  /** Lines of scrollback kept per pane (0…1,000,000). */
+  terminalScrollback: number;
+  /** Lines scrolled per wheel notch. */
+  terminalScrollLines: number;
+  terminalCursorStyle: TerminalCursorStyle;
+  terminalCursorBlink: boolean;
+  terminalBell: TerminalBell;
+  /** Copy to the clipboard the moment a selection is made (X11 habit). */
+  terminalCopyOnSelect: boolean;
+  /** Confirm before pasting text that would submit more than one line. */
+  terminalConfirmMultilinePaste: boolean;
+  /** Let applications write the clipboard through OSC 52. Off: any program
+   *  that can print to the terminal could otherwise set it. */
+  terminalAllowOscClipboard: boolean;
+  /** Alt as an ESC prefix; off makes it a compose key. */
+  terminalAltSendsEscape: boolean;
+  /** Backspace sends DEL (the xterm default) rather than BS. */
+  terminalBackspaceSendsDelete: boolean;
+  /** A pane whose shell exited: close it, or keep it showing why. */
+  terminalOnExit: TerminalExitBehavior;
+  /** Confirm closing a terminal tab or pane whose shell is still alive. */
+  terminalConfirmCloseRunning: boolean;
 }

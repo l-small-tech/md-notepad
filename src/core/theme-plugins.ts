@@ -25,10 +25,16 @@
  * - The brand trio feeds the whiteboard ink derivation in base.css; when a
  *   theme omits it, base.css derives a trio from the theme's own
  *   accent/danger/fg.
+ * - `terminal` is an optional block of terminal colors (16 ANSI names plus
+ *   background/foreground/cursor/selection). Absent — the case for every
+ *   theme shipped today — the palette is DERIVED from `branding` by
+ *   `core/terminal-palette.ts`, so no theme has to think about it.
  * - `css` is an intentional escape hatch: verbatim CSS the author scopes
  *   themselves (for spacing/font tweaks the variables can't express). It is
  *   emitted as-is — the themes folder is the user's own machine.
  */
+
+import { ANSI_NAMES, type TerminalPalette } from './terminal-palette';
 
 /** The ten semantic palette keys (JSON field → CSS custom property). Every
  *  scheme block in the app is these variables; see styles/base.css. */
@@ -107,6 +113,12 @@ export interface ThemePlugin {
   branding: Branding;
   /** Optional markdown-element colors (the `--md-*` vars), flat. */
   syntax?: SyntaxPalette;
+  /**
+   * Optional terminal colors. Absent = derived from `branding`
+   * (core/terminal-palette.ts). A partial block merges over the derived
+   * palette, so setting one key sets one key.
+   */
+  terminal?: TerminalPalette;
   /** Optional verbatim CSS appended after the branding block. */
   css?: string;
   /** Seed-content version, stamped only on the built-in examples we write to the
@@ -114,6 +126,22 @@ export interface ThemePlugin {
    *  definition changes (see ipc/theme-loader.ts). User-authored themes omit it. */
   version?: number;
 }
+
+/**
+ * The keys a `terminal` block may carry. Split from `ANSI_NAMES` so this
+ * module keeps its own list of what is parseable; the two are held together
+ * by `terminal-palette.test.ts`.
+ */
+const TERMINAL_COLOR_KEYS = [
+  ...ANSI_NAMES,
+  'background',
+  'foreground',
+  'cursor',
+  'selection',
+] as const;
+
+/** These two are meaningfully NULLABLE: null means "no override". */
+const TERMINAL_NULLABLE_KEYS = ['cursorText', 'selectionText'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -169,14 +197,36 @@ export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
   const syntaxPicked = pickSafe(raw.syntax, SYNTAX_KEY_LIST);
   const syntax = Object.keys(syntaxPicked).length > 0 ? syntaxPicked : undefined;
 
+  const terminal = parseTerminalPalette(raw.terminal);
+
   return {
     id,
     name,
     mode,
     branding,
     ...(syntax ? { syntax } : {}),
+    ...(terminal ? { terminal } : {}),
     ...(css ? { css } : {}),
   };
+}
+
+/**
+ * The optional `terminal` block. Same `isSafeColor` discipline as branding —
+ * these values never reach CSS, but a hand-edited theme should degrade the
+ * same way everywhere. Returns undefined when nothing usable is in it.
+ */
+function parseTerminalPalette(raw: unknown): TerminalPalette | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const out: TerminalPalette = pickSafe(raw, TERMINAL_COLOR_KEYS);
+  for (const key of TERMINAL_NULLABLE_KEYS) {
+    const value = raw[key];
+    if (value === null || isSafeColor(value)) {
+      out[key] = value === null ? null : (value as string).trim();
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** CSS-escape a single-quoted attribute value (id is already slug-safe, but be

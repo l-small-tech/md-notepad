@@ -28,7 +28,11 @@ import { cycleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
+import { activePaneOf, terminalsStore } from './stores/terminals';
+import { runPaneAction } from './pane-actions';
 import { uiStore } from './stores/ui';
+import { openTerminal } from './terminal-open';
+import { isAndroid } from './platform';
 
 export interface AppCommand {
   /** Stable kebab-case identifier. */
@@ -110,6 +114,48 @@ export function runShortcutAction(action: ShortcutAction): void {
       // Toggle like the palette: the shortcut both opens and dismisses it.
       searchStore.getState().setOpen(!searchStore.getState().open);
       break;
+    case 'terminal-split':
+      terminalsStore
+        .getState()
+        .splitActivePane(store.activeTabId ?? '', action.direction === 'right' ? 'row' : 'column');
+      break;
+    case 'terminal-close-pane':
+      closeActiveTerminalPane();
+      break;
+    case 'terminal-cycle-pane':
+      terminalsStore.getState().cyclePane(store.activeTabId ?? '', action.delta);
+      break;
+    case 'terminal-copy':
+    case 'terminal-paste':
+    case 'terminal-select-all':
+    case 'terminal-clear-scrollback':
+    case 'terminal-scroll': {
+      // Pane-local: routed to the focused pane's own runner so the palette,
+      // the context menu and the keyboard share one implementation.
+      const pane = store.activeTabId ? activePaneOf(store.activeTabId) : null;
+      if (pane) {
+        runPaneAction(pane.id, action);
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Close the focused pane of the active terminal tab. Closing the LAST pane
+ * closes the tab, which is what makes mod+Shift+X feel like mod+W once a
+ * split has been collapsed back to one shell.
+ */
+function closeActiveTerminalPane(): void {
+  const store = tabsStore.getState();
+  const tabId = store.activeTabId;
+  const tab = tabId ? store.tabs.find((t) => t.id === tabId) : undefined;
+  if (!tabId || tab?.kind !== 'terminal') {
+    return;
+  }
+  const pane = activePaneOf(tabId);
+  if (pane && terminalsStore.getState().closePane(pane.id)) {
+    closeTab(tabId);
   }
 }
 
@@ -129,10 +175,22 @@ function hasActiveTab(): boolean {
   return tabsStore.getState().activeTab() !== undefined;
 }
 
-/** An active tab that holds markdown text (not an image/import viewer). */
+/** An active tab that holds markdown text (not an image/import/terminal tab). */
 function hasActiveTextTab(): boolean {
   const tab = tabsStore.getState().activeTab();
-  return tab !== undefined && tab.kind !== 'image' && tab.kind !== 'import';
+  return (
+    tab !== undefined && tab.kind !== 'image' && tab.kind !== 'import' && tab.kind !== 'terminal'
+  );
+}
+
+/** Terminals exist only on desktop — there is no pty on Android. */
+function terminalsAvailable(): boolean {
+  return !isAndroid();
+}
+
+/** A terminal tab is in front, so the terminal-only commands can act. */
+function hasActiveTerminal(): boolean {
+  return tabsStore.getState().activeTab()?.kind === 'terminal';
 }
 
 /** A palette entry that delegates to the shared shortcut implementation. */
@@ -259,6 +317,67 @@ export function buildCommands(): AppCommand[] {
         keywords: ['headings', 'toc', 'table', 'contents', 'navigate'],
         shortcut: modKey('O', { shift: true }),
       },
+    ),
+    // Terminal
+    {
+      id: 'new-terminal',
+      title: 'New terminal',
+      keywords: ['shell', 'console', 'bash', 'zsh', 'powershell', 'command'],
+      enabled: terminalsAvailable,
+      run: () => void openTerminal(),
+    },
+    // One entry per configured profile, so every launch configuration is
+    // reachable from the keyboard. Hidden when there is only the one.
+    ...(settingsStore.getState().settings.terminalProfiles.length > 1
+      ? settingsStore.getState().settings.terminalProfiles.map((profile) => ({
+          id: `new-terminal-${profile.id}`,
+          title: `New terminal: ${profile.name}`,
+          keywords: ['shell', 'console', 'profile'],
+          enabled: terminalsAvailable,
+          run: () => void openTerminal(profile.id),
+        }))
+      : []),
+    fromAction(
+      'terminal-split-right',
+      'Terminal: split right',
+      { type: 'terminal-split', direction: 'right' },
+      { shortcut: modKey('D', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-split-down',
+      'Terminal: split down',
+      { type: 'terminal-split', direction: 'down' },
+      { shortcut: modKey('E', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-close-pane',
+      'Terminal: close pane',
+      { type: 'terminal-close-pane' },
+      { shortcut: modKey('X', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-copy',
+      'Terminal: copy',
+      { type: 'terminal-copy' },
+      { shortcut: modKey('C', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-paste',
+      'Terminal: paste',
+      { type: 'terminal-paste' },
+      { shortcut: modKey('V', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-select-all',
+      'Terminal: select all',
+      { type: 'terminal-select-all' },
+      { shortcut: modKey('A', { shift: true }), enabled: hasActiveTerminal },
+    ),
+    fromAction(
+      'terminal-clear-scrollback',
+      'Terminal: clear scrollback',
+      { type: 'terminal-clear-scrollback' },
+      { shortcut: modKey('K', { shift: true }), enabled: hasActiveTerminal },
     ),
     // Palette-only commands (no keyboard shortcut today)
     {

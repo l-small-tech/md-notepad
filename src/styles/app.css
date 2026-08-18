@@ -2354,3 +2354,148 @@ body.explorer-dragging * {
     max-width: 75vw;
   }
 }
+
+/* ---- Terminal tabs ------------------------------------------------------
+   The pane tree and the terminal surface, ported with the renderer from
+   smooth-terminal. Nothing here is read by src/renderer — it is handed its
+   theme and font as values (see src/renderer/README.md); these rules only
+   place the elements and paint the chrome around them. */
+
+/* INVARIANT I10: a terminal page is hidden with `visibility`, never
+   `display: none`, so its panes keep their measured size. A collapsed pane
+   resizes its pty to 1x1 and every TUI in it redraws into a corner. */
+.terminal-tab {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--editor-bg);
+}
+
+.pane-area {
+  position: absolute;
+  inset: 0;
+}
+
+.pane-slot {
+  position: absolute;
+  overflow: hidden;
+}
+
+/* Sits on the seam between two panes, centered on it, so it can be grabbed
+   without either pane giving up a column. */
+.pane-divider {
+  position: absolute;
+  z-index: 5;
+  background: transparent;
+}
+
+.pane-divider[data-direction='row'] {
+  width: 5px;
+  margin-left: -2px;
+  cursor: col-resize;
+}
+
+.pane-divider[data-direction='column'] {
+  height: 5px;
+  margin-top: -2px;
+  cursor: row-resize;
+}
+
+.pane-divider:hover {
+  background: var(--accent);
+}
+
+/* ---- Terminal pane ------------------------------------------------------ */
+
+/* The pane holds the surface; focus lives on the hidden textarea inside it
+   (`.term-input`) and the canvas is pure paint (`aria-hidden`, no pointer
+   target of its own). */
+.term-pane {
+  position: relative;
+  /* The cell font is set on the canvas by the renderer from a FontSpec; this
+     keeps the hidden IME textarea (`font: inherit`) on the same face. */
+  font-family: var(--font-mono);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
+
+/* Which pane has the keyboard only needs saying when there is more than one. */
+.pane-area[data-split='true'] .term-pane-active {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The visual bell: one short flash of the pane, no sound, no chrome. */
+.term-pane-bell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--fg);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* Sized by flex, measured by TermView: the canvas is absolutely positioned so
+   that its own size can never feed back into the element it is measured from
+   (a resize loop that shrinks the grid one row at a time). */
+.term-surface {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.term-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+
+/* The real focus target. A web view only runs IME composition inside an
+   editable element, so the input layer keeps an invisible one-cell textarea and
+   parks it over the cursor — that is where the candidate window appears. It
+   must stay in the layout (not `display: none`) to be focusable, and must not
+   catch the pointer, which belongs to selection. */
+.term-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font: inherit;
+  line-height: 1;
+  overflow: hidden;
+  resize: none;
+  white-space: pre;
+  pointer-events: none;
+}
+
+/* Only shown while something is worth saying (starting, spawn failed, child
+   exited) — a healthy terminal has no chrome. */
+.term-status {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-alt);
+  font-size: 11px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}

@@ -230,3 +230,108 @@ describe('keyEventToAction — non-interception', () => {
     expect(keyEventToAction(key({ key: 'n', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
   });
 });
+
+describe('keyEventToAction — terminal context', () => {
+  const term = (partial: Partial<KeyDescriptor> & { key: string }) =>
+    keyEventToAction(key(partial), 'other', 'terminal');
+  const doc = (partial: Partial<KeyDescriptor> & { key: string }) =>
+    keyEventToAction(key(partial), 'other');
+
+  test('terminal chords resolve only in a terminal', () => {
+    const cases: [Partial<KeyDescriptor> & { key: string }, unknown][] = [
+      [{ key: 'c', ctrlKey: true, shiftKey: true }, { type: 'terminal-copy' }],
+      [{ key: 'v', ctrlKey: true, shiftKey: true }, { type: 'terminal-paste' }],
+      [{ key: 'a', ctrlKey: true, shiftKey: true }, { type: 'terminal-select-all' }],
+      [{ key: 'k', ctrlKey: true, shiftKey: true }, { type: 'terminal-clear-scrollback' }],
+      [
+        { key: 'd', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-split', direction: 'right' },
+      ],
+      [
+        { key: 'e', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-split', direction: 'down' },
+      ],
+      [{ key: 'x', ctrlKey: true, shiftKey: true }, { type: 'terminal-close-pane' }],
+      [
+        { key: '[', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-cycle-pane', delta: -1 },
+      ],
+      [
+        { key: ']', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-cycle-pane', delta: 1 },
+      ],
+      [
+        { key: 'ArrowUp', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-scroll', to: 'lineUp' },
+      ],
+      [
+        { key: 'ArrowDown', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-scroll', to: 'lineDown' },
+      ],
+      [
+        { key: 'Home', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-scroll', to: 'top' },
+      ],
+      [
+        { key: 'End', ctrlKey: true, shiftKey: true },
+        { type: 'terminal-scroll', to: 'bottom' },
+      ],
+      [
+        { key: 'PageUp', shiftKey: true },
+        { type: 'terminal-scroll', to: 'pageUp' },
+      ],
+      [
+        { key: 'PageDown', shiftKey: true },
+        { type: 'terminal-scroll', to: 'pageDown' },
+      ],
+    ];
+    for (const [descriptor, expected] of cases) {
+      expect(term(descriptor), JSON.stringify(descriptor)).toEqual(expected);
+      // Symmetry: a document tab never sees them, so CM6 keeps its bindings.
+      expect(doc(descriptor)?.type ?? '', `document: ${JSON.stringify(descriptor)}`).not.toMatch(
+        /^terminal-/,
+      );
+    }
+  });
+
+  test('plain mod+C resolves to copy — the pane turns it back into SIGINT', () => {
+    // The terminal convention: with a selection it copies, without one it
+    // interrupts. Only the pane knows which, so the chord resolves here and
+    // TerminalPane declines it when nothing is selected.
+    expect(term({ key: 'c', ctrlKey: true })).toEqual({ type: 'terminal-copy' });
+    expect(doc({ key: 'c', ctrlKey: true })).toBeNull();
+  });
+
+  test('the window/tab chords a user would be stranded without still fire', () => {
+    expect(term({ key: 'n', ctrlKey: true })).toEqual({ type: 'new-tab' });
+    expect(term({ key: 'w', ctrlKey: true })).toEqual({ type: 'close-tab' });
+    expect(term({ key: 'Tab', ctrlKey: true })).toEqual({ type: 'next-tab' });
+    expect(term({ key: 'Tab', ctrlKey: true, shiftKey: true })).toEqual({ type: 'prev-tab' });
+    expect(term({ key: 'k', ctrlKey: true })).toEqual({ type: 'open-palette' });
+    expect(term({ key: ',', ctrlKey: true })).toEqual({ type: 'open-settings' });
+    expect(term({ key: '=', ctrlKey: true })).toEqual({ type: 'font-inc' });
+    expect(term({ key: '0', ctrlKey: true })).toEqual({ type: 'font-reset' });
+    expect(term({ key: 'F11' })).toEqual({ type: 'toggle-fullscreen' });
+    expect(term({ key: 'F2' })).toEqual({ type: 'rename-tab' });
+  });
+
+  test('everything else belongs to the shell', () => {
+    // mod+S is XOFF, mod+O and mod+U are readline, mod+1..4 mean whatever the
+    // running program says. Intercepting any of them would be a bug the user
+    // hits inside vim within a minute.
+    for (const descriptor of [
+      { key: 's', ctrlKey: true },
+      { key: 's', ctrlKey: true, shiftKey: true },
+      { key: 'o', ctrlKey: true },
+      { key: 'o', ctrlKey: true, shiftKey: true },
+      { key: 'f', ctrlKey: true, shiftKey: true },
+      { key: '1', ctrlKey: true },
+      { key: '4', ctrlKey: true },
+      { key: 'u', ctrlKey: true },
+      { key: 'd', ctrlKey: true },
+      { key: 'a' },
+    ] satisfies (Partial<KeyDescriptor> & { key: string })[]) {
+      expect(term(descriptor), JSON.stringify(descriptor)).toBeNull();
+    }
+  });
+});

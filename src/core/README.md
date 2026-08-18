@@ -25,6 +25,7 @@ do not rewrite them.
 | `panes.ts` | terminal | the split tree — immutable binary tree of panes, one per terminal tab |
 | `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
 | `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
+| `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor; an optional `terminal` block in a theme merges over it |
 
 ## Contracts you must not break
 

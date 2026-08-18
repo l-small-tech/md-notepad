@@ -40,6 +40,7 @@ import {
   type EditorMode,
   type TabGroup,
   type TabKind,
+  type TerminalSnapshot,
 } from '../types';
 import { slugifyTitle } from '../title';
 
@@ -65,6 +66,8 @@ export interface SessionTabView {
   cursor: CursorPos | null;
   /** Tab-group membership (Chrome-style groups). Absent/undefined = ungrouped. */
   groupId?: string | null;
+  /** kind='terminal' only: the pane layout to persist (terminalsStore.snapshot). */
+  terminal?: TerminalSnapshot | null;
 }
 
 export interface AppSessionView {
@@ -118,6 +121,11 @@ export interface PersistedTab {
   cursor: CursorPos | null;
   /** Group membership; optional so pre-groups manifests stay parseable. */
   groupId?: string | null;
+  /**
+   * kind='terminal' only: the pane layout to respawn. Absent on every other
+   * kind, and never carries scrollback — see `TerminalSnapshot`.
+   */
+  terminal?: TerminalSnapshot | null;
 }
 
 export interface SessionManifest {
@@ -128,7 +136,7 @@ export interface SessionManifest {
   groups?: TabGroup[];
 }
 
-const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import'];
+const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import', 'terminal'];
 
 function isKnownTabKind(value: unknown): value is TabKind {
   return (KNOWN_TAB_KINDS as readonly unknown[]).includes(value);
@@ -430,6 +438,8 @@ export function planFlush(view: AppSessionView): FlushPlan {
       hasBuffer: tab.kind === 'file' && tab.fileDirty,
       cursor: tab.cursor,
       groupId: tab.groupId ?? null,
+      // Terminal tabs contribute NO writes and NO buffer — only this.
+      ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
     })),
   };
   // Persist only group definitions some tab references — an empty/stale

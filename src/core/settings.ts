@@ -12,6 +12,10 @@ import {
   CURSOR_STYLES,
   DEFAULT_COLOR_SCHEME,
   EDITOR_FONT_IDS,
+  SHELL_PROFILE_ID,
+  TERMINAL_BELLS,
+  TERMINAL_CURSOR_STYLES,
+  TERMINAL_EXIT_BEHAVIORS,
   UI_FONT_IDS,
   WORKSPACE_COLORS,
 } from './types';
@@ -27,10 +31,25 @@ import type {
   CursorStyle,
   EditorFontId,
   Settings,
+  TerminalBell,
+  TerminalCursorStyle,
+  TerminalExitBehavior,
+  TerminalProfile,
   UiFontId,
   WorkspaceColor,
   WorkspaceEntry,
 } from './types';
+
+/**
+ * The profiles a fresh install offers. The first is the login shell, which is
+ * why it names no program: Rust resolves `$SHELL` at spawn time. The second is
+ * an example agentic-CLI profile — harmless when `claude` is not installed
+ * (the pane shows the spawn error and nothing else breaks).
+ */
+export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
+  { id: SHELL_PROFILE_ID, name: 'System shell', args: [], env: {} },
+  { id: 'claude', name: 'Claude Code', program: 'claude', args: [], env: {} },
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   notesDir: null,
@@ -56,7 +75,26 @@ export const DEFAULT_SETTINGS: Settings = {
   explorerExpandedDirs: [],
   scanPreset: DEFAULT_SCAN_PRESET,
   scanSmoothing: DEFAULT_SCAN_SMOOTHING,
+
+  terminalProfiles: DEFAULT_TERMINAL_PROFILES.map((profile) => ({ ...profile })),
+  defaultTerminalProfile: SHELL_PROFILE_ID,
+  terminalScrollback: 10_000,
+  terminalScrollLines: 3,
+  terminalCursorStyle: 'block',
+  terminalCursorBlink: true,
+  terminalBell: 'visual',
+  terminalCopyOnSelect: false,
+  terminalConfirmMultilinePaste: true,
+  terminalAllowOscClipboard: false,
+  terminalAltSendsEscape: true,
+  terminalBackspaceSendsDelete: true,
+  terminalOnExit: 'close',
+  terminalConfirmCloseRunning: true,
 };
+
+/** Bounds the settings UI enforces, exported so the UI cannot disagree. */
+export const TERMINAL_SCROLLBACK_RANGE = { min: 0, max: 1_000_000 } as const;
+export const TERMINAL_SCROLL_LINES_RANGE = { min: 1, max: 20 } as const;
 
 /**
  * Upper bound on a persisted explorer path list. Folders the user expanded and
@@ -142,6 +180,71 @@ export function normalizePathList(raw: unknown): string[] {
   return out.length > MAX_EXPLORER_PATHS ? out.slice(out.length - MAX_EXPLORER_PATHS) : out;
 }
 
+/** A string map with string values; anything else in it is dropped. */
+function normalizeEnv(raw: unknown): Record<string, string> {
+  if (!isRecord(raw)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.length > 0 && typeof value === 'string') {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/** One hand-editable profile. Returns null when it has no usable id. */
+export function normalizeTerminalProfile(raw: unknown): TerminalProfile | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  if (id.length === 0) {
+    return null;
+  }
+  const name = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : id;
+  const program =
+    typeof raw.program === 'string' && raw.program.trim().length > 0
+      ? raw.program.trim()
+      : undefined;
+  const cwd = typeof raw.cwd === 'string' && raw.cwd.length > 0 ? raw.cwd : undefined;
+  const fontSize =
+    typeof raw.fontSize === 'number' && Number.isFinite(raw.fontSize)
+      ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(raw.fontSize)))
+      : undefined;
+  return {
+    id,
+    name,
+    ...(program ? { program } : {}),
+    args: Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [],
+    ...(cwd ? { cwd } : {}),
+    env: normalizeEnv(raw.env),
+    ...(fontSize !== undefined ? { fontSize } : {}),
+  };
+}
+
+/**
+ * The profile list, always non-empty: an empty or unreadable list falls back
+ * to the defaults, because a terminal with no profile could never be opened
+ * and the user would have no UI to fix it with.
+ */
+function normalizeTerminalProfiles(raw: unknown): TerminalProfile[] {
+  const list = Array.isArray(raw)
+    ? raw.map(normalizeTerminalProfile).filter((p): p is TerminalProfile => p !== null)
+    : [];
+  const seen = new Set<string>();
+  // Later duplicates lose: the first entry for an id is the one tabs resolve.
+  const unique = list.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+  return unique.length > 0 ? unique : DEFAULT_TERMINAL_PROFILES.map((p) => ({ ...p }));
+}
+
+function clampInt(raw: unknown, fallback: number, min: number, max: number): number {
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? Math.min(max, Math.max(min, Math.round(raw)))
+    : fallback;
+}
+
 /** Per-field validation; every invalid field falls back to its default. */
 export function normalizeSettings(raw: unknown): Settings {
   const r = isRecord(raw) ? raw : {};
@@ -155,6 +258,7 @@ export function normalizeSettings(raw: unknown): Settings {
       : DEFAULT_COLOR_SCHEME;
   const rawTheme =
     r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme;
+  const terminalProfiles = normalizeTerminalProfiles(r.terminalProfiles);
   return {
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,
     // The Theme picker is unified (Settings): a plugin scheme always follows the
@@ -217,5 +321,69 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.scanSmoothing === 'string' && r.scanSmoothing in SCAN_SMOOTHING
         ? (r.scanSmoothing as ScanSmoothing)
         : d.scanSmoothing,
+
+    terminalProfiles: terminalProfiles,
+    // A default naming no surviving profile would make "New terminal" fail
+    // silently, so it degrades to the first profile that does exist.
+    defaultTerminalProfile: terminalProfiles.some((p) => p.id === r.defaultTerminalProfile)
+      ? (r.defaultTerminalProfile as string)
+      : (terminalProfiles[0]?.id ?? SHELL_PROFILE_ID),
+    terminalScrollback: clampInt(
+      r.terminalScrollback,
+      d.terminalScrollback,
+      TERMINAL_SCROLLBACK_RANGE.min,
+      TERMINAL_SCROLLBACK_RANGE.max,
+    ),
+    terminalScrollLines: clampInt(
+      r.terminalScrollLines,
+      d.terminalScrollLines,
+      TERMINAL_SCROLL_LINES_RANGE.min,
+      TERMINAL_SCROLL_LINES_RANGE.max,
+    ),
+    terminalCursorStyle: (TERMINAL_CURSOR_STYLES as readonly unknown[]).includes(
+      r.terminalCursorStyle,
+    )
+      ? (r.terminalCursorStyle as TerminalCursorStyle)
+      : d.terminalCursorStyle,
+    terminalCursorBlink:
+      typeof r.terminalCursorBlink === 'boolean' ? r.terminalCursorBlink : d.terminalCursorBlink,
+    terminalBell: (TERMINAL_BELLS as readonly unknown[]).includes(r.terminalBell)
+      ? (r.terminalBell as TerminalBell)
+      : d.terminalBell,
+    terminalCopyOnSelect:
+      typeof r.terminalCopyOnSelect === 'boolean' ? r.terminalCopyOnSelect : d.terminalCopyOnSelect,
+    terminalConfirmMultilinePaste:
+      typeof r.terminalConfirmMultilinePaste === 'boolean'
+        ? r.terminalConfirmMultilinePaste
+        : d.terminalConfirmMultilinePaste,
+    terminalAllowOscClipboard:
+      typeof r.terminalAllowOscClipboard === 'boolean'
+        ? r.terminalAllowOscClipboard
+        : d.terminalAllowOscClipboard,
+    terminalAltSendsEscape:
+      typeof r.terminalAltSendsEscape === 'boolean'
+        ? r.terminalAltSendsEscape
+        : d.terminalAltSendsEscape,
+    terminalBackspaceSendsDelete:
+      typeof r.terminalBackspaceSendsDelete === 'boolean'
+        ? r.terminalBackspaceSendsDelete
+        : d.terminalBackspaceSendsDelete,
+    terminalOnExit: (TERMINAL_EXIT_BEHAVIORS as readonly unknown[]).includes(r.terminalOnExit)
+      ? (r.terminalOnExit as TerminalExitBehavior)
+      : d.terminalOnExit,
+    terminalConfirmCloseRunning:
+      typeof r.terminalConfirmCloseRunning === 'boolean'
+        ? r.terminalConfirmCloseRunning
+        : d.terminalConfirmCloseRunning,
   };
+}
+
+/** The profile with this id, or the default one, or the first that exists. */
+export function resolveTerminalProfile(settings: Settings, id?: string): TerminalProfile {
+  const byId = id ? settings.terminalProfiles.find((p) => p.id === id) : undefined;
+  if (byId) {
+    return byId;
+  }
+  const fallback = settings.terminalProfiles.find((p) => p.id === settings.defaultTerminalProfile);
+  return fallback ?? settings.terminalProfiles[0] ?? { ...DEFAULT_TERMINAL_PROFILES[0]! };
 }

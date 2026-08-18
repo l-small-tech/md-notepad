@@ -15,19 +15,45 @@
  */
 
 import { extName } from './session/plan-flush';
-import type { EditorMode } from './types';
+import type { EditorMode, TabKind } from './types';
 
-export type DocFamily = 'markdown' | 'svg';
+export type DocFamily = 'markdown' | 'svg' | 'terminal';
 
 const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
 const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
+/**
+ * A terminal offers exactly one mode. It still goes through this table so the
+ * mode picker and the mod+1..4 shortcuts filter it out with the same
+ * `isModeAllowed` check everything else uses, instead of a special case each.
+ */
+const TERMINAL_MODES: readonly EditorMode[] = ['term'];
 
 export function docFamilyFor(path: string | null | undefined): DocFamily {
   return path && extName(path).toLowerCase() === '.svg' ? 'svg' : 'markdown';
 }
 
+/**
+ * The family of a whole tab. A terminal tab has no path at all, so the
+ * path-keyed function above cannot see it — callers holding a tab use this
+ * one, callers holding only a path use `docFamilyFor`.
+ */
+export function docFamilyForTab(tab: {
+  kind: TabKind;
+  filePath?: string | null;
+  notePath?: string | null;
+}): DocFamily {
+  return tab.kind === 'terminal' ? 'terminal' : docFamilyFor(tab.filePath ?? tab.notePath);
+}
+
 export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
-  return family === 'svg' ? SVG_MODES : MARKDOWN_MODES;
+  switch (family) {
+    case 'svg':
+      return SVG_MODES;
+    case 'terminal':
+      return TERMINAL_MODES;
+    default:
+      return MARKDOWN_MODES;
+  }
 }
 
 export function isModeAllowed(family: DocFamily, mode: EditorMode): boolean {

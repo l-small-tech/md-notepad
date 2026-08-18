@@ -11,6 +11,7 @@
  * - wysiwyg: source lines don't exist in the rendered doc — jump by heading
  *   index via the adapter's (optional) revealHeading.
  * - draw: a whiteboard has no markdown outline at all — nothing to jump to.
+ * - term: a terminal has no document; the outline panel is not even rendered.
  */
 
 import type { EditorMode } from '../core/types';
@@ -35,6 +36,7 @@ export function planOutlineJump(
       // The adapter may not implement revealHeading; the executor no-ops then.
       return { kind: 'heading', index: headingIndex };
     case 'draw':
+    case 'term':
       return { kind: 'none' };
   }
 }

@@ -206,3 +206,62 @@ describe('themeDeclarations', () => {
     expect(decls).toBe('  --bg: #eee;');
   });
 });
+
+describe('the optional terminal block', () => {
+  test('is absent unless declared — every shipped theme derives instead', () => {
+    expect(parseThemePlugin('t', { branding: { bg: '#fff' } })!.terminal).toBeUndefined();
+    expect(
+      parseThemePlugin('t', { branding: { bg: '#fff' }, terminal: 'nope' })!.terminal,
+    ).toBeUndefined();
+    // Nothing usable in it is the same as not declaring it.
+    expect(
+      parseThemePlugin('t', { branding: { bg: '#fff' }, terminal: { nonsense: '#fff' } })!.terminal,
+    ).toBeUndefined();
+  });
+
+  test('keeps the ANSI names and the four chrome colors', () => {
+    const plugin = parseThemePlugin('t', {
+      branding: { bg: '#fff' },
+      terminal: {
+        background: '#101010',
+        foreground: '#e0e0e0',
+        cursor: '#ff0',
+        selection: '#333',
+        black: '#000',
+        brightWhite: '#fff',
+      },
+    })!;
+    expect(plugin.terminal).toEqual({
+      background: '#101010',
+      foreground: '#e0e0e0',
+      cursor: '#ff0',
+      selection: '#333',
+      black: '#000',
+      brightWhite: '#fff',
+    });
+  });
+
+  test('null is preserved on the two nullable keys — it means "no override"', () => {
+    const plugin = parseThemePlugin('t', {
+      branding: { bg: '#fff' },
+      terminal: { cursorText: null, selectionText: '#fff' },
+    })!;
+    expect(plugin.terminal).toEqual({ cursorText: null, selectionText: '#fff' });
+  });
+
+  test('rejects values that would escape a CSS declaration, like branding does', () => {
+    const plugin = parseThemePlugin('t', {
+      branding: { bg: '#fff' },
+      terminal: { red: 'red; }', green: '#0f0', blue: '', cursor: 42 },
+    })!;
+    expect(plugin.terminal).toEqual({ green: '#0f0' });
+  });
+
+  test('never reaches the generated CSS — it is not a variable', () => {
+    const plugin = parseThemePlugin('t', {
+      branding: { bg: '#fff' },
+      terminal: { background: '#101010' },
+    })!;
+    expect(themeDeclarations(plugin)).not.toContain('#101010');
+  });
+});

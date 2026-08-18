@@ -389,6 +389,54 @@ describe('executeFlushPlan', () => {
   });
 });
 
+describe('planFlush — terminal tabs', () => {
+  const snapshot = {
+    tree: { kind: 'leaf' as const, id: 'p1' },
+    activePaneId: 'p1',
+    panes: [{ id: 'p1', profileId: 'shell', cwd: '/work' }],
+  };
+
+  test('a terminal tab produces no writes and no buffer, ever', () => {
+    const plan = planFlush(
+      view({
+        tabs: [
+          tab({
+            id: 't1',
+            kind: 'terminal',
+            mode: 'term',
+            title: 'System shell',
+            // Even claiming to be dirty: a terminal holds no document, so
+            // there is nothing a flush could write for it.
+            sessionDirty: true,
+            fileDirty: true,
+            terminal: snapshot,
+          }),
+        ],
+      }),
+    );
+    expect(plan.writes).toEqual([]);
+    expect(plan.noteRenames).toEqual([]);
+    expect(plan.deletes).toEqual([]);
+    expect(plan.assignedNotePaths).toEqual({});
+    expect(plan.manifest.tabs[0]).toMatchObject({ hasBuffer: false, notePath: null });
+  });
+
+  test('the pane layout round-trips through the manifest', () => {
+    const plan = planFlush(
+      view({ tabs: [tab({ id: 't1', kind: 'terminal', mode: 'term', terminal: snapshot })] }),
+    );
+    const parsed = parseManifest(JSON.stringify(plan.manifest));
+    expect(parsed!.tabs[0]?.terminal).toEqual(snapshot);
+  });
+
+  test('no layout recorded = no `terminal` key (nothing to respawn)', () => {
+    const plan = planFlush(
+      view({ tabs: [tab({ id: 't1', kind: 'terminal', mode: 'term', terminal: null })] }),
+    );
+    expect(plan.manifest.tabs[0] && 'terminal' in plan.manifest.tabs[0]).toBe(false);
+  });
+});
+
 describe('parseManifest', () => {
   test('round-trips a planned manifest', () => {
     const plan = planFlush(

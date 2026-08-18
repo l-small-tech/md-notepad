@@ -11,11 +11,26 @@
  * `mod` = Cmd on macOS, Ctrl elsewhere. Shortcuts not in the M1 table return
  * `null` so the event falls through — notably mod+F, which CM6's own search
  * keymap handles while the editor is focused.
+ *
+ * CONTEXT. A focused shell owns almost every key: mod+S is XOFF, mod+O and
+ * mod+W are readline bindings, mod+1..4 mean whatever the running program
+ * says. So `keyEventToAction` takes the context it is being asked about, and
+ * in `'terminal'` it answers for a deliberately short ALLOWLIST — the window
+ * and tab chords a user would be stranded without, plus the terminal's own —
+ * and `null` for everything else, which is then encoded and sent to the
+ * child. Terminal actions are symmetrically invisible in `'document'`, so
+ * CM6 keeps its bindings.
  */
 
 import type { EditorMode } from '../core/types';
 
 export type Platform = 'mac' | 'other';
+
+/** Which surface has the keyboard. See the CONTEXT note above. */
+export type KeyContext = 'document' | 'terminal';
+
+/** Where the scrollback view goes. */
+export type TerminalScroll = 'lineUp' | 'lineDown' | 'pageUp' | 'pageDown' | 'top' | 'bottom';
 
 export type ShortcutAction =
   | { type: 'new-tab' }
@@ -34,7 +49,35 @@ export type ShortcutAction =
   | { type: 'toggle-fullscreen' }
   | { type: 'open-palette' }
   | { type: 'toggle-outline' }
-  | { type: 'global-search' };
+  | { type: 'global-search' }
+  /* Terminal-only. Never returned in the 'document' context. */
+  | { type: 'terminal-copy' }
+  | { type: 'terminal-paste' }
+  | { type: 'terminal-select-all' }
+  | { type: 'terminal-clear-scrollback' }
+  | { type: 'terminal-split'; direction: 'right' | 'down' }
+  | { type: 'terminal-close-pane' }
+  | { type: 'terminal-cycle-pane'; delta: number }
+  | { type: 'terminal-scroll'; to: TerminalScroll };
+
+/**
+ * The non-terminal actions a focused shell still gives up. Everything else in
+ * `ShortcutAction` is left to the child — notably save (XOFF), open, and the
+ * mode shortcuts, which a terminal tab has no use for anyway.
+ */
+const TERMINAL_PASSTHROUGH: readonly ShortcutAction['type'][] = [
+  'new-tab',
+  'close-tab',
+  'next-tab',
+  'prev-tab',
+  'rename-tab',
+  'open-settings',
+  'open-palette',
+  'toggle-fullscreen',
+  'font-inc',
+  'font-dec',
+  'font-reset',
+];
 
 /** The subset of KeyboardEvent this function reads (so tests need no DOM). */
 export interface KeyDescriptor {
@@ -49,7 +92,19 @@ export function detectPlatform(platformString: string): Platform {
   return /mac|iphone|ipad|ipod/i.test(platformString) ? 'mac' : 'other';
 }
 
-export function keyEventToAction(e: KeyDescriptor, platform: Platform): ShortcutAction | null {
+export function keyEventToAction(
+  e: KeyDescriptor,
+  platform: Platform,
+  context: KeyContext = 'document',
+): ShortcutAction | null {
+  if (context === 'terminal') {
+    const own = terminalAction(e, platform);
+    if (own) {
+      return own;
+    }
+    const shared = keyEventToAction(e, platform, 'document');
+    return shared && TERMINAL_PASSTHROUGH.includes(shared.type) ? shared : null;
+  }
   const mod = platform === 'mac' ? e.metaKey : e.ctrlKey;
   // The "wrong" primary modifier for the platform must not also fire the
   // shortcut (Ctrl+N on macOS is not new-tab).
@@ -145,6 +200,77 @@ export function keyEventToAction(e: KeyDescriptor, platform: Platform): Shortcut
       return { type: 'set-mode', mode: 'wysiwyg' satisfies EditorMode };
     case '4':
       return { type: 'set-mode', mode: 'read' satisfies EditorMode };
+    default:
+      return null;
+  }
+}
+
+/**
+ * The chords only a focused terminal answers.
+ *
+ * Almost everything here is a mod+SHIFT chord, because the unshifted forms
+ * belong to the shell: mod+C is SIGINT, mod+D is EOF, mod+K kills a line.
+ * mod+C is the one deliberate overlap — the terminal convention is that it
+ * copies when there IS a selection and interrupts otherwise, so it is
+ * returned here and the pane declines it (letting it encode as SIGINT) when
+ * nothing is selected.
+ */
+function terminalAction(e: KeyDescriptor, platform: Platform): ShortcutAction | null {
+  const mod = platform === 'mac' ? e.metaKey : e.ctrlKey;
+  const wrongMod = platform === 'mac' ? e.ctrlKey : e.metaKey;
+
+  // Scrollback paging is Shift+PgUp/PgDn with no mod — the xterm convention.
+  if (!mod && !wrongMod && !e.altKey && e.shiftKey) {
+    if (e.key === 'PageUp') {
+      return { type: 'terminal-scroll', to: 'pageUp' };
+    }
+    if (e.key === 'PageDown') {
+      return { type: 'terminal-scroll', to: 'pageDown' };
+    }
+  }
+  if (!mod || wrongMod || e.altKey) {
+    return null;
+  }
+
+  if (!e.shiftKey) {
+    // See the note above: the pane turns this back into SIGINT when there is
+    // no selection to copy.
+    return e.key.toLowerCase() === 'c' ? { type: 'terminal-copy' } : null;
+  }
+
+  switch (e.key) {
+    case 'ArrowUp':
+      return { type: 'terminal-scroll', to: 'lineUp' };
+    case 'ArrowDown':
+      return { type: 'terminal-scroll', to: 'lineDown' };
+    case 'Home':
+      return { type: 'terminal-scroll', to: 'top' };
+    case 'End':
+      return { type: 'terminal-scroll', to: 'bottom' };
+    // Bracket keys report unshifted on most layouts and shifted on some.
+    case '[':
+    case '{':
+      return { type: 'terminal-cycle-pane', delta: -1 };
+    case ']':
+    case '}':
+      return { type: 'terminal-cycle-pane', delta: 1 };
+  }
+
+  switch (e.key.toLowerCase()) {
+    case 'c':
+      return { type: 'terminal-copy' };
+    case 'v':
+      return { type: 'terminal-paste' };
+    case 'a':
+      return { type: 'terminal-select-all' };
+    case 'k':
+      return { type: 'terminal-clear-scrollback' };
+    case 'd':
+      return { type: 'terminal-split', direction: 'right' };
+    case 'e':
+      return { type: 'terminal-split', direction: 'down' };
+    case 'x':
+      return { type: 'terminal-close-pane' };
     default:
       return null;
   }
