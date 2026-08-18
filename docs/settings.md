@@ -22,6 +22,14 @@ remembered. Press Esc or click outside the panel to close it.
   markdown elements (headings, bold, links, …). The same list — plus the
   **Open folder**, **New theme…**, **Reload**, and **Help** buttons — lives in
   the **☰ menu → Themes**.
+- **This window only** — a theme normally applies to every open window and is
+  remembered for next launch. Tick this box (or **right-click** a theme in the
+  **☰ menu → Themes** list) to dress just the window you're in — handy for
+  telling two windows apart at a glance. The other
+  windows keep the shared theme, and picking further themes here keeps
+  affecting only this window until you untick the box (or choose **Use shared
+  theme** in the ☰ menu). A window-only theme lasts as long as the window: on
+  the next launch it follows the shared theme again.
 - **Font size** — the size of text in the editor and previews. You can also
   change it any time with **Ctrl+=** / **Ctrl+-** (and **Ctrl+0** to
   reset), which is especially handy in Read mode.

@@ -14,10 +14,45 @@ import { writeThemeTemplate } from '../ipc/theme-loader';
 import { openDocs } from './session';
 import { settingsStore } from './stores/settings';
 import { themeRegistryStore, themeSelectionPatch } from './stores/theme-registry';
+import { themeSelectionOf, windowThemeStore } from './stores/window-theme';
 
-/** Apply a picker choice (appearance mode or plugin id) to the settings. */
-export function selectTheme(value: string): void {
-  settingsStore.getState().update(themeSelectionPatch(value));
+/**
+ * Apply a picker choice (appearance mode or plugin id) to the settings.
+ *
+ * `windowOnly` pins the choice to this window instead of changing it
+ * everywhere — the settings store still carries it (every consumer reads the
+ * theme from there), but main.tsx neither persists nor broadcasts it, and a
+ * sibling window's theme no longer reaches us. See stores/window-theme.
+ */
+export function selectTheme(value: string, windowOnly = false): void {
+  const settings = settingsStore.getState();
+  const { override } = windowThemeStore.getState();
+  const local = themeSelectionPatch(value);
+  if (windowOnly) {
+    // While a pin is already active the settings store holds the LOCAL theme,
+    // so the shared one to preserve is the override's, not the store's.
+    const shared = override?.shared ?? themeSelectionOf(settings.settings);
+    windowThemeStore.getState().set({ local, shared });
+  } else {
+    windowThemeStore.getState().set(null);
+  }
+  settings.update(local);
+}
+
+/** Pin the theme this window currently shows, without changing it. */
+export function pinThemeToWindow(): void {
+  const current = themeSelectionOf(settingsStore.getState().settings);
+  windowThemeStore.getState().set({ local: current, shared: current });
+}
+
+/** Drop the pin: follow the shared, all-windows theme again. */
+export function unpinThemeFromWindow(): void {
+  const { override, set } = windowThemeStore.getState();
+  if (!override) {
+    return;
+  }
+  set(null);
+  settingsStore.getState().update(override.shared);
 }
 
 /** True where the OS file manager can be driven (desktop) — gates "Open folder". */
