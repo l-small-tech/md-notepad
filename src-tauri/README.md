@@ -17,9 +17,10 @@ session concepts in Rust, stop and move it to `src/core`.
   `write_file_base64`, `copy_path`, `create_dir`, `rename_path`,
   `delete_path`, `stat_path`.
 - `src/pty.rs` — the pty engine behind terminal tabs (**desktop only**):
-  spawn a child on a pseudo-terminal, three threads per session
-  (reader → bounded channel → emitter, plus a waiter), output coalesced into
-  ≤64 KB chunks every 4 ms. Deliberately Tauri-free so its tests run a real
+  spawn a child on a pseudo-terminal, four threads per session
+  (reader → bounded channel → emitter, a waiter, and a writer fed by a
+  bounded queue so `write()` never blocks the caller), output coalesced
+  into ≤64 KB chunks every 4 ms. Deliberately Tauri-free so its tests run a real
   shell. `src/shell.rs` resolves the login shell.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as

@@ -10,11 +10,20 @@
 //!   reader ──┐ bounded channel (backpressure)
 //!            ├──▶ emitter ──▶ sink   (coalesces output, orders events)
 //!   waiter ──┘
+//!
+//!   write() ──▶ bounded channel ──▶ writer ──▶ pty
 //! ```
 //!
 //! The reader blocks once the channel is full, which stops draining the pty,
 //! which blocks the child's `write` — backpressure all the way down, so a
 //! runaway `yes` cannot balloon memory.
+//!
+//! Writes go the other way through their own thread: `write()` only enqueues,
+//! so a child that has stopped reading its input (kernel buffer full) blocks
+//! the writer thread, never the caller — `commands/pty.rs` calls `write()`
+//! under a registry-wide lock on the main thread, where blocking would freeze
+//! every terminal and the UI with them. When the queue itself fills, `write()`
+//! fails with `Io` rather than wait.
 //!
 //! Desktop-only: Android has no pty. `commands/mod.rs` gates the module and
 //! `Cargo.toml` keeps `portable-pty` out of the mobile dependency graph.
@@ -38,6 +47,10 @@ const MAX_COALESCED: usize = 64 * 1024;
 const FLUSH: Duration = Duration::from_millis(4);
 /// Chunks the reader may run ahead of the emitter before it blocks.
 const BACKLOG: usize = 8;
+/// Writes that may queue behind a child that has stopped reading before
+/// `write()` starts failing instead. Each entry is one `pty_write` payload (a
+/// keystroke or a paste), so this is depth, not bytes.
+const WRITE_BACKLOG: usize = 256;
 
 /// What `pty_spawn` accepts. Field names are camelCase over IPC.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -113,12 +126,13 @@ impl PtyError {
 /// master, which ends the reader thread.
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Feeds the writer thread; dropping it (with the session) ends the thread.
+    write_tx: SyncSender<Vec<u8>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
 impl PtySession {
-    /// Starts the child and the three threads that service it. `sink` is called
+    /// Starts the child and the four threads that service it. `sink` is called
     /// from the emitter thread, never concurrently with itself.
     pub fn spawn<F>(options: &SpawnOptions, sink: F) -> Result<Self, PtyError>
     where
@@ -143,9 +157,11 @@ impl PtySession {
 
         let (tx, rx) = sync_channel::<PtyEvent>(BACKLOG);
         let exit_tx = tx.clone();
+        let (write_tx, write_rx) = sync_channel::<Vec<u8>>(WRITE_BACKLOG);
 
         spawn_thread("pty-reader", move || read_loop(reader, tx));
         spawn_thread("pty-emitter", move || emit_loop(rx, sink));
+        spawn_thread("pty-writer", move || write_loop(writer, write_rx));
         spawn_thread("pty-waiter", move || {
             let code = child.wait().map(|status| status.exit_code()).unwrap_or(1);
             let _ = exit_tx.send(PtyEvent::Exit(code));
@@ -153,14 +169,23 @@ impl PtySession {
 
         Ok(Self {
             master,
-            writer,
+            write_tx,
             killer,
         })
     }
 
-    pub fn write(&mut self, data: &[u8]) -> Result<(), PtyError> {
-        self.writer.write_all(data).map_err(PtyError::io)?;
-        self.writer.flush().map_err(PtyError::io)
+    /// Queues `data` for the writer thread. Never blocks: a child that has
+    /// stopped reading fills the kernel buffer, then the queue, and only then
+    /// does this fail — with an error, not a stall (see the module docs).
+    pub fn write(&self, data: &[u8]) -> Result<(), PtyError> {
+        use std::sync::mpsc::TrySendError;
+        match self.write_tx.try_send(data.to_vec()) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err(PtyError::io(
+                "the pty is not accepting input (child not reading?)",
+            )),
+            Err(TrySendError::Disconnected(_)) => Err(PtyError::io("the pty is closed")),
+        }
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), PtyError> {
@@ -209,6 +234,21 @@ fn build_command(options: &SpawnOptions) -> CommandBuilder {
 
 fn spawn_thread<F: FnOnce() + Send + 'static>(name: &str, body: F) {
     let _ = thread::Builder::new().name(name.to_string()).spawn(body);
+}
+
+/// Drains the write queue into the pty. Ends when the session is dropped
+/// (sender gone) or the pty stops taking input for good — a blocked `write_all`
+/// returns with an error once the child dies and the master is dropped.
+fn write_loop(mut writer: Box<dyn Write + Send>, rx: Receiver<Vec<u8>>) {
+    while let Ok(data) = rx.recv() {
+        if writer
+            .write_all(&data)
+            .and_then(|()| writer.flush())
+            .is_err()
+        {
+            break;
+        }
+    }
 }
 
 fn read_loop(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyEvent>) {
@@ -358,8 +398,7 @@ mod tests {
     #[cfg(unix)]
     fn writes_reach_the_child() {
         let sink = Sink::default();
-        let mut session =
-            PtySession::spawn(&sh("read line; echo \"got:$line\""), sink.sink()).unwrap();
+        let session = PtySession::spawn(&sh("read line; echo \"got:$line\""), sink.sink()).unwrap();
 
         session.write(b"ping\n").unwrap();
         sink.wait_for("echoed line", |s| s.text().contains("got:ping"));
@@ -370,7 +409,7 @@ mod tests {
     fn resize_is_visible_to_the_child() {
         let sink = Sink::default();
         // `read` holds the child until after the resize, so this cannot race.
-        let mut session = PtySession::spawn(&sh("read _; stty size"), sink.sink()).unwrap();
+        let session = PtySession::spawn(&sh("read _; stty size"), sink.sink()).unwrap();
 
         session.resize(100, 30).unwrap();
         session.write(b"\n").unwrap();
@@ -382,6 +421,31 @@ mod tests {
     fn kill_stops_a_child_that_would_never_exit() {
         let sink = Sink::default();
         let mut session = PtySession::spawn(&sh("while :; do sleep 1; done"), sink.sink()).unwrap();
+
+        session.kill().unwrap();
+        sink.wait_for("close", |s| s.events().contains(&PtyEvent::Closed));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn write_fails_fast_instead_of_blocking_when_the_child_stops_reading() {
+        let sink = Sink::default();
+        // Raw mode, or the line discipline discards over-long lines instead of
+        // back-pressuring; -echo so the flood doesn't also come back as output.
+        let mut session =
+            PtySession::spawn(&sh("stty raw -echo; echo READY; sleep 30"), sink.sink()).unwrap();
+        sink.wait_for("raw mode", |s| s.text().contains("READY"));
+
+        // Fill the kernel's pty input buffer, then the write queue. The old
+        // code blocked here forever (holding the app-wide registry lock).
+        let chunk = vec![b'x'; 4 * 1024];
+        let started = Instant::now();
+        let failed = (0..2000).any(|_| session.write(&chunk).is_err());
+        assert!(failed, "every write to a non-reading child succeeded");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "write blocked instead of failing fast"
+        );
 
         session.kill().unwrap();
         sink.wait_for("close", |s| s.events().contains(&PtyEvent::Closed));

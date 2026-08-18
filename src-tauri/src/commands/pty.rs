@@ -22,6 +22,12 @@ use tauri::{AppHandle, Manager, State};
 use crate::pty::{PtyError, PtyErrorCode, PtyEvent, PtySession, SpawnOptions};
 
 /// Every live pty in the app, keyed by the id the frontend holds.
+///
+/// These commands are synchronous and run on the main thread, so nothing done
+/// under this lock may block: `PtySession::write` enqueues to a writer thread
+/// (it errors when the queue is full rather than wait), and resize/kill are a
+/// plain ioctl and a signal. Blocking here would freeze every terminal and the
+/// UI, and deadlock the sink's self-reap in `pty_spawn`.
 #[derive(Default)]
 pub struct PtyRegistry {
     sessions: Mutex<HashMap<u32, PtySession>>,
