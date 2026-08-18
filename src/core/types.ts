@@ -204,8 +204,15 @@ export interface WorkspaceEntry {
 export const TERMINAL_CURSOR_STYLES = ['block', 'underline', 'bar'] as const;
 export type TerminalCursorStyle = (typeof TERMINAL_CURSOR_STYLES)[number];
 
-/** What a bell does. There is no audible option — a notepad should not beep. */
-export const TERMINAL_BELLS = ['off', 'visual'] as const;
+/**
+ * What a bell does. There is no audible option — a notepad should not beep.
+ *
+ * `cursor` is the quiet one, and the default: a bell only changes the shape of
+ * the cursor for a moment. Backspacing at an empty prompt (or a completion
+ * with nothing left to complete) rings the bell constantly, and answering that
+ * with a full-pane flash is what makes terminals irritating to type in.
+ */
+export const TERMINAL_BELLS = ['off', 'visual', 'cursor'] as const;
 export type TerminalBell = (typeof TERMINAL_BELLS)[number];
 
 /** What happens to a pane whose shell exited. */
@@ -249,6 +256,12 @@ export interface TerminalSnapshot {
 }
 
 export interface Settings {
+  /**
+   * Schema version of the persisted blob, so a field whose *meaning* changed
+   * can be upgraded exactly once (see `SETTINGS_SCHEMA` and `normalizeSettings`).
+   * Not user-facing: no dialog field, no reason for anyone to set it by hand.
+   */
+  schemaVersion: number;
   /** null = platform default: appDataDir()/notes (resolved in src/ipc, not here). */
   notesDir: string | null;
   theme: 'system' | 'light' | 'dark';

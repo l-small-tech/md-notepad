@@ -1,12 +1,19 @@
 import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  SETTINGS_SCHEMA,
   MAX_EXPLORER_PATHS,
   normalizePathList,
   normalizeSettings,
   pickUnusedColor,
 } from '../settings';
-import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
+import {
+  CURSOR_STYLES,
+  EDITOR_FONT_IDS,
+  TERMINAL_BELLS,
+  UI_FONT_IDS,
+  WORKSPACE_COLORS,
+} from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -42,6 +49,7 @@ describe('normalizeSettings', () => {
       imageFolderName: 'assets',
       scanPreset: 'balanced',
       scanSmoothing: 'precise',
+      schemaVersion: SETTINGS_SCHEMA,
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
@@ -68,6 +76,7 @@ describe('normalizeSettings', () => {
       explorerExpandedDirs: [],
       scanPreset: 'balanced',
       scanSmoothing: 'precise',
+      schemaVersion: SETTINGS_SCHEMA,
       // Not supplied above, so every terminal field comes back at its default.
       terminalProfiles: DEFAULT_SETTINGS.terminalProfiles,
       defaultTerminalProfile: 'shell',
@@ -75,7 +84,7 @@ describe('normalizeSettings', () => {
       terminalScrollLines: 3,
       terminalCursorStyle: 'block',
       terminalCursorBlink: true,
-      terminalBell: 'visual',
+      terminalBell: 'cursor',
       terminalCopyOnSelect: false,
       terminalConfirmMultilinePaste: true,
       terminalAllowOscClipboard: false,
@@ -247,6 +256,30 @@ describe('normalizeSettings', () => {
       expect(normalizeSettings({ cursorStyle: style }).cursorStyle).toBe(style);
     }
     expect(normalizeSettings({ cursorStyle: 'beam' }).cursorStyle).toBe('bar');
+  });
+
+  test('every bell mode is accepted; anything else defaults to the cursor bell', () => {
+    for (const bell of TERMINAL_BELLS) {
+      // Stamped with the current schema, so the 'visual' migration below is
+      // out of the way and this is validation only.
+      expect(
+        normalizeSettings({ terminalBell: bell, schemaVersion: SETTINGS_SCHEMA }).terminalBell,
+      ).toBe(bell);
+    }
+    // Including 'audible': there is no such mode, and a settings file that asks
+    // for one must not silently become a flashing pane.
+    expect(normalizeSettings({ terminalBell: 'audible' }).terminalBell).toBe('cursor');
+  });
+
+  test('a pre-versioning "visual" bell upgrades to the cursor bell, once', () => {
+    // The old dialog had one checkbox: 'visual' meant "a bell at all", never a
+    // preference for the flash — so an unversioned file upgrades.
+    expect(normalizeSettings({ terminalBell: 'visual' }).terminalBell).toBe('cursor');
+    expect(normalizeSettings({ terminalBell: 'off' }).terminalBell).toBe('off');
+    // Once stamped, a deliberate pick of the flash survives every later load.
+    const chosen = normalizeSettings({ terminalBell: 'visual', schemaVersion: SETTINGS_SCHEMA });
+    expect(chosen.terminalBell).toBe('visual');
+    expect(normalizeSettings(chosen).terminalBell).toBe('visual');
   });
 
   test('unknown extra fields are dropped', () => {

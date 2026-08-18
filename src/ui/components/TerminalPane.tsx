@@ -41,6 +41,12 @@ const MIN_ZOOM = -8;
 const MAX_ZOOM = 24;
 /** How long the visual bell flashes. */
 const BELL_MS = 120;
+/**
+ * How long the cursor bell holds its shape. Longer than the flash on purpose:
+ * a flash is loud enough to register in a frame or two, a change of shape has
+ * to sit still long enough to be noticed without being looked for.
+ */
+const BELL_CURSOR_MS = 400;
 
 const platform = detectPlatform(typeof navigator === 'undefined' ? '' : navigator.platform);
 
@@ -285,13 +291,24 @@ export function TerminalPane({
         }
       },
       bell: () => {
-        if (latest.current.settings.terminalBell !== 'visual') {
+        const mode = latest.current.settings.terminalBell;
+        if (mode === 'off') {
           return;
         }
-        setBell(true);
         if (bellTimer) {
           clearTimeout(bellTimer);
         }
+        // Backspace at an empty prompt and completion with nothing left to
+        // complete both ring on every keystroke, so the quiet answer is the
+        // default: change the cursor's shape, never flash the pane.
+        if (mode === 'cursor') {
+          view.setBellCursor(true);
+          bellTimer = setTimeout(() => view.setBellCursor(false), BELL_CURSOR_MS);
+          return;
+        }
+        // Clear a cursor bell the setting may have interrupted mid-ring.
+        view.setBellCursor(false);
+        setBell(true);
         bellTimer = setTimeout(() => setBell(false), BELL_MS);
       },
       clipboard: (base64) => {
