@@ -748,6 +748,8 @@ export function TabBar() {
   const [clipped, setClipped] = useState<readonly string[]>([]);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const dropTargetRef = useRef<DropTarget | null>(null);
+  /** True between pointerdown on a tab and its release — freezes strip auto-scroll. */
+  const pressingRef = useRef(false);
   const phone = usePhoneLayout();
   // The picker's open flag lives in uiStore because mod+Shift+N opens it too
   // (global shortcuts dispatch store actions); the anchor is local geometry.
@@ -824,18 +826,32 @@ export function TabBar() {
 
   // Keep the active tab on screen: activating one with the keyboard or from
   // the overflow menu is useless if it stays scrolled away.
-  useEffect(() => {
+  const scrollActiveIntoView = useCallback(() => {
     const scroller = scrollerRef.current;
-    if (!scroller || !activeTabId) {
+    const id = tabsStore.getState().activeTabId;
+    if (!scroller || !id) {
       return;
     }
     for (const node of scroller.children) {
-      if ((node as HTMLElement).dataset.stripTab === activeTabId) {
+      if ((node as HTMLElement).dataset.stripTab === id) {
         node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         return;
       }
     }
-  }, [activeTabId, layoutKey]);
+  }, []);
+
+  // ...but never while a tab press is in flight. Clicking a partially clipped
+  // tab activates it, and scrolling the strip then slides every tab out from
+  // under a stationary cursor: the press is still live, so the smallest jitter
+  // promotes it to a drag whose drop target is whatever tab slid under the
+  // pointer — releasing swapped two tabs the user only meant to click. The
+  // deferred scroll runs on release instead (see onDragPress).
+  useEffect(() => {
+    if (pressingRef.current) {
+      return;
+    }
+    scrollActiveIntoView();
+  }, [activeTabId, layoutKey, scrollActiveIntoView]);
 
   /* ---- Pointer drag: reorder / tear-off -------------------------------- */
 
@@ -904,6 +920,7 @@ export function TabBar() {
     const startX = e.clientX;
     const startY = e.clientY;
     let dragging = false;
+    pressingRef.current = true;
 
     function cleanup(): void {
       window.removeEventListener('pointermove', onMove);
@@ -911,6 +928,10 @@ export function TabBar() {
       window.removeEventListener('pointercancel', onCancel);
       el.classList.remove('tab-dragging');
       setDropHint(null);
+      pressingRef.current = false;
+      // The scroll the press suppressed: bring the now-active tab fully into
+      // view once the pointer is no longer riding on top of the strip.
+      scrollActiveIntoView();
     }
     function onMove(ev: PointerEvent): void {
       if (!dragging) {
