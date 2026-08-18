@@ -47,6 +47,7 @@ import {
   setCreateNewFolderDispatch,
   setCreateScanImageDispatch,
   setCreateWhiteboardDispatch,
+  setCreateWhiteboardHereDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
   setDeleteFolderDispatch,
@@ -97,6 +98,7 @@ export {
   createNewFileIn,
   createNewFolderIn,
   createScanImageIn,
+  createWhiteboard,
   createWhiteboardIn,
   deleteExplorerEntry,
   deleteExplorerFolder,
@@ -329,6 +331,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCreateNewFileDispatch(explorerOps.createNewFile);
   setCreateNewFolderDispatch(explorerOps.createNewFolder);
   setCreateWhiteboardDispatch(explorerOps.createNewWhiteboard);
+  setCreateWhiteboardHereDispatch(explorerOps.createNewWhiteboardHere);
   setCreateScanImageDispatch(explorerOps.createScanImage);
   // Whiteboard scan (desktop): the native picker plus a base64 read, turned
   // into the self-contained data: URL the scan screen decodes.

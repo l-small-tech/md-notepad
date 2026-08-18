@@ -35,6 +35,12 @@ export interface UiState {
   settingsOpen: boolean;
   /** The command palette (Ctrl+K) is open. Transient, never persisted. */
   paletteOpen: boolean;
+  /**
+   * The new-tab TYPE picker is open, anchored to the "+" button. A store flag
+   * rather than component state because mod+Shift+N has to open it too, and
+   * global shortcuts dispatch store actions (never bind their own keys).
+   */
+  newTabMenuOpen: boolean;
   /** The left-side file explorer drawer is open. Transient, never persisted. */
   explorerOpen: boolean;
   /** The right-side outline (headings) panel is open. Transient, never persisted. */
@@ -72,6 +78,8 @@ export interface UiState {
   openPalette: () => void;
   closePalette: () => void;
   togglePalette: () => void;
+  openNewTabMenu: () => void;
+  closeNewTabMenu: () => void;
   toggleExplorer: () => void;
   toggleOutline: () => void;
   openExplorer: () => void;
@@ -92,6 +100,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   cursor: null,
   settingsOpen: false,
   paletteOpen: false,
+  newTabMenuOpen: false,
   explorerOpen: false,
   outlineOpen: false,
   dropTargetDir: null,
@@ -139,6 +148,14 @@ export const uiStore = createStore<UiState>()((set) => ({
 
   closePalette() {
     set({ paletteOpen: false });
+  },
+
+  openNewTabMenu() {
+    set({ newTabMenuOpen: true });
+  },
+
+  closeNewTabMenu() {
+    set({ newTabMenuOpen: false });
   },
 
   togglePalette() {

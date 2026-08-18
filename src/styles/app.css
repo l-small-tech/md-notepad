@@ -28,24 +28,33 @@
   padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* No scrolling: the TabBar only renders as many whole tabs as fit (the rest
-   live in the ⋯ menu), so this row just needs to let its tabs flex-shrink
-   toward their min-width. overflow:hidden is a safety net, never visible. */
+/* Every tab renders here and the row shrinks them like a browser's; once they
+   hit --tab-min-width the strip scrolls instead. The scrollbar itself is
+   hidden — this is a strip, not a document — and the ›N button says what is
+   currently off screen (TabBar measures it; see src/ui/tab-overflow.ts). */
 .tabbar-scroller {
   display: flex;
   align-items: stretch;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
   position: relative; /* anchors the drag drop-indicator */
+}
+
+.tabbar-scroller::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 1 auto;
   max-width: 220px;
-  min-width: 96px;
+  min-width: var(--tab-min-width, 96px);
   padding: 0 8px 0 12px;
   border-right: 1px solid var(--border);
   /* Rounded top corners so each tab reads as a card; the active one flows into
@@ -277,11 +286,12 @@
   color: var(--fg);
 }
 
-/* The ⋯ overflow button, shown only when tabs don't all fit. Width must stay
-   ≤ the OVERFLOW_BTN_RESERVE budgeted in TabBar.tsx. */
+/* The overflow button, rendered only while something is actually clipped and
+   listing exactly the clipped tabs. */
 .tab-overflow {
   flex: 0 0 auto;
-  width: 30px;
+  min-width: 30px;
+  padding: 0 4px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
@@ -294,6 +304,23 @@
   color: var(--fg);
 }
 
+/* The "+" button's type picker (alt-click / right-click / long-press). */
+.tab-new-menu {
+  min-width: 200px;
+}
+
+.tab-menu-label {
+  padding: 6px 10px 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tab-menu-sub {
+  padding-left: 22px;
+}
+
 .tab-overflow-menu {
   max-width: 280px;
   max-height: 60vh;
@@ -301,9 +328,31 @@
 }
 
 .tab-overflow-menu .tab-menu-item {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab-overflow-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.tab-overflow-close {
+  flex: 0 0 auto;
+  width: 26px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tab-overflow-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
 /* ---- Titlebar integration ------------------------------------------------
@@ -311,9 +360,13 @@
    traffic lights on macOS). The spacer keeps a guaranteed grab area for
    dragging the window even when tabs fill the row. */
 
+/* Free space after the last tab: the guaranteed window-drag / right-click
+   grab area. It has a FLOOR so it can never be squeezed to nothing however
+   many tabs are open — with the strip scrolling rather than windowing, that
+   floor is the only thing keeping the titlebar draggable. */
 .tabbar-spacer {
-  flex: 1 1 auto;
-  min-width: 32px;
+  flex: 0 0 auto;
+  min-width: var(--tab-free-space, 32px);
 }
 
 /* macOS: native traffic lights overlay the top-left corner — clear them. */
@@ -2285,20 +2338,28 @@ body.explorer-dragging * {
   }
 
   /* ---- Phone tab strip -----------------------------------------------
-     TabBar caps the visible window at ONE tab below this breakpoint (like a
-     mobile browser's title bar: the active document full-width, every other
-     tab one tap away in the numbered switcher). The CSS side: let that single
-     tab stretch across the row, and drop desktop-only chrome. */
+     Like a mobile browser's title bar: the active document full-width, every
+     other tab one tap away in the numbered switcher. The hiding is done HERE,
+     in CSS; the hidden tabs then measure as zero-width, which the overflow
+     rule already counts as clipped — so the switcher lists exactly them with
+     no separate phone branch in the measurement. */
   .tabbar {
     height: calc(40px + env(safe-area-inset-top, 0px));
   }
 
   .tabbar-scroller {
     flex: 1 1 auto;
+    overflow-x: hidden;
+  }
+
+  .tab:not(.tab-active),
+  .tab-group-chip {
+    display: none;
   }
 
   .tab {
     max-width: none;
+    min-width: 0;
     flex: 1 1 auto;
     padding-left: 16px; /* clear of the top rounded corner */
   }
@@ -2314,7 +2375,6 @@ body.explorer-dragging * {
      is moot — there is no draggable OS window on a phone anyway. */
   .tabbar-spacer {
     min-width: 0;
-    flex: 0 0 auto;
   }
 
   /* Close-all is desktop convenience; on a phone it's clutter next to the

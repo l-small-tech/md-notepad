@@ -68,6 +68,19 @@ export function createExplorerOps(
   }
 
   /**
+   * The same thing with no directory named — what the new-tab menu's "Vector
+   * drawing" does. It lands beside the tab in front (a drawing made from a
+   * note belongs with that note), falling back to the notes dir when nothing
+   * open has a home yet.
+   */
+  function createNewWhiteboardHere(): Promise<string | null> {
+    const tab = tabsStore.getState().activeTab();
+    const path = tab?.filePath ?? tab?.notePath ?? null;
+    const dir = path ? dirName(path) : '';
+    return createNewWhiteboard(dir || ctx.notesDir);
+  }
+
+  /**
    * "Import › Scan whiteboard as image…" lands here with the finished bytes:
    * write them as a uniquely-named image file in `dir` and open it. The scan
    * screen produced the bytes; this owns naming, disk and the explorer.
@@ -356,6 +369,7 @@ export function createExplorerOps(
   return {
     createNewFile,
     createNewWhiteboard,
+    createNewWhiteboardHere,
     createScanImage,
     createNewFolder,
     renameEntry,

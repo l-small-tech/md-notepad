@@ -226,8 +226,14 @@ describe('keyEventToAction — non-interception', () => {
     expect(keyEventToAction(key({ key: 'n', ctrlKey: true, altKey: true }), 'other')).toBeNull();
   });
 
-  test('mod+Shift+N (not in the table) is ignored', () => {
-    expect(keyEventToAction(key({ key: 'n', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
+  test('mod+Shift+N opens the new-tab TYPE picker', () => {
+    expect(keyEventToAction(key({ key: 'n', ctrlKey: true, shiftKey: true }), 'other')).toEqual({
+      type: 'new-tab-menu',
+    });
+  });
+
+  test('mod+Shift+P (not in the table) is ignored', () => {
+    expect(keyEventToAction(key({ key: 'p', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
   });
 });
 

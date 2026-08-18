@@ -34,6 +34,8 @@ export type TerminalScroll = 'lineUp' | 'lineDown' | 'pageUp' | 'pageDown' | 'to
 
 export type ShortcutAction =
   | { type: 'new-tab' }
+  /** The new-tab TYPE picker (mod+Shift+N), anchored to the + button. */
+  | { type: 'new-tab-menu' }
   | { type: 'close-tab' }
   | { type: 'next-tab' }
   | { type: 'prev-tab' }
@@ -67,6 +69,7 @@ export type ShortcutAction =
  */
 const TERMINAL_PASSTHROUGH: readonly ShortcutAction['type'][] = [
   'new-tab',
+  'new-tab-menu',
   'close-tab',
   'next-tab',
   'prev-tab',
@@ -145,6 +148,12 @@ export function keyEventToAction(
   // mod+S / mod+Shift+S (save / save as) are the only M1+ Shift-combos.
   if (e.key.toLowerCase() === 's') {
     return e.shiftKey ? { type: 'save-as' } : { type: 'save' };
+  }
+
+  // mod+Shift+N opens the new-tab TYPE picker (note / drawing / terminal).
+  // Nothing else binds it — CM6 leaves Shift-Mod-n alone.
+  if (e.key.toLowerCase() === 'n' && e.shiftKey) {
+    return { type: 'new-tab-menu' };
   }
 
   // mod+Shift+O toggles the outline panel (plain mod+O below is open-file;

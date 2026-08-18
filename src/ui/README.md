@@ -8,7 +8,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | Component | Milestone | Notes |
 | --- | --- | --- |
 | `App` | M1 | layout shell: TabBar / EditorHost / StatusBar stack |
-| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); Chrome-style tab groups (chip = collapse toggle, right-click = group menu; membership/contiguity rules in core/tab-groups.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher (overflow window capped at 1) |
+| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); Chrome-style tab groups (chip = collapse toggle, right-click = group menu; membership/contiguity rules in core/tab-groups.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher |
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
@@ -66,6 +66,43 @@ Rules:
   `style.flex`, bypassing React state so dragging never re-renders. The
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
+
+## Tab strip: shrink, then scroll (M9)
+
+Every tab renders. They shrink like a browser's down to `--tab-min-width`,
+then the strip scrolls; the `›N` button appears only while something is
+actually clipped and lists exactly the clipped tabs (with a per-row close,
+since a clipped tab has no × on screen). Activating a tab scrolls it into
+view — from the keyboard or from that menu, landing on a tab you cannot see
+is useless.
+
+What is clipped is **measured**, not computed from a width budget: the tabs
+are elastic, so the answer has to survive a resize, a renamed title, a
+collapsed group and a scroll alike. The rule itself is pure and tested
+(`clippedTabIds` in `src/ui/tab-overflow.ts`); the component keeps only the
+`ResizeObserver` wiring. Two consequences worth knowing:
+
+- The phone layout is now plain CSS (`.tab:not(.tab-active) { display: none }`
+  below 640px). Hidden tabs measure as zero-width, which the rule already
+  counts as clipped — so the count pill lists exactly them with no phone
+  branch in the measurement.
+- A clipped group CHIP takes its whole run into the overflow list: a run you
+  can only see the tail of is not a group you can read.
+
+The free space after the last tab keeps `data-tauri-drag-region` and a floor
+(`--tab-free-space`), so the window stays draggable however many tabs are
+open. The drag drop-indicator is scroller-relative and must add
+`scroller.scrollLeft`.
+
+### The "+" button
+
+A plain click makes **another one of whatever is in front** —
+`defaultNewTabChoice` in `core/new-tab.ts` (pure, tested): terminal → terminal,
+`.svg` → drawing, everything else → note. Alt-click, right-click, long-press
+or mod+Shift+N opens the type picker instead, which lists every type
+explicitly (and one entry per terminal profile when there is more than one),
+so the inference is never the only route. mod+N follows the same rule — the
+binding has always been labelled "New tab", not "New note".
 
 ## TerminalTab — the keep-your-box rule (I10)
 
@@ -127,7 +164,8 @@ elsewhere (`navigator.platform`-based helper).
 
 | Keys | Action | Milestone |
 | --- | --- | --- |
-| mod+N | new note tab | M1 |
+| mod+N | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
+| mod+Shift+N | new-tab type picker (note / drawing / terminal) | M9 |
 | mod+W | close tab (confirm per semantics) | M1/M2 |
 | mod+Tab / mod+Shift+Tab | next / previous tab | M1 |
 | F2 | rename tab | M1 |

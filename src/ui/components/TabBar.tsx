@@ -21,10 +21,14 @@
  * rules — the store's moveTab re-normalizes contiguity after every drop).
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../session';
+import { runNewTabChoice, newTabDefault, terminalsAvailable } from '../new-tab';
+import { openTerminal } from '../terminal-open';
+import { useSettingsStore } from '../stores/settings';
+import { useUiStore, uiStore } from '../stores/ui';
 import { detectPlatform } from '../keymap';
-import { computeTabWindow } from '../tab-overflow';
+import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
 import { computeGroupRuns } from '../../core/tab-groups';
 import { WORKSPACE_COLORS, type TabGroup } from '../../core/types';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
@@ -163,6 +167,9 @@ function Tab({
       aria-selected={active}
       title={tab.filePath ?? label}
       data-strip-tab={tab.id}
+      // Group membership, read by the overflow measurement: a clipped chip
+      // takes its whole run into the overflow list.
+      data-strip-group={group?.id}
       data-color={group?.color}
       onPointerDown={(e) => {
         // Left-click activates immediately (pointerdown feels snappier than
@@ -543,50 +550,51 @@ function OverflowMenu({
     <div
       className="tab-menu tab-overflow-menu"
       role="menu"
-      // Right-aligned under the ⋯ button so it never runs off the window edge.
+      // Right-aligned under the button so it never runs off the window edge.
       style={{ right: window.innerWidth - anchor.right, top: anchor.bottom + 4 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          className="tab-menu-item"
-          role="menuitem"
-          title={tab.filePath ?? undefined}
-          onClick={() => {
-            tabsStore.getState().activateTab(tab.id);
-            onClose();
-          }}
-        >
-          {tabDisplayTitle(tab)}
-          {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
-        </button>
+        <div key={tab.id} className="tab-overflow-row">
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title={tab.filePath ?? undefined}
+            onClick={() => {
+              tabsStore.getState().activateTab(tab.id);
+              onClose();
+            }}
+          >
+            {tabDisplayTitle(tab)}
+            {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
+          </button>
+          {/* A clipped tab has no × of its own on screen — this is the only
+              way to close one without first scrolling it into view. */}
+          <button
+            className="tab-overflow-close"
+            aria-label={`Close ${tabDisplayTitle(tab)}`}
+            title="Close"
+            onClick={() => {
+              closeTab(tab.id);
+              onClose();
+            }}
+          >
+            ×
+          </button>
+        </div>
       ))}
     </div>
   );
 }
 
 /**
- * Width budget for the visible-item window. A tab can flex-shrink down to its
- * 96px min-width (+1px border), so as long as we show no more items than
- * `available / 97` the row always fits with no tab cut off; below that count
- * items simply take their natural width. (Group chips are narrower than tabs,
- * so budgeting them as full tabs errs on the safe side.) The constants mirror
- * app.css — the spacer's min-width and the ⋯ button reserve are budgeted even
- * when those elements are absent so the capacity can't oscillate as they come
- * and go.
- */
-const TAB_MIN_TOTAL = 97;
-const SPACER_MIN = 32;
-const OVERFLOW_BTN_RESERVE = 34;
-const MAC_INSET = 78; // .tabbar-mac padding-left
-
-/**
  * Phone-width layout (mirrors app.css's 640px breakpoint). On phones the strip
  * shows ONLY the active tab, stretched across the row like a mobile browser's
  * title bar; every other tab is one tap away in the switcher (the overflow
- * button, which shows a count instead of ⋯). The existing overflow windowing
- * does all the work — this just caps the visible window at 1.
+ * button, which shows a count instead of ⋯). CSS does the hiding; the hidden
+ * tabs then measure as zero-width, which `clippedTabIds` already reports as
+ * clipped — so the switcher's contents fall out of the same rule the desktop
+ * overflow uses. This flag only picks the button's label.
  */
 const PHONE_QUERY = '(max-width: 640px)';
 
@@ -601,6 +609,88 @@ function usePhoneLayout(): boolean {
   return phone;
 }
 
+/**
+ * The "+" button's type picker: alt-click, right-click, long-press, or
+ * mod+Shift+N. A plain click never opens it — it just makes another one of
+ * whatever is in front (core/new-tab.ts) — so the menu is the explicit route
+ * to a type the inference would not have chosen.
+ */
+function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  function pick(run: () => void) {
+    onClose();
+    run();
+  }
+
+  return (
+    <div
+      className="tab-menu tab-new-menu"
+      role="menu"
+      style={{ left: Math.max(4, anchor.left), top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => pick(() => runNewTabChoice('note'))}
+      >
+        Markdown note
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => pick(() => runNewTabChoice('drawing'))}
+      >
+        Vector drawing (.svg)
+      </button>
+      {/* Android has no pty, so the whole terminal section is absent there. */}
+      {terminalsAvailable() &&
+        (profiles.length > 1 ? (
+          <>
+            <div className="tab-menu-label">Terminal</div>
+            {profiles.map((profile) => (
+              <button
+                key={profile.id}
+                className="tab-menu-item tab-menu-sub"
+                role="menuitem"
+                onClick={() => pick(() => openTerminal(profile.id))}
+              >
+                {profile.name}
+              </button>
+            ))}
+          </>
+        ) : (
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            onClick={() => pick(() => runNewTabChoice('terminal'))}
+          >
+            Terminal
+          </button>
+        ))}
+    </div>
+  );
+}
+
 export function TabBar() {
   const tabs = useTabsStore((s) => s.tabs);
   const groups = useTabsStore((s) => s.groups);
@@ -610,40 +700,106 @@ export function TabBar() {
   const [menu, setMenu] = useState<TabMenu | null>(null);
   const [groupMenu, setGroupMenu] = useState<GroupMenu | null>(null);
   const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
-  const [capacity, setCapacity] = useState(Number.MAX_SAFE_INTEGER);
-  const [windowStart, setWindowStart] = useState(0);
+  /** Ids of the tabs the strip is currently cutting off, in strip order. */
+  const [clipped, setClipped] = useState<readonly string[]>([]);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const dropTargetRef = useRef<DropTarget | null>(null);
   const phone = usePhoneLayout();
+  // The picker's open flag lives in uiStore because mod+Shift+N opens it too
+  // (global shortcuts dispatch store actions); the anchor is local geometry.
+  const newTabMenuOpen = useUiStore((s) => s.newTabMenuOpen);
+  const newTabRef = useRef<HTMLButtonElement>(null);
+  const newTabLongPress = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [newTabAnchor, setNewTabAnchor] = useState<DOMRect | null>(null);
 
-  // How many whole items fit: bar width minus everything that isn't a tab
-  // (new-tab button, window controls, spacer minimum, ⋯ reserve, mac inset).
+  function cancelNewTabLongPress() {
+    if (newTabLongPress.current !== null) {
+      clearTimeout(newTabLongPress.current);
+      newTabLongPress.current = null;
+    }
+  }
+
+  function openPicker() {
+    cancelNewTabLongPress();
+    setNewTabAnchor(newTabRef.current?.getBoundingClientRect() ?? null);
+    uiStore.getState().openNewTabMenu();
+  }
+
+  // mod+Shift+N opens the picker without a click, so the anchor has to be
+  // taken when the flag flips rather than only in the click handler.
   useLayoutEffect(() => {
-    const bar = barRef.current;
-    if (!bar) {
+    if (newTabMenuOpen && !newTabAnchor) {
+      setNewTabAnchor(newTabRef.current?.getBoundingClientRect() ?? null);
+    }
+    if (!newTabMenuOpen && newTabAnchor) {
+      setNewTabAnchor(null);
+    }
+  }, [newTabMenuOpen, newTabAnchor]);
+
+  /**
+   * Which tabs the strip is cutting off. Ids and rects come off the DOM rather
+   * than out of `tabs`, which is what lets this stay a stable callback: a
+   * ResizeObserver that re-subscribed on every render would cost more than the
+   * measurement it schedules. The rule itself is `clippedTabIds` (pure, tested).
+   */
+  const measure = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
       return;
     }
-    const measure = () => {
-      let reserved = SPACER_MIN + OVERFLOW_BTN_RESERVE + (IS_MAC ? MAC_INSET : 0);
-      for (const child of bar.children) {
-        const el = child as HTMLElement;
-        if (
-          el.classList.contains('tabbar-scroller') ||
-          el.classList.contains('tabbar-spacer') ||
-          el.classList.contains('tab-overflow') ||
-          el.classList.contains('tab-menu')
-        ) {
-          continue;
-        }
-        reserved += el.offsetWidth;
+    const strip = scroller.getBoundingClientRect();
+    const items: StripItemRect[] = [];
+    for (const node of scroller.children) {
+      const el = node as HTMLElement;
+      const tabId = el.dataset.stripTab ?? null;
+      const chipGroup = el.dataset.stripChip ?? null;
+      if (tabId === null && chipGroup === null) {
+        continue; // the drop indicator
       }
-      setCapacity(Math.max(1, Math.floor((bar.clientWidth - reserved) / TAB_MIN_TOTAL)));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(bar);
-    return () => observer.disconnect();
+      const box = el.getBoundingClientRect();
+      items.push({
+        tabId,
+        groupId: chipGroup ?? el.dataset.stripGroup ?? null,
+        left: box.left,
+        right: box.right,
+      });
+    }
+    const hidden = clippedTabIds(strip, items);
+    setClipped((prev) => (sameIds(prev, hidden) ? prev : hidden));
   }, []);
+
+  // Re-measure on everything that can change the answer: which tabs there are
+  // and what they're called (a title sets a width, and a renamed tab can push
+  // another off), the strip's own size, and scrolling it (wired to onScroll).
+  const layoutKey = `${tabs.map((t) => `${t.id}\u0001${tabDisplayTitle(t)}`).join('\u0000')}|${groups
+    .map((g) => `${g.id}:${g.collapsed ? 'c' : 'o'}`)
+    .join(',')}`;
+  useLayoutEffect(measure, [measure, layoutKey, phone]);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [measure]);
+
+  // Keep the active tab on screen: activating one with the keyboard or from
+  // the overflow menu is useless if it stays scrolled away.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !activeTabId) {
+      return;
+    }
+    for (const node of scroller.children) {
+      if ((node as HTMLElement).dataset.stripTab === activeTabId) {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        return;
+      }
+    }
+  }, [activeTabId, layoutKey]);
 
   /* ---- Pointer drag: reorder / regroup / tear-off ----------------------- */
 
@@ -676,7 +832,9 @@ export function TabBar() {
       const rect = tabEl.getBoundingClientRect();
       const after = ev.clientX - rect.left > rect.width / 2;
       dropTargetRef.current = { type: after ? 'after' : 'before', tabId };
-      const x = (after ? rect.right : rect.left) - sRect.left;
+      // Scroller-relative, and the strip scrolls now: without scrollLeft the
+      // indicator drifts off the seam as soon as the strip is scrolled.
+      const x = (after ? rect.right : rect.left) - sRect.left + scroller.scrollLeft;
       setDropHint((prev) => (prev && 'x' in prev && prev.x === x ? prev : { x }));
       return;
     }
@@ -684,7 +842,7 @@ export function TabBar() {
       // Over the bar but past the tabs (spacer / empty right area) → end.
       dropTargetRef.current = { type: 'end' };
       const last = scroller.lastElementChild;
-      const x = last ? last.getBoundingClientRect().right - sRect.left : 0;
+      const x = last ? last.getBoundingClientRect().right - sRect.left + scroller.scrollLeft : 0;
       setDropHint((prev) => (prev && 'x' in prev && prev.x === x ? prev : { x }));
       return;
     }
@@ -818,19 +976,13 @@ export function TabBar() {
     }
   }
 
-  const activeIndex = items.findIndex((it) => it.kind === 'tab' && it.tab.id === activeTabId);
-  // Phones cap the window at the single active tab (see usePhoneLayout).
-  const cap = phone ? 1 : Math.max(1, capacity);
-  const start = computeTabWindow(items.length, cap, activeIndex, windowStart);
-  if (start !== windowStart) {
-    // Derived state with history: remember the window so it only slides when
-    // the active tab leaves it (set-state-during-render, per React docs).
-    setWindowStart(start);
-  }
-  const visible = items.slice(start, start + cap);
-  const hidden = [...items.slice(0, start), ...items.slice(start + cap)]
+  // EVERY item renders; the strip shrinks them and then scrolls. What is
+  // currently cut off is measured, not computed — see `measure` above.
+  const clippedSet = new Set(clipped);
+  const hidden = items
     .filter((it): it is StripItem & { kind: 'tab' } => it.kind === 'tab')
-    .map((it) => it.tab);
+    .map((it) => it.tab)
+    .filter((tab) => clippedSet.has(tab.id));
 
   return (
     // data-tauri-drag-region only fires on the element itself, never its
@@ -842,8 +994,8 @@ export function TabBar() {
       role="tablist"
       data-tauri-drag-region=""
     >
-      <div className="tabbar-scroller" ref={scrollerRef}>
-        {visible.map((item) =>
+      <div className="tabbar-scroller" ref={scrollerRef} onScroll={measure}>
+        {items.map((item) =>
           item.kind === 'chip' ? (
             <GroupChip
               key={`chip:${item.group.id}`}
@@ -872,18 +1024,42 @@ export function TabBar() {
         )}
       </div>
       <button
+        ref={newTabRef}
         className="tab-new"
         aria-label="New tab"
-        title="New tab (Ctrl/Cmd+N)"
-        onClick={() => tabsStore.getState().newTab()}
+        title="New tab (Ctrl/Cmd+N) — Alt-click or right-click to choose a type"
+        onClick={(e) => {
+          // Alt-click is the mouse's route to the picker; a plain click makes
+          // another one of whatever is in front.
+          if (e.altKey) {
+            openPicker();
+          } else {
+            newTabDefault();
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openPicker();
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          if (e.pointerType !== 'touch') {
+            return;
+          }
+          cancelNewTabLongPress();
+          newTabLongPress.current = setTimeout(openPicker, 500);
+        }}
+        onPointerUp={cancelNewTabLongPress}
+        onPointerLeave={cancelNewTabLongPress}
+        onPointerCancel={cancelNewTabLongPress}
       >
         +
       </button>
       {hidden.length > 0 && (
         <button
           className="tab-overflow"
-          aria-label={`Show ${hidden.length} more tab(s)`}
-          title={`${hidden.length} more tab(s)`}
+          aria-label={`Show ${hidden.length} tab(s) that don't fit`}
+          title={`${hidden.length} tab(s) don't fit`}
           onClick={(e) =>
             setOverflowAnchor(overflowAnchor ? null : e.currentTarget.getBoundingClientRect())
           }
@@ -891,9 +1067,9 @@ export function TabBar() {
           // re-closing the menu this click opens.
           onPointerDown={(e) => e.stopPropagation()}
         >
-          {/* On phones this is the tab switcher: show how many more tabs there
-              are (mobile-browser style) instead of an anonymous ⋯. */}
-          {phone ? `+${hidden.length}` : '⋯'}
+          {/* The count, not an anonymous ⋯: it says how much is off screen,
+              and on phones the same pill IS the tab switcher. */}
+          {phone ? `+${hidden.length}` : `›${hidden.length}`}
         </button>
       )}
       <div className="tabbar-spacer" data-tauri-drag-region="" />
@@ -908,6 +1084,9 @@ export function TabBar() {
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {groupMenu && <GroupContextMenu menu={groupMenu} onClose={() => setGroupMenu(null)} />}
+      {newTabMenuOpen && newTabAnchor && (
+        <NewTabMenu anchor={newTabAnchor} onClose={() => uiStore.getState().closeNewTabMenu()} />
+      )}
       {overflowAnchor && hidden.length > 0 && (
         <OverflowMenu
           tabs={hidden}

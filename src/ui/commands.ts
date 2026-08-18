@@ -32,7 +32,7 @@ import { activePaneOf, terminalsStore } from './stores/terminals';
 import { runPaneAction } from './pane-actions';
 import { uiStore } from './stores/ui';
 import { openTerminal } from './terminal-open';
-import { isAndroid } from './platform';
+import { newTabDefault, runNewTabChoice, terminalsAvailable } from './new-tab';
 
 export interface AppCommand {
   /** Stable kebab-case identifier. */
@@ -57,7 +57,12 @@ export function runShortcutAction(action: ShortcutAction): void {
   const store = tabsStore.getState();
   switch (action.type) {
     case 'new-tab':
-      store.newTab();
+      // "New tab" has always meant a tab, not a note: from a terminal or a
+      // drawing it makes another one of those (core/new-tab.ts).
+      newTabDefault();
+      break;
+    case 'new-tab-menu':
+      uiStore.getState().openNewTabMenu();
       break;
     case 'close-tab':
       closeTab(store.activeTabId);
@@ -183,11 +188,6 @@ function hasActiveTextTab(): boolean {
   );
 }
 
-/** Terminals exist only on desktop — there is no pty on Android. */
-function terminalsAvailable(): boolean {
-  return !isAndroid();
-}
-
 /** A terminal tab is in front, so the terminal-only commands can act. */
 function hasActiveTerminal(): boolean {
   return tabsStore.getState().activeTab()?.kind === 'terminal';
@@ -214,6 +214,20 @@ export function buildCommands(): AppCommand[] {
   return [
     // Tabs
     fromAction('new-tab', 'New tab', { type: 'new-tab' }, { shortcut: modKey('N') }),
+    // Every type stays explicitly reachable, so the inference above is never
+    // the only route to one.
+    {
+      id: 'new-note',
+      title: 'New note',
+      keywords: ['markdown', 'document', 'tab'],
+      run: () => runNewTabChoice('note'),
+    },
+    {
+      id: 'new-drawing',
+      title: 'New vector drawing',
+      keywords: ['svg', 'whiteboard', 'board', 'sketch', 'diagram'],
+      run: () => runNewTabChoice('drawing'),
+    },
     fromAction(
       'close-tab',
       'Close tab',

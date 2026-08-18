@@ -1,41 +1,77 @@
 import { describe, expect, test } from 'vitest';
-import { computeTabWindow } from '../tab-overflow';
+import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
 
-describe('computeTabWindow', () => {
-  test('everything fits: window starts at 0', () => {
-    expect(computeTabWindow(3, 10, 1, 0)).toBe(0);
+const STRIP = { left: 0, right: 100 };
+
+function tab(tabId: string, left: number, right: number, groupId: string | null = null) {
+  return { tabId, groupId, left, right } satisfies StripItemRect;
+}
+
+function chip(groupId: string, left: number, right: number) {
+  return { tabId: null, groupId, left, right } satisfies StripItemRect;
+}
+
+describe('clippedTabIds', () => {
+  test('nothing is clipped when everything fits', () => {
+    expect(clippedTabIds(STRIP, [tab('a', 0, 40), tab('b', 40, 80)])).toEqual([]);
   });
 
-  test('keeps the previous start while the active tab stays visible', () => {
-    // 10 tabs, 4 visible, window at [2..5]: activating 3 doesn't move it.
-    expect(computeTabWindow(10, 4, 3, 2)).toBe(2);
+  test('a tab hanging off either end is clipped', () => {
+    expect(
+      clippedTabIds(STRIP, [tab('left', -30, 10), tab('mid', 10, 60), tab('right', 60, 130)]),
+    ).toEqual(['left', 'right']);
   });
 
-  test('slides right just enough to reveal an active tab past the window', () => {
-    // Window [0..3], active 5 → window [2..5].
-    expect(computeTabWindow(10, 4, 5, 0)).toBe(2);
+  test('a PARTIALLY visible tab counts — half a title is not readable', () => {
+    expect(clippedTabIds(STRIP, [tab('a', 0, 60), tab('b', 60, 101.5)])).toEqual(['b']);
   });
 
-  test('slides left to an active tab before the window', () => {
-    expect(computeTabWindow(10, 4, 1, 5)).toBe(1);
+  test('a pixel of slack absorbs subpixel layout', () => {
+    // Without it the overflow button flickers on and off during a resize.
+    expect(clippedTabIds(STRIP, [tab('a', -0.4, 99.6), tab('b', 99.6, 100.7)])).toEqual([]);
   });
 
-  test('never extends past the last tab (e.g. after closing tabs)', () => {
-    // prevStart 8 with 10 tabs and capacity 4 → clamp to 6.
-    expect(computeTabWindow(10, 4, 7, 8)).toBe(6);
+  test('a zero-width item is clipped — this is the phone layout', () => {
+    // Below 640px CSS hides every inactive tab; their rects collapse, and the
+    // count pill lists exactly them.
+    expect(
+      clippedTabIds(STRIP, [tab('hidden', 0, 0), tab('active', 0, 100), tab('gone', 0, 0)]),
+    ).toEqual(['hidden', 'gone']);
   });
 
-  test('a shrinking capacity pulls the active tab back into view', () => {
-    // Window was [2..7] (cap 6); capacity drops to 3, active at 7 → [5..7].
-    expect(computeTabWindow(10, 3, 7, 2)).toBe(5);
+  test('a clipped group chip takes its whole run with it', () => {
+    const items = [
+      chip('g1', -20, -4),
+      tab('a', -4, 30, 'g1'),
+      tab('b', 30, 70, 'g1'),
+      tab('loose', 70, 95),
+    ];
+    // `b` is fully on screen, but its chip is not: the run is unreadable as a
+    // group, so the whole thing belongs in the overflow list.
+    expect(clippedTabIds(STRIP, items)).toEqual(['a', 'b']);
   });
 
-  test('capacity is clamped to at least one tab', () => {
-    expect(computeTabWindow(5, 0, 4, 0)).toBe(4);
+  test('a visible chip leaves its visible members alone', () => {
+    const items = [chip('g1', 0, 16), tab('a', 16, 50, 'g1'), tab('b', 50, 140, 'g1')];
+    expect(clippedTabIds(STRIP, items)).toEqual(['b']);
   });
 
-  test('no active tab (not found): just clamps the previous start', () => {
-    expect(computeTabWindow(10, 4, -1, 3)).toBe(3);
-    expect(computeTabWindow(2, 4, -1, 3)).toBe(0);
+  test('results come back in strip order', () => {
+    expect(
+      clippedTabIds(STRIP, [tab('a', 120, 160), tab('b', 60, 90), tab('c', 200, 240)]),
+    ).toEqual(['a', 'c']);
+  });
+
+  test('an empty strip clips nothing', () => {
+    expect(clippedTabIds(STRIP, [])).toEqual([]);
+  });
+});
+
+describe('sameIds', () => {
+  test('order and length both matter', () => {
+    expect(sameIds(['a', 'b'], ['a', 'b'])).toBe(true);
+    expect(sameIds(['a', 'b'], ['b', 'a'])).toBe(false);
+    expect(sameIds(['a'], ['a', 'b'])).toBe(false);
+    expect(sameIds([], [])).toBe(true);
   });
 });
