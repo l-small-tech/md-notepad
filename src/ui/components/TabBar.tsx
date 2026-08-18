@@ -771,10 +771,10 @@ export function TabBar() {
       role="tablist"
       data-tauri-drag-region=""
     >
-      {/* data-tauri-drag-region fires only on the element itself, so the free
-          space AFTER the last tab drags the window while the tabs keep their
-          own interactions. The scroller grows to fill the row, so that free
-          space lives here; `.tabbar-spacer` is the guaranteed floor. */}
+      {/* The scroller is only as wide as its tabs, so the free space after the
+          last tab lives in `.tabbar-spacer`, which carries the drag region.
+          Keep data-tauri-drag-region here too: it fires only on the element
+          itself, so any slack inside the strip still drags the window. */}
       <div
         className="tabbar-scroller"
         ref={scrollerRef}
