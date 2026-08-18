@@ -66,12 +66,17 @@ import { isAndroid } from '../platform';
 
 /**
  * Tear-off gesture (M8): releasing a tab drag outside the window spawns a new
- * window there. Gated off on Linux — Wayland gives apps no reliable global
- * cursor position or window placement, so only the context-menu fallback
- * ("Move to new window") is offered there — and on Android, which is
- * single-window (its UA already reports Linux, so this is belt-and-suspenders).
+ * window there. Gated off only on Android, which is single-window.
+ *
+ * On Linux/Wayland an app gets no global cursor position (screenX/screenY are
+ * junk) and cannot place windows, so the release is judged in CLIENT
+ * coordinates — valid outside the window while the drag's pointer capture
+ * holds — and the new window is spawned without a position, letting the
+ * compositor place it (same as the context-menu "Move to new window" path).
  */
-const CAN_TEAR_OFF = !/linux/i.test(navigator.platform) && !isAndroid();
+const CAN_TEAR_OFF = !isAndroid();
+/** Android's UA also reports Linux, hence the isAndroid() exclusion. */
+const LINUX_TEAR_OFF = /linux/i.test(navigator.platform) && !isAndroid();
 
 /** Gap kept between a clamped popover menu and the window edge (px). */
 const MENU_EDGE_MARGIN = 8;
@@ -971,17 +976,30 @@ export function TabBar() {
         return; // plain click — activation already happened on pointerdown
       }
       if (CAN_TEAR_OFF) {
-        const outside =
-          ev.screenX < window.screenX ||
-          ev.screenX > window.screenX + window.outerWidth ||
-          ev.screenY < window.screenY ||
-          ev.screenY > window.screenY + window.outerHeight;
+        // Linux (Wayland): no trustworthy screen coordinates — judge the
+        // release in client space, which pointer capture keeps valid (negative
+        // or past inner size) while the cursor is outside the window.
+        const outside = LINUX_TEAR_OFF
+          ? ev.clientX < 0 ||
+            ev.clientX > window.innerWidth ||
+            ev.clientY < 0 ||
+            ev.clientY > window.innerHeight
+          : ev.screenX < window.screenX ||
+            ev.screenX > window.screenX + window.outerWidth ||
+            ev.screenY < window.screenY ||
+            ev.screenY > window.screenY + window.outerHeight;
         if (outside) {
           // Offset so the new window's tab sits under the cursor, not at it.
-          moveTabToNewWindow(tabId, {
-            x: Math.round(ev.screenX - 80),
-            y: Math.round(ev.screenY - 20),
-          });
+          // On Linux the compositor decides placement (Wayland apps can't).
+          moveTabToNewWindow(
+            tabId,
+            LINUX_TEAR_OFF
+              ? null
+              : {
+                  x: Math.round(ev.screenX - 80),
+                  y: Math.round(ev.screenY - 20),
+                },
+          );
           return;
         }
       }

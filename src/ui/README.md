@@ -212,9 +212,11 @@ window") moves the tab into its own OS window. The model:
   `settings-changed` event so theme/fonts stay uniform — except a theme a
   window pinned to itself (`stores/window-theme`), which neither leaves nor
   accepts the broadcast.
-- **Platform gating**: the drag-out gesture is disabled on Linux (Wayland
-  offers no reliable global cursor position); the context-menu item works
-  everywhere.
+- **Platform gating**: on Linux (Wayland offers no global cursor position or
+  app-side window placement) the drag-out release is judged in client
+  coordinates and the new window is spawned unpositioned — the compositor
+  places it. Android is single-window; there only in-strip reorder exists.
+  The context-menu item works everywhere.
 
 ## Keyboard shortcuts (single registry)
 
