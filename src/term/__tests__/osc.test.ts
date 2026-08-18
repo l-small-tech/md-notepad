@@ -170,6 +170,20 @@ describe('modes for the input layer', () => {
     });
   });
 
+  it('drops a synchronized-output batch the application never closed', () => {
+    const t = term();
+    t.write(`${CSI}?2026h`);
+    expect(t.synchronized).toBe(true);
+
+    t.abortSynchronizedOutput();
+    expect(t.synchronized).toBe(false);
+    expect(t.modes()).toMatchObject({ synchronizedOutput: false });
+
+    // A late `l` for the dropped batch is a no-op, not a second toggle.
+    t.write(`${CSI}?2026l`);
+    expect(t.synchronized).toBe(false);
+  });
+
   it('DECTCEM hides and shows the cursor', () => {
     const t = term();
     t.write(`${CSI}?25l`);

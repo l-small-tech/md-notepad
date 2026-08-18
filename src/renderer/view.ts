@@ -129,11 +129,18 @@ export class TermView {
       return;
     }
     // Synchronized output: try again next frame, but never wait forever.
+    // Past the deadline the batch is treated as abandoned — dropped in the
+    // engine so later chunks are not blocked by it too, then painted with
+    // `force` because clearing the flag alone still leaves this frame's
+    // `render()` looking at stale state.
     const now = performance.now();
     if (this.blockedSince === 0) this.blockedSince = now;
     if (now - this.blockedSince > SYNC_TIMEOUT_MS) {
       this.blockedSince = 0;
+      this.terminal.abortSynchronizedOutput();
       this.renderer.invalidate();
+      this.renderer.render(true);
+      return;
     }
     this.requestRender();
   };

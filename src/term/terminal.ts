@@ -224,6 +224,19 @@ export class Terminal {
     return this.screen.synchronizedOutput;
   }
 
+  /**
+   * Drop a synchronized-output batch the application never closed.
+   *
+   * `CSI ? 2026 h` with no matching `l` — a crashed program, a killed pty, a
+   * frame that was still being written when the shell died — would otherwise
+   * hold the surface at its last painted state for good. The renderer's
+   * watchdog calls this after `SYNC_TIMEOUT_MS` and paints whatever the
+   * engine has; a later `l` is simply a no-op.
+   */
+  abortSynchronizedOutput(): void {
+    this.screen.synchronizedOutput = false;
+  }
+
   /** Screen text, one string per row, trailing blanks trimmed. */
   serialize(): string[] {
     return this.screen.screenText();

@@ -195,6 +195,34 @@ describe('CanvasRenderer', () => {
     expect(ops(calls, 'fillText').some((call) => call.text === 'flickery')).toBe(true);
   });
 
+  it('forces a frame through an unclosed synchronized-output batch', () => {
+    const { calls, terminal, renderer } = harness;
+    renderer.render();
+    calls.length = 0;
+    // A batch the application opens and never closes — a crashed TUI, a pty
+    // killed mid-frame. Without the forcing render the surface never paints
+    // again, which reads to the user as a frozen terminal.
+    terminal.write('\x1b[?2026h');
+    terminal.write('stranded');
+    expect(renderer.render()).toBe(false);
+    expect(calls).toHaveLength(0);
+
+    expect(renderer.render(true)).toBe(true);
+    expect(ops(calls, 'fillText').some((call) => call.text === 'stranded')).toBe(true);
+  });
+
+  it('paints normally again once an abandoned batch is dropped', () => {
+    const { calls, terminal, renderer } = harness;
+    terminal.write('\x1b[?2026h');
+    expect(renderer.render()).toBe(false);
+
+    terminal.abortSynchronizedOutput();
+    calls.length = 0;
+    terminal.write('recovered');
+    expect(renderer.render()).toBe(true);
+    expect(ops(calls, 'fillText').some((call) => call.text === 'recovered')).toBe(true);
+  });
+
   it('paints the selection background over the selected columns', () => {
     const { calls, terminal, renderer } = harness;
     terminal.write('\x1b[?25lhello');

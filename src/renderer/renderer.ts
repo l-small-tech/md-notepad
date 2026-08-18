@@ -196,9 +196,13 @@ export class CanvasRenderer {
    * Returns false without touching the canvas — or the engine's dirty set —
    * while the application holds a synchronized-output batch (DEC 2026): that
    * is exactly the flicker Claude Code's spinner uses the mode to avoid.
+   *
+   * `force` paints anyway, mid-batch and all. It is the escape hatch behind
+   * `TermView`'s watchdog: a batch that is never closed must cost one torn
+   * frame, not a permanently frozen surface.
    */
-  render(): boolean {
-    if (this.terminal.synchronized) return false;
+  render(force = false): boolean {
+    if (this.terminal.synchronized && !force) return false;
 
     const rows = this.terminal.rows;
     this.reverseVideo = this.terminal.modes().reverseVideo;
