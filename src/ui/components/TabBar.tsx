@@ -128,11 +128,83 @@ function StatusBadge({ cue }: { cue: AgentStatusCue }) {
   );
 }
 
-/** The same badge + label inside an overflow-menu row, which never ellipsizes. */
+/**
+ * What a tab's icon depicts. Notes are markdown by definition; a file tab is
+ * whatever its extension says (the drawing editor owns `.svg`), so the split
+ * lives here rather than as a new field on TabEntry.
+ */
+type TabIconKind = 'markdown' | 'drawing' | 'image' | 'import' | 'terminal';
+
+function tabIconKind(tab: TabEntry): TabIconKind {
+  if (tab.kind === 'terminal' || tab.kind === 'image' || tab.kind === 'import') {
+    return tab.kind;
+  }
+  if (tab.kind === 'file' && tab.filePath?.toLowerCase().endsWith('.svg')) {
+    return 'drawing';
+  }
+  return 'markdown';
+}
+
+/** Per-kind glyphs (16×16 strokes) so terminals, drawings and notes read apart at a glance. */
+const TAB_ICON_PATHS: Record<TabIconKind, React.ReactNode> = {
+  terminal: (
+    <>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <path d="M4.5 6l2.5 2-2.5 2M9 10.5h2.5" />
+    </>
+  ),
+  markdown: (
+    <>
+      <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" />
+      <path d="M3.5 10.5V5.8l2 2.4 2-2.4v4.7" />
+      <path d="M11.5 5.5v4m0 0l-1.6-1.6m1.6 1.6l1.6-1.6" />
+    </>
+  ),
+  drawing: (
+    <>
+      <path d="M11.3 2.7l2 2L5.5 12.5l-2.8.8.8-2.8z" />
+      <path d="M9.8 4.2l2 2" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <circle cx="5.5" cy="6.5" r="1.1" />
+      <path d="M2.5 12l3.5-4 3 3.5 2-2.2 2.5 2.7" />
+    </>
+  ),
+  import: (
+    <>
+      <path d="M8 2.5v6m0 0L5.5 6.2M8 8.5l2.5-2.3" />
+      <path d="M2.5 10v2A1.5 1.5 0 004 13.5h8a1.5 1.5 0 001.5-1.5v-2" />
+    </>
+  ),
+};
+
+/** The kind icon at a tab's left edge (and ahead of overflow-menu rows). */
+function TabIcon({ tab }: { tab: TabEntry }) {
+  return (
+    <svg
+      className="tab-icon"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {TAB_ICON_PATHS[tabIconKind(tab)]}
+    </svg>
+  );
+}
+
+/** The same icon + badge + label inside an overflow-menu row, which never ellipsizes. */
 function OverflowLabel({ tab }: { tab: TabEntry }) {
   const { cue, text } = tabLabelParts(tab);
   return (
     <>
+      <TabIcon tab={tab} />
       {cue && <StatusBadge cue={cue} />}
       {text}
     </>
@@ -257,6 +329,7 @@ function Tab({
       }}
       onDoubleClick={() => store().beginRename(tab.id)}
     >
+      <TabIcon tab={tab} />
       {renaming ? (
         <RenameInput tab={tab} />
       ) : (
@@ -667,10 +740,10 @@ function usePhoneLayout(): boolean {
 }
 
 /**
- * The "+" button's type picker: alt-click, right-click, long-press, or
- * mod+Shift+N. A plain click never opens it — it just makes another one of
- * whatever is in front (core/new-tab.ts) — so the menu is the explicit route
- * to a type the inference would not have chosen.
+ * The "+" button's type picker: the ⌄ button beside it, alt-click,
+ * right-click, long-press, or mod+Shift+N. A plain click on + never opens it —
+ * it just makes another one of whatever is in front (core/new-tab.ts) — so the
+ * menu is the explicit route to a type the inference would not have chosen.
  */
 function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
@@ -685,7 +758,12 @@ function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
     <div
       className="tab-menu tab-new-menu"
       role="menu"
-      style={{ left: Math.max(4, anchor.left), top: anchor.bottom + 4 }}
+      // Clamp both ways: the +/⌄ group can sit anywhere along the bar, and the
+      // menu (min-width 200px) must not run off either window edge.
+      style={{
+        left: Math.min(Math.max(4, anchor.left), Math.max(4, window.innerWidth - 208)),
+        top: anchor.bottom + 6,
+      }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <button
@@ -754,7 +832,9 @@ export function TabBar() {
   // The picker's open flag lives in uiStore because mod+Shift+N opens it too
   // (global shortcuts dispatch store actions); the anchor is local geometry.
   const newTabMenuOpen = useUiStore((s) => s.newTabMenuOpen);
-  const newTabRef = useRef<HTMLButtonElement>(null);
+  // The picker anchors to the whole floating +/⌄ group, so it opens in the
+  // same spot whichever button (or shortcut) asked for it.
+  const actionsRef = useRef<HTMLDivElement>(null);
   const newTabLongPress = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [newTabAnchor, setNewTabAnchor] = useState<DOMRect | null>(null);
 
@@ -767,7 +847,7 @@ export function TabBar() {
 
   function openPicker() {
     cancelNewTabLongPress();
-    setNewTabAnchor(newTabRef.current?.getBoundingClientRect() ?? null);
+    setNewTabAnchor(actionsRef.current?.getBoundingClientRect() ?? null);
     uiStore.getState().openNewTabMenu();
   }
 
@@ -775,7 +855,7 @@ export function TabBar() {
   // taken when the flag flips rather than only in the click handler.
   useLayoutEffect(() => {
     if (newTabMenuOpen && !newTabAnchor) {
-      setNewTabAnchor(newTabRef.current?.getBoundingClientRect() ?? null);
+      setNewTabAnchor(actionsRef.current?.getBoundingClientRect() ?? null);
     }
     if (!newTabMenuOpen && newTabAnchor) {
       setNewTabAnchor(null);
@@ -1089,41 +1169,6 @@ export function TabBar() {
         ))}
         {dropHint !== null && <div className="tab-drop-indicator" style={{ left: dropHint.x }} />}
       </div>
-      <button
-        ref={newTabRef}
-        className="tab-new"
-        aria-label="New tab"
-        title="New tab (Ctrl/Cmd+N) — Alt-click or right-click to choose a type"
-        onClick={(e) => {
-          // Alt-click is the mouse's route to the picker; a plain click makes
-          // another one of whatever is in front.
-          if (e.altKey) {
-            openPicker();
-          } else {
-            // The button's own pointerdown stops the menu's dismiss handler,
-            // so a plain click while it is open has to close it itself.
-            uiStore.getState().closeNewTabMenu();
-            newTabDefault();
-          }
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          openPicker();
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          if (e.pointerType !== 'touch') {
-            return;
-          }
-          cancelNewTabLongPress();
-          newTabLongPress.current = setTimeout(openPicker, 500);
-        }}
-        onPointerUp={cancelNewTabLongPress}
-        onPointerLeave={cancelNewTabLongPress}
-        onPointerCancel={cancelNewTabLongPress}
-      >
-        +
-      </button>
       {hidden.length > 0 && (
         <button
           className="tab-overflow"
@@ -1141,6 +1186,82 @@ export function TabBar() {
           {phone ? `+${hidden.length}` : `›${hidden.length}`}
         </button>
       )}
+      {/* The + and ⌄ pair share one floating pill (Windows Terminal style):
+          + makes another of whatever is in front, ⌄ is the explicit picker. */}
+      <div className="tabbar-actions" ref={actionsRef}>
+        <button
+          className="tab-new"
+          aria-label="New tab"
+          title="New tab (Ctrl/Cmd+N) — Alt-click or right-click to choose a type"
+          onClick={(e) => {
+            // Alt-click is the mouse's route to the picker; a plain click makes
+            // another one of whatever is in front.
+            if (e.altKey) {
+              openPicker();
+            } else {
+              // The button's own pointerdown stops the menu's dismiss handler,
+              // so a plain click while it is open has to close it itself.
+              uiStore.getState().closeNewTabMenu();
+              newTabDefault();
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openPicker();
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            if (e.pointerType !== 'touch') {
+              return;
+            }
+            cancelNewTabLongPress();
+            newTabLongPress.current = setTimeout(openPicker, 500);
+          }}
+          onPointerUp={cancelNewTabLongPress}
+          onPointerLeave={cancelNewTabLongPress}
+          onPointerCancel={cancelNewTabLongPress}
+        >
+          <svg
+            className="tab-action-glyph"
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          >
+            <path d="M8 3.5v9M3.5 8h9" />
+          </svg>
+        </button>
+        <button
+          className="tab-chevron"
+          aria-label="New tab options"
+          title="Choose the kind of tab to open (Ctrl/Cmd+Shift+N)"
+          onClick={() => {
+            // Same self-close as the + button: our pointerdown never reaches
+            // the menu's window dismiss handler.
+            if (newTabMenuOpen) {
+              uiStore.getState().closeNewTabMenu();
+            } else {
+              openPicker();
+            }
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <svg
+            className="tab-action-glyph"
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4.5 6.5L8 10l3.5-3.5" />
+          </svg>
+        </button>
+      </div>
       <div className="tabbar-spacer" data-tauri-drag-region="" />
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}

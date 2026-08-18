@@ -110,15 +110,20 @@ The free space after the last tab keeps `data-tauri-drag-region` and a floor
 open. The drag drop-indicator is scroller-relative and must add
 `scroller.scrollLeft`.
 
-### The "+" button
+### The "+ ⌄" button pair
 
-A plain click makes **another one of whatever is in front** —
+The two live in one floating pill after the last tab (Windows Terminal
+style). A plain click on + makes **another one of whatever is in front** —
 `defaultNewTabChoice` in `core/new-tab.ts` (pure, tested): terminal → terminal,
-`.svg` → drawing, everything else → note. Alt-click, right-click, long-press
-or mod+Shift+N opens the type picker instead, which lists every type
-explicitly (and one entry per terminal profile when there is more than one),
-so the inference is never the only route. mod+N follows the same rule — the
-binding has always been labelled "New tab", not "New note".
+`.svg` → drawing, everything else → note. The ⌄ button — or alt-click,
+right-click, long-press or mod+Shift+N — opens the type picker instead, which
+lists every type explicitly (and one entry per terminal profile when there is
+more than one), so the inference is never the only route. mod+N follows the
+same rule — the binding has always been labelled "New tab", not "New note".
+
+Every tab leads with a kind icon (terminal / markdown / drawing / image /
+import — `tabIconKind` in TabBar) so the strip reads apart at a glance; a
+terminal's agent-status badge sits after the icon, not instead of it.
 
 ### Where a new terminal starts
 
