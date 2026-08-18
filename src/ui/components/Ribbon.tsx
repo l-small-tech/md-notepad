@@ -21,27 +21,19 @@
  * own inline toolbar there).
  */
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { appendMentions } from '../../core/link-mentions';
 import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
+import { AppMenuDivider, AppMenuItem, ThemesMenuPage } from './AppMenu';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, openExportPreview, saveActiveTab, saveActiveTabAs } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
-import {
-  canRevealThemesFolder,
-  newTheme,
-  openThemesFolder,
-  openThemesHelp,
-  reloadThemes,
-  selectTheme,
-  unpinThemeFromWindow,
-} from '../theme-actions';
 import {
   FONT_FAMILIES,
   PALETTE,
@@ -58,8 +50,6 @@ import { fingerDrawsEnabled } from '../../core/whiteboard/input';
 import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
-import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
-import { useWindowTheme } from '../stores/window-theme';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
@@ -247,156 +237,6 @@ function copyRawText(): void {
     .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
 }
 
-/** One row of the ☰ app menu: glyph + label, optional right-aligned shortcut. */
-function RibbonMenuItem({
-  glyph,
-  label,
-  shortcut,
-  title,
-  onPick,
-  onSecondaryPick,
-  onClose,
-  keepOpen,
-}: {
-  glyph: string;
-  label: string;
-  shortcut?: string;
-  title?: string;
-  onPick: () => void;
-  /** Right-click variant of the row's action (theme rows: this window only).
-   *  Rows that don't set it keep the browser's default context menu. */
-  onSecondaryPick?: () => void;
-  onClose: () => void;
-  /** Drill-in / back rows stay open — they navigate within the popover. */
-  keepOpen?: boolean;
-}) {
-  return (
-    <button
-      className="tab-menu-item ribbon-menu-item"
-      role="menuitem"
-      title={title}
-      onClick={() => {
-        if (!keepOpen) {
-          onClose();
-        }
-        onPick();
-      }}
-      onContextMenu={
-        onSecondaryPick &&
-        ((e) => {
-          e.preventDefault();
-          if (!keepOpen) {
-            onClose();
-          }
-          onSecondaryPick();
-        })
-      }
-    >
-      <span>
-        <span className="ribbon-menu-glyph">{glyph}</span>
-        {label}
-      </span>
-      {shortcut && <span className="ribbon-menu-shortcut">{shortcut}</span>}
-    </button>
-  );
-}
-
-/**
- * The Themes submenu — every installed theme (same grouping and order as the
- * Settings dropdown, ✓ on the current one), then the folder actions that used
- * to live in Settings: Open folder / New theme… / Reload, plus Help, which
- * opens the bundled themes guide.
- *
- * It's a drill-in page of the ☰ popover rather than a flyout: one panel works
- * the same under a mouse and a finger (Android has no hover), and the theme
- * list can be long.
- */
-function ThemesSubmenu({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
-  const plugins = useThemeRegistry((s) => s.plugins);
-  const settings = useSettingsStore((s) => s.settings);
-  const pinned = useWindowTheme((s) => s.override !== null);
-  const current = currentThemeValue(settings);
-  const groups = themePickerGroups(plugins);
-  // Android runs a single webview — a per-window theme has nothing to be per
-  // (and there is no right-click there either).
-  const perWindow = !isAndroid();
-  return (
-    <>
-      <RibbonMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
-      <div className="ribbon-menu-divider" role="separator" />
-      {/* Picking sets the theme for every window; right-clicking pins it here. */}
-      {perWindow && (
-        <>
-          <div className="ribbon-menu-heading">Right-click: this window only</div>
-          {pinned && (
-            <RibbonMenuItem
-              glyph="⌂"
-              label="Use shared theme"
-              title="Stop pinning a theme to this window and follow the all-windows theme again"
-              onPick={unpinThemeFromWindow}
-              onClose={onClose}
-              keepOpen
-            />
-          )}
-          <div className="ribbon-menu-divider" role="separator" />
-        </>
-      )}
-      {groups.map((group, gi) => (
-        <Fragment key={gi}>
-          {gi > 0 && <div className="ribbon-menu-divider" role="separator" />}
-          {group.label !== null && <div className="ribbon-menu-heading">{group.label}</div>}
-          {group.options.map((option) => (
-            <RibbonMenuItem
-              key={option.value}
-              // The ✓ column is the glyph slot, so checked and unchecked rows
-              // keep their labels aligned.
-              glyph={option.value === current ? '✓' : ''}
-              label={option.label}
-              title={perWindow ? 'Set for all windows (right-click: this window only)' : undefined}
-              onPick={() => selectTheme(option.value)}
-              onSecondaryPick={perWindow ? () => selectTheme(option.value, true) : undefined}
-              onClose={onClose}
-              // Picking applies live — staying open lets the user try a few.
-              keepOpen
-            />
-          ))}
-        </Fragment>
-      ))}
-      <div className="ribbon-menu-divider" role="separator" />
-      {canRevealThemesFolder() && (
-        <RibbonMenuItem
-          glyph="📂"
-          label="Open folder"
-          title="Show the themes folder in your file manager"
-          onPick={() => void openThemesFolder()}
-          onClose={onClose}
-        />
-      )}
-      <RibbonMenuItem
-        glyph="✚"
-        label="New theme…"
-        title="Create a starter theme file, select it, and reveal it"
-        onPick={() => void newTheme()}
-        onClose={onClose}
-      />
-      <RibbonMenuItem
-        glyph="⟲"
-        label="Reload"
-        title="Re-read the themes folder after editing or adding files"
-        onPick={() => void reloadThemes()}
-        onClose={onClose}
-      />
-      <RibbonMenuItem
-        glyph="?"
-        label="Help"
-        title="How to create your own theme"
-        onPick={openThemesHelp}
-        onClose={onClose}
-      />
-    </>
-  );
-}
-
 /**
  * The ☰ app menu — one-shot commands that don't earn a toolbar slot. Same
  * fixed-position popover pattern as the tab bar's OverflowMenu, but
@@ -425,13 +265,13 @@ function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
 
   return (
     <div
-      className="tab-menu ribbon-menu"
+      className="tab-menu app-menu"
       role="menu"
       style={{ left: anchor.left, top: anchor.bottom + 4 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {page === 'themes' ? (
-        <ThemesSubmenu onBack={() => setPage('root')} onClose={onClose} />
+        <ThemesMenuPage onBack={() => setPage('root')} onClose={onClose} />
       ) : (
         <RootMenuPage onOpenThemes={() => setPage('themes')} onClose={onClose} />
       )}
@@ -449,7 +289,7 @@ function RootMenuPage({
 }) {
   return (
     <>
-      <RibbonMenuItem
+      <AppMenuItem
         glyph="🔍"
         label="Search workspaces"
         shortcut={IS_MAC ? '⇧⌘F' : 'Ctrl+Shift+F'}
@@ -458,29 +298,29 @@ function RootMenuPage({
       />
       {/* The menu is the palette's only entry point on Android (no Ctrl+K
           there), and a discoverable one on desktop. */}
-      <RibbonMenuItem
+      <AppMenuItem
         glyph="»"
         label="Command palette"
         shortcut={IS_MAC ? '⌘K' : 'Ctrl+K'}
         onPick={() => uiStore.getState().togglePalette()}
         onClose={onClose}
       />
-      <RibbonMenuItem
+      <AppMenuItem
         glyph="⇩"
         label="Export…"
         title="Export as PDF, DOCX or HTML — opens a themed preview"
         onPick={() => openExportPreview()}
         onClose={onClose}
       />
-      <RibbonMenuItem
+      <AppMenuItem
         glyph="⧉"
         label="Copy all raw text"
         title="Copy raw text (+ @path mentions for linked files, for the Claude Code CLI)"
         onPick={copyRawText}
         onClose={onClose}
       />
-      <div className="ribbon-menu-divider" role="separator" />
-      <RibbonMenuItem
+      <AppMenuDivider />
+      <AppMenuItem
         glyph="🎨"
         label="Themes"
         title="Pick a theme, or make your own"
@@ -489,7 +329,7 @@ function RootMenuPage({
         onClose={onClose}
         keepOpen
       />
-      <RibbonMenuItem
+      <AppMenuItem
         glyph="⚙"
         label="Settings"
         shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
@@ -642,13 +482,13 @@ function SaveMenu({
 
   return (
     <div
-      className="tab-menu ribbon-menu"
+      className="tab-menu app-menu"
       role="menu"
       aria-label="Save options"
       style={{ left: anchor.left, top: anchor.bottom + 4 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <RibbonMenuItem
+      <AppMenuItem
         glyph={liveSave ? '✓' : ''}
         label="Auto save"
         title="Save opened files automatically as you type, without Ctrl+S"
@@ -659,8 +499,8 @@ function SaveMenu({
         }}
         onClose={onClose}
       />
-      <div className="ribbon-menu-divider" role="separator" />
-      <RibbonMenuItem
+      <AppMenuDivider />
+      <AppMenuItem
         glyph="⤓"
         label="Save as…"
         shortcut={IS_MAC ? '⇧⌘S' : 'Ctrl+Shift+S'}

@@ -79,7 +79,10 @@ you have it open, a banner appears at the top of that tab:
 - **Switch tabs**: click, or Ctrl+Tab / Ctrl+Shift+Tab to cycle.
 - **Close**: the × on the tab, Ctrl+W, or middle-click. Closing the last tab
   always leaves one fresh empty note.
-- **Close all**: right-click a tab for the menu.
+- **Close all**: right-click a tab for the menu, or right-click the empty
+  space in the tab bar.
+- **Tab bar menu**: right-click the empty space beside the tabs for New tab,
+  the command palette, Themes, Settings, full screen, and Close all tabs.
 - **Reorder**: drag tabs left and right.
 - **Rename**: double-click the tab name, press F2, or right-click →
   Rename. Renaming also renames the file on disk, so tab and file always

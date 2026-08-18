@@ -468,40 +468,41 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The ribbon's ☰ app menu — a .tab-menu widened for shortcut hints. The
-   Themes page lists every installed theme, so the popover scrolls rather than
-   running off the bottom of a short window. */
-.ribbon-menu {
+/* The app's popover menus (the ribbon's ☰ button, the tab bar's own
+   right-click menu) — a .tab-menu widened for shortcut hints. The Themes page
+   lists every installed theme, so the popover scrolls rather than running off
+   the bottom of a short window. */
+.app-menu {
   min-width: 220px;
   max-height: min(70vh, 520px);
   overflow-y: auto;
 }
 
-.ribbon-menu-item {
+.app-menu-item {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 16px;
 }
 
-.ribbon-menu-glyph {
+.app-menu-glyph {
   display: inline-block;
   min-width: 22px;
 }
 
-.ribbon-menu-shortcut {
+.app-menu-shortcut {
   opacity: 0.55;
   font-size: 12px;
 }
 
-.ribbon-menu-divider {
+.app-menu-divider {
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
 }
 
 /* Non-interactive section heading inside a menu (Themes: Light/Dark/Custom). */
-.ribbon-menu-heading {
+.app-menu-heading {
   padding: 4px 12px 2px;
   font-size: 11px;
   font-weight: 600;

@@ -91,6 +91,13 @@ collapsed group and a scroll alike. The rule itself is pure and tested
 - A clipped group CHIP takes its whole run into the overflow list: a run you
   can only see the tail of is not a group you can read.
 
+Right-clicking the strip's FREE space opens the bar's own menu (`BarContextMenu`),
+a small app menu rather than a one-item stub: a New tab drill-in page (every
+type, one row per terminal profile), the command palette, Themes, Settings, the
+two full-screen stages as toggles, and "Close all tabs". Its rows and the
+Themes page are the same widgets the ribbon's ☰ menu uses
+(`components/AppMenu.tsx`), so the two menus can't drift apart.
+
 The free space after the last tab keeps `data-tauri-drag-region` and a floor
 (`--tab-free-space`), so the window stays draggable however many tabs are
 open. The drag drop-indicator is scroller-relative and must add
