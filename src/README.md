@@ -83,6 +83,11 @@ components never add window-level listeners themselves.
   at a sans stack by the "Interface font" setting. Editor/preview/wysiwyg
   surfaces must reference `--font-mono` explicitly, never inherit from
   body.
+- The terminal is the one surface CSS does not paint. `src/renderer` is
+  handed a resolved palette (numbers) and a `FontSpec` as values —
+  `ui/terminal-theme.ts` reads `--font-mono` / `--editor-font-size` once and
+  passes them in, so the Editor font setting and mod+=/-/0 drive terminal
+  cells without the renderer ever touching the DOM.
 
 ## Testing expectations
 

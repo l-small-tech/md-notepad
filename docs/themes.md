@@ -160,6 +160,49 @@ The keys:
 To color each heading level differently, set `heading1` through `heading6`
 instead of (or on top of) `heading`.
 
+### Terminal colors (optional)
+
+Terminal tabs paint with a 16-color ANSI palette plus a background,
+foreground, cursor and selection. You don't have to supply any of it: the
+palette is **derived from your branding colors** — `accent` becomes blue and
+the cursor, `danger` becomes red, `fgMuted` becomes bright black, `editorBg`
+and `fg` become the surface and the text — and each derived color is checked
+against the background and nudged until it's comfortably readable. Every theme
+therefore arrives with a working terminal palette and nothing to decide.
+
+If you want exact control, add an optional `"terminal"` block. Anything you
+leave out stays derived, so setting one key sets one key:
+
+```json
+{
+  "name": "Midnight",
+  "mode": "dark",
+  "branding": { "editorBg": "#0b0f14", "fg": "#e6e6e6", "accent": "#6ea1ff" },
+  "terminal": {
+    "cursor": "#ffcc00",
+    "red": "#ff6b5e",
+    "green": "#9ece6a",
+    "blue": "#6ea1ff"
+  }
+}
+```
+
+The keys:
+
+| Key | What it colors |
+| --- | -------------- |
+| `background` / `foreground` | The terminal surface and its default text. |
+| `cursor` | The block/bar cursor. |
+| `cursorText` | The character *under* a block cursor. `null` = the background color. |
+| `selection` | The highlight behind selected terminal text. |
+| `selectionText` | Text inside a selection. `null` = each character keeps its own color. |
+| `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` | ANSI colors 0–7. |
+| `brightBlack` … `brightWhite` | ANSI colors 8–15. |
+
+The terminal's **font** is not part of the theme: terminal cells use the same
+Editor font and size as your notes, so Ctrl/Cmd `+` / `-` resizes them too
+(and `Ctrl+Shift` with `+` / `-` zooms one pane on its own).
+
 ### Advanced: the `css` field (optional)
 
 If you want to go beyond colors — say, add letter-spacing in Read mode or tweak

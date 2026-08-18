@@ -7,7 +7,8 @@ which are the same everywhere).
 
 | Shortcut | What it does |
 | --- | --- |
-| Ctrl+N | New note tab |
+| Ctrl+N | New tab — of the same type as the one you're on (note, drawing, or terminal) |
+| Ctrl+Shift+N | New tab menu — pick the type explicitly |
 | Ctrl+W | Close the current tab |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
@@ -54,6 +55,29 @@ Tab leaves it where it is.
 | Ctrl+- | Smaller text |
 | Ctrl+0 | Reset text size |
 | F11 (Mac: Ctrl+Cmd+F) | Full screen in Read mode — press again for more, Esc to step back |
+
+## Terminal tabs (desktop only)
+
+A focused terminal gives almost every key to the program running in it — so
+Ctrl+S, Ctrl+O and Ctrl+1…4 go to the shell, not to the app. These are the
+exceptions.
+
+| Shortcut | What it does |
+| --- | --- |
+| Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste |
+| Ctrl+C | Copies **only when text is selected** — otherwise it interrupts, as usual |
+| Ctrl+Shift+A | Select everything on screen |
+| Ctrl+Shift+K | Clear the scrollback |
+| Ctrl+Shift+D / Ctrl+Shift+E | Split the pane right / down |
+| Ctrl+Shift+X | Close the pane (the last one closes the tab) |
+| Ctrl+Shift+[ / Ctrl+Shift+] | Previous / next pane |
+| Shift+PageUp / Shift+PageDown | Scroll back a page |
+| Ctrl+Shift+↑ / ↓ | Scroll back a line |
+| Ctrl+Shift+Home / End | Jump to the top / bottom of the scrollback |
+| Ctrl+= / Ctrl+- / Ctrl+0 | Zoom this pane only |
+
+Still available from a terminal: new/close tab, next/previous tab, rename
+tab, Settings, the command palette, and full screen.
 
 ## Everything else
 

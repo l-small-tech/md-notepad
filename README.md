@@ -65,6 +65,10 @@ It's also quietly built for the age of AI pair-programming — see
   own window at the drop point (or right-click → *Move to new window*).
   Extra windows are part of your session and come back on restart; closing
   one returns its tabs to the main window.
+- 🖥️ **Terminal tabs** (desktop) — a real terminal emulator in a tab, split
+  as many ways as you like, with a palette derived from whichever theme
+  you're using. Written from scratch: no xterm.js, no web dependency. `+`
+  makes another one of whatever you're looking at; alt-click it to choose.
 - 🌗 **Light / dark / system themes.** Small, quiet, fast.
 - 🔄 **Safe auto-updates** — signed with minisign and verified before
   install; open tabs are flushed to disk first, so updating never costs
@@ -182,6 +186,7 @@ formatting.
 | WYSIWYG editor | [Milkdown Crepe](https://milkdown.dev) |
 | Markdown pipeline | [unified](https://unifiedjs.com) (remark-gfm → rehype-sanitize) |
 | Diagrams | [Mermaid](https://mermaid.js.org) |
+| Terminal | hand-written VT/xterm engine + canvas renderer (no xterm.js), [portable-pty](https://crates.io/crates/portable-pty) on the Rust side |
 | Build / test | [Vite](https://vite.dev) + [Vitest](https://vitest.dev), cargo for the shell |
 | Fonts | [Fira Code](https://github.com/tonsky/FiraCode) (default) + 6 more monospace faces and [Inter](https://rsms.me/inter/), all bundled via [@fontsource](https://fontsource.org) (OFL-1.1) |
 
