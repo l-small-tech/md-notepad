@@ -98,19 +98,20 @@
    A CLI agent announces its state by prefixing its OSC title with one glyph
    (Claude Code: ✳ idle, ◐/◑ working). Rendered as text that is a 13px
    character nobody notices, so core/tab-status.ts lifts it out and it lands
-   here as a badge: bigger than the label, on its own tinted disc, colored by
-   what the agent is doing. --status-hue is the one knob each state sets. */
+   here as a badge: on its own tinted disc, colored by what the agent is
+   doing. --status-hue is the one knob each state sets. */
 
 .tab-status {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 17px;
-  margin-right: 1px;
+  /* Sized to sit INSIDE the tab's line box with room for the pulse — the disc
+     plus its glow must never reach the tab's padding edge. */
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: 10px;
   /* The glyphs sit slightly high in most fonts; nudge them onto the center. */
   line-height: 1;
   font-weight: 600;
@@ -118,7 +119,9 @@
   background: color-mix(in srgb, var(--status-hue) 18%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-hue) 35%, transparent);
   /* An inactive tab dims its text; the status cue is the one thing that must
-     stay readable across the whole strip, so it opts out. */
+     stay readable across the whole strip, so it opts out. `flex: 0 0 auto`
+     above keeps a narrow tab from squeezing the disc into an oval; the label
+     ellipsizes instead. */
   opacity: 1;
 }
 
@@ -150,10 +153,10 @@
   }
 
   50% {
-    transform: scale(1.12);
+    transform: scale(1.07);
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--status-hue) 55%, transparent),
-      0 0 7px color-mix(in srgb, var(--status-hue) 45%, transparent);
+      0 0 5px color-mix(in srgb, var(--status-hue) 45%, transparent);
   }
 }
 

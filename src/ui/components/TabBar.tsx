@@ -40,7 +40,7 @@ import { useUiStore, uiStore } from '../stores/ui';
 import { detectPlatform } from '../keymap';
 import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
-import { splitAgentStatus } from '../../core/tab-status';
+import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
@@ -94,22 +94,39 @@ interface StripItem {
 }
 
 /**
- * A tab's label, with any agent status glyph lifted out of the text and into
- * its own badge. Only terminal tabs carry one — a note called "✳ ideas" is a
- * note, not a busy agent.
+ * A tab's label, split into the agent status glyph and the text after it.
+ * Only terminal tabs carry a cue — a note called "✳ ideas" is a note, not a
+ * busy agent.
  */
-function TabLabel({ tab }: { tab: TabEntry }) {
+function tabLabelParts(tab: TabEntry): { cue: AgentStatusCue | null; text: string } {
   const label = tabDisplayTitle(tab);
-  const { cue, rest } =
-    tab.kind === 'terminal' ? splitAgentStatus(label) : { cue: null, rest: label };
+  if (tab.kind !== 'terminal') {
+    return { cue: null, text: label };
+  }
+  const { cue, rest } = splitAgentStatus(label);
+  return { cue, text: rest };
+}
+
+/**
+ * The status badge is a SIBLING of `.tab-title`, never a child: that span
+ * clips its text with `overflow: hidden` to make room for the ellipsis, which
+ * would shave the badge's disc and its pulse glow off at both edges.
+ */
+function StatusBadge({ cue }: { cue: AgentStatusCue }) {
+  return (
+    <span className="tab-status" data-activity={cue.activity} aria-label={cue.label} role="img">
+      {cue.glyph}
+    </span>
+  );
+}
+
+/** The same badge + label inside an overflow-menu row, which never ellipsizes. */
+function OverflowLabel({ tab }: { tab: TabEntry }) {
+  const { cue, text } = tabLabelParts(tab);
   return (
     <>
-      {cue && (
-        <span className="tab-status" data-activity={cue.activity} aria-label={cue.label} role="img">
-          {cue.glyph}
-        </span>
-      )}
-      {rest}
+      {cue && <StatusBadge cue={cue} />}
+      {text}
     </>
   );
 }
@@ -177,6 +194,7 @@ function Tab({
   const renaming = useTabsStore((s) => s.renamingTabId === tab.id);
   const store = tabsStore.getState;
   const label = tabDisplayTitle(tab);
+  const { cue, text } = tabLabelParts(tab);
   // Long-press (touch) opens the same menu right-click does on the desktop.
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -234,15 +252,18 @@ function Tab({
       {renaming ? (
         <RenameInput tab={tab} />
       ) : (
-        <span className="tab-title">
-          <TabLabel tab={tab} />
-          {tab.kind === 'file' && tab.dirty && (
-            <span className="tab-dirty-dot" aria-label="Unsaved changes">
-              {' '}
-              •
-            </span>
-          )}
-        </span>
+        <>
+          {cue && <StatusBadge cue={cue} />}
+          <span className="tab-title">
+            {text}
+            {tab.kind === 'file' && tab.dirty && (
+              <span className="tab-dirty-dot" aria-label="Unsaved changes">
+                {' '}
+                •
+              </span>
+            )}
+          </span>
+        </>
       )}
       <button
         className="tab-close"
@@ -403,7 +424,7 @@ function OverflowMenu({
             }}
           >
             {colors[index] && <span className="tab-workspace-dot" />}
-            <TabLabel tab={tab} />
+            <OverflowLabel tab={tab} />
             {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
           </button>
           {/* A clipped tab has no × of its own on screen — this is the only
