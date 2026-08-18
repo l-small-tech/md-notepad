@@ -17,7 +17,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import type { Settings, TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
@@ -32,6 +31,7 @@ import {
   type ShortcutAction,
   type TerminalScroll,
 } from '../keymap';
+import { externalLinkStore } from '../stores/external-link';
 import { currentFont } from '../terminal-theme';
 
 /** Inset between the pane edge and the first cell, in CSS pixels. */
@@ -408,7 +408,9 @@ export function TerminalPane({
       return;
     }
     event.preventDefault();
-    void openUrl(link.uri).catch(() => setStatus(`could not open ${link.uri}`));
+    // Same confirm-then-open path as a markdown link: a URL detected in
+    // terminal output is no more trustworthy than one in a document.
+    externalLinkStore.getState().request(link.uri);
   }, []);
 
   const classes = ['term-pane'];

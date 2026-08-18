@@ -4,9 +4,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createDocModel } from '../../core/doc-model';
 
-const { openUrlMock } = vi.hoisted(() => ({ openUrlMock: vi.fn() }));
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: openUrlMock }));
-
 const { renderMermaidBlocksMock } = vi.hoisted(() => ({ renderMermaidBlocksMock: vi.fn() }));
 vi.mock('../mermaid', () => ({ renderMermaidBlocks: renderMermaidBlocksMock }));
 
@@ -28,7 +25,6 @@ function host(): HTMLDivElement {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  openUrlMock.mockReset();
   renderMermaidBlocksMock.mockReset().mockResolvedValue(undefined);
   readFileBase64Mock.mockReset().mockResolvedValue('QUJD'); // base64 of "ABC"
   readTextFileMock.mockReset().mockResolvedValue({ text: '', mtimeMs: 0 });
@@ -111,10 +107,11 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 
-  test('clicking an http(s) link opens the system browser and never navigates', async () => {
+  test('clicking an http(s) link hands the URL to the host and never navigates', async () => {
     const model = createDocModel('[docs](https://example.com)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false });
+    const onOpenExternal = vi.fn();
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenExternal });
     await vi.runOnlyPendingTimersAsync();
 
     const link = el.querySelector('a')!;
@@ -122,14 +119,15 @@ describe('attachPreviewPane', () => {
     const prevented = !link.dispatchEvent(event);
 
     expect(prevented).toBe(true);
-    expect(openUrlMock).toHaveBeenCalledWith('https://example.com');
+    expect(onOpenExternal).toHaveBeenCalledWith('https://example.com');
     pane.dispose();
   });
 
   test('clicking a non-http link is inert: prevented, but never opened', async () => {
     const model = createDocModel('[mail](mailto:a@b.com)');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false });
+    const onOpenExternal = vi.fn();
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenExternal });
     await vi.runOnlyPendingTimersAsync();
 
     const link = el.querySelector('a')!;
@@ -137,7 +135,7 @@ describe('attachPreviewPane', () => {
     const prevented = !link.dispatchEvent(event);
 
     expect(prevented).toBe(true);
-    expect(openUrlMock).not.toHaveBeenCalled();
+    expect(onOpenExternal).not.toHaveBeenCalled();
     pane.dispose();
   });
 
@@ -247,12 +245,14 @@ describe('attachPreviewPane', () => {
   test('following a local markdown link surfaces the Back affordance', async () => {
     readTextFileMock.mockResolvedValue({ text: '# Linked Page', mtimeMs: 1 });
     const onCanGoBackChange = vi.fn();
+    const onOpenExternal = vi.fn();
     const model = createDocModel('[go](other.md)');
     const el = host();
     const pane = attachPreviewPane(el, model, {
       dark: false,
       docPath: '/ws/note.md',
       onCanGoBackChange,
+      onOpenExternal,
     });
     await vi.runOnlyPendingTimersAsync();
 
@@ -262,7 +262,7 @@ describe('attachPreviewPane', () => {
     expect(readTextFileMock).toHaveBeenCalledWith('/ws/other.md');
     expect(el.innerHTML).toContain('<h1>Linked Page</h1>');
     expect(onCanGoBackChange).toHaveBeenLastCalledWith(true);
-    expect(openUrlMock).not.toHaveBeenCalled();
+    expect(onOpenExternal).not.toHaveBeenCalled();
     pane.dispose();
   });
 
@@ -375,9 +375,10 @@ describe('attachPreviewPane', () => {
       return Promise.resolve();
     });
     const onOpenDiagram = vi.fn();
+    const onOpenExternal = vi.fn();
     const model = createDocModel('```mermaid\ngraph TD;\n```');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram });
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram, onOpenExternal });
     await vi.runOnlyPendingTimersAsync();
 
     expect(click(el.querySelector('.mermaid-diagram svg g')!)).toBe(true);
@@ -394,14 +395,15 @@ describe('attachPreviewPane', () => {
       return Promise.resolve();
     });
     const onOpenDiagram = vi.fn();
+    const onOpenExternal = vi.fn();
     const model = createDocModel('```mermaid\ngraph TD;\n```');
     const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram });
+    const pane = attachPreviewPane(el, model, { dark: false, onOpenDiagram, onOpenExternal });
     await vi.runOnlyPendingTimersAsync();
 
     expect(click(el.querySelector('.mermaid-diagram a')!)).toBe(true);
     expect(onOpenDiagram).toHaveBeenCalled();
-    expect(openUrlMock).not.toHaveBeenCalled();
+    expect(onOpenExternal).not.toHaveBeenCalled();
     pane.dispose();
   });
 

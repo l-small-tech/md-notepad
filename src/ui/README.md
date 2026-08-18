@@ -12,7 +12,9 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
+| `ExternalLinkPrompt` | reference | the confirm bar for a clicked `http(s)` link (non-modal, bottom centre) — see "Link policy" below |
 | `SettingsDialog` | M6 | plain form over the settings store |
+| `ExternalLinkPrompt` | reference | the "open this in your browser?" bar for a clicked external link — non-modal, self-dismissing |
 | `UpdateChip` | M7 | unobtrusive "Update available → restart" affordance |
 | `TerminalTab` | M9 | one terminal tab page: hosts its split tree — see I10 below |
 | `TerminalPane` | M9 | one pty + engine + canvas + input; the only place src/term and src/renderer meet the app |
@@ -211,6 +213,32 @@ settings, palette, full screen. Nothing else.
 
 - Notices (flush errors, normalization hint, "note file missing") go to the
   StatusBar notice area — auto-dismiss after ~6s, never modal.
+- The webview must NEVER navigate. `link-guard.ts` (installed once from
+  main.tsx) cancels every anchor click the surface that rendered it did not
+  already claim — an `http(s)` link that gets through replaces the whole app
+  with a chrome-less remote page and there is no way back. External links go
+  through `stores/external-link.ts` → `ExternalLinkPrompt` → the OS browser;
+  the confirmation step exists because a markdown link's real destination is
+  invisible until it is clicked. TerminalPane's detected link clicks take the
+  same route.
+
+### Link policy (app-wide)
+
+The webview must NEVER navigate. A remote page loaded into the window replaces
+the entire app with something that has no chrome, no Back and no way out — a
+soft lock. `link-guard.ts` installs one delegated `click`/`auxclick` listener on
+`document` (from main.tsx, for the window's lifetime) that prevents the default
+on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
+
+- Clicks a surface already handled (`defaultPrevented`) are skipped — the
+  preview pane runs its own richer handler and prevents the default itself.
+- The wysiwyg (ProseMirror) document is the case the guard exists for: its
+  anchors belong to no handler, so without it a click navigates the window.
+- Nothing opens without confirmation. `ExternalLinkPrompt` names the host the
+  URL really resolves to (userinfo stripped — `https://github.com@evil.example`
+  reaches `evil.example`) and warns before "Open in browser" reaches
+  `openUrl`. Esc or ~15s of no answer dismisses it.
+- Ctrl/Cmd-clicking a URL detected in terminal output takes the same path.
 - Modals are reserved for: close-tab confirmation, save/discard/cancel on
   dirty file close, settings. Use `@tauri-apps/plugin-dialog` for native
   confirm dialogs (they match the OS), custom DOM only for SettingsDialog.

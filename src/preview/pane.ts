@@ -7,8 +7,8 @@
  * EditorHost mounts/unmounts it directly whenever a tab is in `split` mode.
  */
 
-import { openUrl } from '@tauri-apps/plugin-opener';
 import type { DocModel } from '../core/doc-model';
+import { isExternalHref } from '../core/external-links';
 import { imageMimeType, isImagePath, localImageToInline } from '../core/images';
 import { isLocalLinkTarget } from '../core/link-mentions';
 import { dirName, toAbsolutePath } from '../core/session/plan-flush';
@@ -54,6 +54,13 @@ export interface PreviewPaneOptions {
    * `onCanGoBackChange`). Omit and diagram clicks stay inert.
    */
   onOpenDiagram?: (svgMarkup: string) => void;
+  /**
+   * An `http(s)` link was clicked. The pane never opens it itself: the host
+   * confirms the destination with the reader first (`ui/stores/external-link`)
+   * because the window can never show a remote page and the link's label can
+   * say anything. Omit and external links are inert.
+   */
+  onOpenExternal?: (url: string) => void;
 }
 
 /** One followed link in the in-pane navigation history: its path + cached text. */
@@ -89,10 +96,6 @@ export interface PreviewPane {
    */
   scrollToHeading(index: number): void;
   dispose(): void;
-}
-
-function isExternalLink(href: string): boolean {
-  return /^https?:/i.test(href);
 }
 
 /**
@@ -302,13 +305,14 @@ export function attachPreviewPane(
       return;
     }
     // The window must never navigate (README "Link policy") — every link click
-    // is prevented. http(s) opens the system browser; a LOCAL file link is
-    // followed inside the pane (markdown/text) or opened in a tab (images).
-    // In-document anchors (#…) and other schemes (mailto:, …) stay inert.
+    // is prevented. http(s) goes out to the host for confirmation before the
+    // system browser sees it; a LOCAL file link is followed inside the pane
+    // (markdown/text) or opened in a tab (images). In-document anchors (#…)
+    // and other schemes (mailto:, …) stay inert.
     event.preventDefault();
     const href = anchor.getAttribute('href') ?? '';
-    if (isExternalLink(href)) {
-      void openUrl(href);
+    if (isExternalHref(href)) {
+      options.onOpenExternal?.(href);
     } else if (isLocalLinkTarget(href)) {
       void navigateTo(href);
     }

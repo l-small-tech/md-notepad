@@ -43,6 +43,8 @@ import './styles/app.css';
 import './styles/preview.css';
 import './styles/voice-comments.css';
 import { App } from './ui/App';
+import { installLinkGuard } from './ui/link-guard';
+import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
@@ -322,6 +324,13 @@ window.addEventListener('keydown', (event) => {
   if (event.defaultPrevented) {
     return;
   }
+  // Escape dismisses the external-link prompt first: it's the most recently
+  // summoned surface and the cheapest to get rid of (it decides nothing).
+  if (event.key === 'Escape' && externalLinkStore.getState().pending !== null) {
+    event.preventDefault();
+    externalLinkStore.getState().dismiss();
+    return;
+  }
   // Escape closes the fullscreen diagram viewer first — it sits on top of
   // everything else (same custom-DOM-modal contract as the dialogs below).
   if (event.key === 'Escape' && diagramViewerStore.getState().open) {
@@ -467,6 +476,10 @@ async function boot(): Promise<void> {
   applyWindowTitle();
   tabsStore.subscribe(applyWindowTitle);
 
+  // The webview must never navigate: intercept every link click in the app
+  // before the browser acts on it (src/ui/link-guard.ts). Installed for the
+  // lifetime of the window — nothing ever uninstalls it.
+  installLinkGuard();
   createRoot(document.getElementById('root')!).render(<App />);
 
   // First-launch CLI args sit in managed state until the frontend drains

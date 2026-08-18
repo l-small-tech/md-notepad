@@ -29,6 +29,7 @@ import {
   takePendingReveal,
 } from '../session';
 import { diagramViewerStore } from '../stores/diagram-viewer';
+import { externalLinkStore } from '../stores/external-link';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -292,6 +293,9 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onCanGoBackChange: (canGoBack) => previewNavStore.getState().setCanGoBack(tabId, canGoBack),
       // A clicked diagram opens the fullscreen zoomable viewer.
       onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
+      // An http(s) link is confirmed before it leaves the app — the pane never
+      // opens one itself (the same prompt the app-wide link guard raises).
+      onOpenExternal: (url) => externalLinkStore.getState().request(url),
     });
     registerPreviewGoBack(tabId, () => pane.goBack());
     registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));

@@ -2605,3 +2605,137 @@ body.explorer-dragging * {
   color: var(--fg-muted);
   pointer-events: none;
 }
+
+/* ExternalLinkPrompt — the confirm bar for a clicked http(s) link. Bottom
+   centre, above every pane but below the fullscreen diagram viewer (z 110):
+   non-modal on purpose, so the document behind it stays readable and usable
+   while you decide. */
+.external-link-prompt {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 105;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 10px 8px 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+.external-link-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.external-link-host {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--fg);
+}
+
+/* The URL is the evidence, so it never wraps into an unreadable block — it
+   elides (shortenUrl already trims the middle) and the full value is the
+   element's title. */
+.external-link-url {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.external-link-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.external-link-button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.external-link-button:hover {
+  background: var(--bg-hover);
+}
+
+.external-link-open {
+  border-color: var(--border);
+}
+
+/* The external-link confirmation (ui/components/ExternalLinkPrompt). A bar,
+   not a modal: it floats above the content at the bottom of the window and
+   blocks nothing behind it. Sits above the diagram viewer's z-index so a link
+   clicked inside a fullscreen surface is still answerable. */
+.external-link-prompt {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  max-width: min(640px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+.external-link-prompt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.external-link-prompt-warning {
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.external-link-prompt-url {
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.external-link-prompt-button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.external-link-prompt-button:hover {
+  background: var(--bg-hover);
+}
+
+.external-link-prompt-open {
+  border-color: var(--accent, var(--border));
+}

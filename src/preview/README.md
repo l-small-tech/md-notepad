@@ -91,10 +91,17 @@ href:
   (`ui/components/DiagramViewer`). Same surface-state-outward shape as Back:
   nothing is injected into the pane. Omit the callback and diagram clicks
   are inert.
-- `http:`/`https:` → `openUrl(href)` (`@tauri-apps/plugin-opener`) — system browser.
+- `http:`/`https:` (`isExternalHref`, `core/external-links.ts`) → `onOpenExternal`.
+  The pane never opens it itself: the host raises a confirm prompt naming the
+  real host first (`ui/stores/external-link`), and only that opens the system
+  browser. Omit the callback and external links are inert.
 - A **local file** link (`isLocalLinkTarget`, i.e. a relative/absolute path,
   no URL scheme) is FOLLOWED in the pane — see "In-pane reader nav" below.
 - Everything else (in-document `#anchors`, `mailto:`, other schemes) → inert.
+
+`ui/link-guard.ts` is the app-wide backstop for anchors OUTSIDE this pane
+(wysiwyg's live `<a href>`, above all). It defers to this listener, because
+this one has already called `preventDefault()`.
 
 ### In-pane reader nav
 

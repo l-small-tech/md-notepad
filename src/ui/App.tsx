@@ -21,6 +21,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ExportPreviewDialog } from './components/ExportPreviewDialog';
 import { DiagramViewer } from './components/DiagramViewer';
 import { CommandPalette } from './components/CommandPalette';
+import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
 import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
 import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
@@ -103,6 +104,7 @@ export function App() {
       <ExportPreviewDialog />
       <DiagramViewer />
       <CommandPalette />
+      <ExternalLinkPrompt />
       <SearchPanel />
       <VoiceComments />
       {/* Desktop keeps the hover-revealed cluster; Android's way out is the
