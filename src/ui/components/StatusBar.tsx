@@ -8,6 +8,8 @@
  * store's `setMode`, which drives the tab's ModeSync.
  */
 
+import type { MouseEvent as ReactMouseEvent } from 'react';
+
 import { allowedModesFor, docFamilyFor } from '../../core/doc-family';
 import type { EditorMode } from '../../core/types';
 import { tabsStore, useTabsStore } from '../stores/tabs';
@@ -80,8 +82,13 @@ export function StatusBar() {
   const cursor = useUiStore((s) => s.cursor);
   const notice = useUiStore((s) => s.notice);
 
+  // Right-click anywhere on the bar: nothing here has a menu of its own, so
+  // swallow the event rather than let the webview default (Back / Reload /
+  // Inspect) through. Mirrors the same guard in Ribbon.
+  const swallowContextMenu = (e: ReactMouseEvent) => e.preventDefault();
+
   if (!active) {
-    return <div className="statusbar" />;
+    return <div className="statusbar" onContextMenu={swallowContextMenu} />;
   }
 
   const words = active.wordCount;
@@ -89,7 +96,7 @@ export function StatusBar() {
   const caret = cursor ? `Ln ${cursor.line}, Col ${cursor.col}` : 'Ln 1, Col 1';
 
   return (
-    <div className="statusbar">
+    <div className="statusbar" onContextMenu={swallowContextMenu}>
       {active.readOnly ? (
         <span className="statusbar-readonly" title="This document can be read but not edited">
           Read-only
