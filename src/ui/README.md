@@ -121,6 +121,14 @@ lists every type explicitly (and one entry per terminal profile when there is
 more than one), so the inference is never the only route. mod+N follows the
 same rule — the binding has always been labelled "New tab", not "New note".
 
+Under the tab kinds the picker carries the app rows — **Themes** (drilling
+into the same `ThemesMenuPage`), **Settings**, and the two full-screen stages
+— and both they and the kind rows come from `components/AppMenu.tsx`
+(`AppActionRows`, `NewTabRows`), which is also what the bar menu renders, so
+the two cannot drift. The pill is the one menu affordance that stays visible
+however full the strip gets, which is why the chrome actions live there and
+not only behind the bar's right-click.
+
 Every tab leads with a kind icon (terminal / markdown / drawing / image /
 import — `tabIconKind` in TabBar) so the strip reads apart at a glance; a
 terminal's agent-status badge sits after the icon, not instead of it.

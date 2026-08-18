@@ -1,10 +1,11 @@
 /**
  * AppMenu — the shared pieces of the app's popover menus.
  *
- * Two menus offer the same app-level actions from opposite ends of the
- * chrome: the ribbon's ☰ button and the tab bar's own right-click menu (free
- * space after the last tab). Rather than let the two drift, the row widget and
- * the Themes page live here and both callers render them.
+ * Three menus offer the same app-level actions from opposite ends of the
+ * chrome: the ribbon's ☰ button, the tab bar's own right-click menu (free
+ * space after the last tab), and the "+ ⌄" new-tab picker. Rather than let
+ * them drift, the row widget, the Themes page, and the two shared row blocks
+ * (`AppActionRows`, `NewTabRows`) live here and every caller renders them.
  *
  * A row is glyph + label with an optional right-aligned shortcut hint; the
  * glyph column doubles as the ✓ column for checkable rows, so checked and
@@ -14,8 +15,13 @@
  */
 
 import { Fragment } from 'react';
+import { setFullscreen } from '../fullscreen';
+import { detectPlatform } from '../keymap';
+import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
+import { openTerminal } from '../terminal-open';
 import { useSettingsStore } from '../stores/settings';
+import { uiStore, useUiStore } from '../stores/ui';
 import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
 import { useWindowTheme } from '../stores/window-theme';
 import {
@@ -27,6 +33,9 @@ import {
   selectTheme,
   unpinThemeFromWindow,
 } from '../theme-actions';
+
+/** Which modifier the shortcut hints name. Shared so every menu agrees. */
+export const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 
 /** One row of a popover menu: glyph + label, optional right-aligned shortcut. */
 export function AppMenuItem({
@@ -182,6 +191,120 @@ export function ThemesMenuPage({ onBack, onClose }: { onBack: () => void; onClos
         onPick={openThemesHelp}
         onClose={onClose}
       />
+    </>
+  );
+}
+
+/**
+ * The "what kind of tab" rows — note, drawing, and the terminal(s).
+ *
+ * Shared because the choice is offered from two places: the "+" button's
+ * picker and the bar menu's New tab page. The terminal section collapses to a
+ * single row unless `settings.json` defines more than one profile, and is
+ * absent entirely on Android, which has no pty.
+ */
+export function NewTabRows({ onClose }: { onClose: () => void }) {
+  const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
+
+  return (
+    <>
+      <AppMenuItem
+        glyph="📝"
+        label="Markdown note"
+        onPick={() => runNewTabChoice('note')}
+        onClose={onClose}
+      />
+      <AppMenuItem
+        glyph="✎"
+        label="Vector drawing (.svg)"
+        onPick={() => runNewTabChoice('drawing')}
+        onClose={onClose}
+      />
+      {terminalsAvailable() &&
+        (profiles.length > 1 ? (
+          <>
+            <div className="app-menu-heading">Terminal</div>
+            {profiles.map((profile) => (
+              <AppMenuItem
+                key={profile.id}
+                glyph="❯"
+                label={profile.name}
+                onPick={() => openTerminal(profile.id)}
+                onClose={onClose}
+              />
+            ))}
+          </>
+        ) : (
+          <AppMenuItem
+            glyph="❯"
+            label="Terminal"
+            onPick={() => runNewTabChoice('terminal')}
+            onClose={onClose}
+          />
+        ))}
+    </>
+  );
+}
+
+/**
+ * The app-level rows every popover carries: Themes, Settings, and the two
+ * full-screen stages.
+ *
+ * Shared so the tab bar's menu and the "+" picker cannot drift — a user who
+ * opened the picker to start something is one row away from the settings and
+ * the stage that thing should open into, without hunting for a second menu.
+ * Themes is a drill-in page rather than a flyout (see `ThemesMenuPage`), so
+ * the caller owns the page state and passes `onOpenThemes`.
+ */
+export function AppActionRows({
+  onOpenThemes,
+  onClose,
+}: {
+  onOpenThemes: () => void;
+  onClose: () => void;
+}) {
+  const stage = useUiStore((s) => s.fullscreenView);
+
+  return (
+    <>
+      <AppMenuItem
+        glyph="🎨"
+        label="Themes"
+        title="Pick a theme, or make your own"
+        shortcut="›"
+        onPick={onOpenThemes}
+        onClose={onClose}
+        keepOpen
+      />
+      <AppMenuItem
+        glyph="⚙"
+        label="Settings"
+        shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
+        onPick={() => uiStore.getState().openSettings()}
+        onClose={onClose}
+      />
+      <AppMenuDivider />
+      {/* Both rows toggle: picking the stage you are already in returns to
+          normal, so the ✓ reads as a switch rather than a destination. */}
+      <AppMenuItem
+        glyph={stage === 'window' ? '✓' : '⤢'}
+        label={isAndroid() ? 'Full screen' : 'Full window'}
+        title="Hide the app chrome and show only the document"
+        onPick={() => setFullscreen(stage === 'window' ? 'normal' : 'window')}
+        onClose={onClose}
+      />
+      {/* Android's window already fills the screen — the OS stage would look
+          identical to the chrome-hiding one (see ui/fullscreen.ts). */}
+      {!isAndroid() && (
+        <AppMenuItem
+          glyph={stage === 'screen' ? '✓' : '⛶'}
+          label="Full screen"
+          title="Hide the app chrome and make the window fullscreen"
+          shortcut={IS_MAC ? '⌃⌘F' : 'F11'}
+          onPick={() => setFullscreen(stage === 'screen' ? 'normal' : 'screen')}
+          onClose={onClose}
+        />
+      )}
     </>
   );
 }

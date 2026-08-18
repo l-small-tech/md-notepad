@@ -391,22 +391,6 @@
 }
 
 /* The "+" button's type picker (alt-click / right-click / long-press). */
-.tab-new-menu {
-  min-width: 200px;
-}
-
-.tab-menu-label {
-  padding: 6px 10px 2px;
-  color: var(--fg-muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.tab-menu-sub {
-  padding-left: 22px;
-}
-
 .tab-overflow-menu {
   max-width: 280px;
   max-height: 60vh;

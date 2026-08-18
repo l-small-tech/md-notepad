@@ -5,7 +5,8 @@
  * button closes; double-click, F2, or the right-click / long-press context
  * menu starts an inline rename; right-clicking the bar's FREE space (not a
  * tab) opens the strip's own menu — a small app menu (New tab, command
- * palette, Themes, Settings, the full-screen stages, "Close all tabs");
+ * palette, Themes, Settings, the full-screen stages, "Close all tabs"), whose
+ * rows the "+ ⌄" picker shares (components/AppMenu.tsx);
  * pointer-event drag reorders tabs and moves
  * around (no dnd dependency, and NOT HTML5 drag-and-drop —
  * Tauri's OS drag-drop interception swallows webview-internal HTML5 drags on
@@ -36,19 +37,23 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../session';
-import { runNewTabChoice, newTabDefault, terminalsAvailable } from '../new-tab';
-import { openTerminal } from '../terminal-open';
-import { setFullscreen } from '../fullscreen';
+import { newTabDefault } from '../new-tab';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
-import { detectPlatform } from '../keymap';
 import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
 import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
-import { AppMenuDivider, AppMenuItem, ThemesMenuPage } from './AppMenu';
+import {
+  AppActionRows,
+  AppMenuDivider,
+  AppMenuItem,
+  IS_MAC,
+  NewTabRows,
+  ThemesMenuPage,
+} from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
 
@@ -58,7 +63,6 @@ import { isAndroid } from '../platform';
  * overlay the top-left (titleBarStyle Overlay) — inset the tabs past them and
  * render no custom controls; on Windows/Linux render our own on the right.
  */
-const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 
 /**
  * Tear-off gesture (M8): releasing a tab drag outside the window spawns a new
@@ -535,7 +539,6 @@ function BarMenuRoot({
   onClose: () => void;
 }) {
   const count = useTabsStore((s) => s.tabs.length);
-  const stage = useUiStore((s) => s.fullscreenView);
 
   return (
     <>
@@ -556,44 +559,7 @@ function BarMenuRoot({
         onPick={() => uiStore.getState().togglePalette()}
         onClose={onClose}
       />
-      <AppMenuItem
-        glyph="🎨"
-        label="Themes"
-        title="Pick a theme, or make your own"
-        shortcut="›"
-        onPick={onOpenThemes}
-        onClose={onClose}
-        keepOpen
-      />
-      <AppMenuItem
-        glyph="⚙"
-        label="Settings"
-        shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
-        onPick={() => uiStore.getState().openSettings()}
-        onClose={onClose}
-      />
-      <AppMenuDivider />
-      {/* Both rows toggle: picking the stage you are already in returns to
-          normal, so the ✓ reads as a switch rather than a destination. */}
-      <AppMenuItem
-        glyph={stage === 'window' ? '✓' : '⤢'}
-        label={isAndroid() ? 'Full screen' : 'Full window'}
-        title="Hide the app chrome and show only the document"
-        onPick={() => setFullscreen(stage === 'window' ? 'normal' : 'window')}
-        onClose={onClose}
-      />
-      {/* Android's window already fills the screen — the OS stage would look
-          identical to the chrome-hiding one (see ui/fullscreen.ts). */}
-      {!isAndroid() && (
-        <AppMenuItem
-          glyph={stage === 'screen' ? '✓' : '⛶'}
-          label="Full screen"
-          title="Hide the app chrome and make the window fullscreen"
-          shortcut={IS_MAC ? '⌃⌘F' : 'F11'}
-          onPick={() => setFullscreen(stage === 'screen' ? 'normal' : 'screen')}
-          onClose={onClose}
-        />
-      )}
+      <AppActionRows onOpenThemes={onOpenThemes} onClose={onClose} />
       <AppMenuDivider />
       <AppMenuItem
         glyph="⊗"
@@ -612,47 +578,11 @@ function BarMenuRoot({
  * one panel under a finger as well as a mouse.
  */
 function NewTabPage({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
-  const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
-
   return (
     <>
       <AppMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
       <AppMenuDivider />
-      <AppMenuItem
-        glyph="📝"
-        label="Markdown note"
-        onPick={() => runNewTabChoice('note')}
-        onClose={onClose}
-      />
-      <AppMenuItem
-        glyph="✎"
-        label="Vector drawing (.svg)"
-        onPick={() => runNewTabChoice('drawing')}
-        onClose={onClose}
-      />
-      {/* Android has no pty, so the whole terminal section is absent there. */}
-      {terminalsAvailable() &&
-        (profiles.length > 1 ? (
-          <>
-            <div className="app-menu-heading">Terminal</div>
-            {profiles.map((profile) => (
-              <AppMenuItem
-                key={profile.id}
-                glyph="❯"
-                label={profile.name}
-                onPick={() => openTerminal(profile.id)}
-                onClose={onClose}
-              />
-            ))}
-          </>
-        ) : (
-          <AppMenuItem
-            glyph="❯"
-            label="Terminal"
-            onPick={() => runNewTabChoice('terminal')}
-            onClose={onClose}
-          />
-        ))}
+      <NewTabRows onClose={onClose} />
     </>
   );
 }
@@ -744,67 +674,42 @@ function usePhoneLayout(): boolean {
  * right-click, long-press, or mod+Shift+N. A plain click on + never opens it —
  * it just makes another one of whatever is in front (core/new-tab.ts) — so the
  * menu is the explicit route to a type the inference would not have chosen.
+ *
+ * It carries the app rows (Themes, Settings, the two full-screen stages)
+ * under the tab kinds, and drills into the same Themes page the bar menu
+ * uses: this is the menu that is one click from the chrome at every window
+ * size, so it is where someone looks for those — and the "+" pill is the only
+ * always-visible menu affordance once the strip fills with tabs.
  */
 function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
-  const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
+  const [page, setPage] = useState<'root' | 'themes'>('root');
   useMenuDismiss(onClose);
-
-  function pick(run: () => void) {
-    onClose();
-    run();
-  }
 
   return (
     <div
-      className="tab-menu tab-new-menu"
+      className="tab-menu app-menu"
       role="menu"
+      aria-label="New tab"
       // Clamp both ways: the +/⌄ group can sit anywhere along the bar, and the
-      // menu (min-width 200px) must not run off either window edge.
+      // menu must not run off either window edge. Height needs no clamp —
+      // `.app-menu` caps and scrolls it, which is what keeps the Themes page
+      // (as long as the user's themes folder) inside a short window.
       style={{
-        left: Math.min(Math.max(4, anchor.left), Math.max(4, window.innerWidth - 208)),
+        left: Math.min(Math.max(4, anchor.left), Math.max(4, window.innerWidth - 228)),
         top: anchor.bottom + 6,
       }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => pick(() => runNewTabChoice('note'))}
-      >
-        Markdown note
-      </button>
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => pick(() => runNewTabChoice('drawing'))}
-      >
-        Vector drawing (.svg)
-      </button>
-      {/* Android has no pty, so the whole terminal section is absent there. */}
-      {terminalsAvailable() &&
-        (profiles.length > 1 ? (
-          <>
-            <div className="tab-menu-label">Terminal</div>
-            {profiles.map((profile) => (
-              <button
-                key={profile.id}
-                className="tab-menu-item tab-menu-sub"
-                role="menuitem"
-                onClick={() => pick(() => openTerminal(profile.id))}
-              >
-                {profile.name}
-              </button>
-            ))}
-          </>
-        ) : (
-          <button
-            className="tab-menu-item"
-            role="menuitem"
-            onClick={() => pick(() => runNewTabChoice('terminal'))}
-          >
-            Terminal
-          </button>
-        ))}
+      {page === 'themes' ? (
+        <ThemesMenuPage onBack={() => setPage('root')} onClose={onClose} />
+      ) : (
+        <>
+          <div className="app-menu-heading">New tab</div>
+          <NewTabRows onClose={onClose} />
+          <AppMenuDivider />
+          <AppActionRows onOpenThemes={() => setPage('themes')} onClose={onClose} />
+        </>
+      )}
     </div>
   );
 }
