@@ -865,3 +865,89 @@ describe('lastFileMode (mobile reads first)', () => {
     expect(state().tabs.find((t) => t.id === second)!.mode).toBe('raw');
   });
 });
+
+describe('terminal tabs', () => {
+  test('opening one creates its pane session and labels it from the profile', async () => {
+    const terminals = await import('../terminals');
+    const id = state().openTerminalTab({ profileId: 'shell', cwd: '/work' });
+
+    const tab = state().tabs.find((t) => t.id === id)!;
+    expect(tab.kind).toBe('terminal');
+    // 'term' is the only mode its family allows, so a stale mode self-heals.
+    expect(tab.mode).toBe('term');
+    expect(mod.tabDisplayTitle(tab)).toBe('System shell');
+    expect(terminals.terminalsStore.getState().sessions[id]).toBeDefined();
+    expect(terminals.activePaneOf(id)).toMatchObject({ profileId: 'shell', cwd: '/work' });
+  });
+
+  test("the shell's own title takes over the label; a rename beats even that", async () => {
+    const id = state().openTerminalTab({ profileId: 'shell' });
+    state().setTerminalTitle(id, 'vim README.md');
+    expect(mod.tabDisplayTitle(state().tabs.find((t) => t.id === id)!)).toBe('vim README.md');
+
+    state().renameTab(id, 'build');
+    expect(mod.tabDisplayTitle(state().tabs.find((t) => t.id === id)!)).toBe('build');
+  });
+
+  test('closing the tab releases the session, so no pty outlives it', async () => {
+    const terminals = await import('../terminals');
+    const id = state().openTerminalTab({ profileId: 'shell' });
+    state().closeTab(id);
+    expect(terminals.terminalsStore.getState().sessions[id]).toBeUndefined();
+    expect(
+      Object.values(terminals.terminalsStore.getState().panes).some((p) => p.tabId === id),
+    ).toBe(false);
+  });
+
+  test('tearing one off releases it here — the receiving window respawns it', async () => {
+    const terminals = await import('../terminals');
+    state().newTab();
+    const id = state().openTerminalTab({ profileId: 'shell' });
+    state().detachTab(id);
+    expect(terminals.terminalsStore.getState().sessions[id]).toBeUndefined();
+  });
+
+  test('a restored tab rebuilds its recorded layout', async () => {
+    const terminals = await import('../terminals');
+    state().restoreSession({
+      tabs: [
+        {
+          id: 't1',
+          kind: 'terminal',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'term',
+          savedMtimeMs: null,
+          text: '',
+          terminal: {
+            tree: {
+              kind: 'split',
+              id: 's1',
+              direction: 'row',
+              ratio: 0.5,
+              first: { kind: 'leaf', id: 'p1' },
+              second: { kind: 'leaf', id: 'p2' },
+            },
+            activePaneId: 'p2',
+            panes: [
+              { id: 'p1', profileId: 'claude', cwd: '/a' },
+              { id: 'p2', profileId: 'claude', cwd: '/b' },
+            ],
+          },
+        },
+      ],
+      activeTabId: 't1',
+    });
+
+    const session = terminals.terminalsStore.getState().sessions.t1!;
+    expect(session.tree.kind).toBe('split');
+    const cwds = Object.values(terminals.terminalsStore.getState().panes)
+      .filter((p) => p.tabId === 't1')
+      .map((p) => p.cwd)
+      .sort();
+    expect(cwds).toEqual(['/a', '/b']);
+    // The label comes from the recorded profile, not the default one.
+    expect(mod.tabDisplayTitle(tabAt(0))).toBe('Claude Code');
+  });
+});

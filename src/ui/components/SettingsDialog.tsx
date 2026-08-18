@@ -12,9 +12,16 @@
 
 import { Fragment } from 'react';
 import type { EditorFontId, EditorMode, Settings, UiFontId } from '../../core/types';
-import { MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
+import {
+  DEFAULT_SETTINGS,
+  MAX_FONT_SIZE,
+  MIN_FONT_SIZE,
+  TERMINAL_SCROLLBACK_RANGE,
+  TERMINAL_SCROLL_LINES_RANGE,
+} from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
+import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
 import { selectTheme } from '../theme-actions';
 import { settingsStore, useSettingsStore } from '../stores/settings';
@@ -46,6 +53,12 @@ const CURSOR_STYLE_OPTIONS: { value: Settings['cursorStyle']; label: string }[] 
   { value: 'thin', label: 'Thin' },
   { value: 'thick', label: 'Thick' },
   { value: 'underscore', label: 'Underscore' },
+];
+
+const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: string }[] = [
+  { value: 'block', label: 'Block (default)' },
+  { value: 'underline', label: 'Underline' },
+  { value: 'bar', label: 'Bar' },
 ];
 
 const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[] = [
@@ -385,6 +398,7 @@ export function SettingsDialog() {
               )}
             </div>
           </div>
+          <TerminalSection settings={settings} />
           <UpdatesRow />
         </div>
 
@@ -396,4 +410,185 @@ export function SettingsDialog() {
       </div>
     </div>
   );
+}
+
+/**
+ * Terminal settings. Profiles are SELECTED here, not edited: a full profile
+ * editor (program, args, cwd, env, per-profile font) is a form of its own and
+ * would double the size of this dialog for something most people set once.
+ * `settings.json` holds the list — hand-editing it is the documented route,
+ * and `normalizeSettings` clamps whatever comes back, so a bad edit degrades
+ * to the defaults rather than breaking the app.
+ *
+ * The whole section is absent on Android, which has no pty.
+ */
+function TerminalSection({ settings }: { settings: Settings }) {
+  if (!terminalsAvailable()) {
+    return null;
+  }
+  return (
+    <>
+      <h3 className="settings-heading">Terminal</h3>
+
+      <label className="settings-row">
+        <span className="settings-label">Default profile</span>
+        <select
+          className="settings-control"
+          value={settings.defaultTerminalProfile}
+          onChange={(e) => update({ defaultTerminalProfile: e.target.value })}
+        >
+          {settings.terminalProfiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <p className="settings-hint">
+        Profiles (program, arguments, folder, environment) are edited in <code>settings.json</code>{' '}
+        under <code>terminalProfiles</code>. A profile with no <code>program</code> runs your login
+        shell.
+      </p>
+
+      <label className="settings-row">
+        <span className="settings-label">Cursor style</span>
+        <select
+          className="settings-control"
+          value={settings.terminalCursorStyle}
+          onChange={(e) =>
+            update({ terminalCursorStyle: e.target.value as Settings['terminalCursorStyle'] })
+          }
+        >
+          {TERMINAL_CURSOR_OPTIONS.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="settings-row">
+        <span className="settings-label">Scrollback (lines)</span>
+        <input
+          className="settings-control"
+          type="number"
+          min={TERMINAL_SCROLLBACK_RANGE.min}
+          max={TERMINAL_SCROLLBACK_RANGE.max}
+          step={1000}
+          value={settings.terminalScrollback}
+          onChange={(e) => update({ terminalScrollback: clampScrollback(e.target.value) })}
+        />
+      </label>
+
+      <label className="settings-row">
+        <span className="settings-label">Lines per scroll</span>
+        <input
+          className="settings-control"
+          type="number"
+          min={TERMINAL_SCROLL_LINES_RANGE.min}
+          max={TERMINAL_SCROLL_LINES_RANGE.max}
+          value={settings.terminalScrollLines}
+          onChange={(e) => update({ terminalScrollLines: clampScrollLines(e.target.value) })}
+        />
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalCursorBlink}
+          onChange={(e) => update({ terminalCursorBlink: e.target.checked })}
+        />
+        <span className="settings-label">Blinking cursor</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalBell === 'visual'}
+          onChange={(e) => update({ terminalBell: e.target.checked ? 'visual' : 'off' })}
+        />
+        <span className="settings-label">Visual bell (a flash, never a sound)</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalCopyOnSelect}
+          onChange={(e) => update({ terminalCopyOnSelect: e.target.checked })}
+        />
+        <span className="settings-label">Copy on select</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalConfirmMultilinePaste}
+          onChange={(e) => update({ terminalConfirmMultilinePaste: e.target.checked })}
+        />
+        <span className="settings-label">Confirm multi-line paste</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalConfirmCloseRunning}
+          onChange={(e) => update({ terminalConfirmCloseRunning: e.target.checked })}
+        />
+        <span className="settings-label">Confirm closing a terminal with a running shell</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalOnExit === 'keep'}
+          onChange={(e) => update({ terminalOnExit: e.target.checked ? 'keep' : 'close' })}
+        />
+        <span className="settings-label">Keep the pane open after the shell exits</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalAltSendsEscape}
+          onChange={(e) => update({ terminalAltSendsEscape: e.target.checked })}
+        />
+        <span className="settings-label">Alt sends Escape (off makes it a compose key)</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalBackspaceSendsDelete}
+          onChange={(e) => update({ terminalBackspaceSendsDelete: e.target.checked })}
+        />
+        <span className="settings-label">Backspace sends DEL (the xterm default)</span>
+      </label>
+
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={settings.terminalAllowOscClipboard}
+          onChange={(e) => update({ terminalAllowOscClipboard: e.target.checked })}
+        />
+        <span className="settings-label">
+          Let programs set the clipboard (OSC 52) — any program that can print here could
+        </span>
+      </label>
+    </>
+  );
+}
+
+function clampScrollback(raw: string): number {
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value)
+    ? Math.min(TERMINAL_SCROLLBACK_RANGE.max, Math.max(TERMINAL_SCROLLBACK_RANGE.min, value))
+    : DEFAULT_SETTINGS.terminalScrollback;
+}
+
+function clampScrollLines(raw: string): number {
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value)
+    ? Math.min(TERMINAL_SCROLL_LINES_RANGE.max, Math.max(TERMINAL_SCROLL_LINES_RANGE.min, value))
+    : DEFAULT_SETTINGS.terminalScrollLines;
 }

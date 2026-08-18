@@ -25,7 +25,7 @@ import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
 import { TermInput, TermView, type TerminalTheme } from '../../renderer';
 import { Terminal } from '../../term';
 import { runShortcutAction } from '../commands';
-import { registerPaneActions, type PaneAction } from '../pane-actions';
+import { registerPaneActions, runPaneAction, type PaneAction } from '../pane-actions';
 import {
   detectPlatform,
   keyEventToAction,
@@ -99,6 +99,8 @@ export function TerminalPane({
 
   const [status, setStatus] = useState<string | null>('starting…');
   const [bell, setBell] = useState(false);
+  /** Where the right-click menu is, and whether it has a selection to copy. */
+  const [menu, setMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
   /** Font zoom, in steps from the configured size. Per pane, not persisted. */
   const [zoom, setZoom] = useState(0);
 
@@ -174,6 +176,10 @@ export function TerminalPane({
       confirmPaste: (text) => confirmMultilinePaste(text),
       // The system clipboard, not the web view's — see src/ipc/clipboard.ts.
       clipboard: getClipboard(),
+      // Whether Copy is worth offering is decided when the menu opens: the
+      // selection cannot change while it is up.
+      onContextMenu: (event) =>
+        setMenu({ x: event.clientX, y: event.clientY, hasSelection: input.hasSelection }),
     });
     inputRef.current = input;
 
@@ -427,6 +433,126 @@ export function TerminalPane({
     >
       <div className="term-surface" ref={surfaceRef} />
       {status ? <div className="term-status">{status}</div> : null}
+      {/* Outside `.term-surface` on purpose: that element is the input layer's
+          host, and a menu inside it would hand every click to the selection. */}
+      {menu && (
+        <PaneMenu
+          menu={menu}
+          paneId={paneId}
+          onClose={() => setMenu(null)}
+          mac={platform === 'mac'}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The pane's right-click menu, in this app's menu idiom (see TabBar's
+ * `TabContextMenu`). Every item runs through the pane's registered action
+ * runner rather than a second copy of the switch: "Copy" from the menu, from
+ * the palette and from Ctrl+Shift+C have to be one implementation.
+ */
+function PaneMenu({
+  menu,
+  paneId,
+  onClose,
+  mac,
+}: {
+  menu: { x: number; y: number; hasSelection: boolean };
+  paneId: string;
+  onClose: () => void;
+  mac: boolean;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  const chord = (letter: string) => (mac ? `⇧⌘${letter}` : `Ctrl+Shift+${letter}`);
+
+  function run(action: PaneAction) {
+    onClose();
+    runPaneAction(paneId, action);
+  }
+
+  function global(action: ShortcutAction) {
+    onClose();
+    runShortcutAction(action);
+  }
+
+  return (
+    <div
+      className="tab-menu term-pane-menu"
+      role="menu"
+      style={{ left: menu.x, top: menu.y }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        disabled={!menu.hasSelection}
+        onClick={() => run({ type: 'terminal-copy' })}
+      >
+        Copy<span className="tab-menu-chord">{chord('C')}</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => run({ type: 'terminal-paste' })}
+      >
+        Paste<span className="tab-menu-chord">{chord('V')}</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => run({ type: 'terminal-select-all' })}
+      >
+        Select all<span className="tab-menu-chord">{chord('A')}</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => run({ type: 'terminal-clear-scrollback' })}
+      >
+        Clear scrollback<span className="tab-menu-chord">{chord('K')}</span>
+      </button>
+      <div className="tab-menu-sep" role="separator" />
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => global({ type: 'terminal-split', direction: 'right' })}
+      >
+        Split right<span className="tab-menu-chord">{chord('D')}</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => global({ type: 'terminal-split', direction: 'down' })}
+      >
+        Split down<span className="tab-menu-chord">{chord('E')}</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => global({ type: 'terminal-close-pane' })}
+      >
+        Close pane<span className="tab-menu-chord">{chord('X')}</span>
+      </button>
     </div>
   );
 }

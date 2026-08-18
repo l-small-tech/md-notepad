@@ -433,6 +433,39 @@
   background: var(--bg-hover);
 }
 
+.tab-menu-item:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.tab-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.tab-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+/* The terminal pane's right-click menu: wider, with a shortcut column. */
+.term-pane-menu {
+  min-width: 210px;
+}
+
+.term-pane-menu .tab-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.tab-menu-chord {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The ribbon's ☰ app menu — a .tab-menu widened for shortcut hints. The
    Themes page lists every installed theme, so the popover scrolls rather than
    running off the bottom of a short window. */
@@ -1848,6 +1881,19 @@ body.explorer-dragging * {
   border-radius: 3px;
   padding: 3px 6px;
   background: var(--bg-alt);
+}
+
+/* A section divider inside the settings body ("Terminal"), so the flat list
+   of rows still reads as grouped. */
+.settings-heading {
+  margin: 18px 0 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .settings-hint {

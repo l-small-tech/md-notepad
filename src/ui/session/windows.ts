@@ -17,6 +17,7 @@ import {
 } from '../../core/session/plan-flush';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, type RestoredTabInit, type TabEntry } from '../stores/tabs';
+import { terminalsStore } from '../stores/terminals';
 import { uiStore } from '../stores/ui';
 import type { SessionCtx } from './context';
 import { cursorByTab, pathKey } from './facade';
@@ -31,6 +32,24 @@ export function createWindows(
   async function closeTabInteractive(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (!tab) {
+      return;
+    }
+    if (tab.kind === 'terminal') {
+      // A terminal holds no document to save — the only question is whether a
+      // shell is still running in it, since closing the tab kills it.
+      const live = terminalsStore.getState();
+      const running = Object.values(live.panes).filter((p) => p.tabId === id && !p.exited);
+      if (settingsStore.getState().settings.terminalConfirmCloseRunning && running.length > 0) {
+        const what = running.length === 1 ? 'a running shell' : `${running.length} running shells`;
+        const ok = await ctx.confirm(
+          `Close "${tab.title}"? It still has ${what}, which will be killed.`,
+          'Close terminal',
+        );
+        if (!ok) {
+          return;
+        }
+      }
+      tabsStore.getState().closeTab(id);
       return;
     }
     const text = tab.model.getText();
@@ -88,6 +107,10 @@ export function createWindows(
       savedMtimeMs: tab.savedMtimeMs,
       hasBuffer: tab.kind === 'file' && tab.model.isDirty('file'),
       cursor: cursorByTab.get(tab.id) ?? null,
+      // A terminal's ptys cannot cross webviews; the layout goes over instead
+      // and the receiving window respawns the same shells in the same
+      // directories. Read BEFORE detachTab, which releases the session.
+      ...(tab.kind === 'terminal' ? { terminal: terminalsStore.getState().snapshot(tab.id) } : {}),
     };
   }
 
