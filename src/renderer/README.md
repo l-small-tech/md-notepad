@@ -35,7 +35,10 @@ reads CSS variables or the DOM for configuration — everything is passed in.
    are the only way input and the host move the viewport, because smooth
    scrolling splits the position in two: the engine holds the integer line
    offset and the renderer holds the sub-line remainder (`setScrollFraction`),
-   which shifts the grid and paints one extra row to fill the gap. A shifted
+   which shifts the grid UP and paints one extra row below to fill the gap —
+   so the engine's offset is the CEILING of the animated position and the
+   fraction brings it forward, never the floor (which would render a whole line
+   ahead and snap back when the scroll stops). A shifted
    grid disables the dirty-row fast path, so the fraction is 0 whenever nothing
    is animating. Drag auto-scroll deliberately stays instant — the pointer is
    picking cells.

@@ -60,10 +60,12 @@ const BLINK_INTERVAL_MS = 530;
 const SYNC_TIMEOUT_MS = 150;
 
 /**
- * Where a smooth scroll stops chasing its target, in lines. Anything finer
- * than this is below a device pixel on any sane cell height.
+ * Where a smooth scroll stops chasing its target, in lines — about a pixel at
+ * a normal cell height. An exponential approach never arrives, and a tail
+ * finer than a pixel is not motion any more: it is a stutter at the end of
+ * every scroll while the grid rounds to the same pixels for frame after frame.
  */
-const SCROLL_EPSILON_LINES = 0.02;
+const SCROLL_EPSILON_LINES = 0.06;
 
 export class TermView {
   readonly canvas: HTMLCanvasElement;
@@ -259,11 +261,14 @@ export class TermView {
       dt,
       SCROLL_EPSILON_LINES,
     );
-    const offset = Math.floor(this.scrollPosition);
-    // At offset 0 there is no row below the grid to fill the gap a sub-line
-    // shift opens, so the last fraction of a scroll back to the live screen is
-    // snapped away — a single frame, under one line, on the way to a stop.
-    const fraction = offset === 0 ? 0 : this.scrollPosition - offset;
+    // CEILING, not floor: the renderer's fraction shifts the grid UP (it paints
+    // the extra row below), so the engine has to sit one line further back and
+    // the remainder brings it forward. Flooring would render a line ahead of
+    // the animated position and snap back by a whole line at the end of every
+    // scroll. It also keeps the extra row in existence: a non-zero fraction
+    // always means an offset of at least 1, which is the row below the grid.
+    const offset = Math.ceil(this.scrollPosition);
+    const fraction = offset - this.scrollPosition;
     this.terminal.setViewportOffset(offset);
     this.scrollApplied = this.terminal.viewportOffset;
     this.renderer.setScrollFraction(fraction);

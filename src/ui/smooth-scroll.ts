@@ -26,8 +26,14 @@ import { MAX_FRAME_MS, approach, clamp, wheelPixels } from '../core/smooth-scrol
 
 /** Below this the animation is not worth starting — just jump. */
 const MIN_ANIMATED_PX = 2;
-/** `scrollTop` is fractional but paints at device pixels; this ends the glide. */
-const EPSILON_PX = 0.5;
+/**
+ * Where the glide stops chasing its target. `scrollTop` is fractional but
+ * paints at device pixels, so a sub-pixel tail is not motion — it is several
+ * frames of the surface rounding to the same place, which reads as a stutter
+ * at the end of every scroll. Ending a pixel out is invisible; crawling there
+ * is not.
+ */
+const EPSILON_PX = 1.5;
 /** deltaMode 1 (line-wise wheels) when the scroller reports no usable line box. */
 const FALLBACK_LINE_PX = 16;
 
