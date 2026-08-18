@@ -25,6 +25,8 @@ import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
 import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
 import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
+import { ResizeBorders } from './components/ResizeBorders';
+import { IS_MAC } from './components/AppMenu';
 import { setFullscreen } from './fullscreen';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
@@ -125,6 +127,10 @@ export function App() {
           data-tauri-drag-region=""
         />
       )}
+      {/* Custom resize hitboxes for the undecorated window (macOS keeps native
+          decorations; the 'screen' stage is truly fullscreen — nothing to
+          resize). Rendered last so the strips layer over all chrome. */}
+      {fullscreenView !== 'screen' && !IS_MAC && !isAndroid() && <ResizeBorders />}
     </div>
   );
 }

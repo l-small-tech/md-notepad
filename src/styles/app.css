@@ -480,6 +480,84 @@
   color: #fff;
 }
 
+/* ---- Frameless-window resize borders ------------------------------------ */
+
+/* Invisible strips over the window edges (ResizeBorders.tsx). Above every
+   other layer — an edge gesture must win even with a dialog open, exactly as
+   an OS titlebar border would. Corners are drawn after edges in the DOM and
+   get a higher z-index so a diagonal cursor wins where they overlap. */
+.resize-border {
+  position: fixed;
+  z-index: 500;
+}
+
+.rb-n,
+.rb-s {
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+
+.rb-e,
+.rb-w {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+}
+
+.rb-n {
+  top: 0;
+  cursor: n-resize;
+}
+
+.rb-s {
+  bottom: 0;
+  cursor: s-resize;
+}
+
+.rb-e {
+  right: 0;
+  cursor: e-resize;
+}
+
+.rb-w {
+  left: 0;
+  cursor: w-resize;
+}
+
+.rb-ne,
+.rb-nw,
+.rb-se,
+.rb-sw {
+  width: 14px;
+  height: 14px;
+  z-index: 501;
+}
+
+.rb-ne {
+  top: 0;
+  right: 0;
+  cursor: ne-resize;
+}
+
+.rb-nw {
+  top: 0;
+  left: 0;
+  cursor: nw-resize;
+}
+
+.rb-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.rb-sw {
+  bottom: 0;
+  left: 0;
+  cursor: sw-resize;
+}
+
 /* ---- Tab context menu --------------------------------------------------- */
 
 .tab-menu {
