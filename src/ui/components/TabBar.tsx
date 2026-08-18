@@ -42,7 +42,7 @@ import { setFullscreen } from '../fullscreen';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
 import { detectPlatform } from '../keymap';
-import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
+import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
 import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
@@ -793,6 +793,10 @@ export function TabBar() {
     if (!scroller) {
       return;
     }
+    // Measure at the strip's NATURAL width: the cap below narrows the element
+    // itself, so measuring the capped box would pin it there for good — the
+    // window could grow and the strip would never notice the new room.
+    scroller.style.maxWidth = '';
     const strip = scroller.getBoundingClientRect();
     const items: StripItemRect[] = [];
     for (const node of scroller.children) {
@@ -804,6 +808,11 @@ export function TabBar() {
       const box = el.getBoundingClientRect();
       items.push({ tabId, left: box.left, right: box.right });
     }
+    // End the strip on a tab boundary — a tab sliced down the middle reads as
+    // a rendering glitch, and the ›N button already says what is off screen.
+    // The sliced tab was clipped either way, so the overflow list is unchanged.
+    const cap = wholeTabsWidth(strip.width, items);
+    scroller.style.maxWidth = cap === null ? '' : `${cap}px`;
     const hidden = clippedTabIds(strip, items);
     setClipped((prev) => (sameIds(prev, hidden) ? prev : hidden));
   }, []);

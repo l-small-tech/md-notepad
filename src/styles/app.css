@@ -44,6 +44,10 @@
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   position: relative; /* anchors the drag drop-indicator */
+  /* Whole tabs only: TabBar caps the strip's width at a tab boundary so the
+     right edge never slices one, and snapping keeps the left edge on a tab
+     start once the strip is scrolled. */
+  scroll-snap-type: x mandatory;
 }
 
 .tabbar-scroller::-webkit-scrollbar {
@@ -69,6 +73,7 @@
   cursor: default;
   user-select: none;
   white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .tab:hover {

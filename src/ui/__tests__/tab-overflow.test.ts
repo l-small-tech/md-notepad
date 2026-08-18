@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
+import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
 
 const STRIP = { left: 0, right: 100 };
 
@@ -43,6 +43,40 @@ describe('clippedTabIds', () => {
 
   test('an empty strip clips nothing', () => {
     expect(clippedTabIds(STRIP, [])).toEqual([]);
+  });
+});
+
+describe('wholeTabsWidth', () => {
+  test('a strip with room to spare keeps its natural width', () => {
+    expect(wholeTabsWidth(100, [tab('a', 0, 40), tab('b', 40, 80)])).toBeNull();
+  });
+
+  test('a strip that ends mid-tab is capped at the last whole one', () => {
+    // Three 40px tabs in 100px: the third would be sliced at 20px.
+    expect(wholeTabsWidth(100, [tab('a', 0, 40), tab('b', 40, 80), tab('c', 80, 120)])).toBe(80);
+  });
+
+  test('a tab flush with the edge still counts as whole', () => {
+    expect(wholeTabsWidth(80, [tab('a', 0, 40), tab('b', 40, 80), tab('c', 80, 120)])).toBe(80);
+  });
+
+  test('subpixel slack does not cost a tab its place', () => {
+    expect(wholeTabsWidth(79.6, [tab('a', 0, 40), tab('b', 40, 80), tab('c', 80, 120)])).toBe(80);
+  });
+
+  test('a strip too narrow for even one tab shows the sliver', () => {
+    // Capping to zero would leave an empty bar, which says less than a sliver.
+    expect(wholeTabsWidth(30, [tab('a', 0, 40), tab('b', 40, 80)])).toBeNull();
+  });
+
+  test('zero-width tabs (the phone layout) take no room', () => {
+    expect(
+      wholeTabsWidth(50, [tab('hidden', 0, 0), tab('active', 0, 40), tab('gone', 40, 40)]),
+    ).toBeNull();
+  });
+
+  test('an empty strip has nothing to cap', () => {
+    expect(wholeTabsWidth(100, [])).toBeNull();
   });
 });
 
