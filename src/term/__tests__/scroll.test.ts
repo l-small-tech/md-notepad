@@ -51,6 +51,14 @@ describe('scrolling and regions', () => {
     expect(t.serialize()).toEqual(['a', 'c', 'd', '']);
   });
 
+  it('DL at row 0 with default margins destroys the line, never archiving it', () => {
+    const t = term({ cols: 5, rows: 4 });
+    feed(t, 'a\r\nb\r\nc\r\nd');
+    t.write(`${CSI}1;1H${CSI}1M`);
+    expect(t.serialize()).toEqual(['b', 'c', 'd', '']);
+    expect(t.scrollbackLength).toBe(0);
+  });
+
   it('IL/DL outside the scroll region are ignored', () => {
     const t = term({ cols: 5, rows: 4 });
     feed(t, 'a\r\nb\r\nc\r\nd');

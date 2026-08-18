@@ -863,7 +863,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     saveToPath(id, { filePath, mtimeMs }) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      if (!tab) {
+      // Only document tabs may become file tabs — rewriting a terminal (or
+      // image) tab to kind:'file' would unmount its pane and kill the shell.
+      if (!tab || (tab.kind !== 'note' && tab.kind !== 'file' && tab.kind !== 'import')) {
         return;
       }
       // Save-As on a note tab converts it to a file tab; the note file is

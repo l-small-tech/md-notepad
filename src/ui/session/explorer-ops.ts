@@ -363,6 +363,7 @@ export function createExplorerOps(
       return;
     }
     uiStore.getState().showNotice(`Deleted "${baseName(path)}".`);
+    uiStore.getState().dropSelectedExplorerDirUnder(path);
     uiStore.getState().refreshExplorer();
   }
 

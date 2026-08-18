@@ -12,6 +12,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import { pathKey } from '../../core/tab-workspaces';
 import { tabsStore } from './tabs';
 
 export interface CursorReadout {
@@ -98,6 +99,12 @@ export interface UiState {
   closeFullscreenMenu: () => void;
   setDropTarget: (dir: string | null) => void;
   setSelectedExplorerDir: (dir: string | null) => void;
+  /**
+   * Clear the explorer selection when `root` (a deleted folder or removed
+   * workspace) is, or contains, the selected directory — pastes and new
+   * terminals must not keep targeting a path that no longer exists.
+   */
+  dropSelectedExplorerDirUnder: (root: string) => void;
   refreshExplorer: () => void;
   setFullscreenView: (stage: FullscreenStage) => void;
 }
@@ -207,6 +214,19 @@ export const uiStore = createStore<UiState>()((set) => ({
 
   setSelectedExplorerDir(dir) {
     set((s) => (s.selectedExplorerDir === dir ? s : { selectedExplorerDir: dir }));
+  },
+
+  dropSelectedExplorerDirUnder(root) {
+    set((s) => {
+      if (s.selectedExplorerDir === null) {
+        return s;
+      }
+      const selected = pathKey(s.selectedExplorerDir);
+      const rootKey = pathKey(root);
+      return selected === rootKey || selected.startsWith(`${rootKey}/`)
+        ? { selectedExplorerDir: null }
+        : s;
+    });
   },
 
   refreshExplorer() {

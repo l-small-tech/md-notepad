@@ -794,10 +794,13 @@ export class Screen implements ParserActions {
   // ------------------------------------------------------------- scrolling
 
   /** Scroll the region up `n` lines; top lines go to scrollback when eligible. */
-  scrollUp(n: number): void {
+  scrollUp(n: number, allowHistory = true): void {
     const region = this.active.rows;
     const keepHistory =
-      !this.altScreenActive && this.scrollTop === 0 && this.scrollBottom === this.rows - 1;
+      allowHistory &&
+      !this.altScreenActive &&
+      this.scrollTop === 0 &&
+      this.scrollBottom === this.rows - 1;
     n = Math.min(n, this.scrollBottom - this.scrollTop + 1);
     for (let i = 0; i < n; i++) {
       const removed = region.splice(this.scrollTop, 1)[0]!;
@@ -842,7 +845,10 @@ export class Screen implements ParserActions {
     if (this.cursorY < this.scrollTop || this.cursorY > this.scrollBottom) return;
     const savedTop = this.scrollTop;
     this.scrollTop = this.cursorY;
-    this.scrollUp(n);
+    // Deleted lines are destroyed, never archived: with the cursor at row 0
+    // and default margins the temporary scrollTop would otherwise make
+    // scrollUp's keepHistory test pass and leak the line into scrollback.
+    this.scrollUp(n, false);
     this.scrollTop = savedTop;
     this.cursorX = 0;
     this.pendingWrap = false;

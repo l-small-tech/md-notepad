@@ -384,6 +384,14 @@ describe('saveToPath (M3)', () => {
     expect(tab.savedMtimeMs).toBe(2);
     expect(state().closedNotePaths).toEqual([]);
   });
+
+  test('is a no-op on a terminal tab — its kind must never become file', () => {
+    const id = state().openTerminalTab({ profileId: 'shell' });
+    state().saveToPath(id, { filePath: '/docs/oops.md', mtimeMs: 3 });
+    const tab = state().tabs.find((t) => t.id === id)!;
+    expect(tab.kind).toBe('terminal');
+    expect(tab.filePath).toBeNull();
+  });
 });
 
 describe('preview tabs', () => {

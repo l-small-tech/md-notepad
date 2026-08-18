@@ -31,6 +31,7 @@ import {
   type ShortcutAction,
   type TerminalScroll,
 } from '../keymap';
+import { isExternalHref } from '../../core/external-links';
 import { externalLinkStore } from '../stores/external-link';
 import { currentFont } from '../terminal-theme';
 
@@ -84,7 +85,10 @@ function pathFromFileUrl(url: string): string | null {
     if (parsed.protocol !== 'file:') {
       return null;
     }
-    return decodeURIComponent(parsed.pathname) || null;
+    const pathname = decodeURIComponent(parsed.pathname);
+    // `file:///C:/…` parses to pathname `/C:/…` — strip the artificial slash
+    // or the value fails later as a spawn cwd on Windows.
+    return (/^\/[A-Za-z]:(\/|$)/.test(pathname) ? pathname.slice(1) : pathname) || null;
   } catch {
     return null;
   }
@@ -455,7 +459,11 @@ export function TerminalPane({
     }
     event.preventDefault();
     // Same confirm-then-open path as a markdown link: a URL detected in
-    // terminal output is no more trustworthy than one in a document.
+    // terminal output is no more trustworthy than one in a document — and an
+    // OSC 8 hyperlink can carry any scheme, so only http(s) may reach the OS.
+    if (!isExternalHref(link.uri)) {
+      return;
+    }
     externalLinkStore.getState().request(link.uri);
   }, []);
 

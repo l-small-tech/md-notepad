@@ -782,6 +782,7 @@ export function TabBar() {
     }
   }, [newTabMenuOpen, newTabAnchor]);
 
+  const measuredScrollLeft = useRef(0);
   /**
    * Which tabs the strip is cutting off. Ids and rects come off the DOM rather
    * than out of `tabs`, which is what lets this stay a stable callback: a
@@ -796,6 +797,9 @@ export function TabBar() {
     // Measure at the strip's NATURAL width: the cap below narrows the element
     // itself, so measuring the capped box would pin it there for good — the
     // window could grow and the strip would never notice the new room.
+    // Uncapping momentarily widens the box, which clamps scrollLeft down when
+    // the strip is scrolled near its end — remember it so it can be restored.
+    const scrollLeftBefore = scroller.scrollLeft;
     scroller.style.maxWidth = '';
     const strip = scroller.getBoundingClientRect();
     const items: StripItemRect[] = [];
@@ -813,9 +817,23 @@ export function TabBar() {
     // The sliced tab was clipped either way, so the overflow list is unchanged.
     const cap = wholeTabsWidth(strip.width, items);
     scroller.style.maxWidth = cap === null ? '' : `${cap}px`;
+    if (scroller.scrollLeft !== scrollLeftBefore) {
+      scroller.scrollLeft = scrollLeftBefore;
+    }
+    measuredScrollLeft.current = scrollLeftBefore;
     const hidden = clippedTabIds(strip, items);
     setClipped((prev) => (sameIds(prev, hidden) ? prev : hidden));
   }, []);
+
+  // The clamp-and-restore above nets out to an unchanged position but still
+  // fires a scroll event; re-measuring on it would loop forever at the strip's
+  // end. Only a scroll that actually moved the strip re-measures.
+  const onStripScroll = useCallback(() => {
+    if (scrollerRef.current && scrollerRef.current.scrollLeft === measuredScrollLeft.current) {
+      return;
+    }
+    measure();
+  }, [measure]);
 
   // Re-measure on everything that can change the answer: which tabs there are
   // and what they're called (a title sets a width, and a renamed tab can push
@@ -1053,7 +1071,7 @@ export function TabBar() {
       <div
         className="tabbar-scroller"
         ref={scrollerRef}
-        onScroll={measure}
+        onScroll={onStripScroll}
         data-tauri-drag-region=""
       >
         {items.map((item) => (

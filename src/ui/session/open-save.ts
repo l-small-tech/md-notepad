@@ -27,8 +27,8 @@ import { isReadOnlyPath, pathKey } from './facade';
 export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Promise<boolean>) {
   async function saveActive(): Promise<void> {
     const tab = tabsStore.getState().activeTab();
-    if (!tab) {
-      return;
+    if (!tab || tab.kind === 'image' || tab.kind === 'terminal') {
+      return; // no text document behind this tab
     }
     if (tab.readOnly) {
       uiStore.getState().showNotice('This document is read-only.');
@@ -44,8 +44,8 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
 
   async function saveAsActive(): Promise<void> {
     const tab = tabsStore.getState().activeTab();
-    if (!tab || tab.kind === 'image') {
-      return; // an image viewer has no text to save
+    if (!tab || tab.kind === 'image' || tab.kind === 'terminal') {
+      return; // an image viewer or terminal has no text to save
     }
     if (tab.readOnly) {
       uiStore.getState().showNotice('This document is read-only.');

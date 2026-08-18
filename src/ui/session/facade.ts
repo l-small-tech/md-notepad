@@ -639,6 +639,7 @@ export function removeWorkspace(path: string): void {
   }
   const { settings, update } = settingsStore.getState();
   update({ workspaces: settings.workspaces.filter((w) => pathKey(w.path) !== pathKey(path)) });
+  uiStore.getState().dropSelectedExplorerDirUnder(path);
 }
 /**
  * FileExplorer → settings: set a workspace's accent color. The default
