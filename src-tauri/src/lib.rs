@@ -1,4 +1,10 @@
 mod commands;
+// Desktop-only: the pty engine and login-shell resolution behind the terminal
+// tabs. Android has no pty (see commands/mod.rs).
+#[cfg(desktop)]
+mod pty;
+#[cfg(desktop)]
+mod shell;
 
 use std::sync::Mutex;
 // Only the single-instance closure below uses these traits (emit_to /
@@ -7,6 +13,14 @@ use std::sync::Mutex;
 // with an installed release instead of folding into it).
 #[cfg(all(desktop, not(debug_assertions)))]
 use tauri::{Emitter, Manager};
+
+/// The shell a terminal profile spawns when it names no program. The frontend
+/// shows it in Settings and passes it back on spawn.
+#[cfg(desktop)]
+#[tauri::command]
+fn default_shell() -> String {
+    shell::default_shell()
+}
 
 /// File paths passed on the command line at first launch.
 ///
@@ -92,9 +106,12 @@ pub fn run() {
             .plugin(tauri_plugin_process::init())
     };
 
-    // Desktop-only: workspace file-watcher state (explorer auto-refresh).
+    // Desktop-only: workspace file-watcher state (explorer auto-refresh) and
+    // the live-pty registry behind terminal tabs.
     #[cfg(desktop)]
-    let builder = builder.manage(commands::watch::WatchState::default());
+    let builder = builder
+        .manage(commands::watch::WatchState::default())
+        .manage(commands::pty::PtyRegistry::default());
 
     // Android-only: native Context APIs (external files dir now; content:// reads
     // and incoming intents later) that pure-Rust JNI can't reach in Tauri.
@@ -102,6 +119,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_androidfs::init());
 
     builder
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
@@ -126,6 +144,16 @@ pub fn run() {
             commands::search::search_notes,
             #[cfg(desktop)]
             commands::watch::watch_dirs,
+            #[cfg(desktop)]
+            default_shell,
+            #[cfg(desktop)]
+            commands::pty::pty_spawn,
+            #[cfg(desktop)]
+            commands::pty::pty_write,
+            #[cfg(desktop)]
+            commands::pty::pty_resize,
+            #[cfg(desktop)]
+            commands::pty::pty_kill,
             #[cfg(target_os = "android")]
             commands::android::extract_docs_dir,
             #[cfg(target_os = "android")]

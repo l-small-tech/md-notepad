@@ -24,6 +24,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
+# The SYSTEM clipboard. WebKitGTK gates navigator.clipboard.readText() behind a
+# permission a packaged app cannot grant itself, so terminal paste needs this.
+tauri-plugin-clipboard-manager = "2"
 
 # Windows-only: the on-device Windows.Media.Ocr engine behind the whiteboard
 # scan's text recognition. The `windows` crate is already in the tree via
@@ -44,6 +47,10 @@ windows = { version = "0.61", features = [
 # self-updater, process restart/exit). Keep them out of the Android/iOS
 # dependency graph entirely; lib.rs gates their registration on #[cfg(desktop)].
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# The pty behind terminal tabs. Android has no fork/exec of a login shell, so
+# this stays out of the mobile dependency graph entirely; commands/mod.rs and
+# lib.rs gate the module and its command registrations on #[cfg(desktop)].
+portable-pty = "0.9"
 # Workspace file-watching (explorer auto-refresh). Desktop-only: SAF trees on
 # Android have no inotify-style API, so mobile keeps the manual refresh button.
 notify = "8"

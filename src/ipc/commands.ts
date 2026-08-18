@@ -11,9 +11,16 @@
  * and the status bar only.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 
-export type IpcErrorCode = 'NOT_FOUND' | 'EXISTS' | 'INVALID_PATH' | 'INVALID_DATA' | 'IO';
+export type IpcErrorCode =
+  | 'NOT_FOUND'
+  | 'EXISTS'
+  | 'INVALID_PATH'
+  | 'INVALID_DATA'
+  | 'IO'
+  /** A child process could not be started (bad program, bad cwd) — pty only. */
+  | 'SPAWN';
 
 const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'NOT_FOUND',
@@ -21,6 +28,7 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'INVALID_PATH',
   'INVALID_DATA',
   'IO',
+  'SPAWN',
 ];
 
 export class IpcError extends Error {
@@ -80,6 +88,25 @@ export interface DirEntryMeta {
   mtimeMs: number;
   size: number;
 }
+
+/** Mirrors `SpawnOptions` in src-tauri/src/pty.rs. Desktop only. */
+export interface PtySpawnArgs {
+  cols: number;
+  rows: number;
+  /** Defaults to the user's login shell (`default_shell`). */
+  program?: string;
+  args: string[];
+  cwd?: string;
+  env: Record<string, string>;
+}
+
+/**
+ * What arrives on the spawn channel. Child output is an `ArrayBuffer` — the
+ * Rust side sends `InvokeResponseBody::Raw`, so bytes stay bytes across the
+ * boundary. Control messages are tagged objects, ordered against the output
+ * that preceded them because they share the one channel.
+ */
+export type PtyMessage = ArrayBuffer | { type: 'exit'; code: number } | { type: 'closed' };
 
 /** One workspace-search hit (mirrors `SearchHit` in commands/search.rs). */
 export interface SearchHit {
@@ -262,6 +289,32 @@ export const ipc = {
         height: number;
       }[];
     }>('ocr_image_recognize', { pngBase64 }),
+
+  /* ---------------------------- terminal pty ---------------------------- */
+  /* Desktop only: these commands are not registered on Android (no pty).
+     Everything above the IPC layer goes through src/ipc/pty.ts, never here. */
+
+  /** The shell a profile spawns when it names no program. */
+  defaultShell: () => call<string>('default_shell'),
+
+  ptySpawn: (options: PtySpawnArgs, onEvent: Channel<PtyMessage>) =>
+    call<number>('pty_spawn', { options, onEvent }),
+
+  // `invoke` args are JSON, and a Uint8Array would stringify to `{"0":…}`,
+  // which serde rejects. Keystrokes and chunked pastes are small (paste is
+  // already split into 4 KB writes by renderer/paste.ts).
+  ptyWrite: (id: number, data: Uint8Array) =>
+    call<void>('pty_write', { id, data: Array.from(data) }),
+
+  ptyResize: (id: number, cols: number, rows: number) =>
+    call<void>('pty_resize', { id, cols, rows }),
+
+  ptyKill: (id: number) => call<void>('pty_kill', { id }),
 };
 
 export type Ipc = typeof ipc;
+
+/** Injectable so tests can drive a pty provider without a Tauri runtime. */
+export type ChannelFactory = () => Channel<PtyMessage>;
+
+export const createIpcChannel: ChannelFactory = () => new Channel<PtyMessage>();
