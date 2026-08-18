@@ -262,7 +262,7 @@ export class TermInput {
   private lineSource(): LineSource {
     const terminal = this.terminal;
     return {
-      lineText: (line) => terminal.bufferRow(line)?.text() ?? null,
+      lineChars: (line) => terminal.bufferRow(line)?.columnChars() ?? null,
       // `Row.wrapped` marks a row as the *continuation* of the one above it.
       isWrapped: (line) => terminal.bufferRow(line + 1)?.wrapped ?? false,
       cols: terminal.cols,
@@ -542,8 +542,8 @@ export class TermInput {
   }
 
   private wordRange(point: Point): Range {
-    const text = this.terminal.bufferRow(point.line)?.text() ?? '';
-    const { start, end } = expandToWord(text, point.col);
+    const chars = this.terminal.bufferRow(point.line)?.columnChars() ?? [];
+    const { start, end } = expandToWord(chars, point.col);
     return { start: { line: point.line, col: start }, end: { line: point.line, col: end } };
   }
 

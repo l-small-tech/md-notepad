@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectUrls, urlAt } from '../links';
+import { detectUrls, urlAt, urlAtColumn } from '../links';
 
 describe('detectUrls', () => {
   it('finds a bare URL and reports its columns', () => {
@@ -50,5 +50,33 @@ describe('urlAt', () => {
   it('returns null just outside it', () => {
     expect(urlAt(text, 3)).toBeNull();
     expect(urlAt(text, 25)).toBeNull();
+  });
+});
+
+describe('urlAtColumn', () => {
+  // '看 https://e.co ok' with a wide lead: columns are 看, spacer, ' ', URL…
+  const chars = ['看', '', ' ', ...'https://e.co', ' ', 'o', 'k'];
+
+  it('hit-tests and reports the link in grid columns, not string indices', () => {
+    const link = urlAtColumn(chars, 5);
+    expect(link?.uri).toBe('https://e.co');
+    expect(link?.start).toBe(3);
+    expect(link?.end).toBe(15);
+  });
+
+  it('returns null on the wide char, its spacer, and past the link', () => {
+    expect(urlAtColumn(chars, 0)).toBeNull();
+    expect(urlAtColumn(chars, 1)).toBeNull();
+    expect(urlAtColumn(chars, 15)).toBeNull();
+    expect(urlAtColumn(chars, 99)).toBeNull();
+  });
+
+  it('keeps combining marks from shifting the columns', () => {
+    // 'é' as e + U+0301 occupies ONE column but two string indices.
+    const accented = ['é', ' ', ...'https://e.co'];
+    const link = urlAtColumn(accented, 2);
+    expect(link?.uri).toBe('https://e.co');
+    expect(link?.start).toBe(2);
+    expect(link?.end).toBe(14);
   });
 });

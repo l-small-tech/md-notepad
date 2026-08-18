@@ -187,6 +187,33 @@ export class Row {
     this.cols = cols;
   }
 
+  /**
+   * Per-column graphemes, trailing blanks trimmed: `''` for a wide spacer,
+   * `' '` for a blank cell, the full grapheme (combining marks and all)
+   * otherwise. This is the column-aligned view `text()` cannot be — string
+   * indices into `text()` drift one per wide char and per combining mark, so
+   * anything addressing the row BY COLUMN (selection, word expansion, link
+   * hit-testing) must use this instead.
+   */
+  columnChars(): string[] {
+    const out: string[] = [];
+    let trailingBlanks = 0;
+    for (let col = 0; col < this.cols; col++) {
+      const cell = this.getCell(col);
+      if (cell.width === 0) {
+        out.push('');
+      } else if (cell.text === '') {
+        out.push(' ');
+        trailingBlanks++;
+      } else {
+        out.push(cell.text);
+        trailingBlanks = 0;
+      }
+    }
+    out.length -= trailingBlanks;
+    return out;
+  }
+
   /** The row's text with trailing blanks trimmed (spacers contribute nothing). */
   text(): string {
     let out = '';

@@ -17,7 +17,7 @@
 import { fitGrid, sameGrid, type GridSize } from '../core/geometry';
 import { approach, clamp } from '../core/smooth-scroll';
 import type { Terminal } from '../term';
-import { urlAt, type DetectedLink } from './links';
+import { urlAtColumn, type DetectedLink } from './links';
 import {
   DEFAULT_FONT,
   computeCellMetrics,
@@ -472,7 +472,7 @@ export class TermView {
       }
     }
 
-    const detected: DetectedLink | null = urlAt(row.text(), col);
+    const detected: DetectedLink | null = urlAtColumn(row.columnChars(), col);
     return detected ? { ...detected, line, linkId: 0 } : null;
   }
 

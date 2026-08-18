@@ -51,3 +51,27 @@ export function detectUrls(text: string): DetectedLink[] {
 export function urlAt(text: string, col: number): DetectedLink | null {
   return detectUrls(text).find((link) => col >= link.start && col < link.end) ?? null;
 }
+
+/**
+ * The URL under grid column `col`, given the row's per-column graphemes
+ * (`Row.columnChars()`). Detection still runs on the joined string, but the
+ * hit test and the returned `start`/`end` are COLUMNS — string indices drift
+ * one per wide char (spacer columns are '') and per combining mark, which is
+ * why `urlAt(row.text(), col)` underlines the wrong cells after any CJK/emoji.
+ */
+export function urlAtColumn(chars: readonly string[], col: number): DetectedLink | null {
+  if (col < 0 || col >= chars.length) return null;
+  const offsets = new Array<number>(chars.length);
+  let length = 0;
+  for (let i = 0; i < chars.length; i++) {
+    offsets[i] = length;
+    length += chars[i]!.length;
+  }
+  // A spacer counts as its lead glyph, so hovering either half is the same.
+  const offsetAt = (c: number) => (chars[c] === '' && c > 0 ? offsets[c - 1]! : offsets[c]!);
+  const link = urlAt(chars.join(''), offsetAt(col));
+  if (!link) return null;
+  const startCol = offsets.findIndex((offset, i) => chars[i] !== '' && offset >= link.start);
+  const endAt = offsets.findIndex((offset, i) => chars[i] !== '' && offset >= link.end);
+  return { uri: link.uri, start: startCol, end: endAt === -1 ? chars.length : endAt };
+}

@@ -66,14 +66,23 @@ export function rangeForLine(
 const WORD_SEPARATORS = new Set([...' \t ()[]{}<>\'"`,;:!?*|&^%$#@=+\\']);
 
 /**
- * Word bounds around `col` in `text`. A click on whitespace selects the run of
- * whitespace, which is what every terminal does and what keeps double-click
- * drag-extension sane.
+ * Word bounds around column `col`, given the row's per-column graphemes
+ * (`Row.columnChars()` — NOT string indices, which drift past wide chars). A
+ * click on whitespace selects the run of whitespace, which is what every
+ * terminal does and what keeps double-click drag-extension sane.
  */
-export function expandToWord(text: string, col: number): { start: number; end: number } {
-  const chars = [...text];
+export function expandToWord(
+  chars: readonly string[],
+  col: number,
+): { start: number; end: number } {
   if (col < 0 || col >= chars.length) return { start: col, end: col + 1 };
-  const isSeparator = (index: number) => WORD_SEPARATORS.has(chars[index]!);
+  // A wide spacer ('') classifies as the glyph on its left, so both halves of
+  // a wide character act as one cell and expansion never stops between them.
+  const charAt = (index: number): string => {
+    const c = chars[index]!;
+    return c === '' && index > 0 ? chars[index - 1]! : c;
+  };
+  const isSeparator = (index: number) => WORD_SEPARATORS.has(charAt(index));
   const separator = isSeparator(col);
   let start = col;
   let end = col + 1;
@@ -84,8 +93,12 @@ export function expandToWord(text: string, col: number): { start: number; end: n
 
 /** How the extractor reads the buffer — implemented over `Terminal` by the host. */
 export interface LineSource {
-  /** Text of an absolute line, or null when it is no longer retained. */
-  lineText(line: number): string | null;
+  /**
+   * Per-column graphemes of an absolute line (`Row.columnChars()`), or null
+   * when it is no longer retained. Column-aligned so selection endpoints index
+   * it directly; a plain string would drift one per wide char.
+   */
+  lineChars(line: number): readonly string[] | null;
   /** True when `line` soft-wrapped into the next one (no newline was typed). */
   isWrapped(line: number): boolean;
   cols: number;
@@ -100,11 +113,12 @@ export function selectionText(selection: Selection, source: LineSource): string 
   const { start, end } = normalize(selection);
   let out = '';
   for (let line = start.line; line <= end.line; line++) {
-    const text = source.lineText(line);
-    if (text === null) continue;
+    const chars = source.lineChars(line);
+    if (chars === null) continue;
     const from = line === start.line ? start.col : 0;
     const to = line === end.line ? end.col : source.cols;
-    const chars = [...text];
+    // Spacer columns are '' — a wide char contributes its glyph exactly once,
+    // and the copied text matches what the highlight shows.
     let piece = chars.slice(from, to).join('');
     if (line !== end.line) {
       // A row's text is already right-trimmed; only a wrap continues the line.

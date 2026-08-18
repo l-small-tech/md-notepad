@@ -38,7 +38,7 @@ export {
   selectionText,
 } from './selection';
 export type { LineSource, Point, Range, Selection } from './selection';
-export { detectUrls, urlAt } from './links';
+export { detectUrls, urlAt, urlAtColumn } from './links';
 export type { DetectedLink } from './links';
 export { TermInput, domClipboard } from './input';
 export type { ClipboardAdapter, InputView, TermInputOptions } from './input';

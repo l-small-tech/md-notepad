@@ -54,20 +54,28 @@ describe('rangeForLine', () => {
 
 describe('expandToWord', () => {
   it('selects the word under the column', () => {
-    expect(expandToWord('the quick brown', 6)).toEqual({ start: 4, end: 9 });
+    expect(expandToWord([...'the quick brown'], 6)).toEqual({ start: 4, end: 9 });
   });
 
   it('treats path-ish characters as part of the word', () => {
-    const text = 'run /usr/local/bin/tool --flag';
-    expect(expandToWord(text, 8)).toEqual({ start: 4, end: 23 });
+    const chars = [...'run /usr/local/bin/tool --flag'];
+    expect(expandToWord(chars, 8)).toEqual({ start: 4, end: 23 });
   });
 
   it('selects the run of whitespace when the click lands in a gap', () => {
-    expect(expandToWord('a    b', 2)).toEqual({ start: 1, end: 5 });
+    expect(expandToWord([...'a    b'], 2)).toEqual({ start: 1, end: 5 });
   });
 
   it('clamps past the end of the line', () => {
-    expect(expandToWord('ab', 9)).toEqual({ start: 9, end: 10 });
+    expect(expandToWord([...'ab'], 9)).toEqual({ start: 9, end: 10 });
+  });
+
+  it('spans wide characters, spacer columns and all', () => {
+    // '你好ab' as columns: 你, spacer, 好, spacer, a, b.
+    const chars = ['你', '', '好', '', 'a', 'b'];
+    expect(expandToWord(chars, 4)).toEqual({ start: 0, end: 6 });
+    // Clicking the spacer half of a wide char is the same as clicking it.
+    expect(expandToWord(chars, 1)).toEqual({ start: 0, end: 6 });
   });
 });
 
@@ -76,7 +84,7 @@ describe('selectionText', () => {
   function source(terminal: Terminal): LineSource {
     return {
       cols: terminal.cols,
-      lineText: (line) => terminal.bufferRow(line)?.text() ?? null,
+      lineChars: (line) => terminal.bufferRow(line)?.columnChars() ?? null,
       // A line continues into the next when the next row is a wrap continuation.
       isWrapped: (line) => terminal.bufferRow(line + 1)?.wrapped ?? false,
     };
@@ -98,6 +106,14 @@ describe('selectionText', () => {
     const terminal = new Terminal({ cols: 20, rows: 2 });
     terminal.write('hello world');
     expect(selectionText(selection([0, 6], [0, 11]), source(terminal))).toBe('world');
+  });
+
+  it('copies by grid column, so text after a wide char is not shifted', () => {
+    const terminal = new Terminal({ cols: 20, rows: 2 });
+    // '你好world': w sits at grid column 4, not string index 2.
+    terminal.write('你好world');
+    expect(selectionText(selection([0, 4], [0, 9]), source(terminal))).toBe('world');
+    expect(selectionText(selection([0, 0], [0, 9]), source(terminal))).toBe('你好world');
   });
 
   it('skips lines that have fallen out of scrollback', () => {
