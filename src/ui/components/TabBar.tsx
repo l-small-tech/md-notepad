@@ -1,10 +1,10 @@
 /**
- * TabBar — the row of tabs, group chips, and the new-tab button.
+ * TabBar — the row of tabs and the new-tab button.
  *
  * Interactions (src/ui/README): click activates; middle-click closes; the ×
  * button closes; double-click, F2, or the right-click / long-press context
  * menu starts an inline rename; pointer-event drag reorders tabs and moves
- * them between groups (no dnd dependency, and NOT HTML5 drag-and-drop —
+ * around (no dnd dependency, and NOT HTML5 drag-and-drop —
  * Tauri's OS drag-drop interception swallows webview-internal HTML5 drags on
  * Windows, the same constraint the FileExplorer documents). The displayed
  * label mirrors the tab's file name minus its extension (see
@@ -12,13 +12,16 @@
  * session.renameTab). All behavior dispatches store/session actions; the
  * component itself stays declarative.
  *
- * Tab groups (Chrome-style): a colored chip precedes each group's contiguous
- * run of tabs; clicking the chip collapses/expands the group (collapsed =
- * only the chip shows), right-click / long-press opens the group menu
- * (rename, color, ungroup, close). Dropping a dragged tab strictly INSIDE a
- * group's run joins the group; dropping on the chip appends to the group;
- * dropping at run boundaries leaves it ungrouped (core/tab-groups owns the
- * rules — the store's moveTab re-normalizes contiguity after every drop).
+ * Workspace cues (what replaced the Chrome-style tab groups): a tab wears the
+ * accent of the WORKSPACE its file lives in — the same `data-color` →
+ * `--ws-accent` tokens the explorer's workspace sections use — as a stripe
+ * along its top and a quiet wash, and neighbors from one workspace flow
+ * together as a run. Nothing here is user-managed: the grouping IS the
+ * explorer's, so there is no chip to name, color, collapse, or garbage-collect
+ * (src/ui/workspace-cues.ts resolves a tab's workspace, core/tab-workspaces.ts
+ * owns the rules). Dragging reorders freely; with the
+ * `groupTabsByWorkspace` setting on, the store pulls each workspace's tabs
+ * back into one contiguous run after every drop.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -29,8 +32,9 @@ import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
 import { detectPlatform } from '../keymap';
 import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
-import { computeGroupRuns } from '../../core/tab-groups';
-import { WORKSPACE_COLORS, type TabGroup } from '../../core/types';
+import { computeWorkspaceRuns } from '../../core/tab-workspaces';
+import type { WorkspaceColor } from '../../core/types';
+import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
@@ -62,28 +66,23 @@ interface TabMenu {
   y: number;
 }
 
-/** Where the group menu is open, and for which group. */
-interface GroupMenu {
-  groupId: string;
+/** Semantic drop target tracked during a tab drag. */
+type DropTarget = { type: 'before' | 'after'; tabId: string } | { type: 'end' };
+
+/** Visual drop feedback: an insertion bar at x (scroller-relative). */
+interface DropHint {
   x: number;
-  y: number;
 }
 
-/** Semantic drop target tracked during a tab drag. */
-type DropTarget =
-  { type: 'before' | 'after'; tabId: string } | { type: 'chip'; groupId: string } | { type: 'end' };
-
-/** Visual drop feedback: an insertion bar at x (scroller-relative) or a chip highlight. */
-type DropHint = { x: number } | { chip: string };
-
-/** One rendered element of the strip: a group chip or a tab. */
-type StripItem =
-  | { kind: 'chip'; group: TabGroup; count: number }
-  | { kind: 'tab'; tab: TabEntry; group: TabGroup | null; groupStart: boolean; groupEnd: boolean };
-
-/** Menu label for a group: its name, else its color token ("blue"). */
-function groupLabel(group: TabGroup): string {
-  return group.name || group.color;
+/** One rendered tab, with the workspace run it sits in. */
+interface StripItem {
+  tab: TabEntry;
+  /** Workspace color token, or null for a tab in no (or an uncolored) workspace. */
+  color: WorkspaceColor | null;
+  /** Workspace key — null when the tab belongs to none; drives run grouping. */
+  workspaceKey: string | null;
+  runStart: boolean;
+  runEnd: boolean;
 }
 
 function RenameInput({ tab }: { tab: TabEntry }) {
@@ -128,17 +127,19 @@ function RenameInput({ tab }: { tab: TabEntry }) {
 function Tab({
   tab,
   active,
-  group,
-  groupStart,
-  groupEnd,
+  color,
+  workspaceKey,
+  runStart,
+  runEnd,
   onMenu,
   onDragPress,
 }: {
   tab: TabEntry;
   active: boolean;
-  group: TabGroup | null;
-  groupStart: boolean;
-  groupEnd: boolean;
+  color: WorkspaceColor | null;
+  workspaceKey: string | null;
+  runStart: boolean;
+  runEnd: boolean;
   onMenu: (tabId: string, x: number, y: number) => void;
   onDragPress: (e: React.PointerEvent, tabId: string) => void;
 }) {
@@ -157,8 +158,8 @@ function Tab({
 
   const className =
     `tab${active ? ' tab-active' : ''}${tab.preview ? ' tab-preview' : ''}` +
-    `${group ? ' tab-grouped' : ''}${groupStart ? ' tab-group-start' : ''}` +
-    `${groupEnd ? ' tab-group-end' : ''}`;
+    `${color ? ' tab-workspace' : ''}${runStart ? ' tab-run-start' : ''}` +
+    `${runEnd ? ' tab-run-end' : ''}`;
 
   return (
     <div
@@ -167,10 +168,8 @@ function Tab({
       aria-selected={active}
       title={tab.filePath ?? label}
       data-strip-tab={tab.id}
-      // Group membership, read by the overflow measurement: a clipped chip
-      // takes its whole run into the overflow list.
-      data-strip-group={group?.id}
-      data-color={group?.color}
+      data-strip-workspace={workspaceKey ?? undefined}
+      data-color={color ?? undefined}
       onPointerDown={(e) => {
         // Left-click activates immediately (pointerdown feels snappier than
         // click); ignore clicks that originate on the close button.
@@ -229,68 +228,11 @@ function Tab({
   );
 }
 
-/**
- * The colored pill heading a group's run. Click toggles collapse; right-click
- * / long-press opens the group menu. While a tab drag hovers it, it
- * highlights as "drop here to join".
- */
-function GroupChip({
-  group,
-  count,
-  dropHighlight,
-  onMenu,
-}: {
-  group: TabGroup;
-  count: number;
-  dropHighlight: boolean;
-  onMenu: (groupId: string, x: number, y: number) => void;
-}) {
-  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function cancelLongPress() {
-    if (longPress.current !== null) {
-      clearTimeout(longPress.current);
-      longPress.current = null;
-    }
-  }
-
-  return (
-    <button
-      className={`tab-group-chip${dropHighlight ? ' chip-drop' : ''}`}
-      data-strip-chip={group.id}
-      data-color={group.color}
-      aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} group ${groupLabel(group)}`}
-      title={`${groupLabel(group)} — ${count} tab(s)`}
-      onClick={() => tabsStore.getState().toggleGroupCollapsed(group.id)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onMenu(group.id, e.clientX, e.clientY);
-      }}
-      onPointerDown={(e) => {
-        if (e.pointerType === 'touch') {
-          const { clientX, clientY } = e;
-          cancelLongPress();
-          longPress.current = setTimeout(() => onMenu(group.id, clientX, clientY), 500);
-        }
-      }}
-      onPointerUp={cancelLongPress}
-      onPointerMove={cancelLongPress}
-      onPointerLeave={cancelLongPress}
-    >
-      <span className="tab-group-chip-dot" />
-      {group.name && <span className="tab-group-chip-name">{group.name}</span>}
-      {group.collapsed && <span className="tab-group-chip-count">{count}</span>}
-    </button>
-  );
-}
-
 function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
   // Transient menu — a one-shot store read is fine (it closes on any change).
   const s = tabsStore.getState();
   const tab = s.tabs.find((t) => t.id === menu.tabId);
   const isPreview = tab?.preview ?? false;
-  const groupId = tab?.groupId ?? null;
-  const otherGroups = s.groups.filter((g) => g.id !== groupId);
   useEffect(() => {
     const close = () => onClose();
     // Any outside interaction, Escape, or scroll dismisses the menu.
@@ -345,42 +287,6 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
         className="tab-menu-item"
         role="menuitem"
         onClick={() => {
-          tabsStore.getState().addTabToNewGroup(menu.tabId);
-          onClose();
-        }}
-      >
-        Add to new group
-      </button>
-      {otherGroups.map((g) => (
-        <button
-          key={g.id}
-          className="tab-menu-item tab-menu-group-item"
-          role="menuitem"
-          data-color={g.color}
-          onClick={() => {
-            tabsStore.getState().addTabToGroup(menu.tabId, g.id);
-            onClose();
-          }}
-        >
-          <span className="tab-group-chip-dot" /> Add to “{groupLabel(g)}”
-        </button>
-      ))}
-      {groupId !== null && (
-        <button
-          className="tab-menu-item"
-          role="menuitem"
-          onClick={() => {
-            tabsStore.getState().removeTabFromGroup(menu.tabId);
-            onClose();
-          }}
-        >
-          Remove from group
-        </button>
-      )}
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => {
           moveTabToNewWindow(menu.tabId, null);
           onClose();
         }}
@@ -411,109 +317,6 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
   );
 }
 
-/** Right-click menu on a group chip: rename, recolor, ungroup, close. */
-function GroupContextMenu({ menu, onClose }: { menu: GroupMenu; onClose: () => void }) {
-  const group = tabsStore.getState().groups.find((g) => g.id === menu.groupId);
-  const nameRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('blur', close);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [onClose]);
-
-  if (!group) {
-    return null;
-  }
-
-  function commitName() {
-    tabsStore.getState().renameGroup(menu.groupId, nameRef.current?.value ?? '');
-  }
-
-  return (
-    <div
-      className="tab-menu tab-group-menu"
-      role="menu"
-      style={{ left: menu.x, top: menu.y }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <input
-        ref={nameRef}
-        className="tab-group-menu-name"
-        defaultValue={group.name}
-        placeholder="Name group…"
-        aria-label="Group name"
-        onBlur={commitName}
-        onKeyDown={(e) => {
-          // Keep these off the global shortcut listener.
-          e.stopPropagation();
-          if (e.key === 'Enter') {
-            commitName();
-            onClose();
-          }
-        }}
-      />
-      <div className="context-menu-swatches">
-        {WORKSPACE_COLORS.map((color) => (
-          <button
-            key={color}
-            className="color-swatch"
-            data-color={color}
-            data-active={group.color === color ? '' : undefined}
-            aria-label={`Color ${color}`}
-            onClick={() => tabsStore.getState().setGroupColor(menu.groupId, color)}
-          />
-        ))}
-      </div>
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => {
-          tabsStore.getState().toggleGroupCollapsed(menu.groupId);
-          onClose();
-        }}
-      >
-        {group.collapsed ? 'Expand group' : 'Collapse group'}
-      </button>
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => {
-          tabsStore.getState().ungroupTabs(menu.groupId);
-          onClose();
-        }}
-      >
-        Ungroup
-      </button>
-      <button
-        className="tab-menu-item"
-        role="menuitem"
-        onClick={() => {
-          // Interactive close per member (confirms discards, like Close all).
-          for (const t of tabsStore.getState().tabs.filter((x) => x.groupId === menu.groupId)) {
-            closeTab(t.id);
-          }
-          onClose();
-        }}
-      >
-        Close group
-      </button>
-    </div>
-  );
-}
-
 /**
  * Dropdown listing the tabs the bar has no room for. Selecting one activates
  * it — the windowing math then slides the visible row to include it.
@@ -527,6 +330,9 @@ function OverflowMenu({
   anchor: DOMRect;
   onClose: () => void;
 }) {
+  // A clipped tab has lost its stripe with its rect — the dot carries the
+  // workspace cue into the list so the switcher reads like the strip.
+  const colors = tabs.map((tab) => workspaceCueFor(tab)?.color ?? null);
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener('pointerdown', close);
@@ -554,10 +360,10 @@ function OverflowMenu({
       style={{ right: window.innerWidth - anchor.right, top: anchor.bottom + 4 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {tabs.map((tab) => (
-        <div key={tab.id} className="tab-overflow-row">
+      {tabs.map((tab, index) => (
+        <div key={tab.id} className="tab-overflow-row" data-color={colors[index] ?? undefined}>
           <button
-            className="tab-menu-item"
+            className="tab-menu-item tab-overflow-item"
             role="menuitem"
             title={tab.filePath ?? undefined}
             onClick={() => {
@@ -565,6 +371,7 @@ function OverflowMenu({
               onClose();
             }}
           >
+            {colors[index] && <span className="tab-workspace-dot" />}
             {tabDisplayTitle(tab)}
             {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
           </button>
@@ -693,12 +500,14 @@ function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
 
 export function TabBar() {
   const tabs = useTabsStore((s) => s.tabs);
-  const groups = useTabsStore((s) => s.groups);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  // Read for reactivity: the cues below come from these two settings, and the
+  // strip has to repaint when a workspace is recolored, added, or removed.
+  useSettingsStore((s) => s.settings.workspaces);
+  useSettingsStore((s) => s.settings.defaultWorkspaceColor);
   const barRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<TabMenu | null>(null);
-  const [groupMenu, setGroupMenu] = useState<GroupMenu | null>(null);
   const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
   /** Ids of the tabs the strip is currently cutting off, in strip order. */
   const [clipped, setClipped] = useState<readonly string[]>([]);
@@ -752,17 +561,11 @@ export function TabBar() {
     for (const node of scroller.children) {
       const el = node as HTMLElement;
       const tabId = el.dataset.stripTab ?? null;
-      const chipGroup = el.dataset.stripChip ?? null;
-      if (tabId === null && chipGroup === null) {
+      if (tabId === null) {
         continue; // the drop indicator
       }
       const box = el.getBoundingClientRect();
-      items.push({
-        tabId,
-        groupId: chipGroup ?? el.dataset.stripGroup ?? null,
-        left: box.left,
-        right: box.right,
-      });
+      items.push({ tabId, left: box.left, right: box.right });
     }
     const hidden = clippedTabIds(strip, items);
     setClipped((prev) => (sameIds(prev, hidden) ? prev : hidden));
@@ -771,9 +574,7 @@ export function TabBar() {
   // Re-measure on everything that can change the answer: which tabs there are
   // and what they're called (a title sets a width, and a renamed tab can push
   // another off), the strip's own size, and scrolling it (wired to onScroll).
-  const layoutKey = `${tabs.map((t) => `${t.id}\u0001${tabDisplayTitle(t)}`).join('\u0000')}|${groups
-    .map((g) => `${g.id}:${g.collapsed ? 'c' : 'o'}`)
-    .join(',')}`;
+  const layoutKey = tabs.map((t) => `${t.id}\u0001${tabDisplayTitle(t)}`).join('\u0000');
   useLayoutEffect(measure, [measure, layoutKey, phone]);
 
   useEffect(() => {
@@ -801,7 +602,7 @@ export function TabBar() {
     }
   }, [activeTabId, layoutKey]);
 
-  /* ---- Pointer drag: reorder / regroup / tear-off ----------------------- */
+  /* ---- Pointer drag: reorder / tear-off -------------------------------- */
 
   function updateDropHint(ev: PointerEvent, movedId: string): void {
     const under = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -812,15 +613,6 @@ export function TabBar() {
       return;
     }
     const sRect = scroller.getBoundingClientRect();
-    const chipEl = under.closest('[data-strip-chip]');
-    if (chipEl) {
-      const groupId = chipEl.getAttribute('data-strip-chip')!;
-      dropTargetRef.current = { type: 'chip', groupId };
-      setDropHint((prev) =>
-        prev && 'chip' in prev && prev.chip === groupId ? prev : { chip: groupId },
-      );
-      return;
-    }
     const tabEl = under.closest('[data-strip-tab]');
     if (tabEl) {
       const tabId = tabEl.getAttribute('data-strip-tab')!;
@@ -835,7 +627,7 @@ export function TabBar() {
       // Scroller-relative, and the strip scrolls now: without scrollLeft the
       // indicator drifts off the seam as soon as the strip is scrolled.
       const x = (after ? rect.right : rect.left) - sRect.left + scroller.scrollLeft;
-      setDropHint((prev) => (prev && 'x' in prev && prev.x === x ? prev : { x }));
+      setDropHint((prev) => (prev && prev.x === x ? prev : { x }));
       return;
     }
     if (barRef.current?.contains(under)) {
@@ -843,34 +635,28 @@ export function TabBar() {
       dropTargetRef.current = { type: 'end' };
       const last = scroller.lastElementChild;
       const x = last ? last.getBoundingClientRect().right - sRect.left + scroller.scrollLeft : 0;
-      setDropHint((prev) => (prev && 'x' in prev && prev.x === x ? prev : { x }));
+      setDropHint((prev) => (prev && prev.x === x ? prev : { x }));
       return;
     }
     dropTargetRef.current = null;
     setDropHint(null);
   }
 
-  /** Turn the semantic drop target into a store moveTab call. */
+  /** Turn the semantic drop target into a store reorder. */
   function applyDrop(movedId: string, target: DropTarget): void {
     const s = tabsStore.getState();
     const rest = s.tabs.filter((t) => t.id !== movedId);
-    if (target.type === 'chip') {
-      const idx = rest.map((t) => t.groupId).lastIndexOf(target.groupId) + 1;
-      s.moveTab(movedId, idx, target.groupId);
-      return;
-    }
     if (target.type === 'end') {
-      s.moveTab(movedId, rest.length, null);
+      s.reorderTab(movedId, rest.length);
       return;
     }
     const base = rest.findIndex((t) => t.id === target.tabId);
     if (base < 0) {
       return;
     }
-    const idx = target.type === 'before' ? base : base + 1;
-    // Membership the landing spot implies: inside a group's run joins it,
-    // boundaries leave the tab ungrouped (store's reorderTab rule).
-    s.reorderTab(movedId, idx);
+    // With workspace arranging on, the store snaps the landing spot back into
+    // the tab's own run; otherwise the tab simply lands where it was dropped.
+    s.reorderTab(movedId, target.type === 'before' ? base : base + 1);
   }
 
   function onDragPress(e: React.PointerEvent, tabId: string): void {
@@ -946,43 +732,34 @@ export function TabBar() {
 
   /* ---- Strip layout ------------------------------------------------------ */
 
-  // Tabs + chips as one flat item list; the overflow window slides over it.
+  // Each tab's workspace decides its color and which run it flows into. The
+  // cue is derived on every render rather than stored: recoloring a workspace
+  // or moving a file must repaint the strip, and the two settings read above
+  // are what make that re-render happen.
+  const cues = tabs.map((tab) => workspaceCueFor(tab));
+  const runs = computeWorkspaceRuns(
+    tabs.map((tab, i) => ({ id: tab.id, workspaceKey: cues[i]?.key ?? null })),
+  );
   const items: StripItem[] = [];
-  for (const run of computeGroupRuns(tabs)) {
-    const group = run.groupId !== null ? groups.find((g) => g.id === run.groupId) : undefined;
-    if (!group) {
-      for (let i = 0; i < run.count; i++) {
-        items.push({
-          kind: 'tab',
-          tab: tabs[run.start + i]!,
-          group: null,
-          groupStart: false,
-          groupEnd: false,
-        });
-      }
-      continue;
-    }
-    items.push({ kind: 'chip', group, count: run.count });
-    if (!group.collapsed) {
-      for (let i = 0; i < run.count; i++) {
-        items.push({
-          kind: 'tab',
-          tab: tabs[run.start + i]!,
-          group,
-          groupStart: i === 0,
-          groupEnd: i === run.count - 1,
-        });
-      }
+  for (const run of runs) {
+    for (let i = 0; i < run.count; i++) {
+      const index = run.start + i;
+      items.push({
+        tab: tabs[index]!,
+        color: cues[index]?.color ?? null,
+        workspaceKey: run.workspaceKey,
+        // A lone tab is both ends of its own run, which is what keeps its
+        // corners rounded on both sides.
+        runStart: i === 0,
+        runEnd: i === run.count - 1,
+      });
     }
   }
 
   // EVERY item renders; the strip shrinks them and then scrolls. What is
   // currently cut off is measured, not computed — see `measure` above.
   const clippedSet = new Set(clipped);
-  const hidden = items
-    .filter((it): it is StripItem & { kind: 'tab' } => it.kind === 'tab')
-    .map((it) => it.tab)
-    .filter((tab) => clippedSet.has(tab.id));
+  const hidden = items.map((it) => it.tab).filter((tab) => clippedSet.has(tab.id));
 
   return (
     // data-tauri-drag-region only fires on the element itself, never its
@@ -1004,33 +781,20 @@ export function TabBar() {
         onScroll={measure}
         data-tauri-drag-region=""
       >
-        {items.map((item) =>
-          item.kind === 'chip' ? (
-            <GroupChip
-              key={`chip:${item.group.id}`}
-              group={item.group}
-              count={item.count}
-              dropHighlight={
-                dropHint !== null && 'chip' in dropHint && dropHint.chip === item.group.id
-              }
-              onMenu={(groupId, x, y) => setGroupMenu({ groupId, x, y })}
-            />
-          ) : (
-            <Tab
-              key={item.tab.id}
-              tab={item.tab}
-              active={item.tab.id === activeTabId}
-              group={item.group}
-              groupStart={item.groupStart}
-              groupEnd={item.groupEnd}
-              onMenu={(tabId, x, y) => setMenu({ tabId, x, y })}
-              onDragPress={onDragPress}
-            />
-          ),
-        )}
-        {dropHint !== null && 'x' in dropHint && (
-          <div className="tab-drop-indicator" style={{ left: dropHint.x }} />
-        )}
+        {items.map((item) => (
+          <Tab
+            key={item.tab.id}
+            tab={item.tab}
+            active={item.tab.id === activeTabId}
+            color={item.color}
+            workspaceKey={item.workspaceKey}
+            runStart={item.runStart}
+            runEnd={item.runEnd}
+            onMenu={(tabId, x, y) => setMenu({ tabId, x, y })}
+            onDragPress={onDragPress}
+          />
+        ))}
+        {dropHint !== null && <div className="tab-drop-indicator" style={{ left: dropHint.x }} />}
       </div>
       <button
         ref={newTabRef}
@@ -1095,7 +859,6 @@ export function TabBar() {
       </button>
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
-      {groupMenu && <GroupContextMenu menu={groupMenu} onClose={() => setGroupMenu(null)} />}
       {newTabMenuOpen && newTabAnchor && (
         <NewTabMenu anchor={newTabAnchor} onClose={() => uiStore.getState().closeNewTabMenu()} />
       )}

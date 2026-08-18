@@ -87,3 +87,38 @@ export function currentFont(): FontSpec {
     lineHeight: DEFAULT_FONT.lineHeight,
   };
 }
+
+/**
+ * The console SURFACE for one theme: what the pane paints behind the cells.
+ *
+ * The renderer leaves default-background cells fully transparent (see
+ * renderer/README.md), so this layer is what the user actually sees as "the
+ * terminal background" — and why an image or a translucent background is a
+ * CSS concern here rather than a renderer one.
+ */
+export interface ConsoleSurface {
+  /** The palette's background color, as a CSS color string. */
+  background: string;
+  /** `data:` URL of the theme's background image, or null. */
+  imageUrl: string | null;
+  /** Opacity of the whole layer (color and image alike); 1 = opaque. */
+  opacity: number;
+}
+
+/** The surface for the theme selected right now. */
+export function currentConsoleSurface(): ConsoleSurface {
+  const { colorScheme } = settingsStore.getState().settings;
+  const plugin = themeRegistryStore.getState().plugins.find((p) => p.id === colorScheme) ?? null;
+  return consoleSurfaceFor(plugin, isDark());
+}
+
+/** The surface for one theme (null = the app's built-in palette). */
+export function consoleSurfaceFor(plugin: ThemePlugin | null, dark: boolean): ConsoleSurface {
+  const colors = terminalColorsFor(plugin, dark);
+  const surface = plugin?.consoleBackground;
+  return {
+    background: colors.background,
+    imageUrl: surface?.imageUrl ?? null,
+    opacity: surface?.opacity ?? 1,
+  };
+}

@@ -257,6 +257,48 @@ describe('the optional terminal block', () => {
     expect(plugin.terminal).toEqual({ green: '#0f0' });
   });
 
+  test('the console surface (image + opacity) parses out of the same block', () => {
+    const plugin = parseThemePlugin('t', {
+      branding: { bg: '#fff' },
+      terminal: { background: '#101010', backgroundImage: 'forest.png', backgroundOpacity: 0.6 },
+    })!;
+    expect(plugin.consoleBackground).toEqual({ image: 'forest.png', opacity: 0.6 });
+    // …and stays OUT of the color map the renderer takes.
+    expect(plugin.terminal).toEqual({ background: '#101010' });
+  });
+
+  test('an image name that is not a bare file name is dropped', () => {
+    const reject = (image: unknown) =>
+      parseThemePlugin('t', { branding: { bg: '#fff' }, terminal: { backgroundImage: image } })!
+        .consoleBackground;
+    expect(reject('../../etc/passwd.png')).toBeUndefined();
+    expect(reject('sub/dir/pic.png')).toBeUndefined();
+    expect(reject('C:\\pics\\a.png')).toBeUndefined();
+    expect(reject('https://example.com/a.png')).toBeUndefined();
+    // A quote or paren would break out of the url("…") it ends up inside.
+    expect(reject('a").png')).toBeUndefined();
+    expect(reject('notes.txt')).toBeUndefined();
+    expect(reject(42)).toBeUndefined();
+  });
+
+  test('opacity is clamped, not rejected', () => {
+    const opacity = (value: unknown) =>
+      parseThemePlugin('t', { branding: { bg: '#fff' }, terminal: { backgroundOpacity: value } })!
+        .consoleBackground?.opacity;
+    expect(opacity(2)).toBe(1);
+    expect(opacity(-1)).toBe(0);
+    expect(opacity(0.25)).toBe(0.25);
+    expect(opacity('0.5')).toBeUndefined();
+    expect(opacity(Number.NaN)).toBeUndefined();
+  });
+
+  test('a terminal block with only colors declares no console surface', () => {
+    expect(
+      parseThemePlugin('t', { branding: { bg: '#fff' }, terminal: { red: '#f00' } })!
+        .consoleBackground,
+    ).toBeUndefined();
+  });
+
   test('never reaches the generated CSS — it is not a variable', () => {
     const plugin = parseThemePlugin('t', {
       branding: { bg: '#fff' },

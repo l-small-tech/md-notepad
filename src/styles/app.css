@@ -94,82 +94,44 @@
   font-weight: 700;
 }
 
-/* ---- Tab groups (Chrome-style) ------------------------------------------
-   A group is a colored chip followed by its member tabs. Colors resolve via
-   the same [data-color] → --ws-accent tokens the workspace sections use, so
-   they stay theme-aware for free. */
+/* ---- Workspace cues on tabs ---------------------------------------------
+   A tab wears the accent of the WORKSPACE its file lives in, resolved through
+   the same [data-color] → --ws-accent tokens the explorer's workspace sections
+   use, so the strip and the pane read as one system and stay theme-aware for
+   free. Same blend recipe as `.workspace-section`: a translucent tint of the
+   workspace color over whatever the theme's background is, never a flat fill.
+   There is no user-made grouping any more — see core/tab-workspaces.ts. */
 
-/* Member tabs: an accent stripe along the top plus a quiet wash. */
-.tab-grouped {
+.tab-workspace {
   box-shadow: inset 0 2px 0 var(--ws-accent);
-  background: color-mix(in srgb, var(--ws-accent) 8%, transparent);
+  background: color-mix(in srgb, var(--ws-accent) 7%, transparent);
 }
 
-.tab-grouped:hover {
+.tab-workspace:hover {
   background: color-mix(in srgb, var(--ws-accent) 16%, transparent);
 }
 
 /* The active tab keeps its normal readable background; the stripe stays. */
-.tab-grouped.tab-active {
+.tab-workspace.tab-active {
   background: var(--bg);
 }
 
-/* Members flow together: only the run's outer corners are rounded. */
-.tab-grouped:not(.tab-group-start) {
+/* Tabs from one workspace flow together: only the run's outer corners round. */
+.tab-workspace:not(.tab-run-start) {
   border-top-left-radius: 0;
 }
 
-.tab-grouped:not(.tab-group-end) {
+.tab-workspace:not(.tab-run-end) {
   border-top-right-radius: 0;
 }
 
-/* The group chip: a colored pill with the group name (or just a dot). */
-.tab-group-chip {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  align-self: center;
-  gap: 5px;
-  max-width: 140px;
-  height: 20px;
-  margin: 0 3px;
-  padding: 0 7px;
-  border: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ws-accent) 22%, transparent);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.tab-group-chip:hover {
-  background: color-mix(in srgb, var(--ws-accent) 34%, transparent);
-}
-
-/* A dragged tab hovering the chip: "release to join this group". */
-.tab-group-chip.chip-drop {
-  outline: 2px solid var(--ws-accent);
-  outline-offset: 1px;
-}
-
-.tab-group-chip-dot {
+/* The same dot the explorer's swatches use, for menu rows that name a tab. */
+.tab-workspace-dot {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--ws-accent);
-}
-
-.tab-group-chip-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Collapsed chip: member count in place of the hidden tabs. */
-.tab-group-chip-count {
-  color: var(--fg-muted);
 }
 
 /* The tab being pointer-dragged. */
@@ -188,38 +150,6 @@
   background: var(--accent);
   pointer-events: none;
   z-index: 10;
-}
-
-/* Group context menu: name field above the shared swatch row. */
-.tab-group-menu-name {
-  display: block;
-  width: calc(100% - 8px);
-  margin: 4px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 6px;
-  outline: none;
-}
-
-.tab-group-menu-name:focus {
-  border-color: var(--accent);
-}
-
-/* "Add to group" menu rows reuse the chip dot as a color cue. */
-.tab-menu-group-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tab-group-menu .context-menu-swatches {
-  border-top: none;
-  margin-top: 0;
-  padding-top: 2px;
 }
 
 .tab-rename-input {
@@ -338,6 +268,13 @@
 .tab-overflow-row {
   display: flex;
   align-items: stretch;
+}
+
+/* The row's label, with room for the workspace dot ahead of it. */
+.tab-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tab-overflow-close {
@@ -2398,8 +2335,7 @@ body.explorer-dragging * {
     overflow-x: hidden;
   }
 
-  .tab:not(.tab-active),
-  .tab-group-chip {
+  .tab:not(.tab-active) {
     display: none;
   }
 
@@ -2475,12 +2411,36 @@ body.explorer-dragging * {
      page fills it absolutely (same contract as .editor-host). */
   position: absolute;
   inset: 0;
-  background: var(--editor-bg);
+  /* The surface is painted by ::before, not here — see below. */
+  background: transparent;
+}
+
+/* The console surface: the terminal palette's own background color, an
+   optional theme image over it, and one opacity for the pair (a theme can make
+   the whole console translucent, letting the app behind show through). The
+   three custom properties are set inline by TerminalTab from the resolved
+   theme; the fallbacks are what every theme without a `terminal` block gets.
+   This is a layer of its OWN rather than the element's background because
+   `opacity` on .terminal-tab would fade the cells with it. */
+.terminal-tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: var(--term-bg, var(--editor-bg));
+  background-image: var(--term-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--term-bg-opacity, 1);
+  pointer-events: none;
 }
 
 .pane-area {
   position: absolute;
   inset: 0;
+  /* Above the surface layer; the canvas leaves default-bg cells transparent,
+     so the image/wash shows through the shell's own output. */
+  z-index: 1;
 }
 
 .pane-slot {

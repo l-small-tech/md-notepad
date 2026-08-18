@@ -67,6 +67,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmFileMove: true,
   liveSave: false,
   previewTabs: true,
+  groupTabsByWorkspace: false,
   workspaces: [],
   defaultWorkspaceColor: null,
   imagePasteLocation: 'subfolder',
@@ -297,6 +298,8 @@ export function normalizeSettings(raw: unknown): Settings {
     confirmFileMove: typeof r.confirmFileMove === 'boolean' ? r.confirmFileMove : d.confirmFileMove,
     liveSave: typeof r.liveSave === 'boolean' ? r.liveSave : d.liveSave,
     previewTabs: typeof r.previewTabs === 'boolean' ? r.previewTabs : d.previewTabs,
+    groupTabsByWorkspace:
+      typeof r.groupTabsByWorkspace === 'boolean' ? r.groupTabsByWorkspace : d.groupTabsByWorkspace,
     workspaces: normalizeWorkspaces(r.workspaces),
     defaultWorkspaceColor: normalizeColor(r.defaultWorkspaceColor),
     imagePasteLocation:

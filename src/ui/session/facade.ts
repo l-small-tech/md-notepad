@@ -7,6 +7,7 @@
  * `createSessionController` wires to the real implementations.
  */
 
+import { pathKey } from '../../core/tab-workspaces';
 import type { DocSource } from '../../core/export/doc-source';
 import { dirName } from '../../core/session/plan-flush';
 import type { PersistedTab } from '../../core/session/plan-flush';
@@ -57,18 +58,10 @@ export const cursorByTab = new Map<string, CursorPos>();
  * core's `joinPath` produces `/` — and NTFS/APFS are case-insensitive, so a
  * raw string compare would let two tabs own one file (and the flusher and
  * Ctrl+S would then clobber each other's writes). Compare keys, never raw
- * paths; the raw path is still what gets stored and written.
+ * paths; the raw path is still what gets stored and written. The rule itself
+ * lives in core (workspace matching needs the same one).
  */
-export function pathKey(path: string): string {
-  // Synced (SAF) identifiers (`saf://<token>/<relPath>`) are opaque and
-  // case-sensitive — the token encodes a case-sensitive document URI, so
-  // lowercasing it would corrupt the id and could collide two distinct trees.
-  // Return them verbatim; local paths keep the separator/case normalization.
-  if (path.startsWith('saf://')) {
-    return path;
-  }
-  return path.replaceAll('\\', '/').toLowerCase();
-}
+export { pathKey };
 
 /**
  * Whether `path` lies inside a read-only workspace (the bundled docs). Tabs
@@ -756,7 +749,6 @@ export function persistedToInit(tab: PersistedTab, text: string, dirty = false):
     customTitle: tab.customTitle,
     mode: tab.mode,
     savedMtimeMs: tab.savedMtimeMs,
-    groupId: tab.groupId ?? null,
     text,
     dirty,
     // Recomputed (not persisted): settings are loaded before restore runs.

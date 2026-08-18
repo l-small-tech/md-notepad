@@ -33,6 +33,12 @@ Right-click a workspace heading and pick a color swatch. The workspace gets
 a colored stripe so you can tell your sections apart at a glance. New
 workspaces pick an unused color automatically.
 
+The color follows your files into the **tab strip**: every open tab wears a
+stripe and a faint wash in the color of the workspace its file lives in, so you
+can see at a glance which project a tab belongs to. If you'd also like tabs from
+one workspace kept side by side, turn on **Arrange tabs by workspace** in
+Settings → Behavior; otherwise tabs stay wherever you drag them.
+
 ## Creating, renaming, moving, deleting
 
 Right-click gets you everywhere:

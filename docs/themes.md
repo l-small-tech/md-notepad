@@ -199,6 +199,34 @@ The keys:
 | `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` | ANSI colors 0–7. |
 | `brightBlack` … `brightWhite` | ANSI colors 8–15. |
 
+### The console background: an image, or see-through
+
+The same `terminal` block can also style the *surface* the shell sits on:
+
+| Key | What it does |
+| --- | ------------ |
+| `backgroundImage` | File name of a picture in your themes folder — put the file right next to the `.json` and name it here (just the name: `"forest.png"`, not a folder path or a web address). It fills the terminal, scaled to cover. |
+| `backgroundOpacity` | How solid the whole console background is, from `0` (invisible) to `1` (the default, fully solid). Lower it and the app behind the terminal shows through. |
+
+```json
+{
+  "name": "Midnight",
+  "mode": "dark",
+  "branding": { "editorBg": "#0b0f14", "fg": "#e6e6e6", "accent": "#6ea1ff" },
+  "terminal": {
+    "background": "#0b0f14",
+    "backgroundImage": "forest.png",
+    "backgroundOpacity": 0.85
+  }
+}
+```
+
+Text and any colored output stay fully solid — only the background behind them
+fades — so a picture never costs you readability. `png`, `jpg`, `webp`, `gif`
+and `avif` files work; keep them modest in size, since the picture is loaded
+with the theme. If the file is missing, the theme still applies, just without
+the picture.
+
 The terminal's **font** is not part of the theme: terminal cells use the same
 Editor font and size as your notes, so Ctrl/Cmd `+` / `-` resizes them too
 (and `Ctrl+Shift` with `+` / `-` zooms one pane on its own).

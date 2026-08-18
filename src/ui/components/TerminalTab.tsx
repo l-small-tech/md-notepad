@@ -23,7 +23,7 @@ import { useSettingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
 import { terminalsStore, useTerminalsStore } from '../stores/terminals';
 import { useThemeRegistry } from '../stores/theme-registry';
-import { terminalThemeFor } from '../terminal-theme';
+import { consoleSurfaceFor, terminalThemeFor } from '../terminal-theme';
 import { useDark } from '../theme';
 
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
@@ -35,10 +35,15 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
 
   // One resolved palette for every pane in the app: two panes must never
   // disagree about what "blue" is.
-  const theme = useMemo(() => {
-    const plugin = plugins.find((p) => p.id === settings.colorScheme) ?? null;
-    return terminalThemeFor(plugin, dark);
-  }, [plugins, settings.colorScheme, dark]);
+  const plugin = useMemo(
+    () => plugins.find((p) => p.id === settings.colorScheme) ?? null,
+    [plugins, settings.colorScheme],
+  );
+  const theme = useMemo(() => terminalThemeFor(plugin, dark), [plugin, dark]);
+  // The surface the CELLS sit on. The renderer paints default-background cells
+  // as nothing at all, so this element IS the terminal background — which is
+  // what lets a theme put an image or a see-through wash behind a shell.
+  const surface = useMemo(() => consoleSurfaceFor(plugin, dark), [plugin, dark]);
 
   if (!session) {
     return null;
@@ -48,7 +53,14 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     <div
       className="terminal-tab"
       // I10: the box stays, so every pane keeps its measured size.
-      style={active ? undefined : { visibility: 'hidden', pointerEvents: 'none' }}
+      style={
+        {
+          '--term-bg': surface.background,
+          '--term-bg-image': surface.imageUrl ? `url("${surface.imageUrl}")` : 'none',
+          '--term-bg-opacity': surface.opacity,
+          ...(active ? {} : { visibility: 'hidden', pointerEvents: 'none' }),
+        } as React.CSSProperties
+      }
       aria-hidden={!active}
     >
       <PaneTree

@@ -59,6 +59,11 @@ remembered. Press Esc or click outside the panel to close it.
   button and pick **Auto save**.
 - **Confirm before moving files between folders** — whether dragging a file
   to a new folder in the sidebar asks "are you sure?" first.
+- **Arrange tabs by workspace** — off by default, so tabs stay wherever you
+  drag them. Turn it on and the tabs of one workspace are kept side by side:
+  opening or dragging a tab slots it next to the others from its folder. Either
+  way, a tab always wears the color of the workspace its file lives in, so the
+  strip reads like the sidebar.
 - **Preview tabs** — when on (the default), single-clicking a file in the
   sidebar opens it in a reusable, italicized preview tab, and double-click
   (or editing) keeps it open permanently. When off, every click opens its

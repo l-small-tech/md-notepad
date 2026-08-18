@@ -338,6 +338,17 @@ export function SettingsDialog() {
           <label className="settings-row settings-row-inline">
             <input
               type="checkbox"
+              checked={settings.groupTabsByWorkspace}
+              onChange={(e) => update({ groupTabsByWorkspace: e.target.checked })}
+            />
+            <span className="settings-label">
+              Arrange tabs by workspace (keep each workspace's tabs together)
+            </span>
+          </label>
+
+          <label className="settings-row settings-row-inline">
+            <input
+              type="checkbox"
               checked={settings.previewTabs}
               onChange={(e) => update({ previewTabs: e.target.checked })}
             />

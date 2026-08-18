@@ -279,25 +279,6 @@ describe('planFlush — file tabs, deletes, manifest', () => {
     expect(plan.manifestPath).toBe('/session/session.json');
   });
 
-  test('manifest records group membership and only REFERENCED group definitions', () => {
-    const plan = planFlush(
-      view({
-        tabs: [
-          tab({ id: 't1', notePath: '/notes/a.md', title: 'A', text: 'a', groupId: 'g1' }),
-          tab({ id: 't2', notePath: '/notes/b.md', title: 'B', text: 'b' }),
-        ],
-        groups: [
-          { id: 'g1', name: 'Research', color: 'teal', collapsed: true },
-          { id: 'stale', name: 'no members', color: 'red', collapsed: false },
-        ],
-      }),
-    );
-    expect(plan.manifest.tabs.map((t) => t.groupId)).toEqual(['g1', null]);
-    expect(plan.manifest.groups).toEqual([
-      { id: 'g1', name: 'Research', color: 'teal', collapsed: true },
-    ]);
-  });
-
   test('no groups → no groups key in the manifest', () => {
     const plan = planFlush(view({ tabs: [tab({ id: 't1', title: 'A', text: 'a' })] }));
     expect('groups' in plan.manifest).toBe(false);
@@ -472,38 +453,19 @@ describe('parseManifest', () => {
     expect(parsed!.tabs.map((t) => t.id)).toEqual(['a', 'c']);
   });
 
-  test('a pre-groups manifest (no groups key) still parses', () => {
-    const parsed = parseManifest(
-      JSON.stringify({ schema: 1, activeTabId: null, tabs: [{ id: 'a', kind: 'note' }] }),
-    );
-    expect(parsed).not.toBeNull();
-    expect(parsed!.groups).toBeUndefined();
-  });
-
-  test('malformed group entries degrade to "no such group", not a dead manifest', () => {
+  test('a manifest carrying a retired `groups` key still parses', () => {
     const parsed = parseManifest(
       JSON.stringify({
         schema: 1,
         activeTabId: null,
         tabs: [{ id: 'a', kind: 'note' }],
-        groups: [
-          { id: 'g1', name: 'ok', color: 'blue', collapsed: false },
-          { id: 'g2', name: 'bad color', color: 'chartreuse', collapsed: false },
-          { id: 'g3', name: 'missing collapsed', color: 'red' },
-          'not even an object',
-        ],
+        groups: [{ id: 'g1', name: 'gone', color: 'blue', collapsed: false }],
       }),
     );
+    // Tab groups were removed in favor of workspace grouping; an old manifest
+    // is not condemned by the leftover key, its tabs just come back ungrouped.
     expect(parsed).not.toBeNull();
-    expect(parsed!.groups).toEqual([{ id: 'g1', name: 'ok', color: 'blue', collapsed: false }]);
-  });
-
-  test('a non-array groups value is dropped entirely', () => {
-    const parsed = parseManifest(
-      JSON.stringify({ schema: 1, activeTabId: null, tabs: [], groups: 'nope' }),
-    );
-    expect(parsed).not.toBeNull();
-    expect(parsed!.groups).toBeUndefined();
+    expect(parsed!.tabs.map((t) => t.id)).toEqual(['a']);
   });
 });
 

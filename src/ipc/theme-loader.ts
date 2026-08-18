@@ -198,12 +198,56 @@ export async function loadThemePlugins(themesDir: string): Promise<ThemePlugin[]
 }
 
 async function readThemeFile(path: string, id: string): Promise<ThemePlugin | null> {
+  let plugin: ThemePlugin | null;
   try {
     const { text } = await ipc.readTextFile(path);
-    return parseThemePlugin(id, JSON.parse(text));
+    plugin = parseThemePlugin(id, JSON.parse(text));
   } catch {
     // Unreadable or not valid JSON — skip this one file.
     return null;
+  }
+  return plugin === null ? plugin : await withConsoleImage(plugin, path);
+}
+
+/** MIME type for the extensions `parseThemePlugin` lets through. */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  avif: 'image/avif',
+};
+
+/**
+ * Resolve a theme's `terminal.backgroundImage` into the `data:` URL the pane
+ * can actually paint.
+ *
+ * Inlined rather than linked because the app's CSP allows `img-src 'self'
+ * data:` and nothing else — there is no asset protocol to point a `url()` at.
+ * The file is read from the theme's OWN folder (the name is validated as a
+ * bare file name upstream), so a theme is its `.json` plus its picture, and
+ * both travel together. A missing or unreadable file is not an error: the
+ * theme applies without the image.
+ */
+async function withConsoleImage(plugin: ThemePlugin, themePath: string): Promise<ThemePlugin> {
+  const image = plugin.consoleBackground?.image;
+  if (!image) {
+    return plugin;
+  }
+  const mime = IMAGE_MIME[image.toLowerCase().split('.').pop() ?? ''];
+  if (!mime) {
+    return plugin;
+  }
+  const dir = themePath.slice(0, Math.max(themePath.lastIndexOf('/'), themePath.lastIndexOf('\\')));
+  try {
+    const base64 = await ipc.readFileBase64(await join(dir, image));
+    return {
+      ...plugin,
+      consoleBackground: { ...plugin.consoleBackground, imageUrl: `data:${mime};base64,${base64}` },
+    };
+  } catch {
+    return plugin;
   }
 }
 

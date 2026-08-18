@@ -203,3 +203,57 @@ describe('loadThemePlugins — built-in refresh', () => {
     }
   });
 });
+
+describe('console background image', () => {
+  /** A user theme declaring an image, plus the base64 the reader returns. */
+  function withImage(name: string) {
+    const { fs } = mockThemesFolder({
+      [`${DIR}/mine.json`]: JSON.stringify({
+        name: 'Mine',
+        mode: 'dark',
+        branding: { bg: '#000' },
+        terminal: { backgroundImage: name },
+      }),
+    });
+    return fs;
+  }
+
+  test('is read from the theme’s own folder and inlined as a data: URL', async () => {
+    withImage('forest.png');
+    const read = vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+    const plugin = (await loadThemePlugins(DIR)).find((p) => p.id === 'mine')!;
+    expect(read).toHaveBeenCalledWith(`${DIR}/forest.png`);
+    expect(plugin.consoleBackground).toEqual({
+      image: 'forest.png',
+      imageUrl: 'data:image/png;base64,QUJD',
+    });
+  });
+
+  test('the MIME type follows the extension', async () => {
+    withImage('sky.jpg');
+    vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+    const plugin = (await loadThemePlugins(DIR)).find((p) => p.id === 'mine')!;
+    expect(plugin.consoleBackground?.imageUrl).toBe('data:image/jpeg;base64,QUJD');
+  });
+
+  test('a missing image file costs the image, not the theme', async () => {
+    withImage('gone.png');
+    vi.spyOn(ipc, 'readFileBase64').mockRejectedValue(new Error('ENOENT'));
+    const plugin = (await loadThemePlugins(DIR)).find((p) => p.id === 'mine')!;
+    expect(plugin.branding.bg).toBe('#000');
+    expect(plugin.consoleBackground?.imageUrl).toBeUndefined();
+  });
+
+  test('a theme with no image never reads a file', async () => {
+    mockThemesFolder({
+      [`${DIR}/mine.json`]: JSON.stringify({
+        name: 'Mine',
+        mode: 'dark',
+        branding: { bg: '#000' },
+      }),
+    });
+    const read = vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+    await loadThemePlugins(DIR);
+    expect(read).not.toHaveBeenCalled();
+  });
+});

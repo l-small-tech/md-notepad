@@ -3,12 +3,8 @@ import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
 
 const STRIP = { left: 0, right: 100 };
 
-function tab(tabId: string, left: number, right: number, groupId: string | null = null) {
-  return { tabId, groupId, left, right } satisfies StripItemRect;
-}
-
-function chip(groupId: string, left: number, right: number) {
-  return { tabId: null, groupId, left, right } satisfies StripItemRect;
+function tab(tabId: string, left: number, right: number) {
+  return { tabId, left, right } satisfies StripItemRect;
 }
 
 describe('clippedTabIds', () => {
@@ -37,23 +33,6 @@ describe('clippedTabIds', () => {
     expect(
       clippedTabIds(STRIP, [tab('hidden', 0, 0), tab('active', 0, 100), tab('gone', 0, 0)]),
     ).toEqual(['hidden', 'gone']);
-  });
-
-  test('a clipped group chip takes its whole run with it', () => {
-    const items = [
-      chip('g1', -20, -4),
-      tab('a', -4, 30, 'g1'),
-      tab('b', 30, 70, 'g1'),
-      tab('loose', 70, 95),
-    ];
-    // `b` is fully on screen, but its chip is not: the run is unreadable as a
-    // group, so the whole thing belongs in the overflow list.
-    expect(clippedTabIds(STRIP, items)).toEqual(['a', 'b']);
-  });
-
-  test('a visible chip leaves its visible members alone', () => {
-    const items = [chip('g1', 0, 16), tab('a', 16, 50, 'g1'), tab('b', 50, 140, 'g1')];
-    expect(clippedTabIds(STRIP, items)).toEqual(['b']);
   });
 
   test('results come back in strip order', () => {

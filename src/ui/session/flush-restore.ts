@@ -50,8 +50,7 @@ export function createFlushRestore(ctx: SessionCtx) {
       }
     }
 
-    const { tabs, groups, activeTabId, closedNotePaths, obsoleteBufferTabIds } =
-      tabsStore.getState();
+    const { tabs, activeTabId, closedNotePaths, obsoleteBufferTabIds } = tabsStore.getState();
 
     // Snapshot the text we are about to write per tab, so we only advance the
     // "session-persisted" baseline for tabs the user did NOT edit during the
@@ -88,11 +87,9 @@ export function createFlushRestore(ctx: SessionCtx) {
         fileDirty: t.model.isDirty('file'),
         savedMtimeMs: t.savedMtimeMs,
         cursor: cursorByTab.get(t.id) ?? null,
-        groupId: t.groupId,
         // Terminal tabs contribute no text and no buffer — only their layout.
         terminal: t.kind === 'terminal' ? terminalsStore.getState().snapshot(t.id) : null,
       })),
-      groups,
       existingNoteFiles: ctx.existingNoteFiles,
       closedNotePaths,
       obsoleteBufferPaths: obsoleteBufferTabIds.map((id) => bufferPathFor(ctx.sessionDir, id)),
@@ -365,7 +362,7 @@ export function createFlushRestore(ctx: SessionCtx) {
       const activeTabId = tabs.some((t) => t.id === manifest.activeTabId)
         ? manifest.activeTabId
         : (tabs[0]?.id ?? null);
-      tabsStore.getState().restoreSession({ tabs, activeTabId, groups: manifest.groups ?? [] });
+      tabsStore.getState().restoreSession({ tabs, activeTabId });
       if (missing.length > 0) {
         uiStore
           .getState()

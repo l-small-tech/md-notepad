@@ -9,8 +9,8 @@
  *
  * The decision is made from measured RECTANGLES rather than from a width
  * budget, because the tabs are elastic: the answer has to survive a window
- * resize, a renamed title, a collapsed group and a scrolled strip alike, and
- * only the browser knows where things ended up. The measurement lives here,
+ * resize, a renamed title and a scrolled strip alike, and only the browser
+ * knows where things ended up. The measurement lives here,
  * away from the DOM, so the rule itself stays unit-testable; the component
  * keeps nothing but the `ResizeObserver` wiring.
  *
@@ -24,16 +24,9 @@ export interface Bounds {
   right: number;
 }
 
-/** One measured strip child: a tab, or a group's chip. */
+/** One measured strip child: a tab. */
 export interface StripItemRect extends Bounds {
-  /** The tab this rect belongs to, or null when it is a group chip. */
-  tabId: string | null;
-  /**
-   * The group this item belongs to: a chip's own group, or a tab's
-   * membership. A clipped CHIP takes its whole run with it — a run you can
-   * only see the tail of is not a group you can read.
-   */
-  groupId: string | null;
+  tabId: string;
 }
 
 /**
@@ -52,22 +45,7 @@ const SLACK = 1;
  * switcher, which is exactly what the count pill lists.
  */
 export function clippedTabIds(strip: Bounds, items: readonly StripItemRect[]): string[] {
-  const clippedGroups = new Set<string>();
-  for (const item of items) {
-    if (item.tabId === null && item.groupId !== null && isClipped(strip, item)) {
-      clippedGroups.add(item.groupId);
-    }
-  }
-  const out: string[] = [];
-  for (const item of items) {
-    if (item.tabId === null) {
-      continue;
-    }
-    if (isClipped(strip, item) || (item.groupId !== null && clippedGroups.has(item.groupId))) {
-      out.push(item.tabId);
-    }
-  }
-  return out;
+  return items.filter((item) => isClipped(strip, item)).map((item) => item.tabId);
 }
 
 function isClipped(strip: Bounds, item: Bounds): boolean {

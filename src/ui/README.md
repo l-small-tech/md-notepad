@@ -8,7 +8,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | Component | Milestone | Notes |
 | --- | --- | --- |
 | `App` | M1 | layout shell: TabBar / EditorHost / StatusBar stack |
-| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); Chrome-style tab groups (chip = collapse toggle, right-click = group menu; membership/contiguity rules in core/tab-groups.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher |
+| `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); workspace color cues (a tab wears its workspace's accent; `groupTabsByWorkspace` optionally keeps each workspace's tabs contiguous — rules in core/tab-workspaces.ts, resolution in ui/workspace-cues.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher |
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |

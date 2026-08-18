@@ -29,6 +29,12 @@
  *   background/foreground/cursor/selection). Absent — the case for every
  *   theme shipped today — the palette is DERIVED from `branding` by
  *   `core/terminal-palette.ts`, so no theme has to think about it.
+ * - The same block also carries the console SURFACE: `backgroundImage` (a
+ *   plain file name next to the theme file, which ipc/theme-loader.ts inlines
+ *   as a data: URL — the app's CSP allows no remote or file:// images) and
+ *   `backgroundOpacity` (0–1 over the app behind the pane). Both are
+ *   presentation, not palette, so they are parsed into `consoleBackground`
+ *   rather than into the color map the renderer takes.
  * - `css` is an intentional escape hatch: verbatim CSS the author scopes
  *   themselves (for spacing/font tweaks the variables can't express). It is
  *   emitted as-is — the themes folder is the user's own machine.
@@ -88,6 +94,35 @@ export const SYNTAX_KEYS = {
 
 export type ThemeMode = 'light' | 'dark';
 
+/**
+ * The console (terminal) surface behind the cells: the pane paints this and
+ * the renderer leaves default-background cells transparent over it (see
+ * renderer/README.md), which is what lets an image or a translucent
+ * background show through at all.
+ */
+export interface ConsoleBackground {
+  /**
+   * File name of an image in the themes folder — a BARE name (no folders, no
+   * `..`, no URL), because a theme has to stay a single portable file next to
+   * its assets and the loader is what turns it into a data: URL.
+   */
+  image?: string;
+  /**
+   * The resolved `data:` URL for {@link image}. Never authored: the loader
+   * fills it in after reading the file, and it is empty when the file is
+   * missing or unreadable (the theme still applies, just without the image).
+   */
+  imageUrl?: string;
+  /**
+   * Opacity of the WHOLE console background — color and image alike — so the
+   * app behind the terminal pane shows through. 0–1; 1 (opaque) is the default.
+   */
+  opacity?: number;
+}
+
+/** Image types a console background may use (extension → allowed). */
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'] as const;
+
 export type PaletteKey = keyof typeof PALETTE_KEYS;
 export type BrandKey = keyof typeof BRAND_KEYS;
 export type BrandingKey = keyof typeof BRANDING_KEYS;
@@ -119,6 +154,12 @@ export interface ThemePlugin {
    * palette, so setting one key sets one key.
    */
   terminal?: TerminalPalette;
+  /**
+   * Optional console surface (image / opacity), parsed from the same
+   * `terminal` block as the colors. Absent = an opaque background painted in
+   * the terminal palette's own background color.
+   */
+  consoleBackground?: ConsoleBackground;
   /** Optional verbatim CSS appended after the branding block. */
   css?: string;
   /** Seed-content version, stamped only on the built-in examples we write to the
@@ -198,6 +239,7 @@ export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
   const syntax = Object.keys(syntaxPicked).length > 0 ? syntaxPicked : undefined;
 
   const terminal = parseTerminalPalette(raw.terminal);
+  const consoleBackground = parseConsoleBackground(raw.terminal);
 
   return {
     id,
@@ -206,6 +248,7 @@ export function parseThemePlugin(id: string, raw: unknown): ThemePlugin | null {
     branding,
     ...(syntax ? { syntax } : {}),
     ...(terminal ? { terminal } : {}),
+    ...(consoleBackground ? { consoleBackground } : {}),
     ...(css ? { css } : {}),
   };
 }
@@ -227,6 +270,39 @@ function parseTerminalPalette(raw: unknown): TerminalPalette | undefined {
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * The console surface keys of a `terminal` block. `backgroundImage` is held to
+ * a BARE image file name — no separators, no `..`, no scheme, no quotes — both
+ * because the loader resolves it inside the themes folder and because the name
+ * ends up inside a `url("…")`, where a stray quote would break out of the
+ * declaration. `backgroundOpacity` is clamped rather than rejected, so a theme
+ * that says `2` simply means "opaque".
+ */
+function parseConsoleBackground(raw: unknown): ConsoleBackground | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const out: ConsoleBackground = {};
+  const image = raw.backgroundImage;
+  if (typeof image === 'string' && isSafeImageName(image.trim())) {
+    out.image = image.trim();
+  }
+  const opacity = raw.backgroundOpacity;
+  if (typeof opacity === 'number' && Number.isFinite(opacity)) {
+    out.opacity = Math.min(1, Math.max(0, opacity));
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** A bare image file name: no path, no traversal, nothing quote-like. */
+function isSafeImageName(name: string): boolean {
+  if (name.length === 0 || /[\\/:"'()\s;{}]/.test(name) || name.includes('..')) {
+    return false;
+  }
+  const lower = name.toLowerCase();
+  return IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
 /** CSS-escape a single-quoted attribute value (id is already slug-safe, but be

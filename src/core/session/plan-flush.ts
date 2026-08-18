@@ -34,14 +34,7 @@
  *   deleted the same way (the note graduated — no duplicate truth).
  */
 
-import {
-  WORKSPACE_COLORS,
-  type CursorPos,
-  type EditorMode,
-  type TabGroup,
-  type TabKind,
-  type TerminalSnapshot,
-} from '../types';
+import type { CursorPos, EditorMode, TabKind, TerminalSnapshot } from '../types';
 import { slugifyTitle } from '../title';
 
 /* ----------------------------- input view ------------------------------ */
@@ -64,8 +57,6 @@ export interface SessionTabView {
   fileDirty: boolean;
   savedMtimeMs: number | null;
   cursor: CursorPos | null;
-  /** Tab-group membership (Chrome-style groups). Absent/undefined = ungrouped. */
-  groupId?: string | null;
   /** kind='terminal' only: the pane layout to persist (terminalsStore.snapshot). */
   terminal?: TerminalSnapshot | null;
 }
@@ -99,12 +90,6 @@ export interface AppSessionView {
    * a doomed rename every flush. Optional: absent/empty suppresses nothing.
    */
   suppressedRenamePaths?: ReadonlySet<string>;
-  /**
-   * Tab-group definitions to record in the manifest (Chrome-style groups).
-   * Optional — absent/empty writes no groups. Only groups a tab actually
-   * references are persisted.
-   */
-  groups?: readonly TabGroup[];
 }
 
 /* ------------------------------ manifest ------------------------------- */
@@ -119,8 +104,6 @@ export interface PersistedTab {
   savedMtimeMs: number | null;
   hasBuffer: boolean;
   cursor: CursorPos | null;
-  /** Group membership; optional so pre-groups manifests stay parseable. */
-  groupId?: string | null;
   /**
    * kind='terminal' only: the pane layout to respawn. Absent on every other
    * kind, and never carries scrollback — see `TerminalSnapshot`.
@@ -132,8 +115,6 @@ export interface SessionManifest {
   schema: 1;
   activeTabId: string | null;
   tabs: PersistedTab[];
-  /** Tab-group definitions (optional — absent on pre-groups manifests). */
-  groups?: TabGroup[];
 }
 
 const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import', 'terminal'];
@@ -168,27 +149,8 @@ export function parseManifest(raw: string): SessionManifest | null {
     const t = tab as Record<string, unknown>;
     return typeof t.id === 'string' && isKnownTabKind(t.kind);
   });
-  // Groups are an optional, non-structural extra: a malformed groups array
-  // degrades to "no groups" (memberships pointing nowhere are dropped at
-  // restore) rather than condemning the whole manifest to self-heal.
   const manifest = value as SessionManifest;
   manifest.tabs = tabs;
-  if ('groups' in m) {
-    manifest.groups = Array.isArray(m.groups)
-      ? (m.groups as unknown[]).filter((g): g is TabGroup => {
-          if (typeof g !== 'object' || g === null) {
-            return false;
-          }
-          const e = g as Record<string, unknown>;
-          return (
-            typeof e.id === 'string' &&
-            typeof e.name === 'string' &&
-            typeof e.collapsed === 'boolean' &&
-            (WORKSPACE_COLORS as readonly string[]).includes(e.color as string)
-          );
-        })
-      : undefined;
-  }
   return manifest;
 }
 
@@ -437,20 +399,10 @@ export function planFlush(view: AppSessionView): FlushPlan {
       savedMtimeMs: tab.savedMtimeMs,
       hasBuffer: tab.kind === 'file' && tab.fileDirty,
       cursor: tab.cursor,
-      groupId: tab.groupId ?? null,
       // Terminal tabs contribute NO writes and NO buffer — only this.
       ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
     })),
   };
-  // Persist only group definitions some tab references — an empty/stale
-  // definition never outlives its members in the manifest.
-  const referencedGroups = (view.groups ?? []).filter((g) =>
-    view.tabs.some((t) => t.groupId === g.id),
-  );
-  if (referencedGroups.length > 0) {
-    manifest.groups = referencedGroups;
-  }
-
   return {
     noteRenames,
     writes,
