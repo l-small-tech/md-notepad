@@ -13,6 +13,7 @@ do not rewrite them.
 | `doc-model.ts` | reference | canonical-text document model (I1) |
 | `mode-sync.ts` | reference | mode-switch state machine + WYSIWYG write-back guard (I2) |
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
+| `tab-status.ts` | terminal | agent status glyph in a terminal's OSC title (`✳ `, `◐ `) → activity + the remaining label, for the TabBar badge |
 | `settings.ts` | reference | defaults + `normalizeSettings` |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
 | `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw) |

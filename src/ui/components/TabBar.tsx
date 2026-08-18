@@ -12,6 +12,13 @@
  * session.renameTab). All behavior dispatches store/session actions; the
  * component itself stays declarative.
  *
+ * Agent status cues: a terminal tab whose shell prefixes its OSC title with a
+ * status glyph (Claude Code writes `✳ ` when idle and alternates `◐ `/`◑ `
+ * while it works) shows that glyph as a colored badge instead of as one more
+ * 13px character in the label — amber and pulsing while working, green when
+ * the turn is yours, blue when it is blocked on you, red when it failed.
+ * core/tab-status.ts owns the glyph → activity table.
+ *
  * Workspace cues (what replaced the Chrome-style tab groups): a tab wears the
  * accent of the WORKSPACE its file lives in — the same `data-color` →
  * `--ws-accent` tokens the explorer's workspace sections use — as a stripe
@@ -33,6 +40,7 @@ import { useUiStore, uiStore } from '../stores/ui';
 import { detectPlatform } from '../keymap';
 import { clippedTabIds, sameIds, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
+import { splitAgentStatus } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
@@ -85,9 +93,32 @@ interface StripItem {
   runEnd: boolean;
 }
 
+/**
+ * A tab's label, with any agent status glyph lifted out of the text and into
+ * its own badge. Only terminal tabs carry one — a note called "✳ ideas" is a
+ * note, not a busy agent.
+ */
+function TabLabel({ tab }: { tab: TabEntry }) {
+  const label = tabDisplayTitle(tab);
+  const { cue, rest } =
+    tab.kind === 'terminal' ? splitAgentStatus(label) : { cue: null, rest: label };
+  return (
+    <>
+      {cue && (
+        <span className="tab-status" data-activity={cue.activity} aria-label={cue.label} role="img">
+          {cue.glyph}
+        </span>
+      )}
+      {rest}
+    </>
+  );
+}
+
 function RenameInput({ tab }: { tab: TabEntry }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const initial = tabDisplayTitle(tab);
+  // A rename replaces the title outright, so seed the box with the label the
+  // user reads — never with the agent's status glyph.
+  const initial = splitAgentStatus(tabDisplayTitle(tab)).rest;
 
   useEffect(() => {
     const el = inputRef.current;
@@ -204,7 +235,7 @@ function Tab({
         <RenameInput tab={tab} />
       ) : (
         <span className="tab-title">
-          {label}
+          <TabLabel tab={tab} />
           {tab.kind === 'file' && tab.dirty && (
             <span className="tab-dirty-dot" aria-label="Unsaved changes">
               {' '}
@@ -372,7 +403,7 @@ function OverflowMenu({
             }}
           >
             {colors[index] && <span className="tab-workspace-dot" />}
-            {tabDisplayTitle(tab)}
+            <TabLabel tab={tab} />
             {tab.kind === 'file' && tab.dirty && <span className="tab-dirty-dot"> •</span>}
           </button>
           {/* A clipped tab has no × of its own on screen — this is the only

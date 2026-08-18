@@ -94,6 +94,75 @@
   font-weight: 700;
 }
 
+/* ---- Agent status cue on a terminal tab ---------------------------------
+   A CLI agent announces its state by prefixing its OSC title with one glyph
+   (Claude Code: ✳ idle, ◐/◑ working). Rendered as text that is a 13px
+   character nobody notices, so core/tab-status.ts lifts it out and it lands
+   here as a badge: bigger than the label, on its own tinted disc, colored by
+   what the agent is doing. --status-hue is the one knob each state sets. */
+
+.tab-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 1px;
+  border-radius: 50%;
+  font-size: 13px;
+  /* The glyphs sit slightly high in most fonts; nudge them onto the center. */
+  line-height: 1;
+  font-weight: 600;
+  color: var(--status-hue);
+  background: color-mix(in srgb, var(--status-hue) 18%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-hue) 35%, transparent);
+  /* An inactive tab dims its text; the status cue is the one thing that must
+     stay readable across the whole strip, so it opts out. */
+  opacity: 1;
+}
+
+.tab-status[data-activity='working'] {
+  --status-hue: #e8a13a;
+  animation: tab-status-pulse 1.1s ease-in-out infinite;
+}
+
+.tab-status[data-activity='ready'] {
+  --status-hue: #34c759;
+}
+
+.tab-status[data-activity='waiting'] {
+  --status-hue: #5f87ff;
+  animation: tab-status-pulse 1.8s ease-in-out infinite;
+}
+
+.tab-status[data-activity='error'] {
+  --status-hue: #ff5f56;
+}
+
+/* The working badge breathes so a glance at the strip finds it without
+   reading any labels. Scale stays subtle — the tab must not jitter. */
+@keyframes tab-status-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-hue) 35%, transparent);
+  }
+
+  50% {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--status-hue) 55%, transparent),
+      0 0 7px color-mix(in srgb, var(--status-hue) 45%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-status {
+    animation: none !important;
+  }
+}
+
 /* ---- Workspace cues on tabs ---------------------------------------------
    A tab wears the accent of the WORKSPACE its file lives in, resolved through
    the same [data-color] → --ws-accent tokens the explorer's workspace sections
