@@ -2471,10 +2471,10 @@ body.explorer-dragging * {
    `display: none`, so its panes keep their measured size. A collapsed pane
    resizes its pty to 1x1 and every TUI in it redraws into a corner. */
 .terminal-tab {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
+  /* .editor-stack is a plain positioned block, not a flex column: every tab
+     page fills it absolutely (same contract as .editor-host). */
+  position: absolute;
+  inset: 0;
   background: var(--editor-bg);
 }
 
