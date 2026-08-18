@@ -238,11 +238,18 @@
   outline: none;
 }
 
+/* The glyph sits well inside its box, so the button's own padding already
+   reads as a gap — the negative margins pull the (deliberately generous)
+   hitbox back over the flex gap and the tab's right padding, tightening the
+   look while giving the title those pixels and keeping the target easy to
+   hit. */
 .tab-close {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  line-height: 16px;
+  width: 20px;
+  height: 20px;
+  line-height: 18px;
+  margin-left: -7px;
+  margin-right: -2px;
   text-align: center;
   border: none;
   border-radius: 3px;
