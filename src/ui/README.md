@@ -71,12 +71,19 @@ Rules:
 
 ## Tab strip: shrink, then scroll (M9)
 
-Every tab renders. They shrink like a browser's down to `--tab-min-width`,
-then the strip scrolls; the `›N` button appears only while something is
-actually clipped and lists exactly the clipped tabs (with a per-row close,
-since a clipped tab has no × on screen). Activating a tab scrolls it into
-view — from the keyboard or from that menu, landing on a tab you cannot see
-is useless.
+Every tab renders at `--tab-width` (its ideal size, not its title's — a
+widened window would otherwise leave the new room empty) and shrinks like a
+browser's down to `--tab-min-width`, then the strip scrolls; the `›N` button
+appears only while something is actually clipped and lists exactly the clipped
+tabs (with a per-row close, since a clipped tab has no × on screen).
+Activating a tab scrolls it into view — from the keyboard or from that menu,
+landing on a tab you cannot see is useless.
+
+Whole tabs only: the strip is capped at the width a whole number of tabs
+occupies (`wholeTabsWidth`, same module) so its right edge never slices one,
+and `scroll-snap-align` keeps the left edge on a tab start once it scrolls.
+The cap comes from tab widths rather than live positions, so it does not move
+as the strip scrolls.
 
 What is clipped is **measured**, not computed from a width budget: the tabs
 are elastic, so the answer has to survive a resize, a renamed title, a

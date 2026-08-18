@@ -1,8 +1,8 @@
 /**
  * Tab-bar overflow measurement (pure; tested).
  *
- * The strip renders EVERY tab and lets them shrink like a browser's, then
- * scrolls once they hit their min-width floor. A strip that merely scrolls
+ * The strip renders EVERY tab at a fixed ideal width, lets them shrink like a
+ * browser's, then scrolls once they hit their min-width floor. A strip that merely scrolls
  * hides tabs with nothing to say so, hence the overflow button — which
  * appears only while something is actually clipped and lists exactly the
  * clipped tabs.

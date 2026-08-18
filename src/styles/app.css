@@ -58,8 +58,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
-  max-width: 220px;
+  /* A tab's ideal size is --tab-width, not its title: the row would otherwise
+     leave the space a widened window hands it sitting empty. Browser-style,
+     they shrink from there — down to --tab-min-width, past which the strip
+     scrolls — and never grow beyond it, so a two-tab window gets two normal
+     tabs and a wide free stretch rather than two enormous ones. */
+  flex: 0 1 var(--tab-width, 220px);
+  max-width: var(--tab-width, 220px);
   min-width: var(--tab-min-width, 96px);
   padding: 0 8px 0 12px;
   border-right: 1px solid var(--border);
