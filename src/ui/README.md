@@ -153,7 +153,9 @@ window") moves the tab into its own OS window. The model:
   local tab already owns (one owner per file, applied across windows);
   file-open entry points (argv, `open-files`) target main only; the
   notes-dir change flow is main-only; settings changes broadcast via a
-  `settings-changed` event so theme/fonts stay uniform.
+  `settings-changed` event so theme/fonts stay uniform — except a theme a
+  window pinned to itself (`stores/window-theme`), which neither leaves nor
+  accepts the broadcast.
 - **Platform gating**: the drag-out gesture is disabled on Linux (Wayland
   offers no reliable global cursor position); the context-menu item works
   everywhere.
@@ -268,6 +270,14 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   `stores/theme-registry`'s `currentThemeValue` / `themeSelectionPatch` (the
   pure "which entry is current / what does this choice mean" pair, unit-tested),
   so the two can't drift.
+- **Window-only theme** (right-click in the ☰ list, or the Settings box): the
+  pinned theme still lives in the settings store — every consumer reads the
+  theme from there — and `stores/window-theme` instead guards the two edges
+  where settings cross the window boundary. `sharedSettings` swaps the shared
+  theme back in before `main.tsx` saves/broadcasts; `mergeIncomingSettings`
+  takes a sibling's settings minus the theme, which is also what stops the echo
+  of our own broadcast from undoing the pin. Not persisted — it lasts as long
+  as the window.
 - **Font size is CSS-variable driven** (`--editor-font-size`): CM6, preview,
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor

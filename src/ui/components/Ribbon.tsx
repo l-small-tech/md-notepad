@@ -40,6 +40,7 @@ import {
   openThemesHelp,
   reloadThemes,
   selectTheme,
+  unpinThemeFromWindow,
 } from '../theme-actions';
 import {
   FONT_FAMILIES,
@@ -58,6 +59,7 @@ import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../st
 import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
+import { useWindowTheme } from '../stores/window-theme';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
@@ -252,6 +254,7 @@ function RibbonMenuItem({
   shortcut,
   title,
   onPick,
+  onSecondaryPick,
   onClose,
   keepOpen,
 }: {
@@ -260,6 +263,9 @@ function RibbonMenuItem({
   shortcut?: string;
   title?: string;
   onPick: () => void;
+  /** Right-click variant of the row's action (theme rows: this window only).
+   *  Rows that don't set it keep the browser's default context menu. */
+  onSecondaryPick?: () => void;
   onClose: () => void;
   /** Drill-in / back rows stay open — they navigate within the popover. */
   keepOpen?: boolean;
@@ -275,6 +281,16 @@ function RibbonMenuItem({
         }
         onPick();
       }}
+      onContextMenu={
+        onSecondaryPick &&
+        ((e) => {
+          e.preventDefault();
+          if (!keepOpen) {
+            onClose();
+          }
+          onSecondaryPick();
+        })
+      }
     >
       <span>
         <span className="ribbon-menu-glyph">{glyph}</span>
@@ -298,12 +314,33 @@ function RibbonMenuItem({
 function ThemesSubmenu({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
   const plugins = useThemeRegistry((s) => s.plugins);
   const settings = useSettingsStore((s) => s.settings);
+  const pinned = useWindowTheme((s) => s.override !== null);
   const current = currentThemeValue(settings);
   const groups = themePickerGroups(plugins);
+  // Android runs a single webview — a per-window theme has nothing to be per
+  // (and there is no right-click there either).
+  const perWindow = !isAndroid();
   return (
     <>
       <RibbonMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
       <div className="ribbon-menu-divider" role="separator" />
+      {/* Picking sets the theme for every window; right-clicking pins it here. */}
+      {perWindow && (
+        <>
+          <div className="ribbon-menu-heading">Right-click: this window only</div>
+          {pinned && (
+            <RibbonMenuItem
+              glyph="⌂"
+              label="Use shared theme"
+              title="Stop pinning a theme to this window and follow the all-windows theme again"
+              onPick={unpinThemeFromWindow}
+              onClose={onClose}
+              keepOpen
+            />
+          )}
+          <div className="ribbon-menu-divider" role="separator" />
+        </>
+      )}
       {groups.map((group, gi) => (
         <Fragment key={gi}>
           {gi > 0 && <div className="ribbon-menu-divider" role="separator" />}
@@ -315,7 +352,9 @@ function ThemesSubmenu({ onBack, onClose }: { onBack: () => void; onClose: () =>
               // keep their labels aligned.
               glyph={option.value === current ? '✓' : ''}
               label={option.label}
+              title={perWindow ? 'Set for all windows (right-click: this window only)' : undefined}
               onPick={() => selectTheme(option.value)}
+              onSecondaryPick={perWindow ? () => selectTheme(option.value, true) : undefined}
               onClose={onClose}
               // Picking applies live — staying open lets the user try a few.
               keepOpen

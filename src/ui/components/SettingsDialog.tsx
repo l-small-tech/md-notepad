@@ -23,7 +23,8 @@ import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
-import { selectTheme } from '../theme-actions';
+import { isAndroid } from '../platform';
+import { pinThemeToWindow, selectTheme, unpinThemeFromWindow } from '../theme-actions';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import {
   useThemeRegistry,
@@ -33,6 +34,7 @@ import {
 } from '../stores/theme-registry';
 import { DEFAULT_COLOR_SCHEME } from '../../core/types';
 import { uiStore, useUiStore } from '../stores/ui';
+import { useWindowTheme } from '../stores/window-theme';
 import { checkForUpdate, useUpdateStore } from '../update';
 
 const MODES: { value: EditorMode; label: string }[] = [
@@ -99,6 +101,10 @@ export function SettingsDialog() {
   const open = useUiStore((s) => s.settingsOpen);
   const settings = useSettingsStore((s) => s.settings);
   const plugins = useThemeRegistry((s) => s.plugins);
+  // A theme pinned to this window (☰ Menu → Themes right-click, or the box below);
+  // Android runs a single webview, so the choice isn't offered there.
+  const themeWindowOnly = useWindowTheme((s) => s.override !== null);
+  const perWindowTheme = !isAndroid();
 
   if (!open) {
     return null;
@@ -157,7 +163,7 @@ export function SettingsDialog() {
             <select
               className="settings-control"
               value={themeValue}
-              onChange={(e) => selectTheme(e.target.value)}
+              onChange={(e) => selectTheme(e.target.value, themeWindowOnly)}
             >
               {/* System, then the labeled Light / Dark / Custom sections. */}
               {themeGroups.map((group, gi) => {
@@ -186,6 +192,19 @@ export function SettingsDialog() {
               )}
             </select>
           </label>
+
+          {perWindowTheme && (
+            <label className="settings-row settings-row-inline">
+              <input
+                type="checkbox"
+                checked={themeWindowOnly}
+                onChange={(e) => (e.target.checked ? pinThemeToWindow() : unpinThemeFromWindow())}
+              />
+              <span className="settings-label">
+                This window only (otherwise the theme applies to every window)
+              </span>
+            </label>
+          )}
 
           <div className="settings-row settings-row-hint">
             <span className="settings-label" />

@@ -47,6 +47,7 @@ import { installLinkGuard } from './ui/link-guard';
 import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
+import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import {
   appendImagesToMd,
@@ -164,7 +165,13 @@ function persistSettingsDebounced(): void {
   }
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    const settings = settingsStore.getState().settings;
+    // A window-only theme (☰ Menu → Themes, right-click) lives in the settings
+    // store like any other theme, but must not leave this window — swap the
+    // shared value back in before saving or broadcasting.
+    const settings = sharedSettings(
+      settingsStore.getState().settings,
+      windowThemeStore.getState().override,
+    );
     void savePersistedSettings(settings).catch(() => {
       // A failed settings write is non-fatal — the in-memory value still holds
       // for the session; the next change retries.
@@ -581,11 +588,17 @@ async function boot(): Promise<void> {
     void controller.flushNow();
   }).catch(() => {});
 
-  // Live settings sync between windows (see persistSettingsDebounced).
+  // Live settings sync between windows (see persistSettingsDebounced). A
+  // window-only theme survives the fold — including the echo of our own
+  // broadcast, which carries the shared theme and would otherwise undo it.
   void listen<Settings>('settings-changed', (event) => {
-    const next = normalizeSettings(event.payload);
-    if (JSON.stringify(next) !== JSON.stringify(settingsStore.getState().settings)) {
-      settingsStore.getState().replace(next);
+    const incoming = normalizeSettings(event.payload);
+    const merged = mergeIncomingSettings(incoming, windowThemeStore.getState().override);
+    if (merged.override !== windowThemeStore.getState().override) {
+      windowThemeStore.getState().set(merged.override);
+    }
+    if (JSON.stringify(merged.settings) !== JSON.stringify(settingsStore.getState().settings)) {
+      settingsStore.getState().replace(merged.settings);
     }
   }).catch(() => {});
 

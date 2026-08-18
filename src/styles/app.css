@@ -35,7 +35,9 @@
 .tabbar-scroller {
   display: flex;
   align-items: stretch;
-  flex: 1 1 auto;
+  /* Sized to its tabs, NOT to the row: the + button sits immediately after the
+     last tab (Windows 11 / Chrome), and `.tabbar-spacer` takes the rest. */
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -369,12 +371,13 @@
    traffic lights on macOS). The spacer keeps a guaranteed grab area for
    dragging the window even when tabs fill the row. */
 
-/* Free space after the last tab: the guaranteed window-drag / right-click
-   grab area. It has a FLOOR so it can never be squeezed to nothing however
-   many tabs are open — with the strip scrolling rather than windowing, that
-   floor is the only thing keeping the titlebar draggable. */
+/* Free space after the + button: the window-drag / right-click grab area. It
+   takes whatever the tab strip doesn't, and has a FLOOR so it can never be
+   squeezed to nothing however many tabs are open — with the strip scrolling
+   rather than windowing, that floor is the only thing keeping the titlebar
+   draggable once the tabs fill the row. */
 .tabbar-spacer {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-width: var(--tab-free-space, 32px);
 }
 
@@ -2428,6 +2431,7 @@ body.explorer-dragging * {
   /* The tab fills the row, so the spacer's only job (a window-drag grab area)
      is moot — there is no draggable OS window on a phone anyway. */
   .tabbar-spacer {
+    flex: 0 0 auto;
     min-width: 0;
   }
 

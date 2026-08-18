@@ -66,6 +66,11 @@ export interface TerminalPaneProps {
   onFocus: () => void;
 }
 
+/** True for an element a user may be typing into — never steal its focus. */
+function isTextField(element: Element | null): boolean {
+  return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+}
+
 /** `file://host/path` (OSC 7) → a plain path a pty can be spawned in. */
 function pathFromFileUrl(url: string): string | null {
   try {
@@ -392,10 +397,34 @@ export function TerminalPane({
 
   // Focus follows the store: exactly one pane holds the keyboard, and a pane in
   // a background tab must never take it.
+  //
+  // Focusing TWICE is deliberate. Activating a tab from the strip happens on
+  // `pointerdown`, so this effect runs before the compatibility `mousedown` —
+  // whose default action moves focus to the nearest focusable ancestor of the
+  // (unfocusable) tab, i.e. off our textarea and onto the body. The pane's own
+  // input layer dodges that by preventing the default (see renderer/input.ts);
+  // the tab strip cannot, since it must stay a plain click target. So the
+  // focus is re-asserted on the next frame, after every default action of the
+  // click that activated us has run. The same re-assert covers menus and the
+  // palette, which hand focus back when they close.
   useEffect(() => {
-    if (active) {
-      inputRef.current?.focus();
+    if (!active) {
+      return;
     }
+    inputRef.current?.focus();
+    const frame = requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input || input.focused) {
+        return;
+      }
+      // Never yank focus out of an open text field (App.tsx applies the same
+      // rule): a rename input over a terminal tab must get to keep it.
+      if (isTextField(document.activeElement)) {
+        return;
+      }
+      input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [active]);
 
   // Ctrl/Cmd-click opens a link; plain clicks belong to the selection.
