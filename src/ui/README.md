@@ -311,9 +311,16 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   scroller the wheel would have moved and springs its `scrollTop` (physics in
   `core/smooth-scroll.ts` — velocity carries across notches, so a fast run
   gathers momentum), so every scrollable surface — source editor, preview/read,
-  wysiwyg, explorer, dialogs — eases without any host opting in. While a glide
-  is in flight the scroller carries `will-change: scroll-position`, keeping the
-  per-frame writes on a compositor layer. It skips events a surface already
+  wysiwyg, explorer, dialogs — eases without any host opting in. Distance is
+  line-based: one notch scrolls `NOTCH_LINES` lines of the target scroller
+  (`NotchUnitTracker` learns the webview's per-notch pixel step), the same
+  visual travel on WebKitGTK, Chromium and WebView2. A mid-flight
+  `scrollHeight` change (CM6 measuring blocks the glide reveals, which
+  re-anchors `scrollTop`) shifts the glide instead of aborting it; only a
+  same-height external scroll (search jump, scrollbar drag) wins and stops it.
+  While a glide is in flight the scroller carries `will-change:
+  scroll-position`, keeping the per-frame writes on a compositor layer. It
+  skips events a surface already
   claimed (`defaultPrevented`), zoom gestures, horizontal wheels, and —
   deliberately — touchpad/momentum streams (`WheelSourceTracker`): those carry
   the OS's own inertia and are left to the webview's native path so the finger

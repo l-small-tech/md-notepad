@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_FRAME_MS,
+  NotchUnitTracker,
   SCROLL_STIFFNESS,
   STREAM_QUIET_MS,
   WheelSourceTracker,
@@ -159,5 +160,45 @@ describe('WheelSourceTracker', () => {
       expect(tracker.classify(1, 1, i * 8)).toBe('notch');
     }
     expect(tracker.classify(1, 2, 48)).toBe('notch');
+  });
+});
+
+describe('NotchUnitTracker', () => {
+  it('reads one notch whatever the platform per-notch step', () => {
+    // The same physical notch: WebKitGTK, Chromium/X11, WebView2.
+    for (const step of [40, 53, 100, 120]) {
+      expect(new NotchUnitTracker().notches(step)).toBe(1);
+      expect(new NotchUnitTracker().notches(-step)).toBe(-1);
+    }
+  });
+
+  it('divides an accelerated multi-notch delta back into notches', () => {
+    const tracker = new NotchUnitTracker();
+    expect(tracker.notches(120)).toBe(1); // learns the 120px step
+    expect(tracker.notches(360)).toBe(3); // OS acceleration: 3 notches in one event
+    expect(tracker.notches(-240)).toBe(-2);
+  });
+
+  it('re-learns downward when the honest single-notch step appears', () => {
+    const tracker = new NotchUnitTracker();
+    expect(tracker.notches(240)).toBeGreaterThanOrEqual(1); // first event was accelerated
+    expect(tracker.notches(120)).toBe(1); // the real step is smaller — adopt it
+    expect(tracker.notches(240)).toBe(2);
+  });
+
+  it('returns 0 for sub-notch deltas so touchpads keep their pixels', () => {
+    const tracker = new NotchUnitTracker();
+    expect(tracker.notches(8)).toBe(0);
+    expect(tracker.notches(-16)).toBe(0);
+    expect(tracker.notches(Number.NaN)).toBe(0);
+    expect(tracker.notches(40)).toBe(1); // the small deltas did not poison the unit
+  });
+
+  it('caps the learned unit so a huge first delta still divides into notches', () => {
+    const tracker = new NotchUnitTracker();
+    // 1000px as the first event: the unit clamps to the largest known
+    // per-notch step (150) instead of swallowing the fling as one notch.
+    expect(tracker.notches(1000)).toBe(7);
+    expect(tracker.notches(40)).toBe(1); // and the real step re-learns downward
   });
 });

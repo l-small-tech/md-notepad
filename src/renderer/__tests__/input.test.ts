@@ -459,8 +459,10 @@ describe('wheel', () => {
 
   it('sends arrow keys on the alternate screen, which has no scrollback', () => {
     h.term.write('\x1b[?1049h');
+    // A notch-sized pixel delta (≥ NOTCH_MIN_PX) is one ratchet notch, which
+    // scrolls scrollLines (3) lines regardless of the platform's pixel step.
     wheel({ deltaY: -2 * CELL.height, deltaMode: 0 });
-    expect(h.written).toEqual(['\x1b[A\x1b[A']);
+    expect(h.written).toEqual(['\x1b[A\x1b[A\x1b[A']);
     h.written.length = 0;
     h.term.write('\x1b[?1h');
     wheel({ deltaY: CELL.height, deltaMode: 0 });

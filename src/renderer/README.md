@@ -44,7 +44,11 @@ reads CSS variables or the DOM for configuration — everything is passed in.
    stops). A shifted grid disables the dirty-row fast path, so the fraction is
    0 whenever nothing is animating — which is also why a quiet touchpad stream
    settles onto a whole line instead of resting mid-line. Drag auto-scroll
-   deliberately stays instant — the pointer is picking cells.
+   deliberately stays instant — the pointer is picking cells. A ratcheted
+   wheel's notch scrolls `scrollLines` lines (default 3) per notch on every
+   platform: `NotchUnitTracker` (core/smooth-scroll) learns the webview's
+   per-notch pixel step, so WebKitGTK's 40px and WebView2's 120px notch move
+   the grid the same distance.
 3. **Configuration is passed, not read.** Theme, font and cursor style arrive
    as options and are re-applied idempotently, which is what makes live
    re-theming a prop change rather than a shell restart.

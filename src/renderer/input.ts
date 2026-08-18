@@ -14,7 +14,7 @@
  * Framework-free, like the rest of `src/renderer`: React only creates it.
  */
 
-import { WheelSourceTracker } from '../core/smooth-scroll';
+import { NotchUnitTracker, WheelSourceTracker, type WheelKind } from '../core/smooth-scroll';
 import type { Terminal } from '../term';
 import { encodeKey, keyStateFromModes, type KeyEncodeState } from './keys';
 import { encodeFocus, encodeMouse, wantsMouse, type MouseInput, type MouseState } from './mouse';
@@ -112,6 +112,7 @@ export class TermInput {
   private dragOrigin: Range | null = null;
   private wheelRemainder = 0;
   private wheelTracker = new WheelSourceTracker();
+  private notchUnits = new NotchUnitTracker();
   private disposed = false;
 
   constructor(
@@ -578,9 +579,9 @@ export class TermInput {
     // Swallow the event whatever happens: the pane must never scroll like a
     // document.
     event.preventDefault();
-    const raw = this.rawWheelLines(event);
-    if (raw === 0) return;
     const kind = this.wheelTracker.classify(event.deltaY, event.deltaMode, event.timeStamp);
+    const raw = this.rawWheelLines(event, kind);
+    if (raw === 0) return;
 
     if (this.appWantsMouse(event, 'wheel')) {
       const lines = this.quantizeWheel(raw);
@@ -618,11 +619,19 @@ export class TermInput {
    * A wheel delta in lines, fractional. Positive is up (back into history),
    * matching `scrollViewport`.
    */
-  private rawWheelLines(event: WheelEvent): number {
+  private rawWheelLines(event: WheelEvent, kind: WheelKind): number {
     const perNotch = this.options.scrollLines ?? DEFAULT_SCROLL_LINES;
-    const cell = this.view.cellMetrics.height || 16;
     if (event.deltaMode === 1) return -event.deltaY * perNotch;
     if (event.deltaMode === 2) return -event.deltaY * this.terminal.rows;
+    if (kind === 'notch') {
+      // A ratcheted wheel scrolls perNotch lines per notch on every platform —
+      // NOT its pixel delta divided by the cell height, which turns the same
+      // notch into ~1.3 lines on WebKitGTK and ~3+ on WebView2 (the webviews
+      // disagree on pixels per notch; NotchUnitTracker learns the step).
+      const notches = this.notchUnits.notches(event.deltaY);
+      if (notches !== 0) return -notches * perNotch;
+    }
+    const cell = this.view.cellMetrics.height || 16;
     return -event.deltaY / cell;
   }
 

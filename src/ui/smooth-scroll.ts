@@ -26,6 +26,17 @@
  *   - a scroller already pinned at the edge in the wheel's direction is left
  *     alone, so the parent surface scrolls exactly as it natively would.
  *
+ * Distance is line-based, not platform-based: a notch scrolls `NOTCH_LINES`
+ * lines of the scroller it lands on (`NotchUnitTracker` learns the device's
+ * per-notch pixel step), so the same wheel travels the same visual distance on
+ * WebKitGTK, Chromium and WebView2 — whose raw per-notch pixels differ by 3×.
+ *
+ * Virtualized editors add one wrinkle: CM6 measures blocks as the glide
+ * reveals them, which changes `scrollHeight` and re-anchors `scrollTop`
+ * mid-flight. The animator follows those re-anchors (shifting spring and
+ * target together) instead of treating them as an external scroll and
+ * aborting — aborting is what made long documents stutter.
+ *
  * While a glide is in flight the scroller carries `will-change:
  * scroll-position` — the standing hint that keeps its contents on a compositor
  * layer, so each frame's `scrollTop` write is a GPU layer reposition rather
@@ -36,6 +47,8 @@
  */
 
 import {
+  NOTCH_LINES,
+  NotchUnitTracker,
   WheelSourceTracker,
   clamp,
   restingSpring,
@@ -54,8 +67,27 @@ const MIN_ANIMATED_PX = 2;
  * is not.
  */
 const EPSILON_PX = 1.5;
-/** deltaMode 1 (line-wise wheels) when the scroller reports no usable line box. */
+/** Line-based distances when the scroller reports no usable line box at all. */
 const FALLBACK_LINE_PX = 16;
+
+/**
+ * The scroller's line unit in pixels. Every text surface here sets a numeric
+ * line-height (CM6 1.55, preview 1.55/1.75); a scroller that computes to
+ * `normal` (the explorer, dialogs) falls back to its font size × 1.5, which is
+ * what `normal` resolves near anyway.
+ */
+function lineUnitPx(scroller: HTMLElement, view: Window): number {
+  const style = view.getComputedStyle(scroller);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  if (Number.isFinite(lineHeight) && lineHeight > 0) {
+    return lineHeight;
+  }
+  const fontSize = Number.parseFloat(style.fontSize);
+  if (Number.isFinite(fontSize) && fontSize > 0) {
+    return fontSize * 1.5;
+  }
+  return FALLBACK_LINE_PX;
+}
 
 export interface SmoothScrollController {
   setEnabled: (enabled: boolean) => void;
@@ -111,7 +143,15 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
   let applied = -1;
   /** The scroller's own will-change, restored when the glide ends. */
   let priorWillChange = '';
+  /**
+   * The scroller's content height at the last frame. A virtualized editor
+   * (CM6) measures blocks as the glide reveals them, which changes
+   * `scrollHeight` and can shift `scrollTop` to keep the view anchored — that
+   * must re-base the glide, not abort it (see `step`).
+   */
+  let lastScrollHeight = 0;
   const tracker = new WheelSourceTracker();
+  const notchUnits = new NotchUnitTracker();
 
   function stop(): void {
     if (frame !== 0) {
@@ -132,12 +172,27 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
       stop();
       return;
     }
-    // Something else moved this scroller (a scrollIntoView, a search jump, the
-    // user dragging the scrollbar). It wins; the glide is abandoned.
+    // The scroller moved under us since the last write. Two very different
+    // causes share that symptom:
+    //   - a virtualized editor (CM6) measured newly revealed blocks — its
+    //     content height changed and it re-anchored `scrollTop` to keep the
+    //     view still. The glide must FOLLOW: shift the spring and the target
+    //     by the same amount and keep flying, or every measure pass reads as
+    //     a stutter (the jitter this branch exists to fix);
+    //   - something at the same height moved it on purpose (a scrollIntoView,
+    //     a search jump, the user dragging the scrollbar). It wins; the glide
+    //     is abandoned.
+    const scrollHeightNow = scroller.scrollHeight;
     if (applied >= 0 && Math.abs(scroller.scrollTop - applied) > 1) {
-      stop();
-      return;
+      if (scrollHeightNow === lastScrollHeight) {
+        stop();
+        return;
+      }
+      const shift = scroller.scrollTop - applied;
+      spring = { position: spring.position + shift, velocity: spring.velocity };
+      target += shift;
     }
+    lastScrollHeight = scrollHeightNow;
     const dt = lastFrameAt === 0 ? 16 : now - lastFrameAt;
     lastFrameAt = now;
     spring = springStep(spring, target, dt, EPSILON_PX);
@@ -183,13 +238,17 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
     if (!scroller) {
       return;
     }
-    const lineHeight = Number.parseFloat(view.getComputedStyle(scroller).lineHeight);
-    const delta = wheelPixels(
-      event.deltaY,
-      event.deltaMode,
-      Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : FALLBACK_LINE_PX,
-      scroller.clientHeight,
-    );
+    const line = lineUnitPx(scroller, view);
+    // A pixel-wise notch scrolls NOTCH_LINES lines per notch — the same visual
+    // distance on every platform, instead of the webview's own pixel
+    // convention (~40px/notch on WebKitGTK vs 100–120 on WebView2). A delta
+    // too small to be a notch (0 from the tracker) is a touchpad the
+    // classifier has not latched yet; it keeps its raw pixels.
+    const notches = event.deltaMode === 0 ? notchUnits.notches(event.deltaY) : 0;
+    const delta =
+      notches !== 0
+        ? notches * NOTCH_LINES * line
+        : wheelPixels(event.deltaY, event.deltaMode, line, scroller.clientHeight);
     if (delta === 0) {
       return;
     }
@@ -207,6 +266,7 @@ export function installSmoothScroll(view: Window = window): SmoothScrollControll
       spring = restingSpring(scroller.scrollTop);
       target = scroller.scrollTop;
       applied = -1;
+      lastScrollHeight = scroller.scrollHeight;
       priorWillChange = scroller.style.willChange;
       scroller.style.willChange = 'scroll-position';
     }

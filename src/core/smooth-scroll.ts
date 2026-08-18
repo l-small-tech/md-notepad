@@ -23,6 +23,14 @@
  * own inertia already applied by the OS. Animating those stacks a second
  * easing on top and everything turns floaty. `WheelSourceTracker` tells the
  * two apart so streams can track 1:1 and only discrete notches get the spring.
+ *
+ * The third half is distance. Webviews disagree wildly on how many pixels one
+ * wheel notch is worth (WebKitGTK ~40, Chromium/X11 ~53, WebView2 100–120), so
+ * animating the raw delta makes the same wheel crawl on Linux and leap on
+ * Windows. `NotchUnitTracker` learns the device's per-notch step and converts
+ * deltas into whole NOTCHES; every surface then scrolls `NOTCH_LINES` lines per
+ * notch, in its own line unit — the one distance that reads the same at every
+ * font size on every platform.
  */
 
 /**
@@ -129,7 +137,7 @@ export const STREAM_QUIET_MS = 200;
  * X11 ~53, WebView2 100–120); touchpads mostly deliver a few px per event.
  * Below this an integer delta counts toward a stream.
  */
-const NOTCH_MIN_PX = 30;
+export const NOTCH_MIN_PX = 30;
 /** Small integer deltas in a row before the stream is believed. */
 const STREAM_LATCH_COUNT = 3;
 
@@ -187,5 +195,47 @@ export class WheelSourceTracker {
       this.streak = 0;
     }
     return 'notch';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notch distance normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Lines one wheel notch scrolls, on every platform and every surface — the OS
+ * convention (Windows and most Linux desktops default to 3 lines per notch).
+ */
+export const NOTCH_LINES = 3;
+
+/** No webview reports a per-notch step outside this range (see header). */
+const NOTCH_UNIT_MAX_PX = 150;
+
+/**
+ * Learns the wheel's per-notch pixel step and converts a `deltaMode` 0 delta
+ * into whole notches, so the caller can scroll `NOTCH_LINES` lines per notch
+ * instead of trusting the platform's pixel convention.
+ *
+ * The unit is the smallest notch-sized magnitude seen so far (clamped to the
+ * known per-notch range): the first notch of a session defines it, and an
+ * OS-accelerated fast spin — which reports a multiple of the base step per
+ * event — divides back into several notches instead of shrinking the unit.
+ * Returns 0 for a sub-notch delta (a small integer the classifier has not yet
+ * latched as a stream); the caller falls back to its pixel path so a touchpad's
+ * first few events never jump three lines each.
+ */
+export class NotchUnitTracker {
+  private unit = 0;
+
+  notches(deltaPx: number): number {
+    const magnitude = Math.abs(deltaPx);
+    if (!Number.isFinite(magnitude) || magnitude < NOTCH_MIN_PX) {
+      return 0;
+    }
+    const step = clamp(magnitude, NOTCH_MIN_PX, NOTCH_UNIT_MAX_PX);
+    if (this.unit === 0 || step < this.unit) {
+      this.unit = step;
+    }
+    return Math.sign(deltaPx) * Math.max(1, Math.round(magnitude / this.unit));
   }
 }

@@ -10,20 +10,32 @@ import { installSmoothScroll, type SmoothScrollController } from '../smooth-scro
 function makeScroller(scrollHeight = 1000, clientHeight = 200): HTMLElement {
   const element = document.createElement('div');
   element.style.overflowY = 'auto';
+  // One notch = NOTCH_LINES × line-height = 60px with this, whatever pixel
+  // convention the fake wheel event uses — that is the point of the feature.
+  element.style.lineHeight = '20px';
   let top = 0;
+  let height = scrollHeight;
   Object.defineProperties(element, {
-    scrollHeight: { value: scrollHeight },
+    scrollHeight: {
+      get: () => height,
+      set: (value: number) => {
+        height = value;
+      },
+    },
     clientHeight: { value: clientHeight },
     scrollTop: {
       get: () => top,
       set: (value: number) => {
-        top = Math.min(scrollHeight - clientHeight, Math.max(0, value));
+        top = Math.min(height - clientHeight, Math.max(0, value));
       },
     },
   });
   document.body.append(element);
   return element;
 }
+
+/** One notch's travel with makeScroller's 20px line box: NOTCH_LINES × 20. */
+const NOTCH_PX = 60;
 
 function wheel(target: EventTarget, deltaY: number, init: WheelEventInit = {}): WheelEvent {
   const event = new WheelEvent('wheel', {
@@ -58,7 +70,7 @@ describe('installSmoothScroll', () => {
 
   it('animates the scroller toward the wheel target instead of jumping', () => {
     const scroller = makeScroller();
-    const event = wheel(scroller, 300);
+    const event = wheel(scroller, 120);
 
     expect(event.defaultPrevented).toBe(true);
     expect(scroller.scrollTop).toBe(0); // nothing moves before the first frame
@@ -66,19 +78,33 @@ describe('installSmoothScroll', () => {
     vi.advanceTimersByTime(16);
     const afterOneFrame = scroller.scrollTop;
     expect(afterOneFrame).toBeGreaterThan(0);
-    expect(afterOneFrame).toBeLessThan(300);
+    expect(afterOneFrame).toBeLessThan(NOTCH_PX);
 
     settle();
-    expect(scroller.scrollTop).toBe(300);
+    expect(scroller.scrollTop).toBe(NOTCH_PX);
+  });
+
+  it('scrolls a notch the same distance whatever the platform pixel step', () => {
+    // The same wheel notch arrives as ~40px on WebKitGTK, ~53 on Chromium/X11
+    // and 120 on WebView2; each must travel NOTCH_LINES lines, not its pixels.
+    for (const platformStep of [40, 53, 120]) {
+      controller.dispose();
+      controller = installSmoothScroll(window);
+      controller.setEnabled(true);
+      const scroller = makeScroller();
+      wheel(scroller, platformStep);
+      settle();
+      expect(scroller.scrollTop).toBe(NOTCH_PX);
+    }
   });
 
   it('folds a second notch into the flight in progress', () => {
     const scroller = makeScroller();
-    wheel(scroller, 200);
+    wheel(scroller, 120);
     vi.advanceTimersByTime(16);
-    wheel(scroller, 200);
+    wheel(scroller, 120);
     settle();
-    expect(scroller.scrollTop).toBe(400);
+    expect(scroller.scrollTop).toBe(2 * NOTCH_PX);
   });
 
   it('clamps the target to the scrollable range', () => {
@@ -94,7 +120,7 @@ describe('installSmoothScroll', () => {
     scroller.append(child);
     wheel(child, 120);
     settle();
-    expect(scroller.scrollTop).toBe(120);
+    expect(scroller.scrollTop).toBe(NOTCH_PX);
   });
 
   it('leaves a scroller pinned at the edge to the browser', () => {
@@ -167,7 +193,25 @@ describe('installSmoothScroll', () => {
     vi.advanceTimersByTime(16);
     expect(second.scrollTop).toBeGreaterThan(soloSpeed);
     settle();
-    expect(second.scrollTop).toBe(300);
+    expect(second.scrollTop).toBe(3 * NOTCH_PX);
+  });
+
+  it('follows a virtualized re-anchor (scrollHeight change) instead of aborting', () => {
+    const scroller = makeScroller(1000, 200);
+    wheel(scroller, 120);
+    vi.advanceTimersByTime(32);
+    const inFlight = scroller.scrollTop;
+    expect(inFlight).toBeGreaterThan(0);
+    expect(inFlight).toBeLessThan(NOTCH_PX);
+
+    // CM6 measures blocks revealed by the glide: content above the viewport
+    // grows and the editor shifts scrollTop to keep the view anchored.
+    (scroller as { scrollHeight: number }).scrollHeight = 1500;
+    scroller.scrollTop = inFlight + 30;
+
+    settle();
+    // The glide kept flying, with spring and target shifted by the re-anchor.
+    expect(scroller.scrollTop).toBe(NOTCH_PX + 30);
   });
 
   it('leaves a touchpad stream (fractional deltas) to the browser, 1:1', () => {
