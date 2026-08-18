@@ -260,6 +260,16 @@ export class TermView {
     this.requestRender();
   }
 
+  /**
+   * Ring the bell as a change of cursor shape (see `setBellCursor` in the
+   * renderer). The host owns the timer, exactly as it owns the blink timer's
+   * counterpart setting — this is a paint switch, not a policy.
+   */
+  setBellCursor(on: boolean): void {
+    this.renderer.setBellCursor(on);
+    this.requestRender();
+  }
+
   setFocused(focused: boolean): void {
     this.renderer.setFocused(focused);
     this.restartBlink();

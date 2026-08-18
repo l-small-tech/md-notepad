@@ -48,6 +48,8 @@ export interface RendererOptions {
 const CURSOR_UNFOCUSED_ALPHA = 0.55;
 /** Bar/underline cursor thickness as a fraction of the cell. */
 const CURSOR_BAR_RATIO = 0.12;
+/** How thick the bell cursor's outline is, as a fraction of the cell width. */
+const BELL_CURSOR_BORDER_RATIO = 0.22;
 
 export class CanvasRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -64,6 +66,7 @@ export class CanvasRenderer {
 
   private cursorStyle: CursorStyle;
   private cursorBlinkOn = true;
+  private bellCursor = false;
   private focused = true;
   private selection: Selection | null = null;
   private hover: HoverTarget | null = null;
@@ -143,6 +146,17 @@ export class CanvasRenderer {
 
   setCursorStyle(style: CursorStyle): void {
     this.cursorStyle = style;
+    this.markCursorDirty();
+  }
+
+  /**
+   * The bell, drawn instead of flashing the pane: while this is on the cursor
+   * is painted as a hollow, thick-walled box whatever style is configured, so
+   * the only thing that moves is the shape the eye is already resting on.
+   */
+  setBellCursor(on: boolean): void {
+    if (this.bellCursor === on) return;
+    this.bellCursor = on;
     this.markCursorDirty();
   }
 
@@ -368,7 +382,9 @@ export class CanvasRenderer {
       this.markRowDirty(this.lastCursor.y);
       this.lastCursor = { x: cursor.x, y };
     }
-    if (!cursor.visible || !this.cursorBlinkOn) return;
+    // A bell that landed on an off blink phase, or under an application that
+    // hid the cursor, would otherwise be a bell the user never sees.
+    if (!this.bellCursor && (!cursor.visible || !this.cursorBlinkOn)) return;
     // Scrolled into history: the live cursor is not where the user is looking.
     if (y < 0 || y >= this.terminal.rows) return;
 
@@ -379,6 +395,19 @@ export class CanvasRenderer {
     const x = this.padding + cursor.x * metrics.width;
     const top = this.padding + y * metrics.height;
     const color = this.terminal.defaultColors().cursor;
+
+    if (this.bellCursor) {
+      const border = Math.max(1, Math.round(metrics.width * BELL_CURSOR_BORDER_RATIO));
+      ctx.strokeStyle = cssColor(color);
+      ctx.lineWidth = border;
+      ctx.strokeRect(
+        x + border / 2,
+        top + border / 2,
+        span * metrics.width - border,
+        metrics.height - border,
+      );
+      return;
+    }
 
     if (!this.focused) {
       // An unfocused pane shows a hollow box — the convention every terminal

@@ -83,7 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalScrollLines: 3,
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
-  terminalBell: 'visual',
+  terminalBell: 'cursor',
   terminalCopyOnSelect: false,
   terminalConfirmMultilinePaste: true,
   terminalAllowOscClipboard: false,

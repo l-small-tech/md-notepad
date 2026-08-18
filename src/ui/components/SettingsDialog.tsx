@@ -63,6 +63,12 @@ const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: 
   { value: 'bar', label: 'Bar' },
 ];
 
+const TERMINAL_BELL_OPTIONS: { value: Settings['terminalBell']; label: string }[] = [
+  { value: 'cursor', label: 'Cursor changes shape (default)' },
+  { value: 'visual', label: 'Flash the pane' },
+  { value: 'off', label: 'Nothing' },
+];
+
 const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[] = [
   { value: 'subfolder', label: 'Subfolder next to the file' },
   { value: 'sameFolder', label: 'Same folder as the file' },
@@ -532,13 +538,19 @@ function TerminalSection({ settings }: { settings: Settings }) {
         <span className="settings-label">Blinking cursor</span>
       </label>
 
-      <label className="settings-row settings-row-inline">
-        <input
-          type="checkbox"
-          checked={settings.terminalBell === 'visual'}
-          onChange={(e) => update({ terminalBell: e.target.checked ? 'visual' : 'off' })}
-        />
-        <span className="settings-label">Visual bell (a flash, never a sound)</span>
+      <label className="settings-row">
+        <span className="settings-label">Bell (never a sound)</span>
+        <select
+          className="settings-control"
+          value={settings.terminalBell}
+          onChange={(e) => update({ terminalBell: e.target.value as Settings['terminalBell'] })}
+        >
+          {TERMINAL_BELL_OPTIONS.map((b) => (
+            <option key={b.value} value={b.value}>
+              {b.label}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label className="settings-row settings-row-inline">

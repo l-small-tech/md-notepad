@@ -166,6 +166,32 @@ describe('CanvasRenderer', () => {
     expect(cursor.args[3]).toBe(METRICS.height);
   });
 
+  it('rings the bell as a hollow, thick-walled cursor instead of a flash', () => {
+    const { calls, renderer } = harness;
+    renderer.setBellCursor(true);
+    renderer.render();
+    // Outline only: nothing about the pane's contents changes, only the shape
+    // the eye is already resting on.
+    expect(ops(calls, 'fillRect')).toHaveLength(0);
+    const box = ops(calls, 'strokeRect').at(-1)!;
+    expect(box.stroke).toBe(hex(DEFAULT_DARK_THEME.cursor));
+
+    calls.length = 0;
+    renderer.setBellCursor(false);
+    renderer.render();
+    expect(ops(calls, 'strokeRect')).toHaveLength(0);
+    expect(ops(calls, 'fillRect')).toHaveLength(1);
+  });
+
+  it('shows the bell cursor even on an off blink phase or a hidden cursor', () => {
+    const { calls, terminal, renderer } = harness;
+    terminal.write('\x1b[?25l');
+    renderer.setCursorBlinkOn(false);
+    renderer.setBellCursor(true);
+    renderer.render();
+    expect(ops(calls, 'strokeRect')).toHaveLength(1);
+  });
+
   it('hides the cursor while the blink phase is off', () => {
     const { calls, renderer } = harness;
     renderer.setCursorBlinkOn(false);

@@ -6,7 +6,13 @@ import {
   normalizeSettings,
   pickUnusedColor,
 } from '../settings';
-import { CURSOR_STYLES, EDITOR_FONT_IDS, UI_FONT_IDS, WORKSPACE_COLORS } from '../types';
+import {
+  CURSOR_STYLES,
+  EDITOR_FONT_IDS,
+  TERMINAL_BELLS,
+  UI_FONT_IDS,
+  WORKSPACE_COLORS,
+} from '../types';
 
 describe('normalizeSettings', () => {
   test('non-object input yields pure defaults', () => {
@@ -75,7 +81,7 @@ describe('normalizeSettings', () => {
       terminalScrollLines: 3,
       terminalCursorStyle: 'block',
       terminalCursorBlink: true,
-      terminalBell: 'visual',
+      terminalBell: 'cursor',
       terminalCopyOnSelect: false,
       terminalConfirmMultilinePaste: true,
       terminalAllowOscClipboard: false,
@@ -247,6 +253,15 @@ describe('normalizeSettings', () => {
       expect(normalizeSettings({ cursorStyle: style }).cursorStyle).toBe(style);
     }
     expect(normalizeSettings({ cursorStyle: 'beam' }).cursorStyle).toBe('bar');
+  });
+
+  test('every bell mode is accepted; anything else defaults to the cursor bell', () => {
+    for (const bell of TERMINAL_BELLS) {
+      expect(normalizeSettings({ terminalBell: bell }).terminalBell).toBe(bell);
+    }
+    // Including 'audible': there is no such mode, and a settings file that asks
+    // for one must not silently become a flashing pane.
+    expect(normalizeSettings({ terminalBell: 'audible' }).terminalBell).toBe('cursor');
   });
 
   test('unknown extra fields are dropped', () => {
