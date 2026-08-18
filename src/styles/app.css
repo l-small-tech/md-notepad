@@ -187,12 +187,14 @@
    There is no user-made grouping any more — see core/tab-workspaces.ts. */
 
 .tab-workspace {
-  box-shadow: inset 0 2px 0 var(--ws-accent);
-  background: color-mix(in srgb, var(--ws-accent) 7%, transparent);
+  /* A hairline of a softened accent, not the raw color: the cue should read as
+     a tint of the theme rather than a stripe sitting on top of it. */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ws-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--ws-accent) 4%, transparent);
 }
 
 .tab-workspace:hover {
-  background: color-mix(in srgb, var(--ws-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--ws-accent) 9%, transparent);
 }
 
 /* The active tab keeps its normal readable background; the stripe stays. */
