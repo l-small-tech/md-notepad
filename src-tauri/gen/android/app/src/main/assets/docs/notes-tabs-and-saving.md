@@ -34,8 +34,17 @@ window, or by double-clicking it in your system's file manager. That tab is a
 - Even here you're protected: unsaved edits survive a crash or restart —
   the tab reopens with your edits still in it, still marked unsaved.
 
-Prefer files to save themselves too? Turn on **Live save** in Settings and
-open files are written automatically as you type, like notes.
+Prefer files to save themselves too? Turn on **Live save** in Settings — or
+press and hold the toolbar's save button and pick **Auto save** — and open
+files are written automatically as you type, like notes.
+
+### The save button
+
+The toolbar's floppy-disk button saves the current document, and its icon also
+tells you which mode you're in: a plain floppy means you save (Ctrl+S), and a
+floppy with a small circular arrow, drawn in the accent colour, means auto save
+is on and the app is saving for you. Press and hold it (or right-click) to
+toggle auto save or to reach Save As.
 
 ### Save and Save As
 
