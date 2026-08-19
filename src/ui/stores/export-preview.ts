@@ -5,9 +5,9 @@
  * `dark` from the app's current appearance when it opens the dialog, and the
  * dialog component drives the setters.
  *
- * `format` deliberately survives across opens — exporting three notes as PDF
- * shouldn't mean re-picking PDF three times. The theme seed is re-applied on
- * every open so the preview always starts looking like the app.
+ * `format` and `themeSvg` deliberately survive across opens — exporting three
+ * notes as PDF shouldn't mean re-picking PDF three times. The theme seed is
+ * re-applied on every open so the preview always starts looking like the app.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -23,12 +23,15 @@ export interface ExportPreviewState {
   themeId: string;
   /** Which mode of the theme applies (light or dark palette). */
   dark: boolean;
+  /** Recolor embedded .svg images onto the theme's ink/paper (HTML + PDF). */
+  themeSvg: boolean;
   /** Open the dialog on `source`, seeding theme/mode (format is sticky). */
   openWith: (source: DocSource, seed: { themeId: string; dark: boolean }) => void;
   close: () => void;
   setFormat: (format: ExportFormat) => void;
   setThemeId: (themeId: string) => void;
   setDark: (dark: boolean) => void;
+  setThemeSvg: (themeSvg: boolean) => void;
 }
 
 export const exportPreviewStore = createStore<ExportPreviewState>()((set) => ({
@@ -37,6 +40,7 @@ export const exportPreviewStore = createStore<ExportPreviewState>()((set) => ({
   format: 'pdf',
   themeId: '',
   dark: false,
+  themeSvg: true,
 
   openWith(source, seed) {
     set({ open: true, source, themeId: seed.themeId, dark: seed.dark });
@@ -58,6 +62,10 @@ export const exportPreviewStore = createStore<ExportPreviewState>()((set) => ({
 
   setDark(dark) {
     set({ dark });
+  },
+
+  setThemeSvg(themeSvg) {
+    set({ themeSvg });
   },
 }));
 

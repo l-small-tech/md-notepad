@@ -178,6 +178,7 @@ let buildExportPreviewHtmlDispatch: (
   source: DocSource,
   themeId: string,
   dark: boolean,
+  themeSvg: boolean,
 ) => Promise<string> = async () => {
   throw new Error('not booted');
 };
@@ -195,7 +196,7 @@ export function setRunExportFromPreviewDispatch(fn: () => Promise<void>): void {
   runExportFromPreviewDispatch = fn;
 }
 export function setBuildExportPreviewHtmlDispatch(
-  fn: (source: DocSource, themeId: string, dark: boolean) => Promise<string>,
+  fn: (source: DocSource, themeId: string, dark: boolean, themeSvg: boolean) => Promise<string>,
 ): void {
   buildExportPreviewHtmlDispatch = fn;
 }
@@ -425,8 +426,9 @@ export function buildExportPreviewHtml(
   source: DocSource,
   themeId: string,
   dark: boolean,
+  themeSvg: boolean,
 ): Promise<string> {
-  return buildExportPreviewHtmlDispatch(source, themeId, dark);
+  return buildExportPreviewHtmlDispatch(source, themeId, dark, themeSvg);
 }
 export function saveActiveTab(): void {
   saveDispatch();

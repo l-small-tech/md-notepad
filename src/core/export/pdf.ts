@@ -19,7 +19,9 @@
  *
  * Theming: a `PdfTheme` (derived from a theme plugin via `pdfThemeFromPlugin`)
  * colors the page, text, headings, links, code and rules — mirroring what the
- * injected CSS variables do to the HTML export.
+ * injected CSS variables do to the HTML export. Embedded SVG images are the
+ * one thing this file does NOT color: the resolver hands over final markup, so
+ * whether a diagram is recolored is the caller's call (`export/svg-theme`).
  */
 
 import type { Definition, List, PhrasingContent, Root, RootContent, Table as MdTable } from 'mdast';
@@ -31,12 +33,27 @@ import type { ThemePlugin } from '../theme-plugins';
 /** Raster formats pdfmake embeds (pdfkit decodes PNG and JPEG only). */
 export type PdfImageType = 'png' | 'jpg';
 
-/** One resolved image: a data: URL plus intrinsic pixel dimensions. */
+/** One resolved raster image: a data: URL plus intrinsic pixel dimensions. */
 export interface ResolvedPdfImage {
   dataUrl: string;
   width: number;
   height: number;
 }
+
+/**
+ * One resolved vector image: SVG markup plus the size to draw it at. pdfmake
+ * draws SVG natively (svg-to-pdfkit), so a diagram stays crisp instead of
+ * degrading to alt text — and the caller can hand over themed markup
+ * (`core/export/svg-theme`) so it matches the page.
+ */
+export interface ResolvedPdfSvg {
+  svg: string;
+  width: number;
+  height: number;
+}
+
+/** Whatever an image src resolved to: raster bytes or vector markup. */
+export type ResolvedPdfArt = ResolvedPdfImage | ResolvedPdfSvg;
 
 /** Colors applied across the generated document. All values are hex. */
 export interface PdfTheme {
@@ -58,11 +75,16 @@ export interface PdfExportOptions {
   /** Omit for the neutral print-like default (white page, near-black ink). */
   theme?: PdfTheme;
   /**
-   * Resolve an image src to a data: URL + dimensions, or null to skip it
-   * (external URLs, unsupported formats, unreadable files). Omit to skip all
-   * images.
+   * Resolve an image src to a data: URL (raster) or SVG markup (vector) plus
+   * dimensions, or null to skip it (external URLs, unsupported formats,
+   * unreadable files). Omit to skip all images.
    */
-  resolveImage?: (src: string) => Promise<ResolvedPdfImage | null>;
+  resolveImage?: (src: string) => Promise<ResolvedPdfArt | null>;
+}
+
+/** True for an SVG path/src — pdfmake draws these as vector, not as an image. */
+export function isPdfSvg(pathOrSrc: string): boolean {
+  return pathOrSrc.toLowerCase().endsWith('.svg');
 }
 
 /** The embed type for a file path/src, or null when pdfkit can't decode it. */
@@ -74,7 +96,7 @@ export function pdfImageType(pathOrSrc: string): PdfImageType | null {
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
     return 'jpg';
   }
-  return null; // gif/bmp/webp/svg/… — pdfkit has no decoder for these
+  return null; // gif/bmp/webp/… — pdfkit has no decoder for these (svg is vector)
 }
 
 /** Neutral print-like defaults: white paper, near-black ink, Word-blue links. */
@@ -238,11 +260,10 @@ async function imageBlockOrRun(
   if (!resolved || resolved.width <= 0 || resolved.height <= 0) {
     return run(alt || src, { ...style, italics: true }, ctx);
   }
-  return {
-    image: resolved.dataUrl,
-    width: Math.min(Math.round(resolved.width * PX_TO_PT), CONTENT_WIDTH),
-    margin: [0, 4, 0, 8],
-  };
+  const width = Math.min(Math.round(resolved.width * PX_TO_PT), CONTENT_WIDTH);
+  return 'svg' in resolved
+    ? { svg: resolved.svg, width, margin: [0, 4, 0, 8] }
+    : { image: resolved.dataUrl, width, margin: [0, 4, 0, 8] };
 }
 
 /**

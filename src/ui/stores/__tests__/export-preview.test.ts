@@ -17,6 +17,7 @@ describe('exportPreviewStore', () => {
       format: 'pdf',
       themeId: '',
       dark: false,
+      themeSvg: true,
     });
   });
 
@@ -27,6 +28,13 @@ describe('exportPreviewStore', () => {
     expect(s.source).toEqual(SOURCE);
     expect(s.themeId).toBe('dark-green');
     expect(s.dark).toBe(true);
+  });
+
+  test('the SVG-theming toggle is sticky across opens, like the format', () => {
+    exportPreviewStore.getState().setThemeSvg(false);
+    exportPreviewStore.getState().openWith(SOURCE, { themeId: 'light-green', dark: false });
+    exportPreviewStore.getState().close();
+    expect(exportPreviewStore.getState().themeSvg).toBe(false);
   });
 
   test('close clears the source but keeps the sticky format', () => {

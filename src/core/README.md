@@ -24,6 +24,7 @@ do not rewrite them.
 | `export/doc-source.ts` | feature | shared export vocabulary (`DocSource`, `ExportFormat`) |
 | `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |
 | `export/pdf.ts` | feature | markdown → .pdf via a pure pdfmake doc-definition (same parse/degrades as docx.ts; theme colors via `pdfThemeFromPlugin`; no print dialog) |
+| `export/svg-theme.ts` | feature | recolors an embedded .svg onto the export theme's ink/paper (achromatic → theme ramp, chromatic kept) for the HTML and PDF exports; also reads an svg's intrinsic size |
 | `session/debounce.ts` | reference | idle+maxWait debouncer with drain semantics |
 | `panes.ts` | terminal | the split tree — immutable binary tree of panes, one per terminal tab |
 | `smooth-scroll.ts` | terminal | the terminal viewport's scroll physics (renderer/ is the only consumer — DOM surfaces scroll natively, see ui/README): critically damped spring (velocity carries across retargets), the wheel-vs-touchpad classifier, and the notch-unit tracker that makes one notch scroll the same lines on every platform |

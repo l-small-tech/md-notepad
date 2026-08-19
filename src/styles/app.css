@@ -2162,9 +2162,23 @@ body.explorer-dragging * {
   min-width: 160px;
 }
 
-/* Theme picker while DOCX is selected — themes don't apply to Word styles. */
+/* Recolor-embedded-SVGs toggle, sitting beside the theme picker. */
+.export-svg-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.export-svg-label input:disabled {
+  cursor: not-allowed;
+}
+
+/* Theme controls while DOCX is selected — they don't apply to Word styles. */
 .export-theme-disabled {
   opacity: 0.5;
+  cursor: default;
 }
 
 .export-theme-select:disabled {

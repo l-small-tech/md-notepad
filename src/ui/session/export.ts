@@ -12,6 +12,12 @@
  * - PDF: `markdownToPdfBase64` (core, pure) — pdfmake generates the bytes
  *   directly; no print dialog, works on Android too. The theme maps onto
  *   `PdfTheme` colors via `pdfThemeFromPlugin`.
+ * Embedded .svg images are the one thing CSS can't reach — an <img> is opaque
+ * to the page's stylesheet — so when "Theme SVG" is on, the svg's own markup
+ * is recolored onto the theme's ink/paper (`core/export/svg-theme`) before it
+ * is inlined: HTML re-encodes it as a data: URL, PDF hands the markup to
+ * pdfmake's native SVG block. DOCX has no SVG path either way (Word styles).
+ *
  * - DOCX: `markdownToDocxBase64` (core, pure) — standard Word styles (Word's
  *   own style gallery restyles documents; hard-coding theme hex would fight
  *   it). This layer supplies the image resolver for both converters (bytes
@@ -28,6 +34,7 @@ import type { DocSource } from '../../core/export/doc-source';
 import { imageMimeType, localImageToInline } from '../../core/images';
 import { baseName, dirName } from '../../core/session/plan-flush';
 import { themeDeclarations, type ThemePlugin } from '../../core/theme-plugins';
+import { svgThemeFromPlugin, themeSvg } from '../../core/export/svg-theme';
 import { slugifyTitle, stripExtension } from '../../core/title';
 import { buildStandaloneHtml } from '../../preview/export';
 import exportCss from '../../preview/export.css?raw';
@@ -48,6 +55,8 @@ const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }];
 interface ExportTheme {
   plugin: ThemePlugin | null;
   dark: boolean;
+  /** Recolor embedded .svg images onto this theme's ink/paper. */
+  svg: boolean;
 }
 
 /** The effective darkness of an export theme (see ExportTheme). */
@@ -63,6 +72,17 @@ function measureImage(dataUrl: string): Promise<{ width: number; height: number 
     img.onerror = () => resolve(null);
     img.src = dataUrl;
   });
+}
+
+/** True for a path the SVG recolorer can work on. */
+function isSvgPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.svg');
+}
+
+/** An svg data: URL for an <img> src — percent-encoded rather than base64 so
+ *  the markup stays readable in the exported file (and stays UTF-8 safe). */
+function svgDataUrl(markup: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
 }
 
 /** The loaded plugin for `themeId`, or null (unknown id → default palette). */
@@ -149,6 +169,16 @@ export function createExport(ctx: SessionCtx) {
         if (cached !== undefined) {
           return cached;
         }
+        if (theme.svg && isSvgPath(abs)) {
+          try {
+            const { text } = await ctx.ipc.readTextFile(abs);
+            const url = svgDataUrl(themeSvg(text, svgThemeFromPlugin(theme.plugin)));
+            cache.set(abs, url);
+            return url;
+          } catch {
+            return null; // unreadable — fall through to the raw src
+          }
+        }
         try {
           const dataUrl = `data:${imageMimeType(abs)};base64,${await ctx.ipc.readFileBase64(abs)}`;
           cache.set(abs, dataUrl);
@@ -193,15 +223,33 @@ export function createExport(ctx: SessionCtx) {
     try {
       // Dynamic import: pdfmake + its font bundle stay out of the startup
       // bundle, mirroring how mammoth (DOCX import) is loaded.
-      const { markdownToPdfBase64, pdfImageType, pdfThemeFromPlugin } =
+      const { markdownToPdfBase64, isPdfSvg, pdfImageType, pdfThemeFromPlugin } =
         await import('../../core/export/pdf');
+      const { svgIntrinsicSize } = await import('../../core/export/svg-theme');
       const base64 = await markdownToPdfBase64(src.markdown, {
         title: src.title,
         theme: pdfThemeFromPlugin(theme.plugin),
         async resolveImage(imgSrc) {
           const abs = localImageToInline(docDir, imgSrc);
-          if (!abs || !pdfImageType(abs)) {
-            return null; // external / non-PNG-JPEG — degrade to alt text
+          if (!abs) {
+            return null; // external / data: URLs — degrade to alt text
+          }
+          if (isPdfSvg(abs)) {
+            try {
+              const { text } = await ctx.ipc.readTextFile(abs);
+              const svgTheme = svgThemeFromPlugin(theme.plugin);
+              const markup = theme.svg ? themeSvg(text, svgTheme) : text;
+              // No intrinsic size (a `100%`-sized svg with no viewBox): fall
+              // back to a full-width box — the converter clamps it to the
+              // content width, which is what such an svg asks for anyway.
+              const size = svgIntrinsicSize(markup) ?? { width: 1000, height: 1000 };
+              return { svg: markup, ...size };
+            } catch {
+              return null; // unreadable — degrade to alt text
+            }
+          }
+          if (!pdfImageType(abs)) {
+            return null; // gif/webp/… — no pdfkit decoder, degrade to alt text
           }
           try {
             const dataUrl = `data:${imageMimeType(abs)};base64,${await ctx.ipc.readFileBase64(abs)}`;
@@ -272,8 +320,13 @@ export function createExport(ctx: SessionCtx) {
   }
 
   /** The dialog's preview iframe content for the current theme selection. */
-  function buildPreviewHtml(source: DocSource, themeId: string, dark: boolean): Promise<string> {
-    return buildDocHtml(source, { plugin: resolveTheme(themeId), dark });
+  function buildPreviewHtml(
+    source: DocSource,
+    themeId: string,
+    dark: boolean,
+    svg: boolean,
+  ): Promise<string> {
+    return buildDocHtml(source, { plugin: resolveTheme(themeId), dark, svg });
   }
 
   /**
@@ -282,11 +335,11 @@ export function createExport(ctx: SessionCtx) {
    * stays open on failure so the selection isn't lost.
    */
   async function runExportFromPreview(): Promise<void> {
-    const { source, format, themeId, dark } = exportPreviewStore.getState();
+    const { source, format, themeId, dark, themeSvg: svg } = exportPreviewStore.getState();
     if (!source) {
       return;
     }
-    const theme: ExportTheme = { plugin: resolveTheme(themeId), dark };
+    const theme: ExportTheme = { plugin: resolveTheme(themeId), dark, svg };
     const done =
       format === 'html'
         ? await exportHtmlFrom(source, theme)

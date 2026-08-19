@@ -4,14 +4,16 @@
  * global keydown listener in main.tsx); the body is a separate component so
  * its state mounts fresh on every open, like CommandPalette's.
  *
- * Layout: a toolbar (format segmented control · theme picker) over a live
+ * Layout: a toolbar (format segmented control · theme picker · SVG theming
+ * toggle) over a live
  * preview iframe. The light/dark mode isn't a control — it follows the app's
  * current appearance (the `dark` seed), which picks each theme's palette mode. The iframe renders the same standalone
  * HTML the HTML export writes (sanitized preview render, inline styles, data:
  * images — CSP-safe via srcdoc, exactly like the old print path), rebuilt with
  * a short debounce whenever the theme selection changes. The preview is the
  * HTML rendering for every format: PDF follows it closely (same converter
- * family, same theme colors); DOCX keeps standard Word styles.
+ * family, same theme colors, the same recolored SVGs); DOCX keeps standard
+ * Word styles.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -42,6 +44,7 @@ function ExportPreviewBody() {
   const format = useExportPreview((s) => s.format);
   const themeId = useExportPreview((s) => s.themeId);
   const dark = useExportPreview((s) => s.dark);
+  const themeSvg = useExportPreview((s) => s.themeSvg);
   const plugins = useThemeRegistry((s) => s.plugins);
   const groups = useMemo(() => exportThemeGroups(plugins), [plugins]);
   const [html, setHtml] = useState<string | null>(null);
@@ -57,7 +60,7 @@ function ExportPreviewBody() {
     }
     let stale = false;
     const build = () => {
-      void buildExportPreviewHtml(source, themeId, dark)
+      void buildExportPreviewHtml(source, themeId, dark, themeSvg)
         .then((result) => {
           if (!stale) {
             builtOnce.current = true;
@@ -73,7 +76,7 @@ function ExportPreviewBody() {
       stale = true;
       clearTimeout(timer);
     };
-  }, [source, themeId, dark]);
+  }, [source, themeId, dark, themeSvg]);
 
   if (!source) {
     return null;
@@ -140,6 +143,23 @@ function ExportPreviewBody() {
                 </optgroup>
               ))}
             </select>
+          </label>
+          {/* DOCX has no SVG path at all — Word styles own that document. */}
+          <label
+            className={`export-svg-label${format === 'docx' ? ' export-theme-disabled' : ''}`}
+            title={
+              format === 'docx'
+                ? 'DOCX uses standard Word styles — SVG theming does not apply'
+                : 'Recolor embedded .svg images onto the theme (colored parts are kept)'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={themeSvg}
+              disabled={format === 'docx'}
+              onChange={(e) => exportPreviewStore.getState().setThemeSvg(e.target.checked)}
+            />
+            Theme SVG
           </label>
         </div>
 

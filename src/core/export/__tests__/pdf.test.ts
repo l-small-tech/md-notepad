@@ -251,6 +251,18 @@ describe('markdownToPdfDocDef', () => {
     expect(alt?.italics).toBe(true);
   });
 
+  test('resolved SVGs embed as vector blocks, scaled like rasters', async () => {
+    const svg = '<svg viewBox="0 0 800 400"><rect fill="#123456"/></svg>';
+    const def = await markdownToPdfDocDef('![diagram](d.svg)', {
+      resolveImage: async () => ({ svg, width: 800, height: 400 }),
+    });
+    const blocks = def.content as Record<string, unknown>[];
+    const vector = blocks.find((b) => 'svg' in b)!;
+    expect(vector.svg).toBe(svg);
+    expect(vector.width).toBe(515); // 800px × 0.75 capped to the content width
+    expect(blocks.some((b) => 'image' in b)).toBe(false);
+  });
+
   test('footnotes render as superscript refs + in-place definitions', async () => {
     const def = await markdownToPdfDocDef('note[^1]\n\n[^1]: the detail');
     const runs = collectRuns(def.content);
@@ -318,5 +330,17 @@ describe('markdownToPdfBase64 (round-trip)', () => {
       resolveImage: async () => ({ dataUrl: TINY_PNG_URL, width: 10, height: 10 }),
     });
     expect(Buffer.from(base64, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  test('draws a resolved SVG as vector without failing', async () => {
+    const base64 = await markdownToPdfBase64('![d](d.svg)', {
+      resolveImage: async () => ({
+        svg: '<svg viewBox="0 0 40 20"><rect width="40" height="20" fill="#334455"/><text x="2" y="14">svg</text></svg>',
+        width: 40,
+        height: 20,
+      }),
+    });
+    expect(Buffer.from(base64, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+    expect(await extractText(base64)).toContain('svg');
   });
 });
