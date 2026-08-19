@@ -22,6 +22,23 @@
  * `style="…"` attributes and in `<style>` blocks. Text content is never
  * touched, so a label reading "#ffffff" survives.
  *
+ * Two CSS passes run first, because a stylesheet can hide its colors from a
+ * plain declaration scan — this app's own whiteboard `.svg` does both:
+ *
+ * 1. `@media (prefers-color-scheme: …)` blocks are resolved to the drawing's
+ *    LIGHT form — light blocks unwrapped, dark blocks dropped. Two reasons.
+ *    Inside an `<img>` that query follows the READER's OS, so an export left
+ *    holding both looks dark on one machine and light on the next, neither
+ *    necessarily the theme that was chosen. And the ink/paper ramp below is
+ *    what performs the flip: it maps black→fg and white→bg, so it must be fed
+ *    the light palette. Handing it an already-dark one inverts it twice and
+ *    the paper comes out as ink.
+ * 2. `var(--x, fallback)` references are substituted with the custom
+ *    property's declared value. A declaration the scan never resolves (`fill:
+ *    var(--pen)`) is a color it can never remap — and pdfmake's SVG renderer
+ *    doesn't understand custom properties at all, so the substitution is what
+ *    gets those colors into the PDF in the first place.
+ *
  * Parsing is textual rather than XML — core has no DOM, and a regex pass over
  * paint attributes cannot corrupt structure the way a hand-rolled parser can.
  *
@@ -87,6 +104,81 @@ const ACHROMATIC_NAMES: Record<string, string> = {
   ivory: '#fffff0',
   linen: '#faf0e6',
 };
+
+/**
+ * The end of the `{ … }` block starting at `open` (the index of the brace),
+ * or -1 when it never closes. Brace counting is enough for CSS: the strings
+ * that could hide a brace (`content: "}"`) don't appear in SVG stylesheets.
+ */
+function blockEnd(css: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === '{') {
+      depth++;
+    } else if (css[i] === '}' && --depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Collapse `prefers-color-scheme` media blocks onto the drawing's light form:
+ * a `light` block is unwrapped in place (keeping its position, so its
+ * declarations still override the earlier defaults), a `dark` block is
+ * dropped. The remapper needs the light palette to flip (see the file
+ * header); the reader's OS must not get a vote in an exported file. Media
+ * queries about anything else are left alone.
+ */
+function resolveColorSchemeMedia(markup: string): string {
+  let out = markup;
+  const at = /@media\b([^{]*)\{/gi;
+  for (let match = at.exec(out); match; match = at.exec(out)) {
+    const scheme = /prefers-color-scheme\s*:\s*(dark|light)/i.exec(match[1]!);
+    if (!scheme) {
+      continue;
+    }
+    const open = match.index + match[0].length - 1;
+    const close = blockEnd(out, open);
+    if (close < 0) {
+      break; // unbalanced stylesheet — leave the rest as it is
+    }
+    const body = scheme[1]!.toLowerCase() === 'light' ? out.slice(open + 1, close) : '';
+    out = out.slice(0, match.index) + body + out.slice(close + 1);
+    at.lastIndex = match.index; // the replacement may itself hold @media
+  }
+  return out;
+}
+
+/**
+ * Substitute `var(--x, fallback)` with `--x`'s declared value, falling back to
+ * the reference's own fallback (which is why this runs even when the document
+ * declares no custom properties at all) and finally leaving the reference
+ * alone.
+ * Later declarations win, matching the cascade for the single-element-deep
+ * `:root`-ish selectors SVG palettes use.
+ */
+function substituteCustomProperties(markup: string): string {
+  const defined = new Map<string, string>();
+  for (const match of markup.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+)/g)) {
+    defined.set(match[1]!, match[2]!.trim());
+  }
+  let out = markup;
+  // A value may itself reference another property; a couple of rounds settles
+  // every palette worth supporting, and the bound stops a cyclic definition.
+  for (let round = 0; round < 3 && out.includes('var('); round++) {
+    const next = out.replace(
+      /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*?)\s*)?\)/g,
+      (reference, name: string, fallback: string | undefined) =>
+        defined.get(name) ?? fallback ?? reference,
+    );
+    if (next === out) {
+      break;
+    }
+    out = next;
+  }
+  return out;
+}
 
 /** Attributes whose value is a paint (possibly `none` / `url(#…)`). */
 const PAINT_ATTRIBUTES =
@@ -197,7 +289,8 @@ export function themeSvg(markup: string, theme: SvgTheme): string {
     return markup;
   }
   const bare = markup.replace(/<\?xml[\s\S]*?\?>/gi, '').replace(/<!DOCTYPE[^>]*>/gi, '');
-  const attrRecolored = bare.replace(
+  const flattened = substituteCustomProperties(resolveColorSchemeMedia(bare));
+  const attrRecolored = flattened.replace(
     new RegExp(`\\b(${PAINT_ATTRIBUTES})\\s*=\\s*("[^"]*"|'[^']*')`, 'gi'),
     (_match, attr: string, quoted: string) => {
       const quote = quoted[0]!;

@@ -75,6 +75,68 @@ describe('themeSvg', () => {
     expect(out).toContain('stop-color="#1b1b1b"');
   });
 
+  it('substitutes custom properties so their colors can be remapped', () => {
+    const out = themeSvg(
+      '<svg><style>g{--ink:#000000}g path{stroke:var(--ink)}</style><path/></svg>',
+      DARK,
+    );
+    expect(out).toContain('stroke: #e6e6e6');
+    expect(out).not.toContain('var(--ink)');
+  });
+
+  it('falls back to a var() reference fallback when the property is undeclared', () => {
+    const out = themeSvg('<svg><style>a{fill:var(--gone, #ffffff)}</style></svg>', DARK);
+    expect(out).toContain('fill: #1b1b1b');
+  });
+
+  it('leaves a var() with neither declaration nor fallback alone', () => {
+    const out = themeSvg('<svg><style>a{fill:var(--gone)}</style></svg>', DARK);
+    expect(out).toContain('fill: var(--gone)');
+  });
+
+  it('collapses prefers-color-scheme blocks onto the light form', () => {
+    // The reader's OS must not get a vote, and the ramp needs the LIGHT
+    // palette to flip — a dark one fed in would come back inverted.
+    const svg =
+      '<svg><style>a{--bg:#ffffff}' +
+      '@media (prefers-color-scheme: dark){a{--bg:#1e1e1e}}' +
+      'a{fill:var(--bg)}</style></svg>';
+    const out = themeSvg(svg, DARK);
+    expect(out).not.toContain('@media');
+    expect(out).toContain('fill: #1b1b1b'); // the white paper, not the dark one
+  });
+
+  it('unwraps a matching light media block in place, keeping the cascade', () => {
+    const svg =
+      '<svg><style>a{fill:#000000}' +
+      '@media (prefers-color-scheme: light){a{fill:#ffffff}}</style></svg>';
+    const out = themeSvg(svg, DARK);
+    expect(out).not.toContain('@media');
+    expect(out.indexOf('fill: #1b1b1b')).toBeGreaterThan(out.indexOf('fill: #e6e6e6'));
+  });
+
+  it('leaves unrelated media queries intact', () => {
+    const out = themeSvg('<svg><style>@media print{a{fill:#000}}</style></svg>', DARK);
+    expect(out).toContain('@media print{a{fill: #e6e6e6}}');
+  });
+
+  it('themes a whiteboard-shaped palette: paper flips, pen colors survive', () => {
+    const svg =
+      '<svg class="wb-board"><style>' +
+      'svg.wb-board{--wb-bg:#ffffff;--wb-c0:#1a1a1a;--wb-c6:#e07b00}' +
+      '@media (prefers-color-scheme: dark){svg.wb-board{--wb-bg:#1e1e1e;--wb-c0:#e6e6e6}}' +
+      'svg.wb-board{background:var(--wb-bg,#ffffff)}' +
+      'svg.wb-board .wb-c0:not(text){stroke:var(--wb-c0,#1a1a1a)}' +
+      'svg.wb-board .wb-c6:not(text){stroke:var(--wb-c6,#e07b00)}' +
+      '</style><path class="wb-c0" stroke="#1a1a1a"/></svg>';
+    const out = themeSvg(svg, DARK);
+    expect(out).toContain('background: #1b1b1b'); // white paper → the dark page
+    // #1a1a1a is near-black, so it lands just short of the fg end.
+    expect(out).toContain('.wb-c0:not(text){stroke: #d3d3d3}'); // dark ink → light
+    expect(out).toContain('.wb-c6:not(text){stroke: #e07b00}'); // the orange pen stays
+    expect(out).toContain('<path class="wb-c0" stroke="#d3d3d3"/>');
+  });
+
   it('never touches text content — a label reading a hex code survives', () => {
     const out = themeSvg('<svg><text>#ffffff on black</text></svg>', DARK);
     expect(out).toContain('<text>#ffffff on black</text>');
