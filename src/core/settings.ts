@@ -83,13 +83,16 @@ const AI_THEME_PROMPT =
   'like to make to the themes, and edit the theme files here to match.';
 
 /**
- * The agent's launch args for the AI-theme session. Claude Code is pinned to
- * its small model by default — theme edits are small JSON changes, and the
- * cheap model keeps the button low-cost to press; the user can always `/model`
- * up mid-session.
+ * The agent's launch args for the AI-theme session. Both agents are pinned to
+ * a mid-tier model at low reasoning effort by default — theme edits are small
+ * JSON changes, so this keeps the button cheap to press without dropping to a
+ * model too small to follow the guide; the user can always `/model` up
+ * mid-session.
  */
 function aiThemeArgs(agent: AiTuiAgentId): string[] {
-  return agent === 'claude' ? ['--model', 'haiku', AI_THEME_PROMPT] : [AI_THEME_PROMPT];
+  return agent === 'claude'
+    ? ['--model', 'sonnet', '--effort', 'low', AI_THEME_PROMPT]
+    : ['-m', 'gpt-5-codex', '-c', 'model_reasoning_effort=low', AI_THEME_PROMPT];
 }
 
 /**
