@@ -44,11 +44,12 @@ import {
   moveTabToWindow,
   openExportPreview,
   renameTab,
+  saveTab,
   tearOffTab,
   type TabWindowInfo,
 } from '../session';
 import { newTabDefault } from '../new-tab';
-import { copyRawText } from '../tab-actions';
+import { copyRawText, copyTabPath, tabPath } from '../tab-actions';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
 import { clippedTabIds, sameIds, wholeTabsFit, type StripItemRect } from '../tab-overflow';
@@ -487,11 +488,12 @@ function useMenuDismiss(onClose: () => void): void {
 /**
  * A tab's own right-click menu: what acts on THIS document.
  *
- * The document rows (Export, Copy all raw text) sit above the tab-management
- * ones, and only for a tab that holds markdown — a terminal, an image, an
- * import card or an `.svg` drawing has no markdown to export or copy. They
- * name `menu.tabId` explicitly rather than reading the active tab, because
- * right-clicking a tab deliberately does NOT activate it.
+ * The document rows (Export, Copy all raw text — markdown tabs only; Copy
+ * path for any tab backed by a file; Save for file tabs) sit above the
+ * tab-management ones (Keep open / Rename / Move › / Close). Move is a
+ * drill-in page holding "Move to new window" plus one row per other open
+ * window. Every row names `menu.tabId` explicitly rather than reading the
+ * active tab, because right-clicking a tab deliberately does NOT activate it.
  *
  * App-wide commands are not here: those live in the bar's own menu and the
  * "+ ⌄" picker (`AppActionRows`), which is where the ribbon's old ☰ menu
@@ -507,10 +509,15 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     tab.kind !== 'image' &&
     tab.kind !== 'import' &&
     docFamilyForTab(tab) === 'markdown';
-  // The other app windows, for the "Move to window …" rows — the explicit,
-  // coordinate-free route into an existing window (the only one Wayland
-  // allows; see dropTabOut). Fetched when the menu opens; the rows appear a
-  // beat later, under the always-present "Move to new window".
+  const hasPath = tabPath(menu.tabId) !== null;
+  // The move rows live on a drill-in page (same pattern as the explorer
+  // menu's Import — one panel that behaves identically under finger and
+  // mouse), so the root stays short as windows accumulate.
+  const [page, setPage] = useState<'root' | 'move'>('root');
+  // The other app windows, for the Move page's "Move to window …" rows — the
+  // explicit, coordinate-free route into an existing window (the only one
+  // Wayland allows; see dropTabOut). Fetched when the menu opens; the rows
+  // appear a beat later, under the always-present "Move to new window".
   const [otherWindows, setOtherWindows] = useState<readonly TabWindowInfo[]>([]);
   useEffect(() => {
     let alive = true;
@@ -524,6 +531,50 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     };
   }, []);
   useMenuDismiss(onClose);
+
+  if (page === 'move') {
+    return (
+      <div
+        className="tab-menu"
+        role="menu"
+        style={{ left: menu.x, top: menu.y }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="tab-menu-item context-menu-nav"
+          role="menuitem"
+          onClick={() => setPage('root')}
+        >
+          <span className="context-menu-more">‹</span>
+          <span>Back</span>
+        </button>
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            moveTabToNewWindow(menu.tabId, null);
+            onClose();
+          }}
+        >
+          Move to new window
+        </button>
+        {otherWindows.map((w) => (
+          <button
+            key={w.label}
+            className="tab-menu-item"
+            role="menuitem"
+            title={`Move this tab into the window showing “${w.title}”`}
+            onClick={() => {
+              moveTabToWindow(menu.tabId, w.label);
+              onClose();
+            }}
+          >
+            Move to window “{w.title}”
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -557,9 +608,36 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
           >
             Copy all raw text
           </button>
-          <AppMenuDivider />
         </>
       )}
+      {hasPath && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          title="Copy this document's absolute path"
+          onClick={() => {
+            copyTabPath(menu.tabId);
+            onClose();
+          }}
+        >
+          Copy path
+        </button>
+      )}
+      {/* Save names the tab explicitly (mod+S only reaches the ACTIVE tab).
+          File tabs only: notes persist themselves. */}
+      {tab?.kind === 'file' && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          onClick={() => {
+            saveTab(menu.tabId);
+            onClose();
+          }}
+        >
+          Save
+        </button>
+      )}
+      {(isDoc || hasPath || tab?.kind === 'file') && <AppMenuDivider />}
       {isPreview && (
         <button
           className="tab-menu-item"
@@ -583,29 +661,15 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
         Rename
       </button>
       <button
-        className="tab-menu-item"
+        className="tab-menu-item context-menu-nav"
         role="menuitem"
-        onClick={() => {
-          moveTabToNewWindow(menu.tabId, null);
-          onClose();
-        }}
+        aria-haspopup="menu"
+        title="Move this tab to a new window, or into another open window"
+        onClick={() => setPage('move')}
       >
-        Move to new window
+        <span>Move</span>
+        <span className="context-menu-more">›</span>
       </button>
-      {otherWindows.map((w) => (
-        <button
-          key={w.label}
-          className="tab-menu-item"
-          role="menuitem"
-          title={`Move this tab into the window showing “${w.title}”`}
-          onClick={() => {
-            moveTabToWindow(menu.tabId, w.label);
-            onClose();
-          }}
-        >
-          Move to window “{w.title}”
-        </button>
-      ))}
       <button
         className="tab-menu-item"
         role="menuitem"

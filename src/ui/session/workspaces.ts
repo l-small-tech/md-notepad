@@ -119,6 +119,9 @@ export function createWorkspaces(
       ...settings.workspaces.map((w) => w.color),
     ]);
     update({ workspaces: [...settings.workspaces, { name, path: picked, color }] });
+    // A freshly added workspace is what the user is about to work in — make it
+    // the active one right away (pastes, new files and terminals target it).
+    uiStore.getState().setSelectedExplorerDir(picked);
   }
 
   /**
@@ -158,6 +161,8 @@ export function createWorkspaces(
         { name, path: rootId, color, kind: 'synced', treeUri: picked.treeUri },
       ],
     });
+    // Same as the local flow: a just-added workspace becomes the active one.
+    uiStore.getState().setSelectedExplorerDir(rootId);
     if (!uiStore.getState().explorerOpen) {
       uiStore.getState().toggleExplorer();
     }

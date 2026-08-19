@@ -262,6 +262,7 @@ export function openFileInNewWindow(path: string): void {
  */
 let openFileDispatch: () => void = () => {};
 let saveDispatch: () => void = () => {};
+let saveTabDispatch: (id: string) => void = () => {};
 let saveAsDispatch: () => void = () => {};
 let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
@@ -298,6 +299,9 @@ export function setBuildExportPreviewHtmlDispatch(
 }
 export function setSaveDispatch(fn: () => void): void {
   saveDispatch = fn;
+}
+export function setSaveTabDispatch(fn: (id: string) => void): void {
+  saveTabDispatch = fn;
 }
 export function setSaveAsDispatch(fn: () => void): void {
   saveAsDispatch = fn;
@@ -529,6 +533,11 @@ export function buildExportPreviewHtml(
 }
 export function saveActiveTab(): void {
   saveDispatch();
+}
+/** TabContextMenu → controller: save a FILE tab by id (right-clicking a tab
+ *  does not activate it, so the menu names the tab explicitly). */
+export function saveTab(id: string): void {
+  saveTabDispatch(id);
 }
 export function saveActiveTabAs(): void {
   saveAsDispatch();

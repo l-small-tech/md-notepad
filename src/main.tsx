@@ -5,7 +5,7 @@ import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWind
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
-import { normalizeSettings } from './core/settings';
+import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
@@ -273,8 +273,13 @@ async function spawnTabWindow(
   opts?: { focus?: boolean },
 ): Promise<string> {
   const label = `w-${nanoid(10)}`;
+  // The torn-off window inherits this window's active workspace (it would
+  // otherwise start on the default Notes workspace). `selectedExplorerDir` is
+  // per-window in-memory state, so it travels in the URL like the manifest.
+  const ws = uiStore.getState().selectedExplorerDir;
+  const wsParam = ws === null ? '' : `&ws=${encodeURIComponent(ws)}`;
   await spawnWindow(label, {
-    url: `index.html?adopt=${encodeURIComponent(JSON.stringify(manifest))}`,
+    url: `index.html?adopt=${encodeURIComponent(JSON.stringify(manifest))}${wsParam}`,
     ...(pos ? { x: pos.x, y: pos.y } : {}),
     ...(opts?.focus === false ? { focus: false } : {}),
   });
@@ -679,6 +684,15 @@ async function boot(): Promise<void> {
   // (the spawning window flushed the tab's content to disk first).
   const adoptParam = new URLSearchParams(window.location.search).get('adopt');
 
+  // A torn-off window also inherits the source window's active workspace
+  // (spawnTabWindow put it in the URL). First-spawn only, like ?adopt=: a
+  // restart restores the window via a bare index.html and starts on the
+  // default workspace again.
+  const wsParam = new URLSearchParams(window.location.search).get('ws');
+  if (wsParam !== null) {
+    uiStore.getState().setSelectedExplorerDir(wsParam);
+  }
+
   // Creating the controller registers the flush requester and the interactive
   // close handler (used by the keyboard dispatcher and TabBar via ./ui/session).
   const controller = createSessionController({
@@ -912,6 +926,9 @@ async function boot(): Promise<void> {
     if (merged.override !== windowThemeStore.getState().override) {
       windowThemeStore.getState().set(merged.override);
     }
+    // The explorer tree shape (collapsed workspaces / expanded folders) is
+    // per-window: keep ours, take everything else the sibling sent.
+    merged.settings = keepWindowLocalSettings(merged.settings, settingsStore.getState().settings);
     if (JSON.stringify(merged.settings) !== JSON.stringify(settingsStore.getState().settings)) {
       // Adopt without re-arming our own saver: the sender already persisted
       // this value, and echoing it back 400ms later would boomerang a stale

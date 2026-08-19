@@ -808,6 +808,8 @@ body.tab-drag-live * {
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
+  /* No engine-drawn tap flash on touch — :active is the press feedback. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* The settings / explorer icons read as chrome, not text — size them up and
@@ -826,9 +828,15 @@ body.tab-drag-live * {
   height: 0.88em;
 }
 
-.ribbon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
+/* Hover feedback only where hover exists: on a touch screen (Android read
+   mode's A− / A+) the WebView latches :hover onto the last-tapped button and
+   the highlight lingers until something else is touched. :active below still
+   gives the momentary press darkening. */
+@media (hover: hover) {
+  .ribbon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
 }
 
 .ribbon-btn:active {
@@ -1503,11 +1511,27 @@ body.explorer-dragging * {
   -webkit-user-select: none;
 }
 
-/* The selected paste destination (a workspace header or folder row). */
-.workspace-toggle.is-selected,
+/* The selected paste destination. A folder row gets a highlight; an active
+   WORKSPACE header deliberately does not — a background wash would cover the
+   section's accent tint (the blue one stays blue) — it brightens and wears
+   the check badge instead. */
 .file-explorer-dir.is-selected {
   color: var(--fg);
   background: var(--bg-hover);
+}
+
+.workspace-toggle.is-selected {
+  color: var(--fg);
+}
+
+/* The active workspace's flat check, pinned to the header's right edge. */
+.workspace-active-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 4px;
+  color: var(--fg-muted);
 }
 
 /* Live OS-drag hover target — must read at a glance mid-drag. On an md file

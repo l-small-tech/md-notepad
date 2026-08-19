@@ -71,6 +71,36 @@ export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string
 };
 
 /**
+ * Split the 'custom' AI TUI command line into program + args. Whitespace
+ * separates tokens; single or double quotes group a value containing spaces
+ * (`aider --model "gpt 5"`). No escapes — this is a launch line, not a shell:
+ * anything fancier belongs in a real `terminalProfiles` entry.
+ */
+export function parseCommandLine(line: string): { program: string | undefined; args: string[] } {
+  const tokens: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  for (let m = re.exec(line); m !== null; m = re.exec(line)) {
+    tokens.push(m[1] ?? m[2] ?? m[3] ?? '');
+  }
+  const [program, ...args] = tokens;
+  return { program: program || undefined, args };
+}
+
+/**
+ * The label the new-tab menu's AI row wears: the configured agent's product
+ * name, or for 'custom' the command's program name ("aider" from
+ * `/usr/bin/aider --pro`), falling back to "Custom AI" while unconfigured.
+ */
+export function aiTuiAgentName(settings: Settings): string {
+  if (settings.aiTuiAgent !== 'custom') {
+    return AI_TUI_AGENTS[settings.aiTuiAgent].name;
+  }
+  const program = parseCommandLine(settings.aiTuiCustomCommand).program;
+  const base = program?.replaceAll('\\', '/').split('/').pop();
+  return base || 'Custom AI';
+}
+
+/**
  * The opening prompt the "AI theme" terminal hands the agent, so the session
  * starts with the AGENT asking the user what to change. It points at the
  * AGENTS.md the app writes into the themes folder
@@ -89,10 +119,17 @@ const AI_THEME_PROMPT =
  * model too small to follow the guide; the user can always `/model` up
  * mid-session.
  */
-function aiThemeArgs(agent: AiTuiAgentId): string[] {
-  return agent === 'claude'
-    ? ['--model', 'sonnet', '--effort', 'low', AI_THEME_PROMPT]
-    : ['-m', 'gpt-5-codex', '-c', 'model_reasoning_effort=low', AI_THEME_PROMPT];
+function aiThemeArgs(agent: AiTuiAgentId | 'custom'): string[] {
+  switch (agent) {
+    case 'claude':
+      return ['--model', 'sonnet', '--effort', 'low', AI_THEME_PROMPT];
+    case 'chatgpt':
+      return ['-m', 'gpt-5-codex', '-c', 'model_reasoning_effort=low', AI_THEME_PROMPT];
+    case 'custom':
+      // An unknown CLI: no model flags to pin — just hand it the prompt and
+      // hope it takes an opening argument the way the known agents do.
+      return [AI_THEME_PROMPT];
+  }
 }
 
 /**
@@ -142,6 +179,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalProfiles: DEFAULT_TERMINAL_PROFILES.map((profile) => ({ ...profile })),
   defaultTerminalProfile: SHELL_PROFILE_ID,
   aiTuiAgent: 'claude',
+  aiTuiCustomCommand: '',
   terminalShell: AUTO_SHELL,
   terminalFont: 'fira-code',
   terminalScrollback: 10_000,
@@ -244,6 +282,28 @@ export function normalizePathList(raw: unknown): string[] {
   }
   const out = [...seen];
   return out.length > MAX_EXPLORER_PATHS ? out.slice(out.length - MAX_EXPLORER_PATHS) : out;
+}
+
+/**
+ * Fold a sibling window's settings broadcast in while keeping THIS window's
+ * explorer tree shape. Which workspaces/folders are open is a per-window
+ * concern — expanding a folder in one window must not expand it everywhere —
+ * but the shape still lives in persisted settings so it survives a restart
+ * (last window to save wins the boot state). Returns `incoming` itself when
+ * the local shape already matches, so callers can compare cheaply.
+ */
+export function keepWindowLocalSettings(incoming: Settings, local: Settings): Settings {
+  const same =
+    JSON.stringify(incoming.explorerCollapsedWorkspaces) ===
+      JSON.stringify(local.explorerCollapsedWorkspaces) &&
+    JSON.stringify(incoming.explorerExpandedDirs) === JSON.stringify(local.explorerExpandedDirs);
+  return same
+    ? incoming
+    : {
+        ...incoming,
+        explorerCollapsedWorkspaces: local.explorerCollapsedWorkspaces,
+        explorerExpandedDirs: local.explorerExpandedDirs,
+      };
 }
 
 /** A string map with string values; anything else in it is dropped. */
@@ -500,9 +560,12 @@ export function normalizeSettings(raw: unknown): Settings {
     // whitelist — so this only trims. A bad name surfaces as a spawn error in
     // the pane, which is more useful than silently running something else.
     terminalShell: normalizeShell(r.terminalShell),
-    aiTuiAgent: (AI_TUI_AGENT_IDS as readonly unknown[]).includes(r.aiTuiAgent)
-      ? (r.aiTuiAgent as AiTuiAgentId)
-      : d.aiTuiAgent,
+    aiTuiAgent:
+      r.aiTuiAgent === 'custom' || (AI_TUI_AGENT_IDS as readonly unknown[]).includes(r.aiTuiAgent)
+        ? (r.aiTuiAgent as Settings['aiTuiAgent'])
+        : d.aiTuiAgent,
+    aiTuiCustomCommand:
+      typeof r.aiTuiCustomCommand === 'string' ? r.aiTuiCustomCommand.trim() : d.aiTuiCustomCommand,
     terminalFont: (TERMINAL_FONT_IDS as readonly unknown[]).includes(r.terminalFont)
       ? (r.terminalFont as TerminalFontId)
       : d.terminalFont,
@@ -514,8 +577,10 @@ export function normalizeSettings(raw: unknown): Settings {
  * `resolveTerminalProfile` keeps its same-object-every-call contract —
  * `TerminalPane` re-applies settings whenever the profile identity changes.
  */
-const AI_TUI_PROFILES = new Map<AiTuiAgentId, TerminalProfile>();
-const AI_THEME_PROFILES = new Map<AiTuiAgentId, TerminalProfile>();
+// Keyed by agent id — for 'custom', with the command line folded in, so an
+// edited command yields a NEW profile identity (TerminalPane re-applies).
+const AI_TUI_PROFILES = new Map<string, TerminalProfile>();
+const AI_THEME_PROFILES = new Map<string, TerminalProfile>();
 
 /**
  * The profile with this id, or the default one, or the first that exists.
@@ -530,17 +595,23 @@ export function resolveTerminalProfile(settings: Settings, id?: string): Termina
   if (id === AI_TUI_PROFILE_ID || id === AI_THEME_PROFILE_ID) {
     const agentId = settings.aiTuiAgent;
     const cache = id === AI_TUI_PROFILE_ID ? AI_TUI_PROFILES : AI_THEME_PROFILES;
-    let profile = cache.get(agentId);
+    const key = agentId === 'custom' ? `custom ${settings.aiTuiCustomCommand}` : agentId;
+    let profile = cache.get(key);
     if (!profile) {
-      const agent = AI_TUI_AGENTS[agentId];
+      const custom = agentId === 'custom' ? parseCommandLine(settings.aiTuiCustomCommand) : null;
+      const name = custom ? aiTuiAgentName(settings) : AI_TUI_AGENTS[agentId as AiTuiAgentId].name;
+      const program = custom ? custom.program : AI_TUI_AGENTS[agentId as AiTuiAgentId].program;
+      const baseArgs = custom ? custom.args : [];
       profile = {
         id,
-        name: id === AI_TUI_PROFILE_ID ? agent.name : 'AI theme',
-        program: agent.program,
-        args: id === AI_TUI_PROFILE_ID ? [] : aiThemeArgs(agentId),
+        name: id === AI_TUI_PROFILE_ID ? name : 'AI theme',
+        // An empty custom command leaves program undefined → the plain shell,
+        // which surfaces the misconfiguration without crashing the spawn.
+        ...(program !== undefined ? { program } : {}),
+        args: id === AI_TUI_PROFILE_ID ? baseArgs : [...baseArgs, ...aiThemeArgs(agentId)],
         env: {},
       };
-      cache.set(agentId, profile);
+      cache.set(key, profile);
     }
     return profile;
   }

@@ -108,12 +108,15 @@ context menu and the command palette.
 
 Right-clicking a TAB opens that tab's own menu (`TabContextMenu`) — what acts
 on this document: **Export…** and **Copy all raw text** (only for a tab holding
-markdown — not a terminal, image, import card or `.svg` drawing), then Keep
-open / Rename / Move to new window / Move to window "…" (one row per OTHER open
-window, most recently focused first — the explicit route into an existing
-window, and the only one on Wayland) / Close / Close all. Both document rows name
-the right-clicked tab's id explicitly, because right-clicking a tab
-deliberately does not activate it (`ui/tab-actions.ts`, and
+markdown — not a terminal, image, import card or `.svg` drawing), **Copy path**
+(any tab backed by a file — the absolute path) and **Save** (file tabs — notes
+persist themselves), then Keep open / Rename / **Move ›** / Close / Close all.
+Move is a drill-in page (same pattern as the explorer menu's Import — no hover
+flyouts) holding "Move to new window" plus "Move to window …" (one row per
+OTHER open window, most recently focused first — the explicit route into an
+existing window, and the only one on Wayland). The document rows name the
+right-clicked tab's id explicitly, because right-clicking a tab deliberately
+does not activate it (`ui/tab-actions.ts`, `saveTab(id)`, and
 `openExportPreview(tabId?)`). The split is the rule: app commands in the
 picker, per-document ones on the tab.
 
@@ -149,9 +152,12 @@ terminal's agent-status badge sits after the icon, not instead of it.
 
 `terminal-open.ts` gives every new terminal tab the **selected workspace's
 directory** as its cwd: `uiStore.selectedExplorerDir` (the last folder row
-clicked, or workspace explicitly set active via double-click or the header's
-right-click "Set active"), falling back to the default notes-dir
-workspace, and to the app's own cwd for a synced (`saf://`) selection. It does
+clicked, a workspace explicitly set active via the header's right-click "Set
+active", or a freshly added workspace — adding one makes it active; the active
+workspace wears a check on its header), falling back to the default notes-dir
+workspace, and to the app's own cwd for a synced (`saf://`) selection. A
+torn-off window inherits the source window's active workspace (`?ws=` URL
+param, first spawn only). It does
 not inherit from the tab in front. A profile's own `cwd` still wins
 (`TerminalPane`), and splitting a pane still inherits that pane's cwd.
 
@@ -279,7 +285,11 @@ the pill (no controller, no manifest), every window enumeration skips
   notes-dir change flow is main-only; settings changes broadcast via a
   `settings-changed` event so theme/fonts stay uniform — except a theme a
   window pinned to itself (`stores/window-theme`), which neither leaves nor
-  accepts the broadcast.
+  accepts the broadcast, and the explorer tree shape (collapsed workspaces /
+  expanded folders), which each window keeps to itself on ingest
+  (`keepWindowLocalSettings`, core/settings.ts) so expanding a folder in one
+  window doesn't expand it everywhere (it still persists — last saver wins
+  the boot state).
 - **Platform gating**: live tear-off is Windows/macOS-only
   (`EAGER_TEAR_OFF = CAN_TEAR_OFF && globalCoordsTrusted()` — see above for
   why Linux was reverted). On Linux (Wayland offers no global cursor

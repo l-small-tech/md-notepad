@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   AUTO_SHELL,
+  autoShellLabel,
   isListedShell,
   normalizeShell,
   shellOptions,
@@ -101,5 +102,19 @@ describe('terminalFont', () => {
     expect(normalizeSettings({ terminalFont: 'match' }).terminalFont).toBe('match');
     expect(normalizeSettings({ terminalFont: 'victor-mono' }).terminalFont).toBe('victor-mono');
     expect(normalizeSettings({ terminalFont: 'Comic Sans' }).terminalFont).toBe('fira-code');
+  });
+});
+
+describe('autoShellLabel', () => {
+  test('names the resolved shell, without directories or .exe', () => {
+    expect(autoShellLabel('zsh')).toBe('Auto (zsh)');
+    expect(autoShellLabel('/usr/bin/bash')).toBe('Auto (bash)');
+    expect(autoShellLabel('pwsh.exe')).toBe('Auto (pwsh)');
+    expect(autoShellLabel('C:\\Program Files\\PowerShell\\7\\pwsh.exe')).toBe('Auto (pwsh)');
+  });
+
+  test('plain "Auto" until the backend has answered', () => {
+    expect(autoShellLabel(null)).toBe('Auto');
+    expect(autoShellLabel('')).toBe('Auto');
   });
 });

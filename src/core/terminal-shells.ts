@@ -55,6 +55,21 @@ export function shellOptions(os: DesktopOs): readonly ShellOption[] {
   }
 }
 
+/**
+ * The picker's label for the AUTO option once the backend has answered what
+ * it would actually pick (`ipc.defaultShell()`): "Auto (zsh)", "Auto (pwsh)".
+ * Directories and a Windows `.exe` suffix are trimmed — the label names the
+ * shell, not its install location. null (answer not in yet) → plain "Auto".
+ */
+export function autoShellLabel(resolved: string | null): string {
+  if (!resolved) {
+    return 'Auto';
+  }
+  const base = resolved.replaceAll('\\', '/').split('/').pop() ?? resolved;
+  const name = base.toLowerCase().endsWith('.exe') ? base.slice(0, -4) : base;
+  return name ? `Auto (${name})` : 'Auto';
+}
+
 /** True when a stored value is one of the offered shells (else: "Custom"). */
 export function isListedShell(os: DesktopOs, program: string): boolean {
   return shellOptions(os).some((option) => option.value === program);

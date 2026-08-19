@@ -16,9 +16,10 @@
  * Getting files IN:
  * - Paste (Ctrl+V with focus in the drawer): clipboard images/files are
  *   written into the SELECTED workspace/folder (click a folder row to select;
- *   workspace headers require an explicit action — double-click, or
- *   right-click → "Set active" — since a plain click only collapses/expands.
- *   The default workspace is selected initially). The selection
+ *   workspace headers require an explicit action — right-click → "Set
+ *   active" — since a plain click only collapses/expands, and adding a
+ *   workspace makes it active. The default workspace is selected initially;
+ *   the active workspace wears a small check on its header). The selection
  *   lives in `uiStore.selectedExplorerDir`, which is also the directory a new
  *   terminal tab starts in (see `terminal-open.ts`).
  * - OS drag-drop: main.tsx hit-tests Tauri's drag-drop events against the
@@ -209,16 +210,6 @@ export function FileExplorer() {
   const isReadOnlyDir = (dir: string): boolean => {
     const key = fileKey(dir);
     return readOnlyRoots.some((root) => key === root || key.startsWith(`${root}/`));
-  };
-  /** Root of the workspace containing `p`, for the menu's "Copy relative path". */
-  const workspaceRootFor = (p: string): string | null => {
-    const key = fileKey(p);
-    return (
-      workspaces.find((w) => {
-        const root = fileKey(w.path);
-        return key === root || key.startsWith(`${root}/`);
-      })?.path ?? null
-    );
   };
   // JSON, not join(): a path may itself contain the separator character.
   const workspaceSignature = JSON.stringify(workspaces.map((w) => w.path));
@@ -617,7 +608,6 @@ export function FileExplorer() {
           {menuFor === entry.path && (
             <ExplorerContextMenu
               entry={entry}
-              workspaceRoot={workspaceRootFor(entry.path)}
               onClose={() => setMenuFor(null)}
               onRename={setRenaming}
             />
@@ -795,21 +785,21 @@ export function FileExplorer() {
                     title={
                       ws.readOnly
                         ? `${ws.path}\nRead-only · Right-click: workspace color, remove`
-                        : `${ws.path}\nDouble-click: set active · Right-click: set active, new file, workspace color${ws.removable ? ', remove' : ''}`
+                        : `${ws.path}\nRight-click: set active, new file, workspace color${ws.removable ? ', remove' : ''}`
                     }
                     aria-expanded={!isCollapsed}
                     onClick={(e) => {
                       // Alt+click also opens the context menu; a plain click
                       // only collapses/expands — making the workspace active
-                      // is an explicit action (double-click, or the context
-                      // menu's "Set active").
+                      // is an explicit action (the context menu's "Set
+                      // active"; double-click was removed — too easy to
+                      // trigger by accident while toggling).
                       if (e.altKey) {
                         setMenuFor(menuFor === ws.path ? null : ws.path);
                       } else {
                         setCollapsedWs((prev) => toggleSet(prev, ws.path));
                       }
                     }}
-                    onDoubleClick={() => setSelectedDir(ws.path)}
                     onContextMenu={(e) => {
                       // Right-click (the native Windows gesture) opens the
                       // context menu instead of the webview's own.
@@ -830,6 +820,27 @@ export function FileExplorer() {
                             d="M3.6 8.5a2.2 2.2 0 0 1-.17-4.4A2.8 2.8 0 0 1 9 3.6a2.1 2.1 0 0 1 .25 4.9z"
                             stroke="currentColor"
                             strokeWidth="1"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                    {/* The active workspace wears a small right-justified
+                        check, in addition to its brightened title — the row's
+                        background stays the workspace tint. */}
+                    {ws.path === pasteDir && (
+                      <span
+                        className="workspace-active-badge"
+                        title="Active workspace"
+                        aria-label="Active workspace"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+                          <path
+                            d="M2 5.8l2.4 2.4L9 3.2"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
                             strokeLinejoin="round"
                             fill="none"
                           />

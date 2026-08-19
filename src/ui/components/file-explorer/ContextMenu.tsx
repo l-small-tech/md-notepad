@@ -28,7 +28,6 @@ import {
 import { uiStore } from '../../stores/ui';
 import { scanImageInto } from '../../scan-image';
 import { scanWhiteboardInto } from '../../scan-photo';
-import { explorerRelativePath } from './helpers';
 
 interface CommonProps {
   /** Close the menu (clears the container's `menuFor`). */
@@ -40,9 +39,6 @@ interface CommonProps {
 /** File-row menu: rename / reveal / open in new window / copy path / delete. */
 interface FileMenuProps extends CommonProps {
   entry: ExplorerEntry;
-  /** Root of the workspace containing `entry` — the base "Copy relative path"
-   *  resolves against. null (unknown root) omits that item. */
-  workspaceRoot?: string | null;
 }
 
 /**
@@ -153,7 +149,6 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   }
 
   if ('entry' in props) {
-    const relative = explorerRelativePath(props.workspaceRoot, props.entry.path);
     return menuShell(
       <>
         {renderRenameItem(props.entry)}
@@ -178,15 +173,6 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         >
           Copy path
         </button>
-        {relative !== null && (
-          <button
-            className="context-menu-item"
-            role="menuitem"
-            onClick={() => copyToClipboard(relative)}
-          >
-            Copy relative path
-          </button>
-        )}
         {/* Export works on markdown only — other rows (.txt, images) omit it.
             Opens the preview dialog (format + theme picked there); the file
             need not be open — an open tab's live text wins over disk. */}
@@ -268,9 +254,10 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   return menuShell(
     <>
       {/* Workspace level only (`wsColor` given): making a workspace active is
-          an explicit action — this item or a double-click on the header — a
-          plain click only collapses/expands. Offered even read-only: the
-          active dir also seeds new terminal tabs' cwd. */}
+          an explicit action — this item — a plain click only
+          collapses/expands (double-click was removed: too easy to hit by
+          accident). Offered even read-only: the active dir also seeds new
+          terminal tabs' cwd. */}
       {wsColor !== undefined && (
         <button
           className="context-menu-item"

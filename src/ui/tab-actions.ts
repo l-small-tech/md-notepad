@@ -33,3 +33,21 @@ export function copyRawText(tabId: string): void {
     .then(() => uiStore.getState().showNotice(done))
     .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
 }
+
+/** The absolute path behind a tab, or null (a terminal, or an unsaved note). */
+export function tabPath(tabId: string): string | null {
+  const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+  return tab ? (tab.filePath ?? tab.notePath) : null;
+}
+
+/** Copy a tab's absolute path to the clipboard. */
+export function copyTabPath(tabId: string): void {
+  const path = tabPath(tabId);
+  if (path === null) {
+    return;
+  }
+  void navigator.clipboard
+    .writeText(path)
+    .then(() => uiStore.getState().showNotice('Path copied.'))
+    .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
+}

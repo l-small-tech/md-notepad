@@ -20,7 +20,7 @@ import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
 import { openTerminal } from '../terminal-open';
-import { AI_TUI_AGENTS } from '../../core/settings';
+import { aiTuiAgentName } from '../../core/settings';
 import { AI_TUI_PROFILE_ID } from '../../core/types';
 import { useSettingsStore } from '../stores/settings';
 import { searchStore } from '../stores/search';
@@ -264,7 +264,7 @@ function AiGlyph() {
  */
 export function NewTabRows({ onClose }: { onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
-  const aiAgent = useSettingsStore((s) => s.settings.aiTuiAgent);
+  const aiName = useSettingsStore((s) => aiTuiAgentName(s.settings));
 
   return (
     <>
@@ -280,7 +280,7 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
       {terminalsAvailable() && (
         <AppMenuItem
           glyph={<AiGlyph />}
-          label={AI_TUI_AGENTS[aiAgent].name}
+          label={aiName}
           title="AI TUI — switch the agent in Settings"
           onPick={() => openTerminal(AI_TUI_PROFILE_ID)}
           onClose={onClose}

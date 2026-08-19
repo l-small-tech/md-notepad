@@ -10,7 +10,7 @@
  * flow (folder picker → optional move) via the module-level dispatcher.
  */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type {
   EditorFontId,
   EditorMode,
@@ -26,7 +26,13 @@ import {
   TERMINAL_SCROLL_LINES_RANGE,
 } from '../../core/settings';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
-import { AUTO_SHELL, isListedShell, shellOptions } from '../../core/terminal-shells';
+import {
+  AUTO_SHELL,
+  autoShellLabel,
+  isListedShell,
+  shellOptions,
+} from '../../core/terminal-shells';
+import { ipc } from '../../ipc/commands';
 import { openDocs, requestChangeNotesDir } from '../session';
 import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
@@ -73,6 +79,7 @@ const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: 
 const AI_TUI_OPTIONS: { value: Settings['aiTuiAgent']; label: string }[] = [
   { value: 'claude', label: 'Claude (default)' },
   { value: 'chatgpt', label: 'ChatGPT' },
+  { value: 'custom', label: 'Custom…' },
 ];
 
 const TERMINAL_BELL_OPTIONS: { value: Settings['terminalBell']; label: string }[] = [
@@ -493,6 +500,23 @@ export function SettingsDialog() {
 function ShellRow({ shell }: { shell: string }) {
   const os = desktopOs();
   const [custom, setCustom] = useState(() => shell !== AUTO_SHELL && !isListedShell(os, shell));
+  // What "Auto" would actually run, so its row can say so: "Auto (zsh)". The
+  // backend picks it (src-tauri/src/shell.rs); until it answers, plain "Auto".
+  const [autoShell, setAutoShell] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void ipc
+      .defaultShell()
+      .then((program) => {
+        if (alive) {
+          setAutoShell(program);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <>
@@ -512,7 +536,7 @@ function ShellRow({ shell }: { shell: string }) {
         >
           {shellOptions(os).map((option) => (
             <option key={option.value || 'auto'} value={option.value}>
-              {option.label}
+              {option.value === AUTO_SHELL ? autoShellLabel(autoShell) : option.label}
             </option>
           ))}
           <option value="custom">Custom…</option>
@@ -603,9 +627,23 @@ function TerminalSection({ settings }: { settings: Settings }) {
         </select>
       </label>
 
+      {settings.aiTuiAgent === 'custom' && (
+        <label className="settings-row">
+          <span className="settings-label">AI command</span>
+          <input
+            className="settings-control"
+            type="text"
+            spellCheck={false}
+            placeholder="aider --model sonnet"
+            value={settings.aiTuiCustomCommand}
+            onChange={(e) => update({ aiTuiCustomCommand: e.target.value })}
+          />
+        </label>
+      )}
+
       <p className="settings-hint">
-        The agent the new-tab menu&apos;s AI row launches — its command (<code>claude</code> or{' '}
-        <code>codex</code>) must be on <code>PATH</code>.
+        The agent the new-tab menu&apos;s AI row launches — its command (<code>claude</code>,{' '}
+        <code>codex</code>, or the custom command line) must be on <code>PATH</code>.
       </p>
 
       <label className="settings-row">

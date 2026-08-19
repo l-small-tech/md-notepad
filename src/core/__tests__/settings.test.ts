@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import {
   AI_TUI_AGENTS,
+  aiTuiAgentName,
   DEFAULT_SETTINGS,
   SETTINGS_SCHEMA,
+  keepWindowLocalSettings,
   MAX_EXPLORER_PATHS,
   normalizePathList,
   normalizeSettings,
+  parseCommandLine,
   pickUnusedColor,
   resolveTerminalProfile,
 } from '../settings';
@@ -59,6 +62,7 @@ describe('normalizeSettings', () => {
     expect(settings).toEqual({
       notesDir: 'D:/notes',
       aiTuiAgent: 'chatgpt',
+      aiTuiCustomCommand: '',
       theme: 'dark',
       colorScheme: 'default',
       fontSize: 16,
@@ -425,5 +429,101 @@ describe('the AI TUI virtual profile', () => {
       terminalProfiles: [...DEFAULT_SETTINGS.terminalProfiles, shadow],
     };
     expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID)).toBe(shadow);
+  });
+
+  test("'custom' is accepted by normalize and the command line trims/defaults", () => {
+    expect(normalizeSettings({ aiTuiAgent: 'custom' }).aiTuiAgent).toBe('custom');
+    expect(normalizeSettings({ aiTuiCustomCommand: '  aider --pro  ' }).aiTuiCustomCommand).toBe(
+      'aider --pro',
+    );
+    expect(normalizeSettings({ aiTuiCustomCommand: 42 }).aiTuiCustomCommand).toBe('');
+  });
+
+  test('custom ai-tui resolves to the parsed command, identity-stable per command', () => {
+    const s = {
+      ...DEFAULT_SETTINGS,
+      aiTuiAgent: 'custom' as const,
+      aiTuiCustomCommand: 'aider --model "gpt 5"',
+    };
+    const profile = resolveTerminalProfile(s, AI_TUI_PROFILE_ID);
+    expect(profile).toMatchObject({ name: 'aider', program: 'aider', args: ['--model', 'gpt 5'] });
+    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID)).toBe(profile);
+    // An edited command is a NEW profile identity (TerminalPane re-applies).
+    const edited = { ...s, aiTuiCustomCommand: 'aider' };
+    expect(resolveTerminalProfile(edited, AI_TUI_PROFILE_ID)).not.toBe(profile);
+  });
+
+  test('custom ai-theme appends the opening prompt after the custom args', () => {
+    const s = {
+      ...DEFAULT_SETTINGS,
+      aiTuiAgent: 'custom' as const,
+      aiTuiCustomCommand: 'aider --pro',
+    };
+    const profile = resolveTerminalProfile(s, AI_THEME_PROFILE_ID);
+    expect(profile.program).toBe('aider');
+    expect(profile.args[0]).toBe('--pro');
+    expect(profile.args[1]).toMatch(/AGENTS\.md/);
+  });
+
+  test('an empty custom command resolves to no program (falls back to the shell)', () => {
+    const s = { ...DEFAULT_SETTINGS, aiTuiAgent: 'custom' as const, aiTuiCustomCommand: '' };
+    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID).program).toBeUndefined();
+  });
+});
+
+describe('parseCommandLine', () => {
+  test('splits on whitespace; quotes group values with spaces', () => {
+    expect(parseCommandLine('aider')).toEqual({ program: 'aider', args: [] });
+    expect(parseCommandLine('aider --model "gpt 5" -v')).toEqual({
+      program: 'aider',
+      args: ['--model', 'gpt 5', '-v'],
+    });
+    expect(parseCommandLine("run 'two words'")).toEqual({ program: 'run', args: ['two words'] });
+  });
+
+  test('empty or blank input yields no program', () => {
+    expect(parseCommandLine('')).toEqual({ program: undefined, args: [] });
+    expect(parseCommandLine('   ')).toEqual({ program: undefined, args: [] });
+  });
+});
+
+describe('aiTuiAgentName', () => {
+  test('known agents use their product name', () => {
+    expect(aiTuiAgentName(DEFAULT_SETTINGS)).toBe('Claude');
+    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' })).toBe('ChatGPT');
+  });
+
+  test("custom uses the command's program basename, or a placeholder", () => {
+    const custom = { ...DEFAULT_SETTINGS, aiTuiAgent: 'custom' as const };
+    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: '/usr/bin/aider --pro' })).toBe('aider');
+    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: 'C:\\tools\\agent.exe' })).toBe(
+      'agent.exe',
+    );
+    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: '' })).toBe('Custom AI');
+  });
+});
+
+describe('keepWindowLocalSettings (per-window explorer tree shape)', () => {
+  test('keeps the local collapse/expand sets over an incoming broadcast', () => {
+    const local = {
+      ...DEFAULT_SETTINGS,
+      explorerCollapsedWorkspaces: ['C:/ws-a'],
+      explorerExpandedDirs: ['C:/ws-a/sub'],
+    };
+    const incoming = {
+      ...DEFAULT_SETTINGS,
+      fontSize: 18,
+      explorerCollapsedWorkspaces: ['C:/ws-b'],
+      explorerExpandedDirs: [],
+    };
+    const merged = keepWindowLocalSettings(incoming, local);
+    expect(merged.fontSize).toBe(18);
+    expect(merged.explorerCollapsedWorkspaces).toEqual(['C:/ws-a']);
+    expect(merged.explorerExpandedDirs).toEqual(['C:/ws-a/sub']);
+  });
+
+  test('returns the incoming object itself when the shapes already match', () => {
+    const incoming = { ...DEFAULT_SETTINGS, fontSize: 18 };
+    expect(keepWindowLocalSettings(incoming, DEFAULT_SETTINGS)).toBe(incoming);
   });
 });

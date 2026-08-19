@@ -261,6 +261,12 @@ export const AI_TUI_AGENT_IDS = ['claude', 'chatgpt'] as const;
 export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
 
 /**
+ * What `settings.aiTuiAgent` may hold: a known agent, or 'custom' — the
+ * user-entered command line in `settings.aiTuiCustomCommand`.
+ */
+export type AiTuiChoice = AiTuiAgentId | 'custom';
+
+/**
  * The VIRTUAL profile id the "AI TUI" row opens. It is never stored in
  * `terminalProfiles` — `resolveTerminalProfile` synthesizes it from
  * `settings.aiTuiAgent` on demand, so a persisted terminal snapshot naming it
@@ -391,7 +397,13 @@ export interface Settings {
   /** Id of the profile a plain "New terminal" uses. */
   defaultTerminalProfile: string;
   /** Which agent the "AI TUI" new-tab row launches. Default 'claude'. */
-  aiTuiAgent: AiTuiAgentId;
+  aiTuiAgent: AiTuiChoice;
+  /**
+   * The command line the 'custom' AI TUI choice runs — a program (resolved
+   * against `PATH`, or an absolute path) optionally followed by arguments;
+   * quotes group values with spaces. Unread unless `aiTuiAgent` is 'custom'.
+   */
+  aiTuiCustomCommand: string;
   /**
    * The shell every terminal runs — one choice for the whole app, not one per
    * profile (see `core/terminal-shells.ts`). A program name resolved against

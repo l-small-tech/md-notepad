@@ -6,7 +6,6 @@
 
 import { isImagePath } from '../../../core/images';
 import { isImportablePath } from '../../../core/import/registry';
-import { relativePath } from '../../../core/session/plan-flush';
 import { listNoteFiles, type ExplorerEntry } from '../../session';
 
 /** Indentation per tree depth; file rows add the caret column's width. */
@@ -72,27 +71,6 @@ export function toggleTreeAll(
     collapsedWorkspaces: open ? new Set(workspacePaths) : new Set(),
     expandedDirs: new Set(),
   };
-}
-
-/**
- * The path the file-menu's "Copy relative path" puts on the clipboard: `path`
- * relative to its workspace root, without core's markdown-flavored `./` prefix
- * (a bare `sub/note.md` is what editors and terminals expect). null — no known
- * root, or a different drive/root — omits the menu item; "Copy path" (absolute)
- * always remains.
- */
-export function explorerRelativePath(
-  workspaceRoot: string | null | undefined,
-  path: string,
-): string | null {
-  if (!workspaceRoot) {
-    return null;
-  }
-  const rel = relativePath(workspaceRoot, path);
-  if (rel === null) {
-    return null;
-  }
-  return rel.startsWith('./') ? rel.slice(2) : rel;
 }
 
 /** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
