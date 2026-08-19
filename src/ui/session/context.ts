@@ -20,6 +20,7 @@ import type {
   PickFileDialog,
   SaveDiscardCancelDialog,
   SaveFileDialog,
+  TabWindowInfo,
 } from './facade';
 
 /** The slice of `ipc` the controller uses — narrowed so tests fake less. */
@@ -90,6 +91,12 @@ export interface SessionControllerDeps {
    * still owns the tabs and must keep (re-adopt) them.
    */
   sendTabsToWindow?: (label: string, tabs: PersistedTab[]) => Promise<boolean>;
+  /**
+   * The OTHER app windows (label + display title), most recently focused
+   * first, for the context menu's explicit "Move to window …" rows — the
+   * coordinate-free route that also works on Wayland. Injected by main.tsx.
+   */
+  listOtherWindows?: () => Promise<TabWindowInfo[]>;
   ipc?: SessionIpc;
   confirm?: ConfirmDialog;
   confirmRemember?: ConfirmRememberDialog;
@@ -150,6 +157,8 @@ export interface SessionController {
    * into a new window at `pos`.
    */
   dropTabOut(id: string, pos: { x: number; y: number } | null): Promise<void>;
+  /** M8: move a tab into the EXISTING window `label` (context-menu route). */
+  moveTabToWindow(id: string, label: string): Promise<void>;
   /** M8: adopt tabs handed over by another window (skips already-owned files). */
   adoptTabs(persisted: PersistedTab[]): Promise<void>;
   /** M8: flush, then describe every meaningful tab for a window-close handoff. */

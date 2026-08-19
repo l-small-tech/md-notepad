@@ -109,7 +109,9 @@ context menu and the command palette.
 Right-clicking a TAB opens that tab's own menu (`TabContextMenu`) — what acts
 on this document: **Export…** and **Copy all raw text** (only for a tab holding
 markdown — not a terminal, image, import card or `.svg` drawing), then Keep
-open / Rename / Move to new window / Close / Close all. Both document rows name
+open / Rename / Move to new window / Move to window "…" (one row per OTHER open
+window, most recently focused first — the explicit route into an existing
+window, and the only one on Wayland) / Close / Close all. Both document rows name
 the right-clicked tab's id explicitly, because right-clicking a tab
 deliberately does not activate it (`ui/tab-actions.ts`, and
 `openExportPreview(tabId?)`). The split is the rule: app commands in the
@@ -226,6 +228,9 @@ the tab rides the cursor and the source tab dims. The model:
   window's outer bounds, all physical px — with overlap resolved by focus
   recency (each window broadcasts `window-focused`; most recent ≈ topmost);
   the rule itself is `pickDropWindow` (core/window-drop.ts, pure, tested).
+  The context menu's "Move to window …" rows reach the same handover
+  explicitly (target picked by name, no coordinates) — which is why they
+  exist: it is the one route into an existing window that Wayland permits.
 - **Cross-window invariants**: the controller's `adoptTabs` skips files a
   local tab already owns (one owner per file, applied across windows);
   file-open entry points (argv, `open-files`) target main only; the

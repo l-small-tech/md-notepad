@@ -59,8 +59,10 @@ import {
   setInteractiveCloser,
   setKeepMineDispatch,
   setListNotesDispatch,
+  setListOtherTabWindowsDispatch,
   setMoveEntryDispatch,
   setMoveTabToNewWindowDispatch,
+  setMoveTabToWindowDispatch,
   setOpenDocsDispatch,
   setOpenExportPreviewDispatch,
   setOpenExportPreviewForFileDispatch,
@@ -114,9 +116,11 @@ export {
   isReadOnlyPath,
   keepMineTab,
   listNoteFiles,
+  listOtherTabWindows,
   loadImageDataUrl,
   moveExplorerEntryInto,
   moveTabToNewWindow,
+  moveTabToWindow,
   noteCursor,
   openDocs,
   openExportPreview,
@@ -154,6 +158,7 @@ export type {
   SaveDiscardCancelDialog,
   SaveFileDialog,
   ScanPhotoRef,
+  TabWindowInfo,
 } from './facade';
 export type { SessionController, SessionControllerDeps } from './context';
 
@@ -295,6 +300,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setDropTabOutDispatch((id, pos) => void windows.dropTabOut(id, pos));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
   }
+  if (deps.sendTabsToWindow) {
+    setMoveTabToWindowDispatch((id, label) => void windows.moveTabToWindow(id, label));
+  }
+  if (deps.listOtherWindows) {
+    setListOtherTabWindowsDispatch(deps.listOtherWindows);
+  }
   setOpenFileDispatch(() => void openSave.openFileDialog());
   setOpenExportPreviewDispatch((tabId) => exporter.openExportPreview(tabId));
   setOpenExportPreviewForFileDispatch((path) => void exporter.openExportPreviewForFile(path));
@@ -415,6 +426,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     changeNotesDir: workspaces.changeNotesDir,
     moveTabToNewWindow: windows.moveTabOut,
     dropTabOut: windows.dropTabOut,
+    moveTabToWindow: windows.moveTabToWindow,
     adoptTabs: windows.adoptPersistedTabs,
     exportTabsForHandoff: windows.exportTabsForHandoff,
     discardManifest: () => ipc.deletePath(manifestPath),

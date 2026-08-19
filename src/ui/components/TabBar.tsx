@@ -38,9 +38,12 @@ import {
   closeAllTabs,
   closeTab,
   dropTabOut,
+  listOtherTabWindows,
   moveTabToNewWindow,
+  moveTabToWindow,
   openExportPreview,
   renameTab,
+  type TabWindowInfo,
 } from '../session';
 import { newTabDefault } from '../new-tab';
 import { copyRawText } from '../tab-actions';
@@ -467,6 +470,22 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     tab.kind !== 'image' &&
     tab.kind !== 'import' &&
     docFamilyForTab(tab) === 'markdown';
+  // The other app windows, for the "Move to window …" rows — the explicit,
+  // coordinate-free route into an existing window (the only one Wayland
+  // allows; see dropTabOut). Fetched when the menu opens; the rows appear a
+  // beat later, under the always-present "Move to new window".
+  const [otherWindows, setOtherWindows] = useState<readonly TabWindowInfo[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listOtherTabWindows().then((windows) => {
+      if (alive) {
+        setOtherWindows(windows);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useMenuDismiss(onClose);
 
   return (
@@ -536,6 +555,20 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Move to new window
       </button>
+      {otherWindows.map((w) => (
+        <button
+          key={w.label}
+          className="tab-menu-item"
+          role="menuitem"
+          title={`Move this tab into the window showing “${w.title}”`}
+          onClick={() => {
+            moveTabToWindow(menu.tabId, w.label);
+            onClose();
+          }}
+        >
+          Move to window “{w.title}”
+        </button>
+      ))}
       <button
         className="tab-menu-item"
         role="menuitem"

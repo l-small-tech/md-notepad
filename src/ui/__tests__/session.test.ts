@@ -1751,6 +1751,28 @@ describe('multi-window tear-off (M8)', () => {
     expect(back!.notePath).toBe(`${NOTES}/keep-me-here.md`);
   });
 
+  test('moveTabToWindow (the context-menu route) hands the tab straight to a named window', async () => {
+    const fs = makeFakeFs();
+    const sent: Array<{ label: string; ids: string[] }> = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async () => {
+        throw new Error('must not spawn');
+      },
+      sendTabsToWindow: async (label, descriptors) => {
+        sent.push({ label, ids: descriptors.map((d) => d.id) });
+        return true;
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Sent by menu', 'cm6');
+
+    await controller.moveTabToWindow(t.id, 'w-picked');
+
+    expect(sent).toEqual([{ label: 'w-picked', ids: [t.id] }]);
+    expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
+    expect(fs.files.get(`${NOTES}/sent-by-menu.md`)).toBe('# Sent by menu');
+  });
+
   test('a torn-off window restores from its handed-over manifest and writes its own file', async () => {
     const fs = makeFakeFs({ [`${NOTES}/torn.md`]: '# Torn' });
     const controller = makeController(fs, () => 111, {

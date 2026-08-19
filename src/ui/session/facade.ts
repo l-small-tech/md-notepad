@@ -145,6 +145,42 @@ export function moveTabToNewWindow(id: string, pos: { x: number; y: number } | n
   moveTabToNewWindowDispatch(id, pos);
 }
 
+/** Another app window a tab could move to: its label plus a display title
+ *  (the window title minus the app-name suffix — i.e. its active tab). */
+export interface TabWindowInfo {
+  label: string;
+  title: string;
+}
+
+/**
+ * Tab context menu → main.tsx: the OTHER app windows, most recently focused
+ * first, for the "Move to window …" rows. Empty until the controller
+ * registers, and always empty outside the desktop app (single window). This
+ * route exists for Wayland most of all — with no global coordinates there,
+ * the drag-drop hit-test can't run, and picking the target by name is how a
+ * tab still reaches an existing window.
+ */
+let listOtherTabWindowsDispatch: () => Promise<TabWindowInfo[]> = async () => [];
+export function setListOtherTabWindowsDispatch(fn: () => Promise<TabWindowInfo[]>): void {
+  listOtherTabWindowsDispatch = fn;
+}
+export function listOtherTabWindows(): Promise<TabWindowInfo[]> {
+  return listOtherTabWindowsDispatch();
+}
+
+/**
+ * Tab context menu → controller: move a tab into the EXISTING window `label`
+ * (it adopts the tab — the same handover a drag drop uses). No-ops until the
+ * controller registers.
+ */
+let moveTabToWindowDispatch: (id: string, label: string) => void = () => {};
+export function setMoveTabToWindowDispatch(fn: (id: string, label: string) => void): void {
+  moveTabToWindowDispatch = fn;
+}
+export function moveTabToWindow(id: string, label: string): void {
+  moveTabToWindowDispatch(id, label);
+}
+
 /**
  * TabBar → controller: a tab drag released OUTSIDE the window. The controller
  * lands the tab in the app window under the cursor when there is one

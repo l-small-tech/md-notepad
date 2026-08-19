@@ -63,6 +63,7 @@ import {
   type PickFileDialog,
   type SaveDiscardCancelDialog,
   type SaveFileDialog,
+  type TabWindowInfo,
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
 import { exportPreviewStore } from './ui/stores/export-preview';
@@ -373,6 +374,34 @@ function sendTabsToWindow(
   });
 }
 
+/**
+ * The other app windows, labelled for a human: window title minus the app-name
+ * suffix (i.e. the window's active tab), most recently focused first. Feeds
+ * the tab context menu's "Move to window …" rows — the coordinate-free route
+ * into an existing window, which is all Wayland allows (no drop hit-test
+ * there) and a keyboard/menu alternative everywhere else.
+ */
+async function listOtherWindows(): Promise<TabWindowInfo[]> {
+  const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+  const rows = await Promise.all(
+    others.map(async (w): Promise<TabWindowInfo | null> => {
+      try {
+        const title = await w.title();
+        const suffix = ` — ${APP_NAME}`;
+        return {
+          label: w.label,
+          title: title.endsWith(suffix) ? title.slice(0, -suffix.length) : title,
+        };
+      } catch {
+        return null; // closed mid-query
+      }
+    }),
+  );
+  return rows
+    .filter((r): r is TabWindowInfo => r !== null)
+    .sort((a, b) => (windowFocusOrder.get(b.label) ?? 0) - (windowFocusOrder.get(a.label) ?? 0));
+}
+
 /* ---- Window title mirrors the active tab -------------------------------- */
 
 let lastWindowTitle = '';
@@ -616,6 +645,7 @@ async function boot(): Promise<void> {
     // (below): the user is watching the drop, and a first-adopt in the target
     // may read note files before it can flush and ack.
     sendTabsToWindow: (label, tabs) => sendTabsToWindow(label, tabs, 4000),
+    listOtherWindows,
     confirm: confirmDialog,
     confirmRemember: confirmRememberDialog,
     openDialog: openFilesDialog,
