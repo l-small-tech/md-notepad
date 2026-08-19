@@ -50,6 +50,7 @@ import {
   setCreateWhiteboardHereDispatch,
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
+  setDropTabOutDispatch,
   setDeleteFolderDispatch,
   setImportDocumentDispatch,
   setImportFilesDispatch,
@@ -102,6 +103,7 @@ export {
   createWhiteboardIn,
   deleteExplorerEntry,
   deleteExplorerFolder,
+  dropTabOut,
   buildExportPreviewHtml,
   enrichCopiedText,
   getCursor,
@@ -290,6 +292,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCloseAllTabsDispatch(() => void windows.closeAllTabsInteractive());
   if (deps.spawnTabWindow) {
     setMoveTabToNewWindowDispatch((id, pos) => void windows.moveTabOut(id, pos));
+    setDropTabOutDispatch((id, pos) => void windows.dropTabOut(id, pos));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
   }
   setOpenFileDispatch(() => void openSave.openFileDialog());
@@ -411,6 +414,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     keepMine: openSave.keepMine,
     changeNotesDir: workspaces.changeNotesDir,
     moveTabToNewWindow: windows.moveTabOut,
+    dropTabOut: windows.dropTabOut,
     adoptTabs: windows.adoptPersistedTabs,
     exportTabsForHandoff: windows.exportTabsForHandoff,
     discardManifest: () => ipc.deletePath(manifestPath),

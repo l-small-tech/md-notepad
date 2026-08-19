@@ -159,6 +159,12 @@ export const ipc = {
    *  whose engines have their own behavior). Not registered on Android —
    *  only call behind a platform check. */
   setSmoothScrolling: (enabled: boolean) => call<void>('set_smooth_scrolling', { enabled }),
+  /** Desktop only: the display server this process talks to — 'x11',
+   *  'wayland', or 'none' off Linux. Gates cursor-position-based features
+   *  (the cross-window tab drop) off on Wayland, which offers an app no
+   *  global coordinates. Not registered on Android — only call behind a
+   *  platform check. */
+  displayServer: () => call<string>('display_server'),
   renamePath: (from: string, to: string) => call<void>('rename_path', { from, to }),
   deletePath: (path: string) => call<void>('delete_path', { path }),
   statPath: (path: string) => call<PathStat>('stat_path', { path }),

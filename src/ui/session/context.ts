@@ -75,6 +75,21 @@ export interface SessionControllerDeps {
     manifest: SessionManifest,
     pos: { x: number; y: number } | null,
   ) => Promise<void>;
+  /**
+   * The label of the app window currently under the cursor (never this one),
+   * or null. Injected by main.tsx (Tauri global cursor + window geometry);
+   * resolves null on platforms without trustworthy global coordinates
+   * (Wayland), which turns every outside release into a plain tear-off.
+   */
+  findDropWindow?: () => Promise<string | null>;
+  /**
+   * Deliver tab descriptors to the window labelled `label` over the
+   * adopt-tabs / adopt-ack event pair (the same one a closing window uses).
+   * Resolves true once the receiver acknowledged — it has adopted the tabs
+   * AND flushed, so its manifest claims them. False on timeout: the caller
+   * still owns the tabs and must keep (re-adopt) them.
+   */
+  sendTabsToWindow?: (label: string, tabs: PersistedTab[]) => Promise<boolean>;
   ipc?: SessionIpc;
   confirm?: ConfirmDialog;
   confirmRemember?: ConfirmRememberDialog;
@@ -129,6 +144,12 @@ export interface SessionController {
   changeNotesDir(): Promise<void>;
   /** M8: flush, detach the tab, and hand it to a freshly spawned window. */
   moveTabToNewWindow(id: string, pos: { x: number; y: number } | null): Promise<void>;
+  /**
+   * M8: a drag released outside this window — move the tab into the window
+   * under the cursor when there is one (it adopts the tab), else tear it off
+   * into a new window at `pos`.
+   */
+  dropTabOut(id: string, pos: { x: number; y: number } | null): Promise<void>;
   /** M8: adopt tabs handed over by another window (skips already-owned files). */
   adoptTabs(persisted: PersistedTab[]): Promise<void>;
   /** M8: flush, then describe every meaningful tab for a window-close handoff. */

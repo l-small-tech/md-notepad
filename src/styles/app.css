@@ -269,9 +269,37 @@
   background: var(--ws-accent);
 }
 
-/* The tab being pointer-dragged. */
+/* The tab being pointer-dragged: stays in place, dimmed — the ghost below is
+   what rides the cursor (Chrome-style). */
 .tab-dragging {
-  opacity: 0.5;
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* The drag ghost: a floating copy of the grabbed tab, moved per pointermove
+   by TabBar via transform (never layout). It reuses .tab for the card look,
+   so everything the strip's flexbox gave a real tab is pinned down here.
+   pointer-events: none keeps it out of elementFromPoint — the reorder drop
+   hit-test would otherwise only ever see the ghost under the cursor. */
+.tab.tab-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 32px;
+  margin-top: 0;
+  flex: none;
+  min-width: 0;
+  max-width: none;
+  border-left: none;
+  border-radius: 8px;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0.9;
+  background: var(--bg);
+  border-right: none;
+  outline: 1px solid var(--border);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--fg) 30%, transparent);
+  will-change: transform;
 }
 
 /* Insertion bar while dragging, positioned by the TabBar (scroller-relative). */

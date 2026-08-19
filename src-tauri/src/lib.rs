@@ -147,6 +147,8 @@ pub fn run() {
             #[cfg(desktop)]
             commands::webview::set_smooth_scrolling,
             #[cfg(desktop)]
+            commands::webview::display_server,
+            #[cfg(desktop)]
             default_shell,
             #[cfg(desktop)]
             commands::pty::pty_spawn,

@@ -185,6 +185,52 @@ export function createWindows(
   }
 
   /**
+   * Move a tab into an EXISTING window (a drag dropped onto it, Chrome-style).
+   * The ownership handoff order is moveTabOut's exactly — flush, detach, flush
+   * — but delivery is the adopt-tabs / adopt-ack event pair (the same one a
+   * closing window uses) instead of a spawn. No ack — the receiver is gone or
+   * hung — adopts the tab right back rather than losing it; the receiver's
+   * adopt dedupes by path, so the worst a late ack can produce is a skipped
+   * duplicate, never two owners of one file.
+   */
+  async function moveTabToWindow(id: string, targetLabel: string): Promise<void> {
+    const send = ctx.deps.sendTabsToWindow;
+    if (!send) {
+      return;
+    }
+    await ctx.flusher.flushNow();
+    const tab = tabsStore.getState().tabs.find((t) => t.id === id);
+    if (!tab) {
+      return;
+    }
+    const descriptor = persistedDescriptor(tab);
+    tabsStore.getState().detachTab(id);
+    await ctx.flusher.flushNow();
+    const acked = await send(targetLabel, [descriptor]).catch(() => false);
+    if (!acked) {
+      await adoptPersistedTabs([descriptor]);
+      uiStore.getState().showNotice('Could not move the tab to that window.');
+    }
+  }
+
+  /**
+   * A drag released outside this window: land the tab in the app window under
+   * the cursor when there is one, else tear it off into a new window at `pos`.
+   * A failed hit-test (no injected finder, Wayland, a Tauri call erroring)
+   * degrades to the tear-off — the release always does SOMETHING visible.
+   */
+  async function dropTabOut(id: string, pos: { x: number; y: number } | null): Promise<void> {
+    const target = ctx.deps.findDropWindow
+      ? await ctx.deps.findDropWindow().catch(() => null)
+      : null;
+    if (target !== null && ctx.deps.sendTabsToWindow) {
+      await moveTabToWindow(id, target);
+      return;
+    }
+    await moveTabOut(id, pos);
+  }
+
+  /**
    * Open a file from the explorer straight into its own OS window (never a tab
    * here first). If a tab in THIS window already owns the file, this is just a
    * tear-off — {@link moveTabOut} — preserving its unsaved edits and mode
@@ -302,6 +348,8 @@ export function createWindows(
     closeAllTabsInteractive,
     adoptPersistedTabs,
     moveTabOut,
+    moveTabToWindow,
+    dropTabOut,
     openFileInNewWindow,
     exportTabsForHandoff,
     bequeathTabsToMain,

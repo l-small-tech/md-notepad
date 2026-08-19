@@ -1662,6 +1662,95 @@ describe('multi-window tear-off (M8)', () => {
     expect(back!.notePath).toBe(`${NOTES}/keep-me.md`);
   });
 
+  test('dropTabOut hands the tab to the window under the cursor instead of spawning', async () => {
+    const fs = makeFakeFs();
+    const spawned: unknown[] = [];
+    const sent: Array<{ label: string; tabs: Array<{ id: string; notePath: string | null }> }> = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async (manifest) => {
+        spawned.push(manifest);
+      },
+      findDropWindow: async () => 'w-target',
+      sendTabsToWindow: async (label, tabs) => {
+        sent.push({ label, tabs: tabs as never });
+        return true;
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Dropped on', 'cm6');
+
+    await controller.dropTabOut(t.id, { x: 10, y: 20 });
+
+    // Flushed to disk before the handover, descriptor delivered to the target.
+    expect(fs.files.get(`${NOTES}/dropped-on.md`)).toBe('# Dropped on');
+    expect(sent).toEqual([{ label: 'w-target', tabs: [expect.objectContaining({ id: t.id })] }]);
+    expect(spawned).toHaveLength(0);
+    // Detached here, and this window's manifest no longer claims it.
+    expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
+    const written = JSON.parse(fs.files.get(`${SESSION}/session.json`)!) as {
+      tabs: Array<{ id: string }>;
+    };
+    expect(written.tabs.some((x) => x.id === t.id)).toBe(false);
+  });
+
+  test('dropTabOut over no window tears off a new one at pos', async () => {
+    const fs = makeFakeFs();
+    const spawned: Array<{ pos: { x: number; y: number } | null }> = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async (_manifest, pos) => {
+        spawned.push({ pos });
+      },
+      findDropWindow: async () => null,
+      sendTabsToWindow: async () => {
+        throw new Error('must not be called');
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Torn off instead', 'cm6');
+
+    await controller.dropTabOut(t.id, { x: 10, y: 20 });
+
+    expect(spawned).toEqual([{ pos: { x: 10, y: 20 } }]);
+    expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
+  });
+
+  test('a failed drop hit-test degrades to the tear-off', async () => {
+    const fs = makeFakeFs();
+    const spawned: unknown[] = [];
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async (manifest) => {
+        spawned.push(manifest);
+      },
+      findDropWindow: async () => {
+        throw new Error('no global coords');
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Still moves', 'cm6');
+
+    await controller.dropTabOut(t.id, null);
+
+    expect(spawned).toHaveLength(1);
+  });
+
+  test('an unacknowledged handover adopts the tab right back', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs, () => 111, {
+      spawnTabWindow: async () => {},
+      findDropWindow: async () => 'w-gone',
+      sendTabsToWindow: async () => false,
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Keep me here', 'cm6');
+
+    await controller.dropTabOut(t.id, null);
+
+    const back = tabs.tabsStore.getState().tabs.find((x) => x.id === t.id);
+    expect(back).toBeDefined();
+    expect(back!.model.getText()).toBe('# Keep me here');
+    expect(back!.notePath).toBe(`${NOTES}/keep-me-here.md`);
+  });
+
   test('a torn-off window restores from its handed-over manifest and writes its own file', async () => {
     const fs = makeFakeFs({ [`${NOTES}/torn.md`]: '# Torn' });
     const controller = makeController(fs, () => 111, {

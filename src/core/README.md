@@ -16,6 +16,7 @@ do not rewrite them.
 | `tab-status.ts` | terminal | agent status glyph in a terminal's OSC title (`✳ `, `◐ `) → activity + the remaining label, for the TabBar badge |
 | `settings.ts` | reference | defaults + `normalizeSettings` |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
+| `window-drop.ts` | M8 | `pickDropWindow`: which window a tab drag released over (containment + focus-recency for overlap), for the cross-window tab drop |
 | `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw) |
 | `external-links.ts` | reference | external-link policy: is an href `http(s)`, what host does it really resolve to, how is it shown in the confirmation prompt |
 | `external-links.ts` | reference | link policy: is an href external, what host does it REALLY reach, how to elide it for the confirm prompt |

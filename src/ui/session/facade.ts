@@ -146,6 +146,23 @@ export function moveTabToNewWindow(id: string, pos: { x: number; y: number } | n
 }
 
 /**
+ * TabBar → controller: a tab drag released OUTSIDE the window. The controller
+ * lands the tab in the app window under the cursor when there is one
+ * (Chrome-style drop — that window adopts it), else tears it off into a new
+ * window at `pos` (screen CSS px, or OS-placed when null). No-ops until the
+ * controller registers (and outside the desktop app).
+ */
+let dropTabOutDispatch: (id: string, pos: { x: number; y: number } | null) => void = () => {};
+export function setDropTabOutDispatch(
+  fn: (id: string, pos: { x: number; y: number } | null) => void,
+): void {
+  dropTabOutDispatch = fn;
+}
+export function dropTabOut(id: string, pos: { x: number; y: number } | null): void {
+  dropTabOutDispatch(id, pos);
+}
+
+/**
  * FileExplorer → controller: open a file in its own OS window (a tab already
  * owning it tears off instead). No-ops until the controller registers, and
  * outside the desktop app, where no window spawner exists.

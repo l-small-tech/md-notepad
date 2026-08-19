@@ -194,7 +194,10 @@ untouched, so switching back to a document restores exactly what was there.
 ## Multi-window (M8 tab tear-off)
 
 Releasing a tab drag outside the window (or right-click → "Move to new
-window") moves the tab into its own OS window. The model:
+window") moves the tab into its own OS window — unless the release lands on
+ANOTHER app window, which then adopts the tab (Chrome-style; the session
+controller's `dropTabOut` makes the call). While the drag is live a ghost of
+the tab rides the cursor and the source tab dims. The model:
 
 - **Every window is the full app** — same `main.tsx` boot, own JS context,
   own stores, own session controller. The window label decides the role:
@@ -216,6 +219,13 @@ window") moves the tab into its own OS window. The model:
   after main acks; no ack → the manifest stays and the window returns next
   boot). Closing MAIN quits the app: it broadcasts `main-closing`, waits for
   the secondaries to flush + close, then sweeps stragglers.
+- **Dropping a tab on another window** reuses the same pair: the source
+  flushes + detaches (the moveTabOut ownership dance), `emitTo`s the target's
+  label, and adopts the tab right back if no ack comes. WHICH window is under
+  the cursor is `findDropWindow` in main.tsx — Tauri global cursor + every
+  window's outer bounds, all physical px — with overlap resolved by focus
+  recency (each window broadcasts `window-focused`; most recent ≈ topmost);
+  the rule itself is `pickDropWindow` (core/window-drop.ts, pure, tested).
 - **Cross-window invariants**: the controller's `adoptTabs` skips files a
   local tab already owns (one owner per file, applied across windows);
   file-open entry points (argv, `open-files`) target main only; the
@@ -226,8 +236,11 @@ window") moves the tab into its own OS window. The model:
 - **Platform gating**: on Linux (Wayland offers no global cursor position or
   app-side window placement) the drag-out release is judged in client
   coordinates and the new window is spawned unpositioned — the compositor
-  places it. Android is single-window; there only in-strip reorder exists.
-  The context-menu item works everywhere.
+  places it. The drop-on-window hit-test needs REAL global coordinates, so
+  Linux gates it on the `display_server` command (env-sniffed in Rust): X11
+  gets it, Wayland falls back to tear-off — never a junk-coordinate drop
+  into the wrong window. Android is single-window; there only in-strip
+  reorder exists. The context-menu item works everywhere.
 
 ## Keyboard shortcuts (single registry)
 

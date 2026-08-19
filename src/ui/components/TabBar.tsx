@@ -37,6 +37,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   closeAllTabs,
   closeTab,
+  dropTabOut,
   moveTabToNewWindow,
   openExportPreview,
   renameTab,
@@ -64,8 +65,12 @@ import { isAndroid } from '../platform';
  */
 
 /**
- * Tear-off gesture (M8): releasing a tab drag outside the window spawns a new
- * window there. Gated off only on Android, which is single-window.
+ * Tear-off gesture (M8): releasing a tab drag outside the window lands the tab
+ * in the app window under the cursor (that window adopts it, Chrome-style) or,
+ * over empty desktop, spawns a new window there — the session controller's
+ * dropTabOut makes that call. Gated off only on Android, which is
+ * single-window. While the drag is live, a ghost of the tab rides the cursor
+ * (DragGhost below) and the source tab dims (.tab-dragging).
  *
  * On Linux/Wayland an app gets no global cursor position (screenX/screenY are
  * junk) and cannot place windows, so the release is judged in CLIENT
@@ -376,6 +381,44 @@ function Tab({
   );
 }
 
+/** What DragGhost shows and where it starts; live moves bypass React state. */
+interface GhostState {
+  tabId: string;
+  width: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Chrome-style drag feedback: a floating copy of the grabbed tab riding the
+ * cursor. Created once when a press becomes a drag; every pointermove after
+ * that repositions it IMPERATIVELY via the ref's transform (the split-divider
+ * pattern), so dragging never re-renders the strip. `pointer-events: none`
+ * (in css) keeps it out of `elementFromPoint`, which the drop hit-test uses.
+ */
+function DragGhost({
+  tab,
+  ghost,
+  innerRef,
+}: {
+  tab: TabEntry;
+  ghost: GhostState;
+  innerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const { cue, text } = tabLabelParts(tab);
+  return (
+    <div
+      ref={innerRef}
+      className="tab tab-drag-ghost"
+      style={{ width: ghost.width, transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
+      aria-hidden="true"
+    >
+      {cue ? <StatusBadge cue={cue} /> : <TabIcon tab={tab} />}
+      <span className="tab-title">{text}</span>
+    </div>
+  );
+}
+
 /**
  * Dismiss a transient menu on any outside interaction: a pointerdown that did
  * not reach the menu (menus stop their own), Escape, resize, or window blur.
@@ -659,6 +702,9 @@ export function TabBar() {
   const [clipped, setClipped] = useState<readonly string[]>([]);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const dropTargetRef = useRef<DropTarget | null>(null);
+  /** The drag ghost, mounted for the drag's lifetime; moves go via ghostRef. */
+  const [ghost, setGhost] = useState<GhostState | null>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
   /** True between pointerdown on a tab and its release — freezes strip auto-scroll. */
   const pressingRef = useRef(false);
   const phone = usePhoneLayout();
@@ -878,6 +924,11 @@ export function TabBar() {
     const pointerId = e.pointerId;
     const startX = e.clientX;
     const startY = e.clientY;
+    // Where inside the tab the press landed: the ghost keeps riding the cursor
+    // at this same grip, so picking a tab up doesn't make it jump.
+    const rect = el.getBoundingClientRect();
+    const grabX = startX - rect.left;
+    const grabY = startY - rect.top;
     let dragging = false;
     pressingRef.current = true;
 
@@ -887,6 +938,7 @@ export function TabBar() {
       window.removeEventListener('pointercancel', onCancel);
       el.classList.remove('tab-dragging');
       setDropHint(null);
+      setGhost(null);
       pressingRef.current = false;
       // The scroll the press suppressed: bring the now-active tab fully into
       // view once the pointer is no longer riding on top of the strip.
@@ -906,6 +958,13 @@ export function TabBar() {
           // A tab that re-rendered away mid-press can't capture; drag on.
         }
         el.classList.add('tab-dragging');
+        setGhost({ tabId, width: rect.width, x: ev.clientX - grabX, y: ev.clientY - grabY });
+      }
+      // The ghost element appears a render after setGhost; from then on it is
+      // moved directly (no state, no re-render — see DragGhost).
+      const g = ghostRef.current;
+      if (g) {
+        g.style.transform = `translate(${ev.clientX - grabX}px, ${ev.clientY - grabY}px)`;
       }
       updateDropHint(ev, tabId);
     }
@@ -931,9 +990,11 @@ export function TabBar() {
             ev.screenY < window.screenY ||
             ev.screenY > window.screenY + window.outerHeight;
         if (outside) {
-          // Offset so the new window's tab sits under the cursor, not at it.
-          // On Linux the compositor decides placement (Wayland apps can't).
-          moveTabToNewWindow(
+          // The controller lands the tab in the window under the cursor when
+          // there is one, else tears off a new window at pos. Offset so the
+          // new window's tab sits under the cursor, not at it. On Linux the
+          // compositor decides placement (Wayland apps can't).
+          dropTabOut(
             tabId,
             LINUX_TEAR_OFF
               ? null
@@ -988,6 +1049,10 @@ export function TabBar() {
   // currently cut off is measured, not computed — see `measure` above.
   const clippedSet = new Set(clipped);
   const hidden = items.map((it) => it.tab).filter((tab) => clippedSet.has(tab.id));
+
+  // The dragged tab, for the ghost. A tab that vanished mid-drag (adopted by
+  // another window, closed by a shortcut) simply drops its ghost.
+  const ghostTab = ghost === null ? undefined : tabs.find((t) => t.id === ghost.tabId);
 
   return (
     // data-tauri-drag-region only fires on the element itself, never its
@@ -1128,6 +1193,7 @@ export function TabBar() {
       </div>
       <div className="tabbar-spacer" data-tauri-drag-region="" />
       {!IS_MAC && !isAndroid() && <WindowControls />}
+      {ghost && ghostTab && <DragGhost tab={ghostTab} ghost={ghost} innerRef={ghostRef} />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {newTabMenuOpen && newTabAnchor && (
         <NewTabMenu anchor={newTabAnchor} onClose={() => uiStore.getState().closeNewTabMenu()} />

@@ -1,11 +1,12 @@
 import { createRoot } from 'react-dom/client';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { cursorPosition, getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
 import { normalizeSettings } from './core/settings';
+import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
@@ -270,6 +271,108 @@ async function spawnTabWindow(
   });
 }
 
+/* ---- Cross-window tab drop (M8): who is under the cursor? ---------------- */
+
+/**
+ * label → monotonic focus counter, fed by the `window-focused` broadcast every
+ * window emits when it gains focus. The drop hit-test uses it to pick the
+ * TOPMOST of overlapping candidate windows — the OS won't tell an app its
+ * z-order, but among app windows focus recency is z-order for any pair the
+ * cursor can reach. Never pruned: a closed window simply stops matching.
+ */
+const windowFocusOrder = new Map<string, number>();
+let windowFocusCounter = 0;
+
+/** Android's UA also reports Linux — and Android is single-window anyway. */
+const IS_LINUX_DESKTOP = /linux/i.test(navigator.platform) && !isAndroid();
+
+/**
+ * Whether `cursorPosition()` / `outerPosition()` return real global
+ * coordinates. False on Wayland (neither exists there by protocol design —
+ * the values come back as junk, not errors), which turns every outside drag
+ * release into the plain tear-off. Linux starts pessimistic and flips on at
+ * boot when the display server turns out to be X11.
+ */
+let trustGlobalCoords = !IS_LINUX_DESKTOP;
+
+/**
+ * The label of the app window under the cursor right now (never this one), or
+ * null → the release was over empty desktop (or geometry is untrustworthy /
+ * unavailable) and the caller tears off a new window instead. All physical
+ * pixels — cursor and bounds come from the same Tauri coordinate space, so no
+ * per-window scale factors are mixed in.
+ */
+async function findDropWindow(): Promise<string | null> {
+  if (!trustGlobalCoords) {
+    return null;
+  }
+  let cursor: { x: number; y: number };
+  try {
+    cursor = await cursorPosition();
+  } catch {
+    return null;
+  }
+  const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+  const candidates = await Promise.all(
+    others.map(async (w): Promise<DropWindowCandidate | null> => {
+      try {
+        if (await w.isMinimized()) {
+          return null;
+        }
+        const [pos, size] = await Promise.all([w.outerPosition(), w.outerSize()]);
+        return {
+          label: w.label,
+          x: pos.x,
+          y: pos.y,
+          width: size.width,
+          height: size.height,
+          focusOrder: windowFocusOrder.get(w.label) ?? 0,
+        };
+      } catch {
+        return null; // closed mid-query — not a candidate
+      }
+    }),
+  );
+  return pickDropWindow(
+    cursor,
+    candidates.filter((c): c is DropWindowCandidate => c !== null),
+  );
+}
+
+/**
+ * Deliver tab descriptors to window `label` over the adopt-tabs / adopt-ack
+ * event pair. Resolves true once the receiver acknowledged — it has adopted
+ * AND flushed, so its manifest claims the tabs. False on timeout (receiver
+ * gone or hung): the caller still owns the tabs. Used by both the drag-drop
+ * handover and the closing-window handoff below.
+ */
+function sendTabsToWindow(
+  label: string,
+  tabs: PersistedTab[],
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let unlisten: (() => void) | null = null;
+    const timer = setTimeout(() => {
+      unlisten?.();
+      resolve(false);
+    }, timeoutMs);
+    listen(`adopt-ack-${WINDOW_LABEL}`, () => {
+      clearTimeout(timer);
+      unlisten?.();
+      resolve(true);
+    })
+      .then((un) => {
+        unlisten = un;
+        void emitTo(label, 'adopt-tabs', { tabs, from: WINDOW_LABEL }).catch(() => {});
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+  });
+}
+
 /* ---- Window title mirrors the active tab -------------------------------- */
 
 let lastWindowTitle = '';
@@ -470,6 +573,18 @@ async function boot(): Promise<void> {
   // write; every subsequent field edit persists.
   settingsStore.subscribe(persistSettingsDebounced);
 
+  // Linux only: the cross-window tab drop needs real global coordinates,
+  // which X11 has and Wayland forbids. Resolved off the boot path — until the
+  // answer arrives the drag release just falls back to tear-off (safe).
+  if (IS_LINUX_DESKTOP) {
+    void ipc
+      .displayServer()
+      .then((server) => {
+        trustGlobalCoords = server === 'x11';
+      })
+      .catch(() => {});
+  }
+
   // Install the platform storage provider BEFORE the controller captures
   // currentProvider(): on Android this routes local + synced (SAF) workspaces;
   // desktop stays on the plain local FS.
@@ -496,6 +611,11 @@ async function boot(): Promise<void> {
     manifestName: IS_MAIN_WINDOW ? 'session.json' : `session-${WINDOW_LABEL}.json`,
     initialManifest: adoptParam ? parseManifest(adoptParam) : null,
     spawnTabWindow,
+    findDropWindow,
+    // The drag-drop handover waits longer than the closing-window handoff
+    // (below): the user is watching the drop, and a first-adopt in the target
+    // may read note files before it can flush and ack.
+    sendTabsToWindow: (label, tabs) => sendTabsToWindow(label, tabs, 4000),
     confirm: confirmDialog,
     confirmRemember: confirmRememberDialog,
     openDialog: openFilesDialog,
@@ -657,6 +777,12 @@ async function boot(): Promise<void> {
     void controller.flushNow();
   }).catch(() => {});
 
+  // Focus recency, for the cross-window drop's topmost pick (findDropWindow).
+  // Every window broadcasts its own focus; every window records everyone's.
+  void listen<{ label: string }>('window-focused', (event) => {
+    windowFocusOrder.set(event.payload.label, ++windowFocusCounter);
+  }).catch(() => {});
+
   // Live settings sync between windows (see persistSettingsDebounced). Our own
   // broadcast comes back too — drop it by label: the payload is a stale
   // snapshot, and this window already has the live value (folding the echo in
@@ -751,6 +877,9 @@ async function boot(): Promise<void> {
   void appWindow
     .onFocusChanged(({ payload: focused }) => {
       if (focused) {
+        // Broadcast for the drop hit-test's focus-recency ranking; our own
+        // listener above records it too, like everyone else's.
+        void emit('window-focused', { label: WINDOW_LABEL }).catch(() => {});
         void controller.checkAllFileConflicts();
         // A warm-start "Open with"/"Share" intent refocuses the window.
         drainIncomingUris();
@@ -797,26 +926,7 @@ async function boot(): Promise<void> {
       await controller.bequeathTabsToMain(tabs).catch(() => {});
       return;
     }
-    const acked = await new Promise<boolean>((resolve) => {
-      let unlisten: (() => void) | null = null;
-      const timer = setTimeout(() => {
-        unlisten?.();
-        resolve(false);
-      }, 1500);
-      listen(`adopt-ack-${WINDOW_LABEL}`, () => {
-        clearTimeout(timer);
-        unlisten?.();
-        resolve(true);
-      })
-        .then((un) => {
-          unlisten = un;
-          void emitTo(target.label, 'adopt-tabs', { tabs, from: WINDOW_LABEL }).catch(() => {});
-        })
-        .catch(() => {
-          clearTimeout(timer);
-          resolve(false);
-        });
-    });
+    const acked = await sendTabsToWindow(target.label, tabs, 1500);
     if (acked) {
       await controller.discardManifest().catch(() => {});
     }
