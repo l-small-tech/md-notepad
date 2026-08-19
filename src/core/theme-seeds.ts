@@ -37,8 +37,10 @@
 
 import type { ThemePlugin } from './theme-plugins';
 
-/** Bump when any built-in definition below changes (see module comment). */
-export const SEED_VERSION = 6;
+/** Bump when any built-in definition below changes (see module comment) —
+ *  including the bundled background images (ipc/theme-seed-images.ts): the
+ *  loader reseeds a theme's image only when the theme file itself refreshes. */
+export const SEED_VERSION = 7;
 
 /**
  * Built-ins we used to seed but no longer ship. Gruvbox/Everforest/Rosé Pine
