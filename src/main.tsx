@@ -185,8 +185,22 @@ function injectThemeStyles(): void {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * True while the settings-changed listener is folding a sibling window's
+ * broadcast into the store. That replace() fires the persist subscription like
+ * any other change, but re-arming the saver here would re-broadcast a snapshot
+ * the sender already persisted — and by the time this window's debounce fires,
+ * that snapshot is stale: a folder expanded (or any setting changed) in the
+ * sending window during the round-trip would be visibly reverted by the
+ * boomerang. Zustand notifies synchronously, so a plain flag suffices.
+ */
+let applyingRemoteSettings = false;
+
 /** Debounced write-through so rapid field edits collapse into one save. */
 function persistSettingsDebounced(): void {
+  if (applyingRemoteSettings) {
+    return;
+  }
   if (saveTimer !== null) {
     clearTimeout(saveTimer);
   }
@@ -656,7 +670,16 @@ async function boot(): Promise<void> {
       windowThemeStore.getState().set(merged.override);
     }
     if (JSON.stringify(merged.settings) !== JSON.stringify(settingsStore.getState().settings)) {
-      settingsStore.getState().replace(merged.settings);
+      // Adopt without re-arming our own saver: the sender already persisted
+      // this value, and echoing it back 400ms later would boomerang a stale
+      // snapshot into any change the sender made in the meantime (the
+      // "folder reopens/recollapses itself" race). See applyingRemoteSettings.
+      applyingRemoteSettings = true;
+      try {
+        settingsStore.getState().replace(merged.settings);
+      } finally {
+        applyingRemoteSettings = false;
+      }
     }
   }).catch(() => {});
 
