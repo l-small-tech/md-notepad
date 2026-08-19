@@ -293,7 +293,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
   }
   setOpenFileDispatch(() => void openSave.openFileDialog());
-  setOpenExportPreviewDispatch(() => exporter.openExportPreview());
+  setOpenExportPreviewDispatch((tabId) => exporter.openExportPreview(tabId));
   setOpenExportPreviewForFileDispatch((path) => void exporter.openExportPreviewForFile(path));
   setRunExportFromPreviewDispatch(exporter.runExportFromPreview);
   setBuildExportPreviewHtmlDispatch(exporter.buildPreviewHtml);

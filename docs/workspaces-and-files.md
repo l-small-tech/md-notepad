@@ -1,6 +1,6 @@
 # Workspaces and the file browser
 
-Click the **☰** button (top-left) to open the sidebar — a file browser for
+Click the **folder** button (top-left) to open the sidebar — a file browser for
 your notes and any other folders you care about.
 
 ## What's in the sidebar

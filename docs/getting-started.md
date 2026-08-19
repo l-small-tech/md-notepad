@@ -45,8 +45,10 @@ From top to bottom:
 
 - **Tab bar** — one tab per note or file, plus a `+` button for a new tab.
   This row is also the window's title bar: drag it to move the window.
-- **Toolbar** — buttons for the sidebar (☰), settings (⚙), text formatting,
-  and copying the raw text (⧉).
+- **Toolbar** — buttons for the sidebar, saving, and text formatting. The
+  app's own commands (search, settings, themes, full screen) live in the **⌄**
+  menu beside the `+` button; what acts on one document (**Export…**, **Copy
+  all raw text**) is in a tab's right-click menu.
 - **The editor** — where you type.
 - **Status bar** — the mode switcher (Raw / Split / Rich / Read), any brief
   messages from the app, and live counts of your words and characters.

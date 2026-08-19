@@ -21,6 +21,7 @@ import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
 import { openTerminal } from '../terminal-open';
 import { useSettingsStore } from '../stores/settings';
+import { searchStore } from '../stores/search';
 import { uiStore, useUiStore } from '../stores/ui';
 import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
 import { useWindowTheme } from '../stores/window-theme';
@@ -275,14 +276,18 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * The app-level rows every popover carries: Themes, Settings, and the two
- * full-screen stages.
+ * The app-level rows every popover carries: search, the command palette,
+ * Themes, Settings, and the two full-screen stages.
  *
  * Shared so the tab bar's menu and the "+" picker cannot drift — a user who
  * opened the picker to start something is one row away from the settings and
  * the stage that thing should open into, without hunting for a second menu.
  * Themes is a drill-in page rather than a flyout (see `ThemesMenuPage`), so
  * the caller owns the page state and passes `onOpenThemes`.
+ *
+ * These are APP rows: everything here means the same thing whatever tab is in
+ * front. What acts on one document (export, copy raw text) belongs to that
+ * tab's own right-click menu instead — TabBar's `TabContextMenu`.
  */
 export function AppActionRows({
   onOpenThemes,
@@ -295,6 +300,23 @@ export function AppActionRows({
 
   return (
     <>
+      <AppMenuItem
+        glyph="🔍"
+        label="Search workspaces"
+        shortcut={IS_MAC ? '⇧⌘F' : 'Ctrl+Shift+F'}
+        onPick={() => searchStore.getState().openSearch()}
+        onClose={onClose}
+      />
+      {/* The menu is the palette's only entry point on Android (no Ctrl+K
+          there), and a discoverable one on desktop. */}
+      <AppMenuItem
+        glyph="»"
+        label="Command palette"
+        shortcut={IS_MAC ? '⌘K' : 'Ctrl+K'}
+        onPick={() => uiStore.getState().togglePalette()}
+        onClose={onClose}
+      />
+      <AppMenuDivider />
       <AppMenuItem
         glyph="🎨"
         label="Themes"

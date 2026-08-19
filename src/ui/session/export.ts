@@ -100,9 +100,14 @@ function seedFromDom(): { themeId: string; dark: boolean } {
 }
 
 export function createExport(ctx: SessionCtx) {
-  /** The active tab if it holds markdown text; otherwise notice + null. */
-  function activeTextTab(): TabEntry | null {
-    const tab = tabsStore.getState().activeTab();
+  /**
+   * The tab to export — the one named, else the active one — if it holds
+   * markdown text; otherwise notice + null. A tab's own context menu names
+   * its id, because right-clicking a tab does not activate it.
+   */
+  function textTabFor(tabId?: string): TabEntry | null {
+    const tabs = tabsStore.getState();
+    const tab = tabId === undefined ? tabs.activeTab() : tabs.tabs.find((t) => t.id === tabId);
     if (!tab || tab.kind === 'image' || tab.kind === 'import') {
       uiStore.getState().showNotice('Open a note or markdown file to export it.');
       return null;
@@ -303,9 +308,9 @@ export function createExport(ctx: SessionCtx) {
     }
   }
 
-  /** ☰ menu / palette: open the export preview on the active tab. */
-  function openExportPreview(): void {
-    const tab = activeTextTab();
+  /** Palette / tab context menu: open the export preview on a tab. */
+  function openExportPreview(tabId?: string): void {
+    const tab = textTabFor(tabId);
     if (tab) {
       exportPreviewStore.getState().openWith(sourceFromTab(tab), seedFromDom());
     }

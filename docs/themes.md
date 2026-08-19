@@ -4,8 +4,9 @@ A **theme** sets the colors the app uses — the background, the text, the accen
 on links and headings, and so on. Themes are what make long reading and writing
 sessions comfortable, so it's worth finding (or making) one you like.
 
-Pick a theme in the **☰ menu → Themes** — every installed theme is listed
-there, with a ✓ on the one you're using, and picking one applies it instantly.
+Pick a theme in the **⌄ menu → Themes** — the arrow beside the `+` button on
+the tab bar. Every installed theme is listed there, with a ✓ on the one you're
+using, and picking one applies it instantly.
 (The same list is also in **Settings → Theme**.) It starts with **System**
 (**Light Green** when your computer is in light mode, **Dark Green** in dark
 mode, switching live when it changes), then every theme grouped by its declared
@@ -40,7 +41,7 @@ seconds. Read on.
 ## The themes folder
 
 Every theme is one small `.json` file in your **themes folder**. Below the
-theme list in **☰ menu → Themes** are the buttons for managing it:
+theme list in **⌄ menu → Themes** are the buttons for managing it:
 
 - **Open folder** — opens the themes folder in your file manager, so you can
   see the files, drop new ones in, or make copies. *(Desktop only.)*

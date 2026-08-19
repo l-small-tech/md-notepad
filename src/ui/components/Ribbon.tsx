@@ -2,10 +2,12 @@
  * Ribbon — a toolbar between the tabs and the editor.
  *
  * Layout: the panel toggles bookend the row on the side their panel opens —
- * explorer (◧) leftmost, outline (◨) rightmost. Next to the explorer sits the
- * ☰ app menu (search / palette / export / copy raw / settings), keeping the
- * one-shot commands out of the toolbar, and then Save — which is also the
- * auto-save indicator, so it lives with the chrome that every mode shows. The
+ * explorer (◧) leftmost, outline (◨) rightmost. Next to the explorer sits
+ * Save — which is also the auto-save indicator, so it lives with the chrome
+ * that every mode shows. The ribbon has no menu button of its own: the app
+ * commands live in the "+ ⌄" picker beside the new-tab button and in the tab
+ * bar's own right-click menu (`AppMenu.AppActionRows`), and the per-document
+ * ones (export, copy raw text) in a tab's right-click menu. The
  * center is a mode-dependent cluster; fullscreen stays as a direct button on
  * the right. Its background is
  * `var(--bg)`, matching the active tab, so the selected tab appears to flow
@@ -24,15 +26,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
-import { appendMentions } from '../../core/link-mentions';
-import { dirName } from '../../core/session/plan-flush';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
 import { getSourceAdapter } from '../editor-registry';
-import { AppMenuDivider, AppMenuItem, ThemesMenuPage } from './AppMenu';
+import { AppMenuDivider, AppMenuItem } from './AppMenu';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
-import { insertFileLink, openExportPreview, saveActiveTab, saveActiveTabAs } from '../session';
+import { insertFileLink, saveActiveTab, saveActiveTabAs } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
 import {
   FONT_FAMILIES,
@@ -48,7 +48,6 @@ import {
 // the ribbon needs the finger-toggle's resolution rule, nothing more.
 import { fingerDrawsEnabled } from '../../core/whiteboard/input';
 import { getWhiteboardAdapter, useWhiteboardStore, whiteboardStore } from '../stores/whiteboard';
-import { searchStore } from '../stores/search';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -219,127 +218,6 @@ function openVoiceComments(): void {
   }
 }
 
-function copyRawText(): void {
-  const state = tabsStore.getState();
-  const tab = state.tabs.find((t) => t.id === state.activeTabId);
-  if (!tab) {
-    return;
-  }
-  const baseDir = dirName(tab.filePath ?? tab.notePath ?? '');
-  const { text, count } = appendMentions(tab.model.getText(), baseDir);
-  const done =
-    count > 0
-      ? `Copied raw text + ${count} file ${count === 1 ? 'mention' : 'mentions'} (@paths).`
-      : 'Copied raw text to clipboard.';
-  void navigator.clipboard
-    .writeText(text)
-    .then(() => uiStore.getState().showNotice(done))
-    .catch(() => uiStore.getState().showNotice('Could not access the clipboard.'));
-}
-
-/**
- * The ☰ app menu — one-shot commands that don't earn a toolbar slot. Same
- * fixed-position popover pattern as the tab bar's OverflowMenu, but
- * left-aligned under its trigger (the button sits near the window's left edge).
- */
-function RibbonMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
-  const [page, setPage] = useState<'root' | 'themes'>('root');
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('blur', close);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="tab-menu app-menu"
-      role="menu"
-      style={{ left: anchor.left, top: anchor.bottom + 4 }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      {page === 'themes' ? (
-        <ThemesMenuPage onBack={() => setPage('root')} onClose={onClose} />
-      ) : (
-        <RootMenuPage onOpenThemes={() => setPage('themes')} onClose={onClose} />
-      )}
-    </div>
-  );
-}
-
-/** The ☰ menu's top level. */
-function RootMenuPage({
-  onOpenThemes,
-  onClose,
-}: {
-  onOpenThemes: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      <AppMenuItem
-        glyph="🔍"
-        label="Search workspaces"
-        shortcut={IS_MAC ? '⇧⌘F' : 'Ctrl+Shift+F'}
-        onPick={() => searchStore.getState().openSearch()}
-        onClose={onClose}
-      />
-      {/* The menu is the palette's only entry point on Android (no Ctrl+K
-          there), and a discoverable one on desktop. */}
-      <AppMenuItem
-        glyph="»"
-        label="Command palette"
-        shortcut={IS_MAC ? '⌘K' : 'Ctrl+K'}
-        onPick={() => uiStore.getState().togglePalette()}
-        onClose={onClose}
-      />
-      <AppMenuItem
-        glyph="⇩"
-        label="Export…"
-        title="Export as PDF, DOCX or HTML — opens a themed preview"
-        onPick={() => openExportPreview()}
-        onClose={onClose}
-      />
-      <AppMenuItem
-        glyph="⧉"
-        label="Copy all raw text"
-        title="Copy raw text (+ @path mentions for linked files, for the Claude Code CLI)"
-        onPick={copyRawText}
-        onClose={onClose}
-      />
-      <AppMenuDivider />
-      <AppMenuItem
-        glyph="🎨"
-        label="Themes"
-        title="Pick a theme, or make your own"
-        shortcut="›"
-        onPick={onOpenThemes}
-        onClose={onClose}
-        keepOpen
-      />
-      <AppMenuItem
-        glyph="⚙"
-        label="Settings"
-        shortcut={IS_MAC ? '⌘,' : 'Ctrl+,'}
-        onPick={() => uiStore.getState().openSettings()}
-        onClose={onClose}
-      />
-    </>
-  );
-}
-
 /** How long the save button has to be held before its options menu opens. */
 const SAVE_HOLD_MS = 500;
 /** How far the contact may wander during that hold and still count as a press. */
@@ -364,12 +242,12 @@ const SAVE_HOLD_SLOP_PX = 10;
 function SaveControl() {
   const liveSave = useSettingsStore((s) => s.settings.liveSave);
   const tab = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
-  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdOrigin = useRef<{ x: number; y: number } | null>(null);
   // A hold that opened the menu must not also fire the button's click on
   // release — the finger that summoned the menu would save on the way out.
   const suppressClick = useRef(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
 
   const savable = !!tab && tab.kind !== 'image' && tab.kind !== 'import' && !tab.readOnly;
   const dirty = tab?.kind === 'file' && tab.dirty;
@@ -400,9 +278,9 @@ function SaveControl() {
         disabled={!savable}
         onMouseDown={(e) => e.preventDefault()}
         onPointerDown={(e) => {
-          // No stopPropagation here (unlike the ☰ trigger): this press opens
-          // nothing yet, so letting it reach the window lets an already-open
-          // popover — the ☰ menu, or this button's own — dismiss normally. The
+          // No stopPropagation here: this press opens nothing yet, so letting
+          // it reach the window lets an already-open popover — another menu,
+          // or this button's own — dismiss normally. The
           // menu appears 500 ms later, by which time the press is long over.
           cancelHold();
           if (e.pointerType === 'mouse' && e.button !== 0) {
@@ -934,14 +812,13 @@ export function Ribbon() {
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
   );
-  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   return (
     <div
       className="ribbon"
       onContextMenu={(e) => {
         // Free bar space has no menu of its own — swallow the event so the
         // webview default (Back / Reload / Inspect) never shows. Buttons and
-        // the ☰ popover keep their own handling; their events merely bubble
+        // any open popover keep their own handling; their events merely bubble
         // through here.
         if ((e.target as HTMLElement).closest('button, .tab-menu')) {
           return;
@@ -971,22 +848,6 @@ export function Ribbon() {
             <path d="M2.7 15.3V4.7h4.6l1.7 2.2h8.3v8.4z" />
             <path d="M2.7 6.9h14.6" />
           </svg>
-        </button>
-        <button
-          className="ribbon-btn ribbon-btn-lg"
-          aria-label="Menu"
-          aria-haspopup="menu"
-          aria-expanded={menuAnchor != null}
-          title="Menu"
-          onMouseDown={(e) => e.preventDefault()}
-          // Keep the window pointerdown dismiss handler from instantly
-          // re-closing the menu this click opens.
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) =>
-            setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect())
-          }
-        >
-          ☰
         </button>
         {/* Save sits with the chrome, not in the mode-dependent center: it
             means the same thing in every mode, and its glyph doubles as the
@@ -1055,7 +916,6 @@ export function Ribbon() {
           </svg>
         </button>
       </div>
-      {menuAnchor && <RibbonMenu anchor={menuAnchor} onClose={() => setMenuAnchor(null)} />}
     </div>
   );
 }

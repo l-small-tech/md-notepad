@@ -100,10 +100,19 @@ collapsed group and a scroll alike. The rule itself is pure and tested
 
 Right-clicking the strip's FREE space opens the bar's own menu (`BarContextMenu`),
 a small app menu rather than a one-item stub: a New tab drill-in page (every
-type, one row per terminal profile), the command palette, Themes, Settings, the
-two full-screen stages as toggles, and "Close all tabs". Its rows and the
-Themes page are the same widgets the ribbon's ☰ menu uses
+type, one row per terminal profile), search, the command palette, Themes,
+Settings, the two full-screen stages as toggles, and "Close all tabs". Its rows
+and the Themes page are the same widgets the "+ ⌄" picker uses
 (`components/AppMenu.tsx`), so the two menus can't drift apart.
+
+Right-clicking a TAB opens that tab's own menu (`TabContextMenu`) — what acts
+on this document: **Export…** and **Copy all raw text** (only for a tab holding
+markdown — not a terminal, image, import card or `.svg` drawing), then Keep
+open / Rename / Move to new window / Close / Close all. Both document rows name
+the right-clicked tab's id explicitly, because right-clicking a tab
+deliberately does not activate it (`ui/tab-actions.ts`, and
+`openExportPreview(tabId?)`). The split is the rule for both menus: app
+commands in the bar's menu and the picker, per-document ones on the tab.
 
 The free space after the last tab keeps `data-tauri-drag-region` and a floor
 (`--tab-free-space`), so the window stays draggable however many tabs are
@@ -342,13 +351,14 @@ belt-and-braces; a new surface needs no guard of its own unless it has a menu.
   so changes apply immediately: theme/ligatures/font size via the DOM
   subscription (`applyDomSettings`), word wrap via EditorHost reconfiguring the
   live CM6 adapter, default mode on the NEXT new tab.
-- Theme picking has two surfaces — the ribbon's ☰ menu → **Themes** (the theme
+- Theme picking has two surfaces — the "+ ⌄" picker (or the tab bar's own
+  menu) → **Themes** (the theme
   list plus Open folder / New theme… / Reload / Help) and the Settings **Theme**
   dropdown. Both go through `ui/theme-actions.ts` (side effects) and
   `stores/theme-registry`'s `currentThemeValue` / `themeSelectionPatch` (the
   pure "which entry is current / what does this choice mean" pair, unit-tested),
   so the two can't drift.
-- **Window-only theme** (right-click in the ☰ list, or the Settings box): the
+- **Window-only theme** (right-click in the Themes list, or the Settings box): the
   pinned theme still lives in the settings store — every consumer reads the
   theme from there — and `stores/window-theme` instead guards the two edges
   where settings cross the window boundary. `sharedSettings` swaps the shared

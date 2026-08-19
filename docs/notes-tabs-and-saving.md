@@ -55,8 +55,8 @@ toggle auto save or to reach Save As.
 
 ### Export and print
 
-- **Export as HTML** — the ⇩ button on the ribbon (or the command palette)
-  saves the current document as a single standalone `.html` file: styling is
+- **Export as HTML** — **right-click the tab → Export…** (or the command
+  palette) saves the document as a single standalone `.html` file: styling is
   built in, local images are embedded, and mermaid diagrams are rendered —
   ready to share or open in any browser.
 - **Print / Save as PDF** — in the command palette (desktop only). Opens the

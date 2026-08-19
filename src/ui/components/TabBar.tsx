@@ -36,12 +36,20 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { closeAllTabs, closeTab, moveTabToNewWindow, renameTab } from '../session';
+import {
+  closeAllTabs,
+  closeTab,
+  moveTabToNewWindow,
+  openExportPreview,
+  renameTab,
+} from '../session';
 import { newTabDefault } from '../new-tab';
+import { copyRawText } from '../tab-actions';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
 import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
+import { docFamilyForTab } from '../../core/doc-family';
 import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
@@ -395,11 +403,29 @@ function useMenuDismiss(onClose: () => void): void {
   }, [onClose]);
 }
 
+/**
+ * A tab's own right-click menu: what acts on THIS document.
+ *
+ * The document rows (Export, Copy all raw text) sit above the tab-management
+ * ones, and only for a tab that holds markdown — a terminal, an image, an
+ * import card or an `.svg` drawing has no markdown to export or copy. They
+ * name `menu.tabId` explicitly rather than reading the active tab, because
+ * right-clicking a tab deliberately does NOT activate it.
+ *
+ * App-wide commands are not here: those live in the bar's own menu and the
+ * "+ ⌄" picker (`AppActionRows`), which is where the ribbon's old ☰ menu
+ * moved to.
+ */
 function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void }) {
   // Transient menu — a one-shot store read is fine (it closes on any change).
   const s = tabsStore.getState();
   const tab = s.tabs.find((t) => t.id === menu.tabId);
   const isPreview = tab?.preview ?? false;
+  const isDoc =
+    tab !== undefined &&
+    tab.kind !== 'image' &&
+    tab.kind !== 'import' &&
+    docFamilyForTab(tab) === 'markdown';
   useMenuDismiss(onClose);
 
   return (
@@ -410,6 +436,33 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       // Don't let the menu's own pointerdown reach the window dismiss handler.
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {isDoc && (
+        <>
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title="Export as PDF, DOCX or HTML — opens a themed preview"
+            onClick={() => {
+              openExportPreview(menu.tabId);
+              onClose();
+            }}
+          >
+            Export…
+          </button>
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title="Copy raw text (+ @path mentions for linked files, for an agentic CLI)"
+            onClick={() => {
+              copyRawText(menu.tabId);
+              onClose();
+            }}
+          >
+            Copy all raw text
+          </button>
+          <AppMenuDivider />
+        </>
+      )}
       {isPreview && (
         <button
           className="tab-menu-item"
@@ -471,12 +524,13 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
  * the last tab, or the spacer before the window controls). It carries what
  * belongs to the bar and to the app rather than to one tab, so the empty
  * strip is a full app menu and not a single-item stub: a New tab page (every
- * type, one row per terminal profile), the palette, Themes, Settings, the
- * full-screen stages, and "Close all tabs" — which lives here instead of as a
- * permanent ⊗ button in the titlebar.
+ * type, one row per terminal profile), search, the palette, Themes, Settings,
+ * the full-screen stages, and "Close all tabs" — which lives here instead of
+ * as a permanent ⊗ button in the titlebar.
  *
- * Themes drills in rather than flying out, and shares its page with the
- * ribbon's ☰ menu (components/AppMenu) so the two can't drift apart.
+ * Themes drills in rather than flying out, and its page — like every app row
+ * here — is the same widget the "+ ⌄" picker renders (components/AppMenu), so
+ * the two menus can't drift apart.
  */
 function BarContextMenu({ at, onClose }: { at: { x: number; y: number }; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -557,13 +611,8 @@ function BarMenuRoot({
         keepOpen
       />
       <AppMenuDivider />
-      <AppMenuItem
-        glyph="»"
-        label="Command palette"
-        shortcut={IS_MAC ? '⌘K' : 'Ctrl+K'}
-        onPick={() => uiStore.getState().togglePalette()}
-        onClose={onClose}
-      />
+      {/* Search, the palette, Themes, Settings and the stages all come from
+          AppActionRows — the "+ ⌄" picker renders the very same rows. */}
       <AppActionRows onOpenThemes={onOpenThemes} onClose={onClose} />
       <AppMenuDivider />
       <AppMenuItem

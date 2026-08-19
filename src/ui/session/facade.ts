@@ -171,7 +171,7 @@ let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
 let changeNotesDirDispatch: () => void = () => {};
 
-let openExportPreviewDispatch: () => void = () => {};
+let openExportPreviewDispatch: (tabId?: string) => void = () => {};
 let openExportPreviewForFileDispatch: (path: string) => void = () => {};
 let runExportFromPreviewDispatch: () => Promise<void> = async () => {};
 let buildExportPreviewHtmlDispatch: (
@@ -186,7 +186,7 @@ let buildExportPreviewHtmlDispatch: (
 export function setOpenFileDispatch(fn: () => void): void {
   openFileDispatch = fn;
 }
-export function setOpenExportPreviewDispatch(fn: () => void): void {
+export function setOpenExportPreviewDispatch(fn: (tabId?: string) => void): void {
   openExportPreviewDispatch = fn;
 }
 export function setOpenExportPreviewForFileDispatch(fn: (path: string) => void): void {
@@ -407,8 +407,9 @@ export function openFile(): void {
   openFileDispatch();
 }
 /** Ribbon / palette → controller: open the export preview on the active tab. */
-export function openExportPreview(): void {
-  openExportPreviewDispatch();
+/** Open the export preview on `tabId`, or on the active tab when omitted. */
+export function openExportPreview(tabId?: string): void {
+  openExportPreviewDispatch(tabId);
 }
 /** FileExplorer context menu → controller: open the export preview on a .md
  *  file by path (an open tab's live text wins over the on-disk content). */
