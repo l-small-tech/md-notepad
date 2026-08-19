@@ -57,6 +57,10 @@ export interface DocModel {
   subscribe(listener: (change: DocChange) => void): () => void;
   /** Snapshot current text as "persisted" for the given target. */
   markPersisted(kind: PersistKind): void;
+  /** The last snapshot taken for the target — what we believe is on disk.
+   *  The conflict check compares this against a fresh read, so an mtime-only
+   *  change (touch, sync rewrite) never raises the banner. */
+  getPersisted(kind: PersistKind): string;
   isDirty(kind: PersistKind): boolean;
 }
 
@@ -97,6 +101,10 @@ export function createDocModel(initialText: string): DocModel {
 
     markPersisted(kind) {
       persisted[kind] = text;
+    },
+
+    getPersisted(kind) {
+      return persisted[kind];
     },
 
     isDirty(kind) {

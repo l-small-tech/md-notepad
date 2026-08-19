@@ -19,6 +19,7 @@ import {
 import { getSourceAdapter } from '../editor-registry';
 import { ipc as nativeIpc } from '../../ipc/commands';
 import { isAndroid } from '../platform';
+import { diffViewStore } from '../stores/diff-view';
 import { tabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import type { SessionCtx } from './context';
@@ -343,8 +344,31 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
     }
     try {
       const stat = await ctx.ipc.statPath(tab.filePath);
-      const conflicted = stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs;
-      tabsStore.getState().setConflict(id, conflicted);
+      const mtimeMoved = stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs;
+      if (!mtimeMoved) {
+        tabsStore.getState().setConflict(id, false);
+        return;
+      }
+      // mtime alone lies: touch, a sync client rewriting identical bytes, or a
+      // wall-clock fallback baseline all move it without changing anything.
+      // Only raise the banner when the CONTENT differs from what we believe is
+      // on disk (the last saved/loaded snapshot); otherwise silently adopt the
+      // new mtime. Disk matching the CURRENT text is also no conflict — there
+      // is nothing to resolve, reloading would be a no-op.
+      let changed = true;
+      let baseline = stat.mtimeMs ?? tab.savedMtimeMs ?? ctx.now();
+      try {
+        const { text, mtimeMs } = await ctx.ipc.readTextFile(tab.filePath);
+        changed = text !== tab.model.getPersisted('file') && text !== tab.model.getText();
+        baseline = mtimeMs;
+      } catch {
+        // Unreadable (e.g. rewritten as non-UTF-8) counts as changed.
+      }
+      if (changed) {
+        tabsStore.getState().setConflict(id, true);
+      } else {
+        tabsStore.getState().acknowledgeConflict(id, baseline);
+      }
     } catch {
       // A transient stat failure is not itself a conflict signal.
     }
@@ -367,8 +391,25 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
       const { text, mtimeMs } = await ctx.ipc.readTextFile(tab.filePath);
       tab.model.pushText(text, 'file-load');
       tabsStore.getState().markSaved(id, mtimeMs);
+      diffViewStore.getState().close(id);
     } catch (error) {
       uiStore.getState().showNotice(`Could not reload "${tab.title}".`);
+      ctx.deps.onError?.(error);
+    }
+  }
+
+  /** ConflictBanner "View diff": read the on-disk text and open the inline
+   *  DiffView (disk ↔ editor) for the tab. */
+  async function viewDiff(id: string): Promise<void> {
+    const tab = tabsStore.getState().tabs.find((t) => t.id === id);
+    if (!tab || tab.kind !== 'file' || !tab.filePath) {
+      return;
+    }
+    try {
+      const { text } = await ctx.ipc.readTextFile(tab.filePath);
+      diffViewStore.getState().open(id, text);
+    } catch (error) {
+      uiStore.getState().showNotice(`Could not read "${tab.title}" from disk.`);
       ctx.deps.onError?.(error);
     }
   }
@@ -386,6 +427,7 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
       // Keep the previous baseline; the next save will re-stat anyway.
     }
     tabsStore.getState().acknowledgeConflict(id, mtimeMs);
+    diffViewStore.getState().close(id);
   }
 
   return {
@@ -400,5 +442,6 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
     checkAllFileConflicts,
     reloadFromDisk,
     keepMine,
+    viewDiff,
   };
 }

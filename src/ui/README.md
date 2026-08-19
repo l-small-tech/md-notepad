@@ -11,7 +11,8 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); workspace color cues (a tab wears its workspace's accent; `groupTabsByWorkspace` optionally keeps each workspace's tabs contiguous — rules in core/tab-workspaces.ts, resolution in ui/workspace-cues.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher |
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
-| `ConflictBanner` | M3 | per-tab "File changed on disk — Reload / Keep mine" |
+| `ConflictBanner` | M3 | per-tab "File changed on disk — View diff / Reload / Keep mine" |
+| `DiffView` | reference | read-only side-by-side diff of two texts (core/diff.ts does the comparing); shown inline in EditorHost while a conflict's "View diff" is open, reusable for the future git integration |
 | `ExternalLinkPrompt` | reference | the confirm bar for a clicked `http(s)` link (non-modal, bottom centre) — see "Link policy" below |
 | `SettingsDialog` | M6 | plain form over the settings store |
 | `ExternalLinkPrompt` | reference | the "open this in your browser?" bar for a clicked external link — non-modal, self-dismissing |

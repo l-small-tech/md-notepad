@@ -101,6 +101,16 @@ describe('createDocModel', () => {
     expect(model.isDirty('file')).toBe(false);
   });
 
+  test('getPersisted returns the last snapshot per kind', () => {
+    const model = createDocModel('start');
+    expect(model.getPersisted('file')).toBe('start');
+    model.pushText('edited', 'cm6');
+    expect(model.getPersisted('file')).toBe('start'); // unchanged until marked
+    model.markPersisted('file');
+    expect(model.getPersisted('file')).toBe('edited');
+    expect(model.getPersisted('session')).toBe('start');
+  });
+
   test('reverting to the persisted text makes the doc clean again', () => {
     const model = createDocModel('start');
     model.pushText('edited', 'cm6');

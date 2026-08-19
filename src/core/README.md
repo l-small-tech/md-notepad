@@ -11,6 +11,7 @@ do not rewrite them.
 | --- | --- | --- |
 | `types.ts` | reference | shared vocabulary (TabState, Settings, EditorMode…) |
 | `doc-model.ts` | reference | canonical-text document model (I1) |
+| `diff.ts` | reference | pure line diff (Myers) + side-by-side row builder with intra-line ranges — DiffView now, git integration later |
 | `mode-sync.ts` | reference | mode-switch state machine + WYSIWYG write-back guard (I2) |
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
 | `tab-status.ts` | terminal | agent status glyph in a terminal's OSC title (`✳ `, `◐ `) → activity + the remaining label, for the TabBar badge |

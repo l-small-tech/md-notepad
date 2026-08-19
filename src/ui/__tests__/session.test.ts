@@ -510,7 +510,7 @@ describe('restore', () => {
     expect(tab.conflict).toBe(false);
   });
 
-  test('a restored file tab whose on-disk file changed while closed is flagged as a conflict', async () => {
+  test('a restored buffer-less file tab adopts a moved mtime silently (it already shows disk)', async () => {
     const manifest = {
       schema: 1,
       activeTabId: 't1',
@@ -533,6 +533,42 @@ describe('restore', () => {
       [`/docs/report.md`]: 'changed while we were closed',
     });
     fs.mtimes.set('/docs/report.md', 999); // differs from the manifest's savedMtimeMs (5)
+    const controller = makeController(fs);
+
+    await controller.restore();
+
+    // Without a buffer, restore loaded the CURRENT disk content into the
+    // model — there is nothing to resolve, so no banner; the stale manifest
+    // baseline is replaced by the on-disk mtime.
+    const tab = tabs.tabsStore.getState().tabs[0]!;
+    expect(tab.conflict).toBe(false);
+    expect(tab.savedMtimeMs).toBe(999);
+  });
+
+  test('a restored file tab with unsaved buffer edits IS flagged when disk changed while closed', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          kind: 'file',
+          notePath: null,
+          filePath: '/docs/report.md',
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: 5,
+          hasBuffer: true,
+          cursor: null,
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      [`${SESSION}/buffers/t1.md`]: 'my unsaved edits',
+      [`/docs/report.md`]: 'changed while we were closed',
+    });
+    fs.mtimes.set('/docs/report.md', 999);
     const controller = makeController(fs);
 
     await controller.restore();
@@ -1235,17 +1271,75 @@ describe('saveActive / saveAsActive (M3)', () => {
 });
 
 describe('conflict detection, reload, and keep-mine (M3)', () => {
-  test('checkConflict flags a file tab whose on-disk mtime moved past savedMtimeMs', async () => {
+  test('checkConflict flags a file tab whose on-disk content changed', async () => {
     const fs = makeFakeFs({ '/docs/a.md': 'x' });
     fs.mtimes.set('/docs/a.md', 1);
     const controller = makeController(fs);
     await controller.openPaths(['/docs/a.md']);
     const id = tabs.tabsStore.getState().activeTabId!;
+    fs.files.set('/docs/a.md', 'external edit');
     fs.mtimes.set('/docs/a.md', 2);
 
     await controller.checkConflict(id);
 
     expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+  });
+
+  test('checkConflict silently adopts an mtime-only change (touch / identical rewrite)', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    fs.mtimes.set('/docs/a.md', 2); // content still 'x'
+
+    await controller.checkConflict(id);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(false);
+    expect(tab.savedMtimeMs).toBe(2); // baseline adopted, no banner
+  });
+
+  test('checkConflict stays quiet when disk already matches the unsaved editor text', async () => {
+    const fs = makeFakeFs({ '/docs/a.md': 'x' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    tabs.tabsStore.getState().activeTab()!.model.pushText('same everywhere', 'cm6');
+    fs.files.set('/docs/a.md', 'same everywhere');
+    fs.mtimes.set('/docs/a.md', 2);
+
+    await controller.checkConflict(id);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(false); // nothing to resolve — reload would be a no-op
+  });
+
+  test('viewDiff snapshots the on-disk text; reload and keep-mine close it', async () => {
+    const { diffViewStore } = await import('../stores/diff-view');
+    const fs = makeFakeFs({ '/docs/a.md': 'original' });
+    fs.mtimes.set('/docs/a.md', 1);
+    const controller = makeController(fs);
+    await controller.openPaths(['/docs/a.md']);
+    const id = tabs.tabsStore.getState().activeTabId!;
+    fs.files.set('/docs/a.md', 'external content');
+    fs.mtimes.set('/docs/a.md', 2);
+    await controller.checkConflict(id);
+
+    await controller.viewDiff(id);
+    expect(diffViewStore.getState().byTab[id]).toEqual({ diskText: 'external content' });
+
+    await controller.keepMine(id);
+    expect(diffViewStore.getState().byTab[id]).toBeUndefined();
+
+    fs.files.set('/docs/a.md', 'newer still');
+    fs.mtimes.set('/docs/a.md', 3);
+    await controller.checkConflict(id);
+    await controller.viewDiff(id);
+    expect(diffViewStore.getState().byTab[id]).toEqual({ diskText: 'newer still' });
+    await controller.reloadFromDisk(id);
+    expect(diffViewStore.getState().byTab[id]).toBeUndefined();
   });
 
   test('checkAllFileConflicts leaves an untouched file clean', async () => {

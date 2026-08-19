@@ -162,6 +162,8 @@ export interface SessionController {
   reloadFromDisk(tabId: string): Promise<void>;
   /** ConflictBanner "Keep mine": dismiss the banner, next save overwrites. */
   keepMine(tabId: string): Promise<void>;
+  /** ConflictBanner "View diff": open the inline disk ↔ editor DiffView. */
+  viewDiff(tabId: string): Promise<void>;
   /** M6 settings: pick a new notes folder, optionally moving existing notes. */
   changeNotesDir(): Promise<void>;
   /** M8: flush, detach the tab, and hand it to a freshly spawned window.

@@ -266,6 +266,7 @@ let saveTabDispatch: (id: string) => void = () => {};
 let saveAsDispatch: () => void = () => {};
 let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
+let viewDiffDispatch: (id: string) => void = () => {};
 let changeNotesDirDispatch: () => void = () => {};
 
 let openExportPreviewDispatch: (tabId?: string) => void = () => {};
@@ -311,6 +312,9 @@ export function setReloadDispatch(fn: (id: string) => void): void {
 }
 export function setKeepMineDispatch(fn: (id: string) => void): void {
   keepMineDispatch = fn;
+}
+export function setViewDiffDispatch(fn: (id: string) => void): void {
+  viewDiffDispatch = fn;
 }
 export function setChangeNotesDirDispatch(fn: () => void): void {
   changeNotesDirDispatch = fn;
@@ -547,6 +551,10 @@ export function reloadTab(id: string): void {
 }
 export function keepMineTab(id: string): void {
   keepMineDispatch(id);
+}
+/** ConflictBanner "View diff": open the inline disk ↔ editor DiffView. */
+export function viewDiffTab(id: string): void {
+  viewDiffDispatch(id);
 }
 /** SettingsDialog → controller: run the notes-dir change flow. */
 export function requestChangeNotesDir(): void {

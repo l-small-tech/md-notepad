@@ -53,6 +53,8 @@ import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
 import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
+import { DiffView } from './DiffView';
+import { diffViewStore, useDiffView } from '../stores/diff-view';
 
 /**
  * Split-divider position, shared by every tab (module scope, not React
@@ -77,6 +79,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   // needs no hook here — it rides the `--editor-font-size` CSS variable.
   const sourceAdapterRef = useRef<Cm6Adapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
+  const conflict = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.conflict ?? false);
+  const diffEntry = useDiffView((s) => s.byTab[tabId] ?? null);
+  // The diff pane exists only while its conflict does — resolving the
+  // conflict any way (Reload, Keep mine, a save, an auto-clear on re-check)
+  // drops it. The store entry itself is closed by reload/keep-mine and on
+  // unmount, so a re-flagged conflict starts with a fresh snapshot.
+  const showDiff = conflict && diffEntry !== null;
+  useEffect(() => () => diffViewStore.getState().close(tabId), [tabId]);
 
   function startDividerDrag(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault();
@@ -351,7 +361,22 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       data-mode={mode satisfies EditorMode}
     >
       <ConflictBanner tabId={tabId} />
-      <div ref={rowRef} className="editor-row">
+      {showDiff && diffEntry && (
+        <DiffView
+          oldText={diffEntry.diskText}
+          newText={
+            tabsStore
+              .getState()
+              .tabs.find((t) => t.id === tabId)
+              ?.model.getText() ?? ''
+          }
+          oldLabel="On disk"
+          newLabel="In editor"
+        />
+      )}
+      {/* Hidden (not unmounted) while the diff is shown — same I7 rule as an
+          inactive tab: the editor must survive with its state intact. */}
+      <div ref={rowRef} className="editor-row" style={showDiff ? { display: 'none' } : undefined}>
         <div ref={hostRef} className="editor-pane" />
         {mode === 'split' && (
           <div

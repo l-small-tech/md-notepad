@@ -59,6 +59,7 @@ import {
   setInsertFileLinkDispatch,
   setInteractiveCloser,
   setKeepMineDispatch,
+  setViewDiffDispatch,
   setListNotesDispatch,
   setListOtherTabWindowsDispatch,
   setMoveEntryDispatch,
@@ -119,6 +120,7 @@ export {
   insertFileLink,
   isReadOnlyPath,
   keepMineTab,
+  viewDiffTab,
   listNoteFiles,
   listOtherTabWindows,
   loadImageDataUrl,
@@ -324,6 +326,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setSaveAsDispatch(() => void openSave.saveAsActive());
   setReloadDispatch((id) => void openSave.reloadFromDisk(id));
   setKeepMineDispatch((id) => void openSave.keepMine(id));
+  setViewDiffDispatch((id) => void openSave.viewDiff(id));
   setChangeNotesDirDispatch(() => void workspaces.changeNotesDir());
   setListNotesDispatch(async (dir?: string) => {
     const entries = await ipc.listDir(dir ?? ctx.notesDir);
@@ -432,6 +435,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     checkAllFileConflicts: openSave.checkAllFileConflicts,
     reloadFromDisk: openSave.reloadFromDisk,
     keepMine: openSave.keepMine,
+    viewDiff: openSave.viewDiff,
     changeNotesDir: workspaces.changeNotesDir,
     moveTabToNewWindow: windows.moveTabOut,
     dropTabOut: windows.dropTabOut,

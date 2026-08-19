@@ -2,16 +2,19 @@
  * ConflictBanner — per-tab "File changed on disk" notice (M3).
  *
  * Non-blocking: it sits above the editor pane without unmounting or covering
- * it (src/ui/README component inventory). Reload replaces the
- * model with the on-disk content; Keep mine dismisses the banner so the next
- * save overwrites instead of re-flagging the same conflict.
+ * it (src/ui/README component inventory). View diff opens the inline DiffView
+ * (disk ↔ editor) below the banner; Reload replaces the model with the
+ * on-disk content; Keep mine dismisses the banner so the next save overwrites
+ * instead of re-flagging the same conflict.
  */
 
-import { keepMineTab, reloadTab } from '../session';
+import { keepMineTab, reloadTab, viewDiffTab } from '../session';
+import { diffViewStore, useDiffView } from '../stores/diff-view';
 import { useTabsStore } from '../stores/tabs';
 
 export function ConflictBanner({ tabId }: { tabId: string }) {
   const conflict = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.conflict ?? false);
+  const diffOpen = useDiffView((s) => tabId in s.byTab);
 
   if (!conflict) {
     return null;
@@ -20,6 +23,12 @@ export function ConflictBanner({ tabId }: { tabId: string }) {
   return (
     <div className="conflict-banner" role="alert">
       <span className="conflict-banner-message">File changed on disk</span>
+      <button
+        className="conflict-banner-button"
+        onClick={() => (diffOpen ? diffViewStore.getState().close(tabId) : viewDiffTab(tabId))}
+      >
+        {diffOpen ? 'Hide diff' : 'View diff'}
+      </button>
       <button className="conflict-banner-button" onClick={() => reloadTab(tabId)}>
         Reload
       </button>
