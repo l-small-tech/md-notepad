@@ -3,11 +3,9 @@
  *
  * Interactions (src/ui/README): click activates; middle-click closes; the ×
  * button closes; double-click, F2, or the right-click / long-press context
- * menu starts an inline rename; right-clicking the bar's FREE space (not a
- * tab) opens the strip's own menu — a small app menu (New tab, command
- * palette, Themes, Settings, the full-screen stages, "Close all tabs"), whose
- * rows the "+ ⌄" picker shares (components/AppMenu.tsx);
- * pointer-event drag reorders tabs and moves
+ * menu starts an inline rename; the app menu (New tab, command palette,
+ * Themes, Settings, the full-screen stages) lives solely in the "+ ⌄" picker
+ * (components/AppMenu.tsx); pointer-event drag reorders tabs and moves
  * around (no dnd dependency, and NOT HTML5 drag-and-drop —
  * Tauri's OS drag-drop interception swallows webview-internal HTML5 drags on
  * Windows, the same constraint the FileExplorer documents). The displayed
@@ -54,14 +52,7 @@ import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
-import {
-  AppActionRows,
-  AppMenuDivider,
-  AppMenuItem,
-  IS_MAC,
-  NewTabRows,
-  ThemesMenuPage,
-} from './AppMenu';
+import { AppActionRows, AppMenuDivider, IS_MAC, NewTabRows, ThemesMenuPage } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
 
@@ -85,9 +76,6 @@ import { isAndroid } from '../platform';
 const CAN_TEAR_OFF = !isAndroid();
 /** Android's UA also reports Linux, hence the isAndroid() exclusion. */
 const LINUX_TEAR_OFF = /linux/i.test(navigator.platform) && !isAndroid();
-
-/** Gap kept between a clamped popover menu and the window edge (px). */
-const MENU_EDGE_MARGIN = 8;
 
 /** Pointer travel (px, manhattan) before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 5;
@@ -529,128 +517,6 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
 }
 
 /**
- * The strip's own menu — right-clicking free tab-bar space (the slack after
- * the last tab, or the spacer before the window controls). It carries what
- * belongs to the bar and to the app rather than to one tab, so the empty
- * strip is a full app menu and not a single-item stub: a New tab page (every
- * type, one row per terminal profile), search, the palette, Themes, Settings,
- * the full-screen stages, and "Close all tabs" — which lives here instead of
- * as a permanent ⊗ button in the titlebar.
- *
- * Themes drills in rather than flying out, and its page — like every app row
- * here — is the same widget the "+ ⌄" picker renders (components/AppMenu), so
- * the two menus can't drift apart.
- */
-function BarContextMenu({ at, onClose }: { at: { x: number; y: number }; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [placed, setPlaced] = useState<{ x: number; y: number } | null>(null);
-  const [page, setPage] = useState<'root' | 'new' | 'themes'>('root');
-  useMenuDismiss(onClose);
-
-  // The menu is tall (and taller still on a drill-in page), and it opens at
-  // the pointer — clamp it inside the viewport before the first paint, and
-  // again whenever a page swap changes its height.
-  useLayoutEffect(() => {
-    const box = ref.current?.getBoundingClientRect();
-    if (!box) {
-      return;
-    }
-    setPlaced({
-      x: Math.max(
-        MENU_EDGE_MARGIN,
-        Math.min(at.x, window.innerWidth - box.width - MENU_EDGE_MARGIN),
-      ),
-      y: Math.max(
-        MENU_EDGE_MARGIN,
-        Math.min(at.y, window.innerHeight - box.height - MENU_EDGE_MARGIN),
-      ),
-    });
-  }, [at.x, at.y, page]);
-
-  return (
-    <div
-      ref={ref}
-      className="tab-menu app-menu"
-      role="menu"
-      aria-label="Tab bar menu"
-      style={{
-        left: (placed ?? at).x,
-        top: (placed ?? at).y,
-        // Invisible for the one frame it takes to measure and clamp.
-        visibility: placed ? undefined : 'hidden',
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      {page === 'themes' ? (
-        <ThemesMenuPage onBack={() => setPage('root')} onClose={onClose} />
-      ) : page === 'new' ? (
-        <NewTabPage onBack={() => setPage('root')} onClose={onClose} />
-      ) : (
-        <BarMenuRoot
-          onOpenNew={() => setPage('new')}
-          onOpenThemes={() => setPage('themes')}
-          onClose={onClose}
-        />
-      )}
-    </div>
-  );
-}
-
-/** The bar menu's top level. */
-function BarMenuRoot({
-  onOpenNew,
-  onOpenThemes,
-  onClose,
-}: {
-  onOpenNew: () => void;
-  onOpenThemes: () => void;
-  onClose: () => void;
-}) {
-  const count = useTabsStore((s) => s.tabs.length);
-
-  return (
-    <>
-      <AppMenuItem
-        glyph="✚"
-        label="New tab"
-        title="Pick the kind of tab to open"
-        shortcut="›"
-        onPick={onOpenNew}
-        onClose={onClose}
-        keepOpen
-      />
-      <AppMenuDivider />
-      {/* Search, the palette, Themes, Settings and the stages all come from
-          AppActionRows — the "+ ⌄" picker renders the very same rows. */}
-      <AppActionRows onOpenThemes={onOpenThemes} onClose={onClose} />
-      <AppMenuDivider />
-      <AppMenuItem
-        glyph="⊗"
-        label="Close all tabs"
-        disabled={count === 0}
-        onPick={closeAllTabs}
-        onClose={onClose}
-      />
-    </>
-  );
-}
-
-/**
- * The bar menu's New tab page — the same choices as the "+" button's picker
- * (components: `NewTabMenu`), as a drill-in page so the whole bar menu stays
- * one panel under a finger as well as a mouse.
- */
-function NewTabPage({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
-  return (
-    <>
-      <AppMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
-      <AppMenuDivider />
-      <NewTabRows onClose={onClose} />
-    </>
-  );
-}
-
-/**
  * Dropdown listing the tabs the bar has no room for. Selecting one activates
  * it — the windowing math then slides the visible row to include it.
  */
@@ -787,8 +653,6 @@ export function TabBar() {
   const barRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<TabMenu | null>(null);
-  /** Where the bar's own (empty-space) context menu is open, if at all. */
-  const [barMenu, setBarMenu] = useState<{ x: number; y: number } | null>(null);
   const [overflowAnchor, setOverflowAnchor] = useState<DOMRect | null>(null);
   /** Ids of the tabs the strip is currently cutting off, in strip order. */
   const [clipped, setClipped] = useState<readonly string[]>([]);
@@ -1123,14 +987,13 @@ export function TabBar() {
       role="tablist"
       data-tauri-drag-region=""
       onContextMenu={(e) => {
-        // Free space only — a tab (or a button) opens its own menu and its
-        // event merely bubbles through here.
+        // Free space has no menu of its own (the "+ ⌄" picker carries the app
+        // menu) — just suppress the webview's default. A tab or button opens
+        // its own menu and its event merely bubbles through here.
         if ((e.target as HTMLElement).closest('.tab, button, .tab-menu')) {
           return;
         }
         e.preventDefault();
-        setMenu(null);
-        setBarMenu({ x: e.clientX, y: e.clientY });
       }}
     >
       {/* The scroller is only as wide as its tabs, so the free space after the
@@ -1254,7 +1117,6 @@ export function TabBar() {
       <div className="tabbar-spacer" data-tauri-drag-region="" />
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
-      {barMenu && <BarContextMenu at={barMenu} onClose={() => setBarMenu(null)} />}
       {newTabMenuOpen && newTabAnchor && (
         <NewTabMenu anchor={newTabAnchor} onClose={() => uiStore.getState().closeNewTabMenu()} />
       )}

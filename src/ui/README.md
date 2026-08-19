@@ -98,12 +98,10 @@ collapsed group and a scroll alike. The rule itself is pure and tested
 - A clipped group CHIP takes its whole run into the overflow list: a run you
   can only see the tail of is not a group you can read.
 
-Right-clicking the strip's FREE space opens the bar's own menu (`BarContextMenu`),
-a small app menu rather than a one-item stub: a New tab drill-in page (every
-type, one row per terminal profile), search, the command palette, Themes,
-Settings, the two full-screen stages as toggles, and "Close all tabs". Its rows
-and the Themes page are the same widgets the "+ ⌄" picker uses
-(`components/AppMenu.tsx`), so the two menus can't drift apart.
+Right-clicking the strip's FREE space opens nothing (the default webview menu
+is suppressed) — the app menu lives solely in the "+ ⌄" picker
+(`components/AppMenu.tsx`). "Close all tabs" remains reachable from a tab's
+context menu and the command palette.
 
 Right-clicking a TAB opens that tab's own menu (`TabContextMenu`) — what acts
 on this document: **Export…** and **Copy all raw text** (only for a tab holding
@@ -111,13 +109,12 @@ markdown — not a terminal, image, import card or `.svg` drawing), then Keep
 open / Rename / Move to new window / Close / Close all. Both document rows name
 the right-clicked tab's id explicitly, because right-clicking a tab
 deliberately does not activate it (`ui/tab-actions.ts`, and
-`openExportPreview(tabId?)`). The split is the rule for both menus: app
-commands in the bar's menu and the picker, per-document ones on the tab.
+`openExportPreview(tabId?)`). The split is the rule: app commands in the
+picker, per-document ones on the tab.
 
-The free space after the last tab keeps `data-tauri-drag-region` and a floor
-(`--tab-free-space`), so the window stays draggable however many tabs are
-open. The drag drop-indicator is scroller-relative and must add
-`scroller.scrollLeft`.
+The free space after the last tab keeps `data-tauri-drag-region` but no
+reserved floor — a full row of tabs runs right up to the window controls. The
+drag drop-indicator is scroller-relative and must add `scroller.scrollLeft`.
 
 ### The "+ ⌄" button pair
 

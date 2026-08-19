@@ -442,14 +442,13 @@
    traffic lights on macOS). The spacer keeps a guaranteed grab area for
    dragging the window even when tabs fill the row. */
 
-/* Free space after the + button: the window-drag / right-click grab area. It
-   takes whatever the tab strip doesn't, and has a FLOOR so it can never be
-   squeezed to nothing however many tabs are open — with the strip scrolling
-   rather than windowing, that floor is the only thing keeping the titlebar
-   draggable once the tabs fill the row. */
+/* Free space after the + button: the window-drag grab area. It takes whatever
+   the tab strip doesn't — no reserved floor, so a full row of tabs runs right
+   up to the window controls (the bar itself still drags via its own
+   data-tauri-drag-region wherever slack remains). */
 .tabbar-spacer {
   flex: 1 1 auto;
-  min-width: var(--tab-free-space, 32px);
+  min-width: 0;
 }
 
 /* macOS: native traffic lights overlay the top-left corner — clear them. */
