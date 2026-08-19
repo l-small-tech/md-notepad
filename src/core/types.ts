@@ -257,7 +257,7 @@ export const SHELL_PROFILE_ID = 'shell';
  * in `settings.aiTuiAgent`. The id → command table is `AI_TUI_AGENTS`
  * (core/settings.ts).
  */
-export const AI_TUI_AGENT_IDS = ['claude', 'chatgpt'] as const;
+export const AI_TUI_AGENT_IDS = ['claude', 'chatgpt', 'gemini', 'grok'] as const;
 export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
 
 /**

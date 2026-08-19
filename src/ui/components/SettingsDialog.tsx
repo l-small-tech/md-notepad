@@ -79,6 +79,8 @@ const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: 
 const AI_TUI_OPTIONS: { value: Settings['aiTuiAgent']; label: string }[] = [
   { value: 'claude', label: 'Claude (default)' },
   { value: 'chatgpt', label: 'ChatGPT' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'grok', label: 'Grok' },
   { value: 'custom', label: 'Custom…' },
 ];
 
