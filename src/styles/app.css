@@ -328,7 +328,10 @@
   display: flex;
   align-items: stretch;
   height: 26px;
-  margin: 0 6px 0 2px;
+  /* The left margin is the breathing room between the last tab and the pill;
+     it and .tab-new's width trade off — 4px moved from around the + glyph to
+     in front of the pill. */
+  margin: 0 6px 0 6px;
   border-radius: 7px;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
   overflow: hidden; /* the corner buttons inherit the pill's rounding */
@@ -347,7 +350,9 @@
 }
 
 .tab-new {
-  width: 32px;
+  /* Hugs the 14px glyph a little tighter than the chevron does — the padding
+     that came off here went to .tabbar-actions' left margin. */
+  width: 28px;
 }
 
 .tab-chevron {

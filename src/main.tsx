@@ -44,6 +44,7 @@ import './styles/preview.css';
 import './styles/voice-comments.css';
 import { App } from './ui/App';
 import { installLinkGuard } from './ui/link-guard';
+import { installContextMenuGuard } from './ui/context-menu-guard';
 import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
@@ -514,6 +515,9 @@ async function boot(): Promise<void> {
   // before the browser acts on it (src/ui/link-guard.ts). Installed for the
   // lifetime of the window — nothing ever uninstalls it.
   installLinkGuard();
+  // Same shape, same lifetime: the webview's Back / Reload / Inspect menu
+  // never appears over app chrome (src/ui/context-menu-guard.ts).
+  installContextMenuGuard();
   createRoot(document.getElementById('root')!).render(<App />);
 
   // First-launch CLI args sit in managed state until the frontend drains

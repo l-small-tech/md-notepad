@@ -299,6 +299,25 @@ on EVERY anchor, and hands `http(s)` ones to `stores/external-link`:
   reaches `evil.example`) and warns before "Open in browser" reaches
   `openUrl`. Esc or ~15s of no answer dismisses it.
 - Ctrl/Cmd-clicking a URL detected in terminal output takes the same path.
+
+### Context-menu policy (app-wide)
+
+The webview's own menu (Back / Reload / Inspect Element) must never appear over
+app chrome — the window is undecorated and meant to read as a native app, so a
+devtools menu on the minimize button is a leak, not a feature.
+`context-menu-guard.ts` installs one delegated `contextmenu` listener on
+`document` (from main.tsx, alongside the link guard, for the window's lifetime)
+that prevents the default everywhere except:
+
+- targets a surface already claimed (`defaultPrevented`) — FileExplorer,
+  TabBar, Ribbon and TerminalPane open their own menus and cancel it themselves;
+- text entry (`input`, `textarea`, `contenteditable` — CodeMirror and milkdown
+  are the latter), where the native menu is the editors' only right-click
+  copy/paste.
+
+Per-component swallows (StatusBar, Ribbon) predate the guard and are now
+belt-and-braces; a new surface needs no guard of its own unless it has a menu.
+
 - Modals are reserved for: close-tab confirmation, save/discard/cancel on
   dirty file close, settings. Use `@tauri-apps/plugin-dialog` for native
   confirm dialogs (they match the OS), custom DOM only for SettingsDialog.
