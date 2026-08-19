@@ -100,6 +100,10 @@ pub fn run() {
                             | tauri_plugin_window_state::StateFlags::POSITION
                             | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                     )
+                    // Tab-drag ghost windows (label "ghost-*") are transient
+                    // cursor-followers: never save their throwaway geometry,
+                    // never restore stale geometry onto one.
+                    .with_filter(|label| !label.starts_with("ghost-"))
                     .build(),
             )
             .plugin(tauri_plugin_updater::Builder::new().build())

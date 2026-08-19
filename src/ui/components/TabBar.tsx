@@ -56,6 +56,7 @@ import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
+import { endOsGhost, setOsGhostOutside, startOsGhost } from '../tab-drag-ghost';
 import { AppActionRows, AppMenuDivider, IS_MAC, NewTabRows, ThemesMenuPage } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
@@ -972,6 +973,7 @@ export function TabBar() {
       el.classList.remove('tab-dragging');
       setDropHint(null);
       setGhost(null);
+      endOsGhost();
       pressingRef.current = false;
       // The scroll the press suppressed: bring the now-active tab fully into
       // view once the pointer is no longer riding on top of the strip.
@@ -992,6 +994,19 @@ export function TabBar() {
         }
         el.classList.add('tab-dragging');
         setGhost({ tabId, width: rect.width, x: ev.clientX - grabX, y: ev.clientY - grabY });
+        // And the ghost's other half: a hidden OS window (where the platform
+        // allows one), for the part of the drag the DOM ghost cannot paint —
+        // outside this window. Spawned now so it's ready by the time the
+        // cursor crosses the edge.
+        if (CAN_TEAR_OFF) {
+          const dragTab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+          startOsGhost({
+            title: dragTab ? tabLabelParts(dragTab).text : '',
+            width: rect.width,
+            grabX,
+            grabY,
+          });
+        }
       }
       // The ghost element appears a render after setGhost; from then on it is
       // moved directly (no state, no re-render — see DragGhost).
@@ -999,6 +1014,15 @@ export function TabBar() {
       if (g) {
         g.style.transform = `translate(${ev.clientX - grabX}px, ${ev.clientY - grabY}px)`;
       }
+      // Crossing the window edge swaps which ghost the user sees: the DOM one
+      // clips away naturally, the OS window shows/hides explicitly. Client
+      // coords stay valid outside thanks to the pointer capture above.
+      setOsGhostOutside(
+        ev.clientX < 0 ||
+          ev.clientX > window.innerWidth ||
+          ev.clientY < 0 ||
+          ev.clientY > window.innerHeight,
+      );
       updateDropHint(ev, tabId);
     }
     function onUp(ev: PointerEvent): void {

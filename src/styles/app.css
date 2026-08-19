@@ -302,6 +302,17 @@
   will-change: transform;
 }
 
+/* The same pill rendered as an OS ghost WINDOW's entire page
+   (ui/tab-drag-ghost.ts renderOsGhostPage): the window is the pill, so the
+   pill fills it edge to edge, and the shadow goes — it would be clipped at
+   the window bounds into a hard dark rim. */
+.tab.tab-drag-ghost.tab-os-ghost {
+  width: 100vw;
+  height: 100vh;
+  transform: none;
+  box-shadow: none;
+}
+
 /* Insertion bar while dragging, positioned by the TabBar (scroller-relative). */
 .tab-drop-indicator {
   position: absolute;

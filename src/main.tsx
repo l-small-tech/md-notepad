@@ -79,6 +79,8 @@ import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
 import { searchStore } from './ui/stores/search';
 import { isAndroid } from './ui/platform';
+import { globalCoordsTrusted, initGlobalCoordTrust } from './ui/global-coords';
+import { renderOsGhostPage } from './ui/tab-drag-ghost';
 import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { checkForUpdate, setBeforeRestart } from './ui/update';
@@ -284,27 +286,16 @@ async function spawnTabWindow(
 const windowFocusOrder = new Map<string, number>();
 let windowFocusCounter = 0;
 
-/** Android's UA also reports Linux — and Android is single-window anyway. */
-const IS_LINUX_DESKTOP = /linux/i.test(navigator.platform) && !isAndroid();
-
-/**
- * Whether `cursorPosition()` / `outerPosition()` return real global
- * coordinates. False on Wayland (neither exists there by protocol design —
- * the values come back as junk, not errors), which turns every outside drag
- * release into the plain tear-off. Linux starts pessimistic and flips on at
- * boot when the display server turns out to be X11.
- */
-let trustGlobalCoords = !IS_LINUX_DESKTOP;
-
 /**
  * The label of the app window under the cursor right now (never this one), or
  * null → the release was over empty desktop (or geometry is untrustworthy /
  * unavailable) and the caller tears off a new window instead. All physical
  * pixels — cursor and bounds come from the same Tauri coordinate space, so no
- * per-window scale factors are mixed in.
+ * per-window scale factors are mixed in. Gated on ui/global-coords.ts:
+ * Wayland's junk coordinates must never pick a window.
  */
 async function findDropWindow(): Promise<string | null> {
-  if (!trustGlobalCoords) {
+  if (!globalCoordsTrusted()) {
     return null;
   }
   let cursor: { x: number; y: number };
@@ -313,7 +304,9 @@ async function findDropWindow(): Promise<string | null> {
   } catch {
     return null;
   }
-  const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+  const others = (await getAllWebviewWindows()).filter(
+    (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+  );
   const candidates = await Promise.all(
     others.map(async (w): Promise<DropWindowCandidate | null> => {
       try {
@@ -382,7 +375,9 @@ function sendTabsToWindow(
  * there) and a keyboard/menu alternative everywhere else.
  */
 async function listOtherWindows(): Promise<TabWindowInfo[]> {
-  const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+  const others = (await getAllWebviewWindows()).filter(
+    (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+  );
   const rows = await Promise.all(
     others.map(async (w): Promise<TabWindowInfo | null> => {
       try {
@@ -598,21 +593,28 @@ async function boot(): Promise<void> {
   // and before React mounts so the first paint uses the saved theme/font. A
   // corrupt/missing store degrades to defaults via normalizeSettings.
   settingsStore.getState().replace(normalizeSettings(await loadPersistedSettings()));
+
+  // An OS drag-ghost window (`?ghost=1`) is not the app: paint the pill in
+  // the saved theme and stop — no settings saver, no session controller, no
+  // manifest, no listeners. This branch sits BEFORE the saver is armed so a
+  // ghost can never write anything. (Theme plugins still load below-normally
+  // for real windows; the ghost keeps the base palette variables, which
+  // applyDomSettings has already set from the persisted scheme.)
+  const bootParams = new URLSearchParams(window.location.search);
+  if (bootParams.get('ghost') === '1') {
+    renderOsGhostPage(bootParams);
+    return;
+  }
+
   // Only now arm the debounced saver, so the initial load doesn't echo back a
   // write; every subsequent field edit persists.
   settingsStore.subscribe(persistSettingsDebounced);
 
-  // Linux only: the cross-window tab drop needs real global coordinates,
-  // which X11 has and Wayland forbids. Resolved off the boot path — until the
-  // answer arrives the drag release just falls back to tear-off (safe).
-  if (IS_LINUX_DESKTOP) {
-    void ipc
-      .displayServer()
-      .then((server) => {
-        trustGlobalCoords = server === 'x11';
-      })
-      .catch(() => {});
-  }
+  // Whether this platform's global coordinates are real (X11/Windows —
+  // Wayland's are junk by protocol design). Gates the cross-window tab-drop
+  // hit-test and the OS drag ghost; resolved off the boot path — until the
+  // answer arrives those features just stay off (the safe direction).
+  initGlobalCoordTrust();
 
   // Install the platform storage provider BEFORE the controller captures
   // currentProvider(): on Android this routes local + synced (SAF) workspaces;
@@ -950,7 +952,10 @@ async function boot(): Promise<void> {
       await controller.discardManifest().catch(() => {});
       return;
     }
-    const others = (await getAllWebviewWindows()).filter((w) => w.label !== WINDOW_LABEL);
+    // Never hand tabs to a ghost window — it renders a drag pill, not the app.
+    const others = (await getAllWebviewWindows()).filter(
+      (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+    );
     const target = others.find((w) => w.label === 'main') ?? others[0];
     if (!target) {
       await controller.bequeathTabsToMain(tabs).catch(() => {});

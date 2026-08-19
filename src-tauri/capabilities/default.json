@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for every app window — 'main' plus torn-off tab windows (label 'w-*'). Custom commands in src/commands/ need no entries here — only core/plugin permissions do.",
-  "windows": ["main", "w-*"],
+  "description": "Capabilities for every app window — 'main', torn-off tab windows (label 'w-*'), and the transient tab-drag ghost windows ('ghost-*'). Custom commands in src/commands/ need no entries here — only core/plugin permissions do.",
+  "windows": ["main", "w-*", "ghost-*"],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",
@@ -21,6 +21,10 @@
     "core:window:allow-outer-size",
     "core:window:allow-is-minimized",
     "core:window:allow-title",
+    "core:window:allow-set-position",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-ignore-cursor-events",
     "dialog:default",
     "store:default",
     "opener:default",

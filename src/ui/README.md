@@ -199,7 +199,15 @@ Releasing a tab drag outside the window (or right-click → "Move to new
 window") moves the tab into its own OS window — unless the release lands on
 ANOTHER app window, which then adopts the tab (Chrome-style; the session
 controller's `dropTabOut` makes the call). While the drag is live a ghost of
-the tab rides the cursor and the source tab dims. The model:
+the tab rides the cursor and the source tab dims. The ghost has two halves:
+a DOM pill inside the window (TabBar's DragGhost), and — where the platform
+has real global coordinates and transparent windows (Windows / X11, not
+Wayland or macOS) — a tiny always-on-top, click-through, non-focusable ghost
+WINDOW (label `ghost-*`, `ui/tab-drag-ghost.ts`) that takes over when the
+cursor leaves the window, so the pill keeps riding over the desktop and
+other windows. Ghost windows are not the app: `?ghost=1` renders just the
+pill (no controller, no manifest), every window enumeration skips `ghost-*`,
+and the window-state plugin is filtered off them. The model:
 
 - **Every window is the full app** — same `main.tsx` boot, own JS context,
   own stores, own session controller. The window label decides the role:
