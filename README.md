@@ -10,7 +10,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/l-small-tech/md-notepad?include_prereleases&label=release)](https://github.com/l-small-tech/md-notepad/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8e4ec6)](https://github.com/l-small-tech/md-notepad/releases)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-8e4ec6)](https://github.com/l-small-tech/md-notepad/releases)
 
 [![Tauri](https://img.shields.io/badge/Tauri_2-24C8D8?logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org)
@@ -38,11 +38,25 @@ folder of markdown, and Fira Code with ligatures (`->` really is one glyph).
 It's also quietly built for the age of AI pair-programming — see
 [Built for AI-assisted workflows](#built-for-ai-assisted-workflows).
 
+The whole idea in one diagram (which is itself markdown — MD Notepad
+renders it too):
+
+```mermaid
+flowchart LR
+    A([💭 a thought]) --> B[open a tab]
+    B --> C[type]
+    C --> D[close the app]
+    D -. days pass .-> E[open the app]
+    E --> F([it's all still there])
+    F --> C
+```
+
 ## Features
 
 - 🗂️ **Notepad-style tabs** — unsaved notes persist across restarts; kill
   the app any time and lose at most ~5 seconds of typing. Tabs name
-  themselves after their first line.
+  themselves after their first line. Chrome-style **tab groups** keep a
+  project's tabs together under a named, colored header.
 - 📄 **Notes are plain `.md` files** in a folder you choose — no database,
   no lock-in. Open and save regular files anywhere, too.
 - 👁️ **Four modes per tab** — raw source (CodeMirror 6), split
@@ -61,15 +75,30 @@ It's also quietly built for the age of AI pair-programming — see
   JetBrains Mono, Cascadia Code, Source Code Pro, IBM Plex Mono,
   Inconsolata, and Victor Mono for your notes; optional Inter for the UI
   chrome. Ligatures on by default.
+- ✏️ **Drawing tabs** — a whiteboard in a tab, saved as a plain `.svg`
+  file (it renders in the markdown preview like any other image). Point
+  your camera at a real whiteboard and **scan** it: the ink comes back as
+  editable vector strokes, with OCR to make the words searchable.
 - 🪟 **Multiple windows** — drag a tab out of the window to open it in its
-  own window at the drop point (or right-click → *Move to new window*).
-  Extra windows are part of your session and come back on restart; closing
-  one returns its tabs to the main window.
+  own window at the drop point, or drop it onto *another* window to move
+  it there — the tab pill follows your cursor across the desktop. Extra
+  windows are part of your session and come back on restart.
 - 🖥️ **Terminal tabs** (desktop) — a real terminal emulator in a tab, split
   as many ways as you like, with a palette derived from whichever theme
   you're using. Written from scratch: no xterm.js, no web dependency. `+`
   makes another one of whatever you're looking at; alt-click it to choose.
-- 🌗 **Light / dark / system themes.** Small, quiet, fast.
+  An **AI** row launches your coding agent's TUI directly, and the tab
+  wears a status badge so you can see it thinking from another tab.
+- 🎨 **Fifteen built-in themes** — light and dark greens, a
+  maximum-contrast pair (Beacon / Vantablack), a color-vision-friendly
+  Okabe–Ito pair (Skylark / Nightjar), and a dozen moods in between.
+  Themes are tiny files you can edit yourself, an **AI theme** button
+  writes a new one from a description, and a right-click applies a theme
+  to just one window.
+- 📤 **Export to HTML or PDF** — themed to match the app, including any
+  embedded SVG images, which are recolored to fit.
+- 🧈 **Smooth scrolling with spring physics** everywhere — editor,
+  preview, terminal — with touchpad passthrough. Small, quiet, fast.
 - 🔄 **Safe auto-updates** — signed with minisign and verified before
   install; open tabs are flushed to disk first, so updating never costs
   typed text.
@@ -103,7 +132,7 @@ up:
 Prebuilt installers are on the
 [Releases](https://github.com/l-small-tech/md-notepad/releases) page:
 Windows (NSIS `.exe`), macOS (universal `.dmg`), Linux (`.deb`, `.rpm`,
-`.AppImage`).
+`.AppImage`), and Android (`.apk`).
 
 Because releases are not code-signed with paid OS certificates (yet):
 
@@ -155,6 +184,7 @@ workspace:
 [Workspaces](docs/workspaces-and-files.md) ·
 [Images](docs/pictures-and-images.md) ·
 [Settings](docs/settings.md) ·
+[Themes](docs/themes.md) ·
 [Keyboard shortcuts](docs/keyboard-shortcuts.md)
 
 ## Known limitations (rich / WYSIWYG mode)
@@ -186,6 +216,7 @@ formatting.
 | WYSIWYG editor | [Milkdown Crepe](https://milkdown.dev) |
 | Markdown pipeline | [unified](https://unifiedjs.com) (remark-gfm → rehype-sanitize) |
 | Diagrams | [Mermaid](https://mermaid.js.org) |
+| Drawing | hand-written SVG whiteboard editor + camera-scan pipeline (raster clean-up → vectorized strokes → OCR) |
 | Terminal | hand-written VT/xterm engine + canvas renderer (no xterm.js), [portable-pty](https://crates.io/crates/portable-pty) on the Rust side |
 | Build / test | [Vite](https://vite.dev) + [Vitest](https://vitest.dev), cargo for the shell |
 | Fonts | [Fira Code](https://github.com/tonsky/FiraCode) (default) + 6 more monospace faces and [Inter](https://rsms.me/inter/), all bundled via [@fontsource](https://fontsource.org) (OFL-1.1) |
