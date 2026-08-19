@@ -166,6 +166,11 @@ param, first spawn only). It does
 not inherit from the tab in front. A profile's own `cwd` still wins
 (`TerminalPane`), and splitting a pane still inherits that pane's cwd.
 
+Callers that know better pass an explicit cwd, which beats all of the above:
+the explorer context menu's "New" page offers a terminal and an AI TUI session
+started in the right-clicked directory (NOT the active workspace), and the
+Themes menu's AI-theme row starts the agent in the themes folder.
+
 ### Which shell a terminal runs, and in which typeface
 
 One global choice each, both in the Settings dialog's Terminal section — the

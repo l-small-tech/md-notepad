@@ -785,7 +785,7 @@ export function FileExplorer() {
                     title={
                       ws.readOnly
                         ? `${ws.path}\nRead-only · Right-click: workspace color, remove`
-                        : `${ws.path}\nRight-click: set active, new file, workspace color${ws.removable ? ', remove' : ''}`
+                        : `${ws.path}\nRight-click: set active, new…, workspace color${ws.removable ? ', remove' : ''}`
                     }
                     aria-expanded={!isCollapsed}
                     onClick={(e) => {

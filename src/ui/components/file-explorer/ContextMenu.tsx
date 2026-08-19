@@ -11,9 +11,12 @@
 
 import { useState, type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { aiTuiAgentName } from '../../../core/settings';
 import { isMarkdownPath } from '../../../core/text-files';
-import { WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
+import { AI_TUI_PROFILE_ID, WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
+import { openTerminal } from '../../terminal-open';
+import { useSettingsStore } from '../../stores/settings';
 import {
   deleteExplorerEntry,
   deleteExplorerFolder,
@@ -43,7 +46,8 @@ interface FileMenuProps extends CommonProps {
 }
 
 /**
- * The right-click menu for a directory: "New file"/"New folder" always;
+ * The right-click menu for a directory: a "New" drill-in page (file, folder,
+ * drawing, plus terminal / AI TUI sessions started in THIS dir on desktop);
  * "Set active" at workspace level (a plain header click no longer selects);
  * "Rename" + "Delete folder" for subfolders (`renameTarget` given); the
  * workspace color swatches only at workspace level (`wsColor` given = a
@@ -69,8 +73,9 @@ export type ExplorerContextMenuProps = FileMenuProps | DirMenuProps;
 
 export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   const { onClose, onRename } = props;
-  /** Which page of the directory menu is showing (see the Import row below). */
-  const [page, setPage] = useState<'root' | 'import'>('root');
+  /** Which page of the directory menu is showing (see the New/Import rows below). */
+  const [page, setPage] = useState<'root' | 'new' | 'import'>('root');
+  const aiName = useSettingsStore((s) => aiTuiAgentName(s.settings));
 
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
@@ -197,6 +202,91 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onNewFolder, onSelectDir } =
     props;
 
+  // Terminals need a real path to spawn in: no pty on Android, and synced
+  // (SAF) workspaces are opaque document ids, not directories.
+  const canTerminal = !isAndroid() && !dir.startsWith('saf://');
+
+  if (page === 'new') {
+    return menuShell(
+      <>
+        <button
+          className="context-menu-item context-menu-nav"
+          role="menuitem"
+          onClick={() => setPage('root')}
+        >
+          <span className="context-menu-more">‹</span>
+          <span>Back</span>
+        </button>
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              void onNewFile(dir);
+            }}
+          >
+            File
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              void onNewFolder(dir);
+            }}
+          >
+            Folder
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              onSelectDir(dir);
+              void createWhiteboardIn(dir);
+            }}
+          >
+            Vector drawing
+          </button>
+        )}
+        {/* Sessions start HERE — the dir that was right-clicked — not in the
+            active workspace: an explicit cwd wins over workspaceCwd() in
+            openTerminal. The AI row wears the configured agent's name, same
+            as the new-tab picker. */}
+        {canTerminal && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            title="AI TUI — switch the agent in Settings"
+            onClick={() => {
+              onClose();
+              openTerminal(AI_TUI_PROFILE_ID, dir);
+            }}
+          >
+            {aiName} session
+          </button>
+        )}
+        {canTerminal && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              openTerminal(undefined, dir);
+            }}
+          >
+            Terminal
+          </button>
+        )}
+      </>,
+    );
+  }
+
   if (page === 'import') {
     return menuShell(
       <>
@@ -283,41 +373,19 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           Set active
         </button>
       )}
-      {!readOnly && (
+      {/* Everything created here — files, folders, drawings, terminal and AI
+          sessions — lives on one drill-in page (same pattern as Import).
+          Shown read-only too when a terminal can spawn: a session in a
+          read-only workspace writes nothing. */}
+      {(!readOnly || canTerminal) && (
         <button
-          className="context-menu-item"
+          className="context-menu-item context-menu-nav"
           role="menuitem"
-          onClick={() => {
-            onClose();
-            void onNewFile(dir);
-          }}
+          aria-haspopup="menu"
+          onClick={() => setPage('new')}
         >
-          New file
-        </button>
-      )}
-      {!readOnly && (
-        <button
-          className="context-menu-item"
-          role="menuitem"
-          onClick={() => {
-            onClose();
-            void onNewFolder(dir);
-          }}
-        >
-          New folder
-        </button>
-      )}
-      {!readOnly && (
-        <button
-          className="context-menu-item"
-          role="menuitem"
-          onClick={() => {
-            onClose();
-            onSelectDir(dir);
-            void createWhiteboardIn(dir);
-          }}
-        >
-          New vector drawing
+          <span>New</span>
+          <span className="context-menu-more">›</span>
         </button>
       )}
       {/* A drill-in page, not a hover flyout: Android has no hover, and one
