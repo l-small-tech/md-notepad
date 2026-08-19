@@ -250,7 +250,7 @@ const WINDOW_OPTIONS = {
 /** Create a window and resolve/reject on Tauri's created/error events. */
 function spawnWindow(
   label: string,
-  extra: { url?: string; x?: number; y?: number },
+  extra: { url?: string; x?: number; y?: number; focus?: boolean },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const w = new WebviewWindow(label, { ...WINDOW_OPTIONS, ...extra });
@@ -263,15 +263,22 @@ function spawnWindow(
  * Tear-off spawner injected into the session controller: the new window gets
  * its one-tab manifest via the URL (small — the tab's content was already
  * flushed to disk, only paths/ids travel) and adopts it during its own boot.
+ * Resolves with the window's label — a LIVE tear-off (M8.6) keeps driving the
+ * window by label (follow / drop / focus). `focus: false` spawns it unfocused
+ * so a live tear-off doesn't yank focus off the still-dragging source window.
  */
 async function spawnTabWindow(
   manifest: SessionManifest,
   pos: { x: number; y: number } | null,
-): Promise<void> {
-  await spawnWindow(`w-${nanoid(10)}`, {
+  opts?: { focus?: boolean },
+): Promise<string> {
+  const label = `w-${nanoid(10)}`;
+  await spawnWindow(label, {
     url: `index.html?adopt=${encodeURIComponent(JSON.stringify(manifest))}`,
     ...(pos ? { x: pos.x, y: pos.y } : {}),
+    ...(opts?.focus === false ? { focus: false } : {}),
   });
+  return label;
 }
 
 /* ---- Cross-window tab drop (M8): who is under the cursor? ---------------- */
@@ -292,9 +299,11 @@ let windowFocusCounter = 0;
  * unavailable) and the caller tears off a new window instead. All physical
  * pixels — cursor and bounds come from the same Tauri coordinate space, so no
  * per-window scale factors are mixed in. Gated on ui/global-coords.ts:
- * Wayland's junk coordinates must never pick a window.
+ * Wayland's junk coordinates must never pick a window. `excludeLabel` skips
+ * one more window — a live tear-off passes the window glued to the cursor,
+ * which would otherwise always win the hit-test.
  */
-async function findDropWindow(): Promise<string | null> {
+async function findDropWindow(excludeLabel?: string): Promise<string | null> {
   if (!globalCoordsTrusted()) {
     return null;
   }
@@ -305,7 +314,7 @@ async function findDropWindow(): Promise<string | null> {
     return null;
   }
   const others = (await getAllWebviewWindows()).filter(
-    (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+    (w) => w.label !== WINDOW_LABEL && w.label !== excludeLabel && !w.label.startsWith('ghost-'),
   );
   const candidates = await Promise.all(
     others.map(async (w): Promise<DropWindowCandidate | null> => {
@@ -365,6 +374,49 @@ function sendTabsToWindow(
         resolve(false);
       });
   });
+}
+
+/**
+ * A live tear-off (M8.6) released over another app window: tell the torn-off
+ * window `label` — the one that rode the cursor here — to hand its tab to
+ * window `target` and close. The torn-off window may still be BOOTING (its
+ * listener registers after restore), so the command repeats until the window
+ * acks it or the budget runs out; an unserved command just leaves the window
+ * standing where it was dropped, still holding the tab — a harmless degrade.
+ */
+function commandTornWindowDrop(label: string, target: string): void {
+  let attempts = 0;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let unlisten: (() => void) | null = null;
+  const stop = (): void => {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+    unlisten?.();
+    unlisten = null;
+  };
+  listen(`torn-drop-ack-${label}`, stop)
+    .then((un) => {
+      unlisten = un;
+      const send = (): void => {
+        if (++attempts > 20) {
+          stop();
+          return;
+        }
+        void emitTo(label, 'torn-window-drop', { target }).catch(() => {});
+      };
+      send();
+      timer = setInterval(send, 300);
+    })
+    .catch(() => {});
+}
+
+/** Focus the app window labelled `label` (best-effort — it may just have closed). */
+function focusWindow(label: string): void {
+  void WebviewWindow.getByLabel(label)
+    .then((w) => w?.setFocus())
+    .catch(() => {});
 }
 
 /**
@@ -637,6 +689,8 @@ async function boot(): Promise<void> {
     initialManifest: adoptParam ? parseManifest(adoptParam) : null,
     spawnTabWindow,
     findDropWindow,
+    commandTornWindowDrop,
+    focusWindow,
     // A generous ack budget: the user is watching the drop, and a first-adopt
     // in the target may read note files before it can flush and ack.
     sendTabsToWindow: (label, tabs) => sendTabsToWindow(label, tabs, 4000),
@@ -795,6 +849,43 @@ async function boot(): Promise<void> {
       void appWindow.setFocus().catch(() => {});
     })
     .catch(() => {});
+
+  // A LIVE tear-off (M8.6) whose drag released over another app window: the
+  // source window (which kept the pointer) commands THIS window — the one
+  // that rode the cursor — to hand its tab over and close. Only tear-off
+  // windows (spawned with ?adopt=) can ever be targeted, and the sender
+  // retries until acked, so ack first, serve once. moveTabToWindow adopts the
+  // tab back if the target never acks, in which case the window stays open
+  // holding it — the close only happens once nothing but the detach's fresh
+  // Untitled placeholder is left.
+  if (adoptParam !== null) {
+    let tornDropServed = false;
+    void appWindow
+      .listen<{ target: string }>('torn-window-drop', (event) => {
+        void emit(`torn-drop-ack-${WINDOW_LABEL}`).catch(() => {});
+        if (tornDropServed) {
+          return;
+        }
+        tornDropServed = true;
+        void (async () => {
+          for (const id of tabsStore.getState().tabs.map((t) => t.id)) {
+            await controller.moveTabToWindow(id, event.payload.target);
+          }
+          const left = tabsStore.getState().tabs;
+          const placeholderOnly = left.every(
+            (t) =>
+              t.kind === 'note' &&
+              t.notePath === null &&
+              t.customTitle === null &&
+              t.charCount === 0,
+          );
+          if (placeholderOnly) {
+            void appWindow.close().catch(() => {});
+          }
+        })();
+      })
+      .catch(() => {});
+  }
 
   // Any window may ask everyone to flush (update-restart does).
   void listen('flush-all', () => {

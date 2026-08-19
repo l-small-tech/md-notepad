@@ -1595,6 +1595,7 @@ describe('multi-window tear-off (M8)', () => {
     const controller = makeController(fs, () => 111, {
       spawnTabWindow: async (manifest, pos) => {
         spawned.push({ manifest, pos });
+        return 'w-spawned';
       },
     });
     const t = tabs.tabsStore.getState().tabs[0]!;
@@ -1630,6 +1631,7 @@ describe('multi-window tear-off (M8)', () => {
     const controller = makeController(fs, () => 111, {
       spawnTabWindow: async (manifest) => {
         spawned.push(manifest as never);
+        return 'w-spawned';
       },
     });
     await controller.openPaths(['/docs/a.md']);
@@ -1669,6 +1671,7 @@ describe('multi-window tear-off (M8)', () => {
     const controller = makeController(fs, () => 111, {
       spawnTabWindow: async (manifest) => {
         spawned.push(manifest);
+        return 'w-spawned';
       },
       findDropWindow: async () => 'w-target',
       sendTabsToWindow: async (label, tabs) => {
@@ -1699,6 +1702,7 @@ describe('multi-window tear-off (M8)', () => {
     const controller = makeController(fs, () => 111, {
       spawnTabWindow: async (_manifest, pos) => {
         spawned.push({ pos });
+        return 'w-spawned';
       },
       findDropWindow: async () => null,
       sendTabsToWindow: async () => {
@@ -1720,6 +1724,7 @@ describe('multi-window tear-off (M8)', () => {
     const controller = makeController(fs, () => 111, {
       spawnTabWindow: async (manifest) => {
         spawned.push(manifest);
+        return 'w-spawned';
       },
       findDropWindow: async () => {
         throw new Error('no global coords');
@@ -1736,7 +1741,7 @@ describe('multi-window tear-off (M8)', () => {
   test('an unacknowledged handover adopts the tab right back', async () => {
     const fs = makeFakeFs();
     const controller = makeController(fs, () => 111, {
-      spawnTabWindow: async () => {},
+      spawnTabWindow: async () => 'w-spawned',
       findDropWindow: async () => 'w-gone',
       sendTabsToWindow: async () => false,
     });
@@ -1771,6 +1776,63 @@ describe('multi-window tear-off (M8)', () => {
     expect(sent).toEqual([{ label: 'w-picked', ids: [t.id] }]);
     expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
     expect(fs.files.get(`${NOTES}/sent-by-menu.md`)).toBe('# Sent by menu');
+  });
+
+  test('a live tear-off resolves with the spawned label and spawns unfocused on request', async () => {
+    const fs = makeFakeFs();
+    const focusSeen: Array<boolean | undefined> = [];
+    makeController(fs, () => 111, {
+      spawnTabWindow: async (_manifest, _pos, opts) => {
+        focusSeen.push(opts?.focus);
+        return 'w-live';
+      },
+    });
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Rides the cursor', 'cm6');
+
+    const label = await session.tearOffTab(t.id, { x: 5, y: 6 }, { focus: false });
+
+    expect(label).toBe('w-live');
+    expect(focusSeen).toEqual([false]);
+    expect(tabs.tabsStore.getState().tabs.some((x) => x.id === t.id)).toBe(false);
+  });
+
+  test('dropTornWindow over another window commands the torn-off window to merge there', async () => {
+    const commands: Array<{ label: string; target: string }> = [];
+    const focused: string[] = [];
+    const excludes: Array<string | undefined> = [];
+    const controller = makeController(makeFakeFs(), () => 111, {
+      spawnTabWindow: async () => 'w-live',
+      findDropWindow: async (excludeLabel) => {
+        excludes.push(excludeLabel);
+        return 'w-target';
+      },
+      commandTornWindowDrop: (label, target) => commands.push({ label, target }),
+      focusWindow: (label) => focused.push(label),
+    });
+
+    await controller.dropTornWindow('w-live');
+
+    // The window riding the cursor must not win its own hit-test.
+    expect(excludes).toEqual(['w-live']);
+    expect(commands).toEqual([{ label: 'w-live', target: 'w-target' }]);
+    expect(focused).toEqual([]);
+  });
+
+  test('dropTornWindow over empty desktop just focuses the torn-off window', async () => {
+    const commands: unknown[] = [];
+    const focused: string[] = [];
+    const controller = makeController(makeFakeFs(), () => 111, {
+      spawnTabWindow: async () => 'w-live',
+      findDropWindow: async () => null,
+      commandTornWindowDrop: (label, target) => commands.push({ label, target }),
+      focusWindow: (label) => focused.push(label),
+    });
+
+    await controller.dropTornWindow('w-live');
+
+    expect(commands).toEqual([]);
+    expect(focused).toEqual(['w-live']);
   });
 
   test('a torn-off window restores from its handed-over manifest and writes its own file', async () => {

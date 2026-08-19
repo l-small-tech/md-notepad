@@ -51,6 +51,7 @@ import {
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
   setDropTabOutDispatch,
+  setDropTornWindowDispatch,
   setDeleteFolderDispatch,
   setImportDocumentDispatch,
   setImportFilesDispatch,
@@ -82,6 +83,7 @@ import {
   setSaveDispatch,
   setSavePastedFileDispatch,
   setSavePastedImageDispatch,
+  setTearOffTabDispatch,
 } from './facade';
 import { createExplorerOps } from './explorer-ops';
 import { createExport } from './export';
@@ -106,6 +108,7 @@ export {
   deleteExplorerEntry,
   deleteExplorerFolder,
   dropTabOut,
+  dropTornWindow,
   buildExportPreviewHtml,
   enrichCopiedText,
   getCursor,
@@ -145,6 +148,7 @@ export {
   savePastedImageForTab,
   setWorkspaceColor,
   takePendingReveal,
+  tearOffTab,
 } from './facade';
 export type {
   ConfirmDialog,
@@ -297,7 +301,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCloseAllTabsDispatch(() => void windows.closeAllTabsInteractive());
   if (deps.spawnTabWindow) {
     setMoveTabToNewWindowDispatch((id, pos) => void windows.moveTabOut(id, pos));
+    setTearOffTabDispatch((id, pos, opts) => windows.moveTabOut(id, pos, opts));
     setDropTabOutDispatch((id, pos) => void windows.dropTabOut(id, pos));
+    setDropTornWindowDispatch((label) => void windows.dropTornWindow(label));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
   }
   if (deps.sendTabsToWindow) {
@@ -426,6 +432,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     changeNotesDir: workspaces.changeNotesDir,
     moveTabToNewWindow: windows.moveTabOut,
     dropTabOut: windows.dropTabOut,
+    dropTornWindow: windows.dropTornWindow,
     moveTabToWindow: windows.moveTabToWindow,
     adoptTabs: windows.adoptPersistedTabs,
     exportTabsForHandoff: windows.exportTabsForHandoff,

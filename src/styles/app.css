@@ -18,6 +18,10 @@
   align-items: stretch;
   background: var(--bg-alt);
   flex: 0 0 auto;
+  /* Chrome, not content: nothing in the bar is selectable text. Without this
+     a tab drag that wanders can select (or start a native text-drag of) the
+     bar's labels instead of moving the tab. */
+  user-select: none;
   /* On Android the app draws edge-to-edge under the status bar (enableEdgeToEdge).
      Pad the titlebar down by the top inset so tabs clear the clock/icons; the
      env() values are 0 on desktop, so height resolves to 38px there. box-sizing
@@ -612,6 +616,9 @@
 .tab-menu {
   position: fixed;
   z-index: 200;
+  /* Menu rows are buttons, not selectable text (covers the app/overflow/
+     terminal menus too — they share this class). */
+  user-select: none;
   min-width: 128px;
   padding: 4px;
   background: var(--bg);
@@ -736,6 +743,9 @@
   padding: 0 8px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  /* The B/I/S/H… labels are buttons, never selectable text: a tab drag (or
+     any wandering press) must not select or text-drag-ghost them. */
+  user-select: none;
 }
 
 .ribbon-left,

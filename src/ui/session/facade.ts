@@ -145,6 +145,49 @@ export function moveTabToNewWindow(id: string, pos: { x: number; y: number } | n
   moveTabToNewWindowDispatch(id, pos);
 }
 
+/**
+ * TabBar → controller: a LIVE tear-off (M8.6) — the drag crossed the vertical
+ * tear-off threshold, so the tab leaves NOW, mid-drag, into a real window at
+ * `pos` (screen CSS px; null lets the OS place it). Resolves with the new
+ * window's label so the drag can keep driving it (follow / drop / focus), or
+ * null when nothing spawned (the drag then carries on in the strip).
+ */
+let tearOffTabDispatch: (
+  id: string,
+  pos: { x: number; y: number } | null,
+  opts?: { focus?: boolean },
+) => Promise<string | null> = async () => null;
+export function setTearOffTabDispatch(
+  fn: (
+    id: string,
+    pos: { x: number; y: number } | null,
+    opts?: { focus?: boolean },
+  ) => Promise<string | null>,
+): void {
+  tearOffTabDispatch = fn;
+}
+export function tearOffTab(
+  id: string,
+  pos: { x: number; y: number } | null,
+  opts?: { focus?: boolean },
+): Promise<string | null> {
+  return tearOffTabDispatch(id, pos, opts);
+}
+
+/**
+ * TabBar → controller: a live tear-off's drag released — land the torn-off
+ * window `label` (riding the cursor): merge it into the app window under the
+ * cursor when there is one, else focus it where it was dropped. No-ops until
+ * the controller registers.
+ */
+let dropTornWindowDispatch: (label: string) => void = () => {};
+export function setDropTornWindowDispatch(fn: (label: string) => void): void {
+  dropTornWindowDispatch = fn;
+}
+export function dropTornWindow(label: string): void {
+  dropTornWindowDispatch(label);
+}
+
 /** Another app window a tab could move to: its label plus a display title
  *  (the window title minus the app-name suffix — i.e. its active tab). */
 export interface TabWindowInfo {

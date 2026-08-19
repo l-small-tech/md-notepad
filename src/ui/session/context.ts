@@ -69,20 +69,35 @@ export interface SessionControllerDeps {
   isMain?: boolean;
   /**
    * Opens a new OS window that adopts `manifest` (one torn-off tab), at `pos`
-   * (screen CSS px) or OS-placed when null. Injected by main.tsx (Tauri
-   * WebviewWindow) so this module stays Tauri-import-free.
+   * (screen CSS px) or OS-placed when null, and resolves with the new
+   * window's label. `focus: false` spawns it unfocused (a live tear-off keeps
+   * the pointer — and therefore focus — with the dragging window until
+   * release). Injected by main.tsx (Tauri WebviewWindow) so this module stays
+   * Tauri-import-free.
    */
   spawnTabWindow?: (
     manifest: SessionManifest,
     pos: { x: number; y: number } | null,
-  ) => Promise<void>;
+    opts?: { focus?: boolean },
+  ) => Promise<string>;
   /**
-   * The label of the app window currently under the cursor (never this one),
-   * or null. Injected by main.tsx (Tauri global cursor + window geometry);
-   * resolves null on platforms without trustworthy global coordinates
-   * (Wayland), which turns every outside release into a plain tear-off.
+   * The label of the app window currently under the cursor (never this one,
+   * never `excludeLabel` — a live tear-off passes the window riding the
+   * cursor, which would otherwise always win the hit-test), or null. Injected
+   * by main.tsx (Tauri global cursor + window geometry); resolves null on
+   * platforms without trustworthy global coordinates (Wayland), which turns
+   * every outside release into a plain tear-off.
    */
-  findDropWindow?: () => Promise<string | null>;
+  findDropWindow?: (excludeLabel?: string) => Promise<string | null>;
+  /**
+   * Tell the live-torn-off window `label` (the one that just rode the cursor)
+   * to hand its tab to window `target` and close — the drag released over
+   * `target`. Fire-and-forget with retries inside: the torn-off window may
+   * still be booting. Injected by main.tsx.
+   */
+  commandTornWindowDrop?: (label: string, target: string) => void;
+  /** Focus the window labelled `label` (best-effort). Injected by main.tsx. */
+  focusWindow?: (label: string) => void;
   /**
    * Deliver tab descriptors to the window labelled `label` over the
    * adopt-tabs / adopt-ack event pair (the same one a closing window uses).
@@ -149,8 +164,16 @@ export interface SessionController {
   keepMine(tabId: string): Promise<void>;
   /** M6 settings: pick a new notes folder, optionally moving existing notes. */
   changeNotesDir(): Promise<void>;
-  /** M8: flush, detach the tab, and hand it to a freshly spawned window. */
-  moveTabToNewWindow(id: string, pos: { x: number; y: number } | null): Promise<void>;
+  /** M8: flush, detach the tab, and hand it to a freshly spawned window.
+   *  Resolves with the new window's label, or null when nothing spawned. */
+  moveTabToNewWindow(id: string, pos: { x: number; y: number } | null): Promise<string | null>;
+  /**
+   * M8.6: a LIVE tear-off's drag released — the torn-off window `label` is
+   * riding the cursor. Lands its tab in the window under the cursor when
+   * there is one (via {@link SessionControllerDeps.commandTornWindowDrop}),
+   * else just focuses the dropped window where it is.
+   */
+  dropTornWindow(label: string): Promise<void>;
   /**
    * M8: a drag released outside this window — move the tab into the window
    * under the cursor when there is one (it adopts the tab), else tear it off

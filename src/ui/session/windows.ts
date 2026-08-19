@@ -161,26 +161,36 @@ export function createWindows(
    *      neither manifest, but its files are safely on disk);
    *   3. spawn the window with the descriptor. If that fails, adopt the tab
    *      right back rather than losing it.
+   *
+   * Resolves with the new window's label (a live tear-off follows/commands it
+   * by label), or null when nothing spawned. `opts.focus: false` spawns the
+   * window unfocused — a live tear-off keeps focus with the dragging window
+   * until release.
    */
-  async function moveTabOut(id: string, pos: { x: number; y: number } | null): Promise<void> {
+  async function moveTabOut(
+    id: string,
+    pos: { x: number; y: number } | null,
+    opts?: { focus?: boolean },
+  ): Promise<string | null> {
     const spawn = ctx.deps.spawnTabWindow;
     if (!spawn) {
-      return;
+      return null;
     }
     await ctx.flusher.flushNow();
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
     if (!tab) {
-      return;
+      return null;
     }
     const descriptor = persistedDescriptor(tab);
     tabsStore.getState().detachTab(id);
     await ctx.flusher.flushNow();
     try {
-      await spawn({ schema: 1, activeTabId: descriptor.id, tabs: [descriptor] }, pos);
+      return await spawn({ schema: 1, activeTabId: descriptor.id, tabs: [descriptor] }, pos, opts);
     } catch (error) {
       await adoptPersistedTabs([descriptor]);
       uiStore.getState().showNotice('Could not open a new window.');
       ctx.deps.onError?.(error);
+      return null;
     }
   }
 
@@ -228,6 +238,25 @@ export function createWindows(
       return;
     }
     await moveTabOut(id, pos);
+  }
+
+  /**
+   * A LIVE tear-off's drag released (M8.6): the tab already left this window
+   * at the tear-off moment and its new window is riding the cursor. If the
+   * release lands on another app window, command the torn-off window to hand
+   * its tab over and close (it owns the tab now — this window only owns the
+   * pointer); otherwise just focus it where it was dropped. Every failure
+   * degrades to the window staying put — never a lost tab.
+   */
+  async function dropTornWindow(label: string): Promise<void> {
+    const target = ctx.deps.findDropWindow
+      ? await ctx.deps.findDropWindow(label).catch(() => null)
+      : null;
+    if (target !== null && ctx.deps.commandTornWindowDrop) {
+      ctx.deps.commandTornWindowDrop(label, target);
+      return;
+    }
+    ctx.deps.focusWindow?.(label);
   }
 
   /**
@@ -351,6 +380,7 @@ export function createWindows(
     moveTabOut,
     moveTabToWindow,
     dropTabOut,
+    dropTornWindow,
     openFileInNewWindow,
     exportTabsForHandoff,
     bequeathTabsToMain,

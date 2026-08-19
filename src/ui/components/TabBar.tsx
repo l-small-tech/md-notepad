@@ -38,11 +38,13 @@ import {
   closeAllTabs,
   closeTab,
   dropTabOut,
+  dropTornWindow,
   listOtherTabWindows,
   moveTabToNewWindow,
   moveTabToWindow,
   openExportPreview,
   renameTab,
+  tearOffTab,
   type TabWindowInfo,
 } from '../session';
 import { newTabDefault } from '../new-tab';
@@ -57,6 +59,13 @@ import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
 import { endOsGhost, osGhostAvailable, setOsGhostOutside, startOsGhost } from '../tab-drag-ghost';
+import {
+  beginCompositorWindowDrag,
+  startTornWindowFollow,
+  startWholeWindowDrag,
+  stopTornWindowFollow,
+} from '../tab-window-drag';
+import { globalCoordsTrusted } from '../global-coords';
 import { AppActionRows, AppMenuDivider, IS_MAC, NewTabRows, ThemesMenuPage } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
@@ -91,6 +100,24 @@ const LINUX_TEAR_OFF = /linux/i.test(navigator.platform) && !isAndroid();
 
 /** Pointer travel (px, manhattan) before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 5;
+
+/**
+ * Live tear-off (M8.6, the Chrome model): pulling a tab THIS far above or
+ * below the bar tears it off immediately, mid-drag, into a real window —
+ * side-to-side stays a reorder. A window's only tab never tears; pulling it
+ * drags the whole window instead (Chrome parity — and the one variant every
+ * platform including Wayland supports). Roughly a bar-height of slack, so a
+ * wobbly reorder doesn't detach by accident.
+ */
+const TEAR_OFF_PX = 40;
+
+/**
+ * Where inside the freshly torn-off window the cursor grips it, so the cursor
+ * lands on the new window's OWN tab: x keeps the in-tab grab point (clamped —
+ * the tab may render narrower in its new strip), y is the middle of the bar.
+ */
+const TORN_HOLD_X_MAX = 140;
+const TORN_HOLD_Y = 20;
 
 /** Where a context menu is open, and for which tab. */
 interface TabMenu {
@@ -967,6 +994,11 @@ export function TabBar() {
     const grabX = startX - rect.left;
     const grabY = startY - rect.top;
     let dragging = false;
+    /** Live tear-off state: spawn in flight / the torn-off window's label. */
+    let tearing = false;
+    let torn: string | null = null;
+    /** The pointer released while the tear-off spawn was still in flight. */
+    let released = false;
     pressingRef.current = true;
 
     function cleanup(): void {
@@ -1014,6 +1046,13 @@ export function TabBar() {
           });
         }
       }
+      // Once the tab tore off (or is tearing), the strip owns no visuals any
+      // more: the real window rides the cursor (its follow loop reads the
+      // global cursor itself — no per-move work here), or the OS ghost
+      // bridges the spawn gap. Only the release still matters.
+      if (tearing || torn !== null) {
+        return;
+      }
       // The ghost element appears a render after setGhost; from then on it is
       // moved directly (no state, no re-render — see DragGhost).
       const g = ghostRef.current;
@@ -1029,15 +1068,89 @@ export function TabBar() {
           ev.clientY < 0 ||
           ev.clientY > window.innerHeight,
       );
+      // Chrome's move: pulled vertically out of the strip → the tab becomes a
+      // real window NOW, and the rest of the drag drags that window.
+      const bar = barRef.current?.getBoundingClientRect();
+      if (
+        CAN_TEAR_OFF &&
+        bar !== undefined &&
+        (ev.clientY < bar.top - TEAR_OFF_PX || ev.clientY > bar.bottom + TEAR_OFF_PX)
+      ) {
+        beginLiveTearOff(ev);
+        return;
+      }
       updateDropHint(ev, tabId);
+    }
+    function beginLiveTearOff(ev: PointerEvent): void {
+      dropTargetRef.current = null;
+      setDropHint(null);
+      if (tabsStore.getState().tabs.length === 1) {
+        // A window's only tab IS the window — move the whole thing (works
+        // everywhere: the move starts from this window's own pointer grab).
+        cleanup();
+        startWholeWindowDrag();
+        return;
+      }
+      tearing = true;
+      // The grabbed tab is about to unmount (detachTab re-renders the strip),
+      // which would release its pointer capture — and with it the events this
+      // drag still needs from outside the window. Recapture on the bar, which
+      // outlives the tab.
+      try {
+        barRef.current?.setPointerCapture(pointerId);
+      } catch {
+        // No capture — the release only reaches us inside the window then.
+      }
+      // Windows: the OS ghost bridges the gap until the real window exists
+      // (the DOM pill dies with the detached tab on the next render).
+      setOsGhostOutside(true);
+      const holdX = Math.min(grabX, TORN_HOLD_X_MAX) + 8;
+      const holdY = TORN_HOLD_Y;
+      const pos = globalCoordsTrusted()
+        ? { x: Math.round(ev.screenX - holdX), y: Math.round(ev.screenY - holdY) }
+        : null;
+      // Unfocused where the follow loop drives (focus lands on release);
+      // focused on Linux, where the compositor takes over (or places it).
+      void tearOffTab(tabId, pos, { focus: !globalCoordsTrusted() }).then((label) => {
+        tearing = false;
+        if (label === null) {
+          // Nothing spawned (the controller adopted the tab back and said so)
+          // — the drag simply carries on in the strip.
+          return;
+        }
+        torn = label;
+        endOsGhost();
+        setGhost(null);
+        if (released) {
+          // The pointer already released mid-spawn — land the window now.
+          dropTornWindow(label);
+          return;
+        }
+        if (globalCoordsTrusted()) {
+          startTornWindowFollow(label, holdX, holdY);
+        } else {
+          beginCompositorWindowDrag(label);
+        }
+      });
     }
     function onUp(ev: PointerEvent): void {
       const wasDrag = dragging;
       const target = dropTargetRef.current;
       dropTargetRef.current = null;
+      released = true;
       cleanup();
       if (!wasDrag) {
         return; // plain click — activation already happened on pointerdown
+      }
+      if (torn !== null) {
+        // Live tear-off: the window riding the cursor lands here — merged
+        // into the app window under the cursor, or focused where it stands.
+        stopTornWindowFollow();
+        dropTornWindow(torn);
+        return;
+      }
+      if (tearing) {
+        return; // the spawn promise sees `released` and lands the window
       }
       if (CAN_TEAR_OFF) {
         // Linux (Wayland): no trustworthy screen coordinates — judge the
@@ -1075,6 +1188,13 @@ export function TabBar() {
     }
     function onCancel(): void {
       dropTargetRef.current = null;
+      released = true;
+      if (torn !== null) {
+        // A compositor-drag or capture loss cancels the pointer stream — the
+        // torn-off window is real and keeps the tab; just let go of it.
+        stopTornWindowFollow();
+        dropTornWindow(torn);
+      }
       cleanup();
     }
     window.addEventListener('pointermove', onMove);

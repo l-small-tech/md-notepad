@@ -195,21 +195,46 @@ untouched, so switching back to a document restores exactly what was there.
 
 ## Multi-window (M8 tab tear-off)
 
-Releasing a tab drag outside the window (or right-click → "Move to new
-window") moves the tab into its own OS window — unless the release lands on
-ANOTHER app window, which then adopts the tab (Chrome-style; the session
-controller's `dropTabOut` makes the call). While the drag is live the source
-tab dims; on WINDOWS a ghost of the tab additionally rides the cursor, in
-two halves: a DOM pill inside the window (TabBar's DragGhost), and a tiny
-always-on-top, click-through, non-focusable ghost WINDOW (label `ghost-*`,
-`ui/tab-drag-ghost.ts`) that takes over when the cursor leaves the window,
-so the pill keeps riding over the desktop and other windows. Only Windows
-has all the OS half's prerequisites (global cursor coordinates,
-app-positioned windows, flag-free transparent webviews), and a lone DOM
-ghost dying at the window edge reads as broken — so other platforms show no
-ghost at all (`osGhostAvailable`). Ghost windows are not the app: `?ghost=1`
-renders just the pill (no controller, no manifest), every window enumeration
-skips `ghost-*`, and the window-state plugin is filtered off them. The model:
+Tab tear-off follows Chrome's model (M8.6, "live tear-off"): pulling a tab
+VERTICALLY out of the strip (`TEAR_OFF_PX` past the bar; side-to-side stays
+a reorder) tears it off immediately, mid-drag, into a real window — and the
+rest of the drag drags that window. A window's ONLY tab never tears: pulling
+it moves the whole window (`startWholeWindowDrag` — the one variant every
+platform including Wayland supports, since the move starts from the pressed
+window's own pointer grab). How the torn-off window rides the cursor is
+per-platform (`ui/tab-window-drag.ts`):
+
+- **Windows/macOS** (`globalCoordsTrusted()`): spawned unfocused under the
+  cursor, then glued to it by the same follow loop the drag ghost uses
+  (global cursor → `setPosition` per frame). The SOURCE window keeps the
+  pointer (capture moves to the bar when the grabbed tab unmounts), so it
+  also keeps the release: dropping on another app window commands the
+  torn-off window to hand its tab there and close (`dropTornWindow` →
+  `commandTornWindowDrop`, a retried `torn-window-drop` event the torn-off
+  window acks — it may still be booting); over empty desktop the window is
+  just focused where it stands. Every failure degrades to the window
+  standing open with the tab — never a lost tab.
+- **Linux**: no global cursor, no app-side placement — the compositor is
+  asked to move the window (`startDragging`) while the button is held.
+  Compositors may refuse a move rooted in another surface's grab (GNOME
+  does); then the window simply stands where the compositor placed it,
+  already holding the tab.
+
+Releasing a drag outside the window WITHOUT crossing the vertical threshold
+(a horizontal exit) still runs the older release-time path: the tab lands in
+the app window under the cursor or tears off at the release point (the
+session controller's `dropTabOut` makes the call). While a drag is live the
+source tab dims; on WINDOWS a ghost of the tab additionally rides the
+cursor, in two halves: a DOM pill inside the window (TabBar's DragGhost),
+and a tiny always-on-top, click-through, non-focusable ghost WINDOW (label
+`ghost-*`, `ui/tab-drag-ghost.ts`) that takes over when the cursor leaves
+the window — and bridges the spawn gap of a live tear-off. Only Windows has
+all the OS half's prerequisites (global cursor coordinates, app-positioned
+windows, flag-free transparent webviews), and a lone DOM ghost dying at the
+window edge reads as broken — so other platforms show no ghost at all
+(`osGhostAvailable`). Ghost windows are not the app: `?ghost=1` renders just
+the pill (no controller, no manifest), every window enumeration skips
+`ghost-*`, and the window-state plugin is filtered off them. The model:
 
 - **Every window is the full app** — same `main.tsx` boot, own JS context,
   own stores, own session controller. The window label decides the role:
@@ -256,14 +281,16 @@ skips `ghost-*`, and the window-state plugin is filtered off them. The model:
   window pinned to itself (`stores/window-theme`), which neither leaves nor
   accepts the broadcast.
 - **Platform gating**: on Linux (Wayland offers no global cursor position or
-  app-side window placement) the drag-out release is judged in client
-  coordinates and the new window is spawned unpositioned — the compositor
-  places it. The drop-on-window hit-test needs REAL global coordinates
+  app-side window placement) the vertical pull tears off unpositioned — the
+  compositor places the window, then gets asked to move it (see above) —
+  and a horizontal drag-out release is judged in client coordinates. The
+  drop-on-window hit-test needs REAL global coordinates
   (`ui/global-coords.ts`), which Linux is treated as not having — a drag out
   always tears off there, never a junk-coordinate drop into the wrong
   window — and the ghost visuals are Windows-only (see above). Android is
-  single-window; there only in-strip reorder exists. The context-menu items
-  ("Move to new window", "Move to window …") work everywhere.
+  single-window; there only in-strip reorder exists (`CAN_TEAR_OFF` gates
+  both tear-off flavors off). The context-menu items ("Move to new window",
+  "Move to window …") work everywhere.
 
 ## Keyboard shortcuts (single registry)
 

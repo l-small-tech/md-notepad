@@ -157,9 +157,16 @@ sibling `session/` folder).
 
 ## M8 — Multi-window tab tear-off
 
-- [ ] Drag a tab out of the window and release → a new window opens at the
-      drop point containing that tab (text, mode, cursor intact); the source
-      window no longer has it.
+- [ ] Pull a tab vertically ~40px past the bar (M8.6 live tear-off) → the
+      tab becomes a real window IMMEDIATELY, riding the cursor (Windows/
+      macOS); releasing drops it there (text, mode, cursor intact); the
+      source window no longer has it. Side-to-side never tears — it reorders.
+- [ ] While riding, release the torn-off window over ANOTHER app window →
+      that window adopts the tab and the torn-off window closes.
+- [ ] Drag a window's ONLY tab vertically → the WHOLE window moves (no
+      tear-off, no fresh-Untitled leftover).
+- [ ] Drag a tab out through the window's SIDE edge (within the bar's
+      vertical band) and release → a new window opens at the drop point.
 - [ ] Right-click a tab → "Move to new window" does the same (OS-placed).
 - [ ] Tear off a DIRTY file tab → the new window shows the unsaved edits,
       dirty dot intact; Ctrl+S there writes the file once.
@@ -171,9 +178,10 @@ sibling `session/` folder).
       relaunch restores BOTH windows (tabs, active tab, geometry).
 - [ ] **Kill drill with two windows**: type in both, kill, relaunch → both
       windows return with ≤ ~5s text loss each.
-- [ ] Close a torn-off window with its X → its tabs slide back into the main
-      window (dirty state preserved); its `session-w-*.json` is gone;
-      relaunch does NOT resurrect the window.
+- [ ] Close a torn-off window with its X → its tabs CLOSE with it (no
+      handoff; note files keep their text); its `session-w-*.json` is gone;
+      relaunch does NOT resurrect the window. Exception: the LAST window
+      standing folds its tabs into main's manifest instead.
 - [ ] Tear a tab off, then in the torn-off window close its last real tab →
       window shows a fresh Untitled (Notepad invariant holds per window).
 - [ ] Settings change in one window (theme, editor font) → the other window
@@ -182,8 +190,12 @@ sibling `session/` folder).
       notes-folder change is refused with a pointer to the main window.
 - [ ] Double-click a `.md` in the file manager while both windows are open →
       it opens in the MAIN window.
-- [ ] Linux: drag-out gesture does nothing; the context-menu item still
-      opens a new window.
+- [ ] Linux: a vertical pull tears off immediately (compositor-placed; the
+      window follows the cursor only where the compositor honors the move —
+      GNOME refuses, the window just stands); drop-onto-window by drag never
+      happens there — the context-menu "Move to window …" is the route.
+- [ ] Chrome text never selects: dragging a tab across the ribbon (B/I/S…),
+      the bar, or an open menu selects/ghosts no text.
 
 ## QoL — Palette, outline, search, export
 
