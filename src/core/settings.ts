@@ -68,6 +68,8 @@ export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
 export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string }> = {
   claude: { name: 'Claude', program: 'claude' },
   chatgpt: { name: 'ChatGPT', program: 'codex' },
+  gemini: { name: 'Gemini', program: 'gemini' },
+  grok: { name: 'Grok', program: 'grok' },
 };
 
 /**
@@ -125,6 +127,14 @@ function aiThemeArgs(agent: AiTuiAgentId | 'custom'): string[] {
       return ['--model', 'sonnet', '--effort', 'low', AI_THEME_PROMPT];
     case 'chatgpt':
       return ['-m', 'gpt-5-codex', '-c', 'model_reasoning_effort=low', AI_THEME_PROMPT];
+    case 'gemini':
+      // The Gemini CLI only starts INTERACTIVE with an opening prompt behind
+      // `-i`; a positional prompt would run headless and exit.
+      return ['-m', 'gemini-2.5-flash', '-i', AI_THEME_PROMPT];
+    case 'grok':
+      // The Grok CLI's `-p` is headless, so the prompt goes positionally the
+      // way Claude's does and the session stays interactive.
+      return ['--model', 'grok-code-fast-1', AI_THEME_PROMPT];
     case 'custom':
       // An unknown CLI: no model flags to pin — just hand it the prompt and
       // hope it takes an opening argument the way the known agents do.

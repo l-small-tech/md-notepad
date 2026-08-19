@@ -380,6 +380,8 @@ describe('the AI TUI virtual profile', () => {
   test('the agent setting defaults to claude and rejects unknown values', () => {
     expect(DEFAULT_SETTINGS.aiTuiAgent).toBe('claude');
     expect(normalizeSettings({ aiTuiAgent: 'chatgpt' }).aiTuiAgent).toBe('chatgpt');
+    expect(normalizeSettings({ aiTuiAgent: 'gemini' }).aiTuiAgent).toBe('gemini');
+    expect(normalizeSettings({ aiTuiAgent: 'grok' }).aiTuiAgent).toBe('grok');
     expect(normalizeSettings({ aiTuiAgent: 'skynet' }).aiTuiAgent).toBe('claude');
   });
 
@@ -394,6 +396,14 @@ describe('the AI TUI virtual profile', () => {
       name: AI_TUI_AGENTS.chatgpt.name,
       program: AI_TUI_AGENTS.chatgpt.program,
     });
+    for (const id of ['gemini', 'grok'] as const) {
+      expect(
+        resolveTerminalProfile({ ...DEFAULT_SETTINGS, aiTuiAgent: id }, AI_TUI_PROFILE_ID),
+      ).toMatchObject({
+        name: AI_TUI_AGENTS[id].name,
+        program: AI_TUI_AGENTS[id].program,
+      });
+    }
   });
 
   test('resolution is identity-stable per agent (TerminalPane contract)', () => {
@@ -420,6 +430,20 @@ describe('the AI TUI virtual profile', () => {
       'model_reasoning_effort=low',
     ]);
     expect(chatgpt.args[4]).toMatch(/AGENTS\.md/);
+    const gemini = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'gemini' },
+      AI_THEME_PROFILE_ID,
+    );
+    expect(gemini.program).toBe('gemini');
+    expect(gemini.args.slice(0, 3)).toEqual(['-m', 'gemini-2.5-flash', '-i']);
+    expect(gemini.args[3]).toMatch(/AGENTS\.md/);
+    const grok = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'grok' },
+      AI_THEME_PROFILE_ID,
+    );
+    expect(grok.program).toBe('grok');
+    expect(grok.args.slice(0, 2)).toEqual(['--model', 'grok-code-fast-1']);
+    expect(grok.args[2]).toMatch(/AGENTS\.md/);
   });
 
   test('a real profile with the ai-tui id shadows the virtual one', () => {
@@ -491,6 +515,8 @@ describe('aiTuiAgentName', () => {
   test('known agents use their product name', () => {
     expect(aiTuiAgentName(DEFAULT_SETTINGS)).toBe('Claude');
     expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' })).toBe('ChatGPT');
+    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'gemini' })).toBe('Gemini');
+    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'grok' })).toBe('Grok');
   });
 
   test("custom uses the command's program basename, or a placeholder", () => {
