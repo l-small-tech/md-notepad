@@ -44,15 +44,14 @@ import type {
 } from './types';
 
 /**
- * The profiles a fresh install offers. The first names no program, which means
- * "whatever `settings.terminalShell` says" — and, when that is automatic too,
- * the platform default Rust picks at spawn time. The second is
- * an example agentic-CLI profile — harmless when `claude` is not installed
- * (the pane shows the spawn error and nothing else breaks).
+ * The profiles a fresh install offers: just the shell. It names no program,
+ * which means "whatever `settings.terminalShell` says" — and, when that is
+ * automatic too, the platform default Rust picks at spawn time. Anything else
+ * (an agentic CLI, a remote session) is a profile the user adds in
+ * `settings.json`.
  */
 export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
-  { id: SHELL_PROFILE_ID, name: 'System shell', args: [], env: {} },
-  { id: 'claude', name: 'Claude Code', program: 'claude', args: [], env: {} },
+  { id: SHELL_PROFILE_ID, name: 'Shell', args: [], env: {} },
 ];
 
 /**
@@ -63,8 +62,13 @@ export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
  *     all*, so a version-0 file saying `'visual'` is not a preference for the
  *     flash and is upgraded to the quiet cursor bell. A choice made in the new
  *     picker is stamped version 1 and left alone forever after.
+ * 2 — the stock profile list lost its "Claude Code" example and the shell
+ *     profile was renamed "Shell". Both were defaults nobody chose, so a file
+ *     written before this carries them without meaning them
+ *     (`migrateTerminalProfiles`); a profile the user actually edited is left
+ *     exactly as written.
  */
-export const SETTINGS_SCHEMA = 1;
+export const SETTINGS_SCHEMA = 2;
 
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: SETTINGS_SCHEMA,
@@ -249,14 +253,48 @@ export function normalizeTerminalProfile(raw: unknown): TerminalProfile | null {
  * to the defaults, because a terminal with no profile could never be opened
  * and the user would have no UI to fix it with.
  */
-function normalizeTerminalProfiles(raw: unknown): TerminalProfile[] {
+function normalizeTerminalProfiles(raw: unknown, schemaVersion: number): TerminalProfile[] {
   const list = Array.isArray(raw)
     ? raw.map(normalizeTerminalProfile).filter((p): p is TerminalProfile => p !== null)
     : [];
   const seen = new Set<string>();
   // Later duplicates lose: the first entry for an id is the one tabs resolve.
   const unique = list.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
-  return unique.length > 0 ? unique : DEFAULT_TERMINAL_PROFILES.map((p) => ({ ...p }));
+  const migrated = migrateTerminalProfiles(unique, schemaVersion);
+  return migrated.length > 0 ? migrated : DEFAULT_TERMINAL_PROFILES.map((p) => ({ ...p }));
+}
+
+/** The old stock "Claude Code" profile, exactly as a fresh install wrote it. */
+function isStockClaudeProfile(p: TerminalProfile): boolean {
+  return (
+    p.id === 'claude' &&
+    p.name === 'Claude Code' &&
+    p.program === 'claude' &&
+    p.args.length === 0 &&
+    Object.keys(p.env).length === 0 &&
+    p.cwd === undefined &&
+    p.fontSize === undefined
+  );
+}
+
+/**
+ * Schema-2 migration: retire the two stock strings a pre-2 file carries only
+ * because they used to be the defaults. Untouched shape is the whole test —
+ * a "claude" profile with its own args, env or cwd is a real configuration and
+ * survives, as does a shell profile the user renamed.
+ */
+function migrateTerminalProfiles(
+  profiles: TerminalProfile[],
+  schemaVersion: number,
+): TerminalProfile[] {
+  if (schemaVersion >= 2) {
+    return profiles;
+  }
+  return profiles
+    .filter((p) => !isStockClaudeProfile(p))
+    .map((p) =>
+      p.id === SHELL_PROFILE_ID && p.name === 'System shell' ? { ...p, name: 'Shell' } : p,
+    );
 }
 
 function clampInt(raw: unknown, fallback: number, min: number, max: number): number {
@@ -297,7 +335,7 @@ export function normalizeSettings(raw: unknown): Settings {
       : DEFAULT_COLOR_SCHEME;
   const rawTheme =
     r.theme === 'system' || r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme;
-  const terminalProfiles = normalizeTerminalProfiles(r.terminalProfiles);
+  const terminalProfiles = normalizeTerminalProfiles(r.terminalProfiles, schemaVersion);
   return {
     schemaVersion: SETTINGS_SCHEMA,
     notesDir: typeof r.notesDir === 'string' && r.notesDir.length > 0 ? r.notesDir : d.notesDir,

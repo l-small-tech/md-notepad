@@ -14,7 +14,7 @@
  * a theme).
  */
 
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { setFullscreen } from '../fullscreen';
 import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
@@ -49,7 +49,7 @@ export function AppMenuItem({
   onClose,
   keepOpen,
 }: {
-  glyph: string;
+  glyph: ReactNode;
   label: string;
   shortcut?: string;
   title?: string;
@@ -196,12 +196,51 @@ export function ThemesMenuPage({ onBack, onClose }: { onBack: () => void; onClos
 }
 
 /**
- * The "what kind of tab" rows — note, drawing, and the terminal(s).
+ * The shell icon the terminal rows wear — a terminal window with a prompt,
+ * drawn rather than borrowed from a font so it reads as a shell at every UI
+ * scale (the ❯ it replaces read as a submenu arrow next to the other rows).
+ * `currentColor` keeps it on-theme, including in a row's disabled state.
+ */
+function ShellGlyph() {
+  return (
+    <svg className="app-menu-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <rect
+        x="1.75"
+        y="2.75"
+        width="12.5"
+        height="10.5"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path
+        d="M4.9 6.6 6.9 8.4 4.9 10.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.4 10.4h3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * The "what kind of tab" rows — note, drawing, and the terminal profile(s).
  *
  * Shared because the choice is offered from two places: the "+" button's
- * picker and the bar menu's New tab page. The terminal section collapses to a
- * single row unless `settings.json` defines more than one profile, and is
- * absent entirely on Android, which has no pty.
+ * picker and the bar menu's New tab page. Terminal profiles sit in the same
+ * flat list as the document kinds rather than under a heading of their own:
+ * "Shell" is one more thing the + button makes, not a separate section. They
+ * are absent entirely on Android, which has no pty.
  */
 export function NewTabRows({ onClose }: { onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
@@ -221,24 +260,12 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
         onClose={onClose}
       />
       {terminalsAvailable() &&
-        (profiles.length > 1 ? (
-          <>
-            <div className="app-menu-heading">Terminal</div>
-            {profiles.map((profile) => (
-              <AppMenuItem
-                key={profile.id}
-                glyph="❯"
-                label={profile.name}
-                onPick={() => openTerminal(profile.id)}
-                onClose={onClose}
-              />
-            ))}
-          </>
-        ) : (
+        profiles.map((profile) => (
           <AppMenuItem
-            glyph="❯"
-            label="Terminal"
-            onPick={() => runNewTabChoice('terminal')}
+            key={profile.id}
+            glyph={<ShellGlyph />}
+            label={profile.name}
+            onPick={() => openTerminal(profile.id)}
             onClose={onClose}
           />
         ))}

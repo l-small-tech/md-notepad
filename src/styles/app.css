@@ -649,6 +649,14 @@
   min-width: 22px;
 }
 
+/* A drawn glyph (the shell icon) sitting in the same column as the text ones:
+   sized to the row's text and nudged onto its baseline. */
+.app-menu-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
 .app-menu-shortcut {
   opacity: 0.55;
   font-size: 12px;

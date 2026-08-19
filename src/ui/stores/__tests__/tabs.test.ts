@@ -39,7 +39,16 @@ vi.mock('../settings', async (importOriginal) => {
         const real = actual.settingsStore.getState();
         return {
           ...real,
-          settings: { ...real.settings, groupTabsByWorkspace: settings.groupTabsByWorkspace },
+          settings: {
+            ...real.settings,
+            groupTabsByWorkspace: settings.groupTabsByWorkspace,
+            // A second profile, so the label tests can tell "resolved from the
+            // recorded profile" apart from "fell back to the only one".
+            terminalProfiles: [
+              ...real.settings.terminalProfiles,
+              { id: 'ssh', name: 'Remote (ssh)', program: 'ssh', args: [], env: {} },
+            ],
+          },
         };
       },
     },
@@ -754,7 +763,7 @@ describe('terminal tabs', () => {
     expect(tab.kind).toBe('terminal');
     // 'term' is the only mode its family allows, so a stale mode self-heals.
     expect(tab.mode).toBe('term');
-    expect(mod.tabDisplayTitle(tab)).toBe('System shell');
+    expect(mod.tabDisplayTitle(tab)).toBe('Shell');
     expect(terminals.terminalsStore.getState().sessions[id]).toBeDefined();
     expect(terminals.activePaneOf(id)).toMatchObject({ profileId: 'shell', cwd: '/work' });
   });
@@ -810,8 +819,8 @@ describe('terminal tabs', () => {
             },
             activePaneId: 'p2',
             panes: [
-              { id: 'p1', profileId: 'claude', cwd: '/a' },
-              { id: 'p2', profileId: 'claude', cwd: '/b' },
+              { id: 'p1', profileId: 'ssh', cwd: '/a' },
+              { id: 'p2', profileId: 'ssh', cwd: '/b' },
             ],
           },
         },
@@ -827,6 +836,6 @@ describe('terminal tabs', () => {
       .sort();
     expect(cwds).toEqual(['/a', '/b']);
     // The label comes from the recorded profile, not the default one.
-    expect(mod.tabDisplayTitle(tabAt(0))).toBe('Claude Code');
+    expect(mod.tabDisplayTitle(tabAt(0))).toBe('Remote (ssh)');
   });
 });

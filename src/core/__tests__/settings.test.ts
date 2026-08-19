@@ -324,3 +324,45 @@ describe('normalizePathList (persisted explorer tree shape)', () => {
     });
   });
 });
+
+describe('terminal profiles: the schema-2 migration', () => {
+  const stockClaude = { id: 'claude', name: 'Claude Code', program: 'claude', args: [], env: {} };
+  const stockShell = { id: 'shell', name: 'System shell', args: [], env: {} };
+
+  test('a pre-2 file loses the stock Claude Code profile and gains the new shell name', () => {
+    const s = normalizeSettings({
+      schemaVersion: 1,
+      terminalProfiles: [stockShell, stockClaude],
+      defaultTerminalProfile: 'claude',
+    });
+    expect(s.terminalProfiles).toEqual([{ id: 'shell', name: 'Shell', args: [], env: {} }]);
+    // Its default pointed at the profile that just went away.
+    expect(s.defaultTerminalProfile).toBe('shell');
+    expect(s.schemaVersion).toBe(2);
+  });
+
+  test('a claude profile the user configured is a real choice and survives', () => {
+    const configured = { ...stockClaude, args: ['--resume'] };
+    const s = normalizeSettings({ schemaVersion: 1, terminalProfiles: [stockShell, configured] });
+    expect(s.terminalProfiles.map((p) => p.id)).toEqual(['shell', 'claude']);
+    // A renamed shell is a choice too — only the stock string is rewritten.
+    const renamed = normalizeSettings({
+      schemaVersion: 1,
+      terminalProfiles: [{ ...stockShell, name: 'My shell' }],
+    });
+    expect(renamed.terminalProfiles[0]!.name).toBe('My shell');
+  });
+
+  test('a file already at schema 2 is left alone — a re-added claude profile stays', () => {
+    const s = normalizeSettings({
+      schemaVersion: 2,
+      terminalProfiles: [{ id: 'shell', name: 'Shell', args: [], env: {} }, stockClaude],
+    });
+    expect(s.terminalProfiles.map((p) => p.id)).toEqual(['shell', 'claude']);
+  });
+
+  test('migrating away every profile falls back to the defaults, never an empty list', () => {
+    const s = normalizeSettings({ schemaVersion: 0, terminalProfiles: [stockClaude] });
+    expect(s.terminalProfiles).toEqual(DEFAULT_SETTINGS.terminalProfiles);
+  });
+});

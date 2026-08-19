@@ -117,8 +117,9 @@ style). A plain click on + makes **another one of whatever is in front** —
 `defaultNewTabChoice` in `core/new-tab.ts` (pure, tested): terminal → terminal,
 `.svg` → drawing, everything else → note. The ⌄ button — or alt-click,
 right-click, long-press or mod+Shift+N — opens the type picker instead, which
-lists every type explicitly (and one entry per terminal profile when there is
-more than one), so the inference is never the only route. mod+N follows the
+lists every type explicitly — note, drawing, and one row per terminal profile
+(shell icon, no heading of its own: a shell is one more thing "+" makes) — so
+the inference is never the only route. mod+N follows the
 same rule — the binding has always been labelled "New tab", not "New note".
 
 Under the tab kinds the picker carries the app rows — **Themes** (drilling
@@ -154,7 +155,7 @@ per-profile launch configs.
   the usual shells for `desktopOs()` plus "Custom…"; `core/terminal-shells.ts`
   owns those lists. `core/settings.ts`'s `terminalProgram` folds the setting
   into a profile at spawn time, so a profile that names its OWN `program`
-  (the bundled `claude` one) still wins. It applies to shells started from
+  still wins. It applies to shells started from
   now on — a running pty is never restarted by a settings change.
 - **Font** (`settings.terminalFont`) — defaults to Fira Code rather than
   following the editor font, because box-drawing and column alignment are not
