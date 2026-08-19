@@ -226,11 +226,18 @@ skips `ghost-*`, and the window-state plugin is filtered off them. The model:
 - **Session restore covers windows**: at boot, main lists
   `session-*.json` (a dedicated Rust command) and re-spawns each window;
   the window-state plugin restores per-label geometry.
-- **Closing a torn-off window hands its tabs back to main** over the
-  `adopt-tabs`/`adopt-ack-<label>` event pair (its manifest is deleted only
-  after main acks; no ack → the manifest stays and the window returns next
-  boot). Closing MAIN quits the app: it broadcasts `main-closing`, waits for
-  the secondaries to flush + close, then sweeps stragglers.
+- **Closing a torn-off window closes its tabs** — no handoff. Note files
+  keep their latest text (a note outlives its tab as a real file in the
+  notes workspace); unsaved file-buffer edits die with the window, like a
+  tab close. The flusher is disposed BEFORE `session-<label>.json` is
+  deleted, so no armed timer or blur-triggered flush can resurrect the
+  manifest and respawn the window next boot. Terminal tabs close through
+  the store first so the panes' unmount cleanup kills their shells. The
+  exception is the LAST window standing: closing it quits the app, and quit
+  preserves the session — its tabs fold into main's manifest
+  (`bequeathTabsToMain`), so relaunch opens one window with everything.
+  Closing MAIN keeps `session.json`; windows close independently and the
+  app exits when the last one is destroyed.
 - **Dropping a tab on another window** reuses the same pair: the source
   flushes + detaches (the moveTabOut ownership dance), `emitTo`s the target's
   label, and adopts the tab right back if no ack comes. WHICH window is under

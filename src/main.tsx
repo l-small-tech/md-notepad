@@ -637,9 +637,8 @@ async function boot(): Promise<void> {
     initialManifest: adoptParam ? parseManifest(adoptParam) : null,
     spawnTabWindow,
     findDropWindow,
-    // The drag-drop handover waits longer than the closing-window handoff
-    // (below): the user is watching the drop, and a first-adopt in the target
-    // may read note files before it can flush and ack.
+    // A generous ack budget: the user is watching the drop, and a first-adopt
+    // in the target may read note files before it can flush and ack.
     sendTabsToWindow: (label, tabs) => sendTabsToWindow(label, tabs, 4000),
     listOtherWindows,
     confirm: confirmDialog,
@@ -780,12 +779,10 @@ async function boot(): Promise<void> {
     })
     .catch(() => {});
 
-  // A closing window hands its tabs to a surviving one (no data loss, no
-  // zombie window at next boot). Any window can adopt — the sender picks a
-  // single target (main preferred) and emits to that label only. Flush before
-  // acking so the adopted tabs are on disk before the sender deletes its
-  // manifest; without the ack the sender keeps its manifest and that window
-  // gets restored next launch instead.
+  // A tab dragged (or context-menu-moved) onto this window arrives here.
+  // The sender picked this label and emits to it only. Flush before acking so
+  // the adopted tabs are on disk before the sender drops its claim; without
+  // the ack the sender adopts the tab right back rather than losing it.
   void appWindow
     .listen<{ tabs: PersistedTab[]; from: string }>('adopt-tabs', (event) => {
       void controller
@@ -793,7 +790,8 @@ async function boot(): Promise<void> {
         .then(() => controller.flushNow())
         .then(() => {
           void emit(`adopt-ack-${event.payload.from}`).catch(() => {});
-        });
+        })
+        .catch(() => {}); // no ack — the sender keeps the tab
       void appWindow.setFocus().catch(() => {});
     })
     .catch(() => {});
@@ -932,33 +930,52 @@ async function boot(): Promise<void> {
   }
 
   /**
-   * Closing a TORN-OFF window hands its tabs to a surviving window — main
-   * when it's alive, else any other window (nothing is lost, and no surprise
-   * window resurrects next boot). The manifest is deleted only after the
-   * target acknowledges the adoption; if it never answers (quitting, hung),
-   * the manifest stays and the window returns next launch. When this is the
-   * LAST window standing there is no one to hand to: fold the tabs into
-   * main's manifest instead, so relaunch opens one window with everything.
+   * Closing a TORN-OFF window CLOSES its tabs — they are not handed to a
+   * surviving window (the adopt-tabs pair stays in use for drag-drop moves
+   * only). Note files keep their latest text (a note is a real file in the
+   * notes workspace and outlives its tab); unsaved file-buffer edits go away
+   * with the window, exactly like a tab close. Ordering is the fix for the
+   * resurrection race: the flusher is DISPOSED before the manifest is
+   * deleted, so no armed debounce timer or blur-triggered flush (the focus
+   * shifting to another window fires one) can rewrite session-<label>.json
+   * afterwards and respawn this window at next launch.
+   *
+   * The one exception is the LAST window standing (ghosts don't count):
+   * closing it is quitting the app, and quitting preserves the session —
+   * fold the tabs into main's manifest so relaunch opens one window holding
+   * everything.
    */
-  async function handTabsToSurvivor(): Promise<void> {
-    const tabs = await controller.exportTabsForHandoff(); // flushes first
-    if (tabs.length === 0) {
-      await controller.discardManifest().catch(() => {});
-      return;
-    }
-    // Never hand tabs to a ghost window — it renders a drag pill, not the app.
+  async function releaseTabsOnClose(): Promise<void> {
     const others = (await getAllWebviewWindows()).filter(
       (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
     );
-    const target = others.find((w) => w.label === 'main') ?? others[0];
-    if (!target) {
-      await controller.bequeathTabsToMain(tabs).catch(() => {});
+    if (others.length === 0) {
+      const tabs = await controller.exportTabsForHandoff(); // flushes first
+      await controller.dispose();
+      if (tabs.length === 0) {
+        await controller.discardManifest().catch(() => {});
+      } else {
+        await controller.bequeathTabsToMain(tabs).catch(() => {});
+      }
       return;
     }
-    const acked = await sendTabsToWindow(target.label, tabs, 1500);
-    if (acked) {
-      await controller.discardManifest().catch(() => {});
+    // Latest note text lands on disk before anything is torn down.
+    await controller.flushNow();
+    // Closing a terminal tab through the store is what kills its shells (the
+    // pane's unmount cleanup sends the pty kill) — destroying the webview
+    // outright would leave the child processes running until app exit.
+    const terminalIds = tabsStore
+      .getState()
+      .tabs.filter((t) => t.kind === 'terminal')
+      .map((t) => t.id);
+    for (const id of terminalIds) {
+      tabsStore.getState().closeTab(id);
     }
+    if (terminalIds.length > 0) {
+      await delay(150); // one beat for React to unmount the panes
+    }
+    await controller.dispose();
+    await controller.discardManifest().catch(() => {});
   }
 
   // Close path: never prompt. Windows close independently — the app exits
@@ -973,7 +990,7 @@ async function boot(): Promise<void> {
           // Bounded so a pathological write (disk full) can't hang close.
           await Promise.race([controller.flushNow(), delay(4000)]);
         } else {
-          await Promise.race([handTabsToSurvivor(), delay(4000)]);
+          await Promise.race([releaseTabsOnClose(), delay(4000)]);
         }
       } finally {
         await controller.dispose().catch(() => {});

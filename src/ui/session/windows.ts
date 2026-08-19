@@ -1,7 +1,7 @@
 /**
  * Windows + interactive close — the confirming close flows and the M8
  * multi-window machinery: tab tear-off into a new OS window, adopting tabs
- * handed over by a closing window, the window-close handoff export, and the
+ * moved over from another window, the quit-time handoff export, and the
  * last-window-standing manifest fold-back into main.
  */
 
@@ -122,9 +122,9 @@ export function createWindows(
 
   /**
    * Adopt tabs handed over by another window (a tear-off landing here at boot
-   * goes through restore() instead; this serves a closing secondary window
-   * returning its tabs to main). Files some tab here already owns are skipped —
-   * the one-owner-per-file invariant, applied across windows.
+   * goes through restore() instead; this serves a tab dragged or moved onto
+   * this window). Files some tab here already owns are skipped — the
+   * one-owner-per-file invariant, applied across windows.
    */
   async function adoptPersistedTabs(persisted: PersistedTab[]): Promise<void> {
     const fresh = persisted.filter((pt) => {
@@ -279,9 +279,10 @@ export function createWindows(
   }
 
   /**
-   * Window-close handoff (secondary windows): flush everything, then describe
-   * each tab worth keeping. A pristine never-flushed Untitled is dropped —
-   * handing an empty placeholder back to main would just add noise.
+   * Quit-time export (a last-standing secondary window closing): flush
+   * everything, then describe each tab worth keeping. A pristine never-flushed
+   * Untitled is dropped — folding an empty placeholder into main's manifest
+   * would just add noise.
    */
   async function exportTabsForHandoff(): Promise<PersistedTab[]> {
     await ctx.flusher.flushNow();
