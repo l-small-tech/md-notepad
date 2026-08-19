@@ -398,19 +398,24 @@ describe('the AI TUI virtual profile', () => {
     );
   });
 
-  test('ai-theme resolves to the agent with its opening prompt; claude pinned to haiku', () => {
+  test('ai-theme resolves to the agent with its opening prompt; pinned to a mid model at low effort', () => {
     const claude = resolveTerminalProfile(DEFAULT_SETTINGS, AI_THEME_PROFILE_ID);
     expect(claude.program).toBe('claude');
     expect(claude.name).toBe('AI theme');
-    expect(claude.args.slice(0, 2)).toEqual(['--model', 'haiku']);
-    expect(claude.args[2]).toMatch(/AGENTS\.md/);
+    expect(claude.args.slice(0, 4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
+    expect(claude.args[4]).toMatch(/AGENTS\.md/);
     const chatgpt = resolveTerminalProfile(
       { ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' },
       AI_THEME_PROFILE_ID,
     );
     expect(chatgpt.program).toBe('codex');
-    expect(chatgpt.args).toHaveLength(1);
-    expect(chatgpt.args[0]).toMatch(/AGENTS\.md/);
+    expect(chatgpt.args.slice(0, 4)).toEqual([
+      '-m',
+      'gpt-5-codex',
+      '-c',
+      'model_reasoning_effort=low',
+    ]);
+    expect(chatgpt.args[4]).toMatch(/AGENTS\.md/);
   });
 
   test('a real profile with the ai-tui id shadows the virtual one', () => {
