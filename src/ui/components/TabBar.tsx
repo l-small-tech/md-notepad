@@ -837,7 +837,15 @@ export function TabBar() {
       return;
     }
     const observer = new ResizeObserver(measure);
+    // The bar too, not just the scroller: once `measure` caps the scroller's
+    // maxWidth, a growing window widens the bar but NOT the capped scroller,
+    // so watching only the scroller would never see the new room. (The
+    // scroller still matters — the ›N button appearing squeezes it inside an
+    // unchanged bar.)
     observer.observe(scroller);
+    if (barRef.current) {
+      observer.observe(barRef.current);
+    }
     return () => observer.disconnect();
   }, [measure]);
 

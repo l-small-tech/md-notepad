@@ -309,10 +309,12 @@ const confirmRememberDialog: ConfirmRememberDialog = async (msg, title, labels) 
       kind: 'warning',
       buttons: { yes: labels.confirm, no: labels.never, cancel: 'Cancel' },
     });
-    if (result === 'Yes') {
+    // With custom button labels the plugin resolves with the LABEL string
+    // itself, not the 'Yes'/'No'/'Cancel' it returns for default buttons.
+    if (result === labels.confirm) {
       return 'confirm';
     }
-    if (result === 'No') {
+    if (result === labels.never) {
       return 'never';
     }
     return 'cancel';
