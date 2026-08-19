@@ -27,6 +27,11 @@
  *    Cyanotype (cyan), Ultramarine (blue), Amethyst (violet), Dragonfruit
  *    (magenta).
  *
+ * Every theme except the flagship green pair ships a `consoleBackground`
+ * image — deep space behind acrylic frost, tinted to its palette — generated
+ * by scripts/gen-theme-backgrounds.py and seeded next to the theme's JSON by
+ * ipc/theme-loader.ts (SEED_IMAGES). The greens keep a flat color on purpose.
+ *
  * Each seeded file is stamped with SEED_VERSION. The loader (ipc/theme-loader.ts)
  * writes a built-in when absent AND refreshes a copy whose stamped version is
  * older than SEED_VERSION — so a definition change here (a fixed color, an added
@@ -40,7 +45,7 @@ import type { ThemePlugin } from './theme-plugins';
 /** Bump when any built-in definition below changes (see module comment) —
  *  including the bundled background images (ipc/theme-seed-images.ts): the
  *  loader reseeds a theme's image only when the theme file itself refreshes. */
-export const SEED_VERSION = 7;
+export const SEED_VERSION = 8;
 
 /**
  * Built-ins we used to seed but no longer ship. Gruvbox/Everforest/Rosé Pine
@@ -153,6 +158,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // glare, low-vision use, and anyone who wants text that simply cannot smear.
   {
     id: 'beacon',
+    consoleBackground: { image: 'beacon-bg.webp' },
     name: 'Beacon',
     mode: 'light',
     branding: {
@@ -187,6 +193,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // for OLED screens and pitch-dark rooms.
   {
     id: 'vantablack',
+    consoleBackground: { image: 'vantablack-bg.webp' },
     name: 'Vantablack',
     mode: 'dark',
     branding: {
@@ -221,6 +228,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // difference. Bright, airy, blue-and-orange like its namesake's morning sky.
   {
     id: 'skylark',
+    consoleBackground: { image: 'skylark-bg.webp' },
     name: 'Skylark',
     mode: 'light',
     branding: {
@@ -257,6 +265,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // as well as hue.
   {
     id: 'nightjar',
+    consoleBackground: { image: 'nightjar-bg.webp' },
     name: 'Nightjar',
     mode: 'dark',
     branding: {
@@ -290,6 +299,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // accent, a live-coral counterpoint.
   {
     id: 'lagoon',
+    consoleBackground: { image: 'lagoon-bg.webp' },
     name: 'Lagoon',
     mode: 'light',
     branding: {
@@ -363,9 +373,6 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#7590a8',
       list: '#49bfc9',
     },
-    // Starfield behind stained glass, tinted in the palette above. The image
-    // file is bundled and seeded next to this theme's JSON by ipc/theme-loader
-    // (see SEED_IMAGES there); scripts/gen-theme-backgrounds.py generates it.
     consoleBackground: { image: 'abyss-bg.webp' },
   },
   // ——— The color-wheel series: one theme per major hue. Green is covered by
@@ -376,6 +383,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // danger leans hot orange so alarms still read as alarms.
   {
     id: 'garnet',
+    consoleBackground: { image: 'garnet-bg.webp' },
     name: 'Garnet',
     mode: 'dark',
     branding: {
@@ -414,6 +422,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // becomes monotone.
   {
     id: 'marmalade',
+    consoleBackground: { image: 'marmalade-bg.webp' },
     name: 'Marmalade',
     mode: 'light',
     branding: {
@@ -452,6 +461,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // paper carries the sunshine instead.
   {
     id: 'honeycomb',
+    consoleBackground: { image: 'honeycomb-bg.webp' },
     name: 'Honeycomb',
     mode: 'light',
     branding: {
@@ -490,6 +500,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // Abyss, which owns the near-black deep water.
   {
     id: 'cyanotype',
+    consoleBackground: { image: 'cyanotype-bg.webp' },
     name: 'Cyanotype',
     mode: 'dark',
     branding: {
@@ -523,6 +534,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // classic painter's pairing).
   {
     id: 'ultramarine',
+    consoleBackground: { image: 'ultramarine-bg.webp' },
     name: 'Ultramarine',
     mode: 'light',
     branding: {
@@ -560,6 +572,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // lifted amethyst accent, a citrine-gold second stone for contrast.
   {
     id: 'amethyst',
+    consoleBackground: { image: 'amethyst-bg.webp' },
     name: 'Amethyst',
     mode: 'dark',
     branding: {
@@ -598,6 +611,7 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
   // scale-tips as the supporting voice.
   {
     id: 'dragonfruit',
+    consoleBackground: { image: 'dragonfruit-bg.webp' },
     name: 'Dragonfruit',
     mode: 'light',
     branding: {

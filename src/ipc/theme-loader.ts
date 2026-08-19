@@ -143,10 +143,11 @@ async function seedBuiltIns(themesDir: string, existingById: Map<string, string>
 
 /**
  * Write the bundled console background image a seeded theme references (see
- * ipc/theme-seed-images.ts) next to its JSON. Runs only when the theme file
- * itself was just seeded or refreshed — the same moment the definition
- * changes — so a user who deletes the picture but keeps the theme isn't
- * fighting a restore every boot. A failed write is non-fatal: the theme
+ * ipc/theme-seed-images.ts) next to its JSON. Runs when the theme file itself
+ * is seeded or refreshed — the moment the image BYTES may have changed (an
+ * existing file is overwritten with the current asset). A file that later
+ * goes missing is restored by the self-heal in `withConsoleImage` instead,
+ * so an image write that fails here once isn't permanent. Non-fatal: the theme
  * simply applies without its image until the next refresh.
  */
 async function seedConsoleImage(themesDir: string, theme: ThemePlugin): Promise<void> {
@@ -282,15 +283,26 @@ async function withConsoleImage(plugin: ThemePlugin, themePath: string): Promise
     return plugin;
   }
   const dir = themePath.slice(0, Math.max(themePath.lastIndexOf('/'), themePath.lastIndexOf('\\')));
+  const path = await join(dir, image);
+  let base64: string;
   try {
-    const base64 = await ipc.readFileBase64(await join(dir, image));
-    return {
-      ...plugin,
-      consoleBackground: { ...plugin.consoleBackground, imageUrl: `data:${mime};base64,${base64}` },
-    };
+    base64 = await ipc.readFileBase64(path);
   } catch {
-    return plugin;
+    // Self-heal: when the referenced name is one of OUR bundled assets, a
+    // missing file is restored from the bundle and used directly — an image
+    // write that failed at seed time (or a file lost since) costs one boot,
+    // not the image forever. Anything else missing stays a theme-without-image.
+    const bundled = seedImageBase64(image);
+    if (bundled === undefined) {
+      return plugin;
+    }
+    void ipc.writeFileBase64(path, bundled).catch(() => {});
+    base64 = bundled;
   }
+  return {
+    ...plugin,
+    consoleBackground: { ...plugin.consoleBackground, imageUrl: `data:${mime};base64,${base64}` },
+  };
 }
 
 /**

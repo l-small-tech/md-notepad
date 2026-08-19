@@ -10,10 +10,34 @@
  */
 
 import abyssBg from '../assets/theme-backgrounds/abyss-bg.webp?inline';
+import nightjarBg from '../assets/theme-backgrounds/nightjar-bg.webp?inline';
+import cyanotypeBg from '../assets/theme-backgrounds/cyanotype-bg.webp?inline';
+import garnetBg from '../assets/theme-backgrounds/garnet-bg.webp?inline';
+import amethystBg from '../assets/theme-backgrounds/amethyst-bg.webp?inline';
+import vantablackBg from '../assets/theme-backgrounds/vantablack-bg.webp?inline';
+import skylarkBg from '../assets/theme-backgrounds/skylark-bg.webp?inline';
+import lagoonBg from '../assets/theme-backgrounds/lagoon-bg.webp?inline';
+import marmaladeBg from '../assets/theme-backgrounds/marmalade-bg.webp?inline';
+import honeycombBg from '../assets/theme-backgrounds/honeycomb-bg.webp?inline';
+import ultramarineBg from '../assets/theme-backgrounds/ultramarine-bg.webp?inline';
+import dragonfruitBg from '../assets/theme-backgrounds/dragonfruit-bg.webp?inline';
+import beaconBg from '../assets/theme-backgrounds/beacon-bg.webp?inline';
 
 /** Bare image file name → bundled `data:` URL. */
 export const SEED_IMAGES: Readonly<Record<string, string>> = {
   'abyss-bg.webp': abyssBg,
+  'nightjar-bg.webp': nightjarBg,
+  'cyanotype-bg.webp': cyanotypeBg,
+  'garnet-bg.webp': garnetBg,
+  'amethyst-bg.webp': amethystBg,
+  'vantablack-bg.webp': vantablackBg,
+  'skylark-bg.webp': skylarkBg,
+  'lagoon-bg.webp': lagoonBg,
+  'marmalade-bg.webp': marmaladeBg,
+  'honeycomb-bg.webp': honeycombBg,
+  'ultramarine-bg.webp': ultramarineBg,
+  'dragonfruit-bg.webp': dragonfruitBg,
+  'beacon-bg.webp': beaconBg,
 };
 
 /** The base64 payload of a bundled image (what `ipc.writeFileBase64` takes). */

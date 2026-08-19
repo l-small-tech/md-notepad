@@ -299,7 +299,7 @@ describe('seeded console background images', () => {
     expect(write!.data.startsWith('data:')).toBe(false);
   });
 
-  test('a current folder gets no image writes (a deleted image stays deleted)', async () => {
+  test('a current folder with its images present gets no image writes', async () => {
     const { writes, binaryWrites } = mockThemesFolder({});
     vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
     await loadThemePlugins(DIR); // first run seeds everything (current stamps)
@@ -310,5 +310,36 @@ describe('seeded console background images', () => {
 
     expect(writes).toHaveLength(0);
     expect(binaryWrites).toHaveLength(0);
+  });
+
+  test('a missing bundled image self-heals: restored to disk and used directly', async () => {
+    const { binaryWrites } = mockThemesFolder({});
+    // Theme JSONs seed, but every image read fails (nothing on disk).
+    vi.spyOn(ipc, 'readFileBase64').mockRejectedValue(new Error('ENOENT'));
+
+    const plugins = await loadThemePlugins(DIR);
+
+    const healed = binaryWrites.find((w) => w.path === imgPath);
+    expect(healed, 'the bundled image should be rewritten').toBeDefined();
+    // And the theme still gets its image this very boot, from the bundle.
+    const loaded = plugins.find((p) => p.id === 'abyss')!;
+    expect(loaded.consoleBackground?.imageUrl).toMatch(/^data:image\/webp;base64,./);
+  });
+
+  test('a user theme referencing a non-bundled missing image is not healed', async () => {
+    const { binaryWrites } = mockThemesFolder({
+      [`${DIR}/mine.json`]: JSON.stringify({
+        name: 'Mine',
+        mode: 'dark',
+        branding: { bg: '#000' },
+        terminal: { backgroundImage: 'personal.png' },
+      }),
+    });
+    vi.spyOn(ipc, 'readFileBase64').mockRejectedValue(new Error('ENOENT'));
+
+    const plugins = await loadThemePlugins(DIR);
+
+    expect(binaryWrites.find((w) => w.path === `${DIR}/personal.png`)).toBeUndefined();
+    expect(plugins.find((p) => p.id === 'mine')?.consoleBackground?.imageUrl).toBeUndefined();
   });
 });
