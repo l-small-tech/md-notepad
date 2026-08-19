@@ -157,16 +157,17 @@ sibling `session/` folder).
 
 ## M8 — Multi-window tab tear-off
 
-- [ ] Pull a tab vertically ~40px past the bar (M8.6 live tear-off) → the
-      tab becomes a real window IMMEDIATELY, riding the cursor (Windows/
-      macOS); releasing drops it there (text, mode, cursor intact); the
+- [ ] Windows/macOS: pull a tab vertically ~40px past the bar (M8.6 live
+      tear-off) → the tab becomes a real window IMMEDIATELY, riding the
+      cursor; releasing drops it there (text, mode, cursor intact); the
       source window no longer has it. Side-to-side never tears — it reorders.
-- [ ] While riding, release the torn-off window over ANOTHER app window →
-      that window adopts the tab and the torn-off window closes.
-- [ ] Drag a window's ONLY tab vertically → the WHOLE window moves (no
-      tear-off, no fresh-Untitled leftover).
-- [ ] Drag a tab out through the window's SIDE edge (within the bar's
-      vertical band) and release → a new window opens at the drop point.
+- [ ] Windows/macOS: while riding, release the torn-off window over ANOTHER
+      app window → that window adopts the tab and the torn-off window closes.
+- [ ] Windows/macOS: drag a window's ONLY tab vertically → the WHOLE window
+      moves (no tear-off, no fresh-Untitled leftover).
+- [ ] Drag a tab out of the window and release → a new window opens at the
+      drop point (on Windows/macOS this is the horizontal-exit path; on
+      Linux it is EVERY drag-out).
 - [ ] Right-click a tab → "Move to new window" does the same (OS-placed).
 - [ ] Tear off a DIRTY file tab → the new window shows the unsaved edits,
       dirty dot intact; Ctrl+S there writes the file once.
@@ -190,10 +191,11 @@ sibling `session/` folder).
       notes-folder change is refused with a pointer to the main window.
 - [ ] Double-click a `.md` in the file manager while both windows are open →
       it opens in the MAIN window.
-- [ ] Linux: a vertical pull tears off immediately (compositor-placed; the
-      window follows the cursor only where the compositor honors the move —
-      GNOME refuses, the window just stands); drop-onto-window by drag never
-      happens there — the context-menu "Move to window …" is the route.
+- [ ] Linux: NO live tear-off (reverted — see src/ui/README.md): a vertical
+      pull inside the window does nothing until the cursor leaves the
+      window; releasing outside tears off (compositor-placed). Drop-onto-
+      window by drag never happens there — the context-menu
+      "Move to window …" is the route.
 - [ ] Chrome text never selects: dragging a tab across the ribbon (B/I/S…),
       the bar, or an open menu selects/ghosts no text.
 

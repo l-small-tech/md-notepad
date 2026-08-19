@@ -5,25 +5,24 @@
  * vertically out of the strip it becomes a real window, and the cursor drags
  * THAT. This module is the motion half of our version — TabBar decides when
  * to tear (the vertical threshold) and the session controller moves the tab;
- * what lives here is how the freshly spawned window then rides the cursor,
- * per platform:
+ * what lives here is how the freshly spawned window then rides the cursor.
  *
- * - Windows/macOS (`globalCoordsTrusted()`): the same follow loop the OS drag
- *   ghost uses (`tab-drag-ghost.ts`) — global cursor (physical px) →
- *   `setPosition` every frame — pointed at the real window. The source window
- *   keeps the pointer (capture), so it also keeps the release: the drop can
- *   still land the tab in another window (session `dropTornWindow`).
- * - Linux: no global cursor, no app-side positioning — instead ask the
- *   COMPOSITOR to move the window (`startDragging`, i.e. xdg_toplevel.move /
- *   _NET_WM_MOVERESIZE) while the button is still held. Compositors are free
- *   to refuse a move started from another surface's grab (GNOME does); the
- *   degrade is the window simply standing where the compositor placed it,
- *   already holding the tab — never a lost tab.
+ * Windows/macOS only (`globalCoordsTrusted()`): the same follow loop the OS
+ * drag ghost uses (`tab-drag-ghost.ts`) — global cursor (physical px) →
+ * `setPosition` every frame — pointed at the real window. The source window
+ * keeps the pointer (capture), so it also keeps the release: the drop can
+ * still land the tab in another window (session `dropTornWindow`).
  *
- * A window's ONLY tab never tears: dragging it vertically moves the whole
- * window ({@link startWholeWindowDrag}) — Chrome parity, and the one variant
- * every platform including Wayland supports (the move starts from this
- * window's own pointer grab, so the compositor honors it).
+ * Linux deliberately has NO live tear-off (it keeps the release-time path).
+ * The compositor route — spawn unpositioned, then `startDragging` the new
+ * window — was tried and reverted: Wayland forbids placing the window at the
+ * cursor, so even a compositor that honors the cross-surface move (KWin)
+ * moves a window the cursor was never holding — it appears elsewhere and
+ * rides out of sync, which reads as broken.
+ *
+ * A window's ONLY tab never tears where live tear-off exists: dragging it
+ * vertically moves the whole window ({@link startWholeWindowDrag}), Chrome
+ * parity — the move starts from the pressed window's own pointer grab.
  */
 
 import { cursorPosition, getCurrentWindow, PhysicalPosition } from '@tauri-apps/api/window';
@@ -87,18 +86,8 @@ export function stopTornWindowFollow(): void {
 }
 
 /**
- * Linux: hand the torn-off window to the compositor's interactive move while
- * the mouse button is still held. Best-effort by design — see the header.
- */
-export function beginCompositorWindowDrag(label: string): void {
-  void WebviewWindow.getByLabel(label)
-    .then((win) => win?.startDragging())
-    .catch(() => {});
-}
-
-/**
- * Dragging a window's only tab drags the WINDOW (all platforms): the move
- * starts from this window's own pointer grab, which even Wayland honors.
+ * Dragging a window's only tab drags the WINDOW: the move starts from this
+ * window's own pointer grab.
  */
 export function startWholeWindowDrag(): void {
   void getCurrentWindow()

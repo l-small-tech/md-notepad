@@ -195,33 +195,33 @@ untouched, so switching back to a document restores exactly what was there.
 
 ## Multi-window (M8 tab tear-off)
 
-Tab tear-off follows Chrome's model (M8.6, "live tear-off"): pulling a tab
-VERTICALLY out of the strip (`TEAR_OFF_PX` past the bar; side-to-side stays
-a reorder) tears it off immediately, mid-drag, into a real window — and the
-rest of the drag drags that window. A window's ONLY tab never tears: pulling
-it moves the whole window (`startWholeWindowDrag` — the one variant every
-platform including Wayland supports, since the move starts from the pressed
-window's own pointer grab). How the torn-off window rides the cursor is
-per-platform (`ui/tab-window-drag.ts`):
+On Windows/macOS (`globalCoordsTrusted()` — the platforms with real global
+coordinates), tab tear-off follows Chrome's model (M8.6, "live tear-off"):
+pulling a tab VERTICALLY out of the strip (`TEAR_OFF_PX` past the bar;
+side-to-side stays a reorder) tears it off immediately, mid-drag, into a
+real window — spawned unfocused under the cursor, then glued to it by the
+same follow loop the drag ghost uses (global cursor → `setPosition` per
+frame, `ui/tab-window-drag.ts`). A window's ONLY tab never tears: pulling it
+moves the whole window (`startWholeWindowDrag` — the move starts from the
+pressed window's own pointer grab). The SOURCE window keeps the pointer
+(capture moves to the bar when the grabbed tab unmounts), so it also keeps
+the release: dropping on another app window commands the torn-off window to
+hand its tab there and close (`dropTornWindow` → `commandTornWindowDrop`, a
+retried `torn-window-drop` event the torn-off window acks — it may still be
+booting); over empty desktop the window is just focused where it stands.
+Every failure degrades to the window standing open with the tab — never a
+lost tab.
 
-- **Windows/macOS** (`globalCoordsTrusted()`): spawned unfocused under the
-  cursor, then glued to it by the same follow loop the drag ghost uses
-  (global cursor → `setPosition` per frame). The SOURCE window keeps the
-  pointer (capture moves to the bar when the grabbed tab unmounts), so it
-  also keeps the release: dropping on another app window commands the
-  torn-off window to hand its tab there and close (`dropTornWindow` →
-  `commandTornWindowDrop`, a retried `torn-window-drop` event the torn-off
-  window acks — it may still be booting); over empty desktop the window is
-  just focused where it stands. Every failure degrades to the window
-  standing open with the tab — never a lost tab.
-- **Linux**: no global cursor, no app-side placement — the compositor is
-  asked to move the window (`startDragging`) while the button is held.
-  Compositors may refuse a move rooted in another surface's grab (GNOME
-  does); then the window simply stands where the compositor placed it,
-  already holding the tab.
+LINUX HAS NO LIVE TEAR-OFF — deliberately. The compositor route (spawn
+unpositioned, then `startDragging` the new window) was tried and reverted:
+Wayland forbids placing a window at the cursor, so even a compositor that
+honors the cross-surface move (KWin) moves a window the cursor was never
+holding — it appears elsewhere and rides out of sync, which reads as broken
+(the same reasoning that reverted the X11 ghost enablement). Linux keeps the
+release-time path below for every drag-out.
 
-Releasing a drag outside the window WITHOUT crossing the vertical threshold
-(a horizontal exit) still runs the older release-time path: the tab lands in
+Releasing a drag outside the window without crossing the vertical threshold
+(on Linux: any drag-out) runs the release-time path: the tab lands in
 the app window under the cursor or tears off at the release point (the
 session controller's `dropTabOut` makes the call). While a drag is live the
 source tab dims; on WINDOWS a ghost of the tab additionally rides the
@@ -280,17 +280,18 @@ the pill (no controller, no manifest), every window enumeration skips
   `settings-changed` event so theme/fonts stay uniform — except a theme a
   window pinned to itself (`stores/window-theme`), which neither leaves nor
   accepts the broadcast.
-- **Platform gating**: on Linux (Wayland offers no global cursor position or
-  app-side window placement) the vertical pull tears off unpositioned — the
-  compositor places the window, then gets asked to move it (see above) —
-  and a horizontal drag-out release is judged in client coordinates. The
-  drop-on-window hit-test needs REAL global coordinates
-  (`ui/global-coords.ts`), which Linux is treated as not having — a drag out
-  always tears off there, never a junk-coordinate drop into the wrong
-  window — and the ghost visuals are Windows-only (see above). Android is
-  single-window; there only in-strip reorder exists (`CAN_TEAR_OFF` gates
-  both tear-off flavors off). The context-menu items ("Move to new window",
-  "Move to window …") work everywhere.
+- **Platform gating**: live tear-off is Windows/macOS-only
+  (`EAGER_TEAR_OFF = CAN_TEAR_OFF && globalCoordsTrusted()` — see above for
+  why Linux was reverted). On Linux (Wayland offers no global cursor
+  position or app-side window placement) a drag-out release is judged in
+  client coordinates and the new window spawns unpositioned — the
+  compositor places it. The drop-on-window hit-test needs REAL global
+  coordinates (`ui/global-coords.ts`), which Linux is treated as not
+  having — a drag out always tears off there, never a junk-coordinate drop
+  into the wrong window — and the ghost visuals are Windows-only (see
+  above). Android is single-window; there only in-strip reorder exists
+  (`CAN_TEAR_OFF`). The context-menu items ("Move to new window", "Move to
+  window …") work everywhere.
 
 ## Keyboard shortcuts (single registry)
 

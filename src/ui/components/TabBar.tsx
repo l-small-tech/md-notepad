@@ -60,7 +60,6 @@ import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
 import { endOsGhost, osGhostAvailable, setOsGhostOutside, startOsGhost } from '../tab-drag-ghost';
 import {
-  beginCompositorWindowDrag,
   startTornWindowFollow,
   startWholeWindowDrag,
   stopTornWindowFollow,
@@ -97,6 +96,13 @@ import { isAndroid } from '../platform';
 const CAN_TEAR_OFF = !isAndroid();
 /** Android's UA also reports Linux, hence the isAndroid() exclusion. */
 const LINUX_TEAR_OFF = /linux/i.test(navigator.platform) && !isAndroid();
+/**
+ * Live tear-off (M8.6) needs the new window spawned UNDER the cursor and then
+ * driven by it — both take real global coordinates, so it exists only where
+ * they do (Windows/macOS). Linux keeps the release-time tear-off (see the
+ * comment at the trigger in onMove for why the compositor route was reverted).
+ */
+const EAGER_TEAR_OFF = CAN_TEAR_OFF && globalCoordsTrusted();
 
 /** Pointer travel (px, manhattan) before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 5;
@@ -1077,10 +1083,17 @@ export function TabBar() {
           ev.clientY > window.innerHeight,
       );
       // Chrome's move: pulled vertically out of the strip → the tab becomes a
-      // real window NOW, and the rest of the drag drags that window.
+      // real window NOW, and the rest of the drag drags that window. Only
+      // where the window can actually spawn under the cursor and follow it
+      // (Windows/macOS). On Linux the pieces don't compose: Wayland forbids
+      // placing the window at the cursor, so even a compositor that honors a
+      // cross-surface move (KWin does) moves a window the cursor was never
+      // holding — it appears elsewhere and rides out of sync. Tried and
+      // reverted; Linux keeps the release-time tear-off below (same reasoning
+      // that reverted the X11 ghost enablement).
       const bar = barRef.current?.getBoundingClientRect();
       if (
-        CAN_TEAR_OFF &&
+        EAGER_TEAR_OFF &&
         bar !== undefined &&
         (ev.clientY < bar.top - TEAR_OFF_PX || ev.clientY > bar.bottom + TEAR_OFF_PX)
       ) {
@@ -1121,12 +1134,9 @@ export function TabBar() {
       setOsGhostOutside(true);
       const holdX = Math.min(grabX, TORN_HOLD_X_MAX) + 8;
       const holdY = TORN_HOLD_Y;
-      const pos = globalCoordsTrusted()
-        ? { x: Math.round(ev.screenX - holdX), y: Math.round(ev.screenY - holdY) }
-        : null;
-      // Unfocused where the follow loop drives (focus lands on release);
-      // focused on Linux, where the compositor takes over (or places it).
-      void tearOffTab(tabId, pos, { focus: !globalCoordsTrusted() }).then((label) => {
+      const pos = { x: Math.round(ev.screenX - holdX), y: Math.round(ev.screenY - holdY) };
+      // Unfocused: the follow loop drives it; focus lands on release.
+      void tearOffTab(tabId, pos, { focus: false }).then((label) => {
         tearing = false;
         if (label === null) {
           // Nothing spawned (the controller adopted the tab back and said so)
@@ -1141,11 +1151,7 @@ export function TabBar() {
           dropTornWindow(label);
           return;
         }
-        if (globalCoordsTrusted()) {
-          startTornWindowFollow(label, holdX, holdY);
-        } else {
-          beginCompositorWindowDrag(label);
-        }
+        startTornWindowFollow(label, holdX, holdY);
       });
     }
     function onUp(ev: PointerEvent): void {
