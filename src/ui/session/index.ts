@@ -142,6 +142,7 @@ export {
 } from './facade';
 export type {
   ConfirmDialog,
+  ConfirmRememberDialog,
   ExplorerEntry,
   ImageRef,
   OpenFilesDialog,
@@ -159,6 +160,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   // future cloud drive swaps in via setProvider). Tests still inject deps.ipc.
   const ipc = deps.ipc ?? currentProvider();
   const confirm = deps.confirm ?? (async () => true);
+  const confirmRemember = deps.confirmRemember ?? (async () => 'confirm' as const);
   // Safe defaults for when a dependency is never injected (e.g. a test that
   // doesn't exercise file dialogs): open/save do nothing rather than guess a
   // destination; the close prompt refuses rather than risk silent data loss.
@@ -181,6 +183,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     deps,
     ipc,
     confirm,
+    confirmRemember,
     openDialog,
     saveDialog,
     saveDiscardCancel,

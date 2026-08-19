@@ -41,12 +41,18 @@ export function createWindows(
       const running = Object.values(live.panes).filter((p) => p.tabId === id && !p.exited);
       if (settingsStore.getState().settings.terminalConfirmCloseRunning && running.length > 0) {
         const what = running.length === 1 ? 'a running shell' : `${running.length} running shells`;
-        const ok = await ctx.confirm(
+        // "Close and don't ask again" flips the same setting the Terminal
+        // settings page exposes, so the prompt stays re-enablable.
+        const choice = await ctx.confirmRemember(
           `Close "${tab.title}"? It still has ${what}, which will be killed.`,
           'Close terminal',
+          { confirm: 'Close', never: "Close, don't ask again" },
         );
-        if (!ok) {
+        if (choice === 'cancel') {
           return;
+        }
+        if (choice === 'never') {
+          settingsStore.getState().update({ terminalConfirmCloseRunning: false });
         }
       }
       tabsStore.getState().closeTab(id);

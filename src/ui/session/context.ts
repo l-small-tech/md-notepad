@@ -14,6 +14,7 @@ import type { SessionPaths } from '../../ipc/paths';
 import type { TabEntry } from '../stores/tabs';
 import type {
   ConfirmDialog,
+  ConfirmRememberDialog,
   OpenFilesDialog,
   PickDirectoryDialog,
   PickFileDialog,
@@ -76,6 +77,7 @@ export interface SessionControllerDeps {
   ) => Promise<void>;
   ipc?: SessionIpc;
   confirm?: ConfirmDialog;
+  confirmRemember?: ConfirmRememberDialog;
   openDialog?: OpenFilesDialog;
   saveDialog?: SaveFileDialog;
   saveDiscardCancel?: SaveDiscardCancelDialog;
@@ -146,6 +148,7 @@ export interface SessionCtx {
   deps: SessionControllerDeps;
   ipc: SessionIpc;
   confirm: ConfirmDialog;
+  confirmRemember: ConfirmRememberDialog;
   openDialog: OpenFilesDialog;
   saveDialog: SaveFileDialog;
   saveDiscardCancel: SaveDiscardCancelDialog;

@@ -56,6 +56,7 @@ import {
   getDefaultWorkspacePath,
   importFilesInto,
   type ConfirmDialog,
+  type ConfirmRememberDialog,
   type OpenFilesDialog,
   type PickDirectoryDialog,
   type PickFileDialog,
@@ -287,6 +288,26 @@ const confirmDialog: ConfirmDialog = async (msg, title) => {
   }
 };
 
+const confirmRememberDialog: ConfirmRememberDialog = async (msg, title, labels) => {
+  try {
+    const result = await message(msg, {
+      title,
+      kind: 'warning',
+      buttons: { yes: labels.confirm, no: labels.never, cancel: 'Cancel' },
+    });
+    if (result === 'Yes') {
+      return 'confirm';
+    }
+    if (result === 'No') {
+      return 'never';
+    }
+    return 'cancel';
+  } catch {
+    // Outside a Tauri webview there is no native dialog; don't block the close.
+    return 'confirm';
+  }
+};
+
 const openFilesDialog: OpenFilesDialog = async () => {
   try {
     const selected = await open({ multiple: true, filters: MARKDOWN_FILTERS });
@@ -460,6 +481,7 @@ async function boot(): Promise<void> {
     initialManifest: adoptParam ? parseManifest(adoptParam) : null,
     spawnTabWindow,
     confirm: confirmDialog,
+    confirmRemember: confirmRememberDialog,
     openDialog: openFilesDialog,
     saveDialog: saveFileDialog,
     saveDiscardCancel: saveDiscardCancelDialog,

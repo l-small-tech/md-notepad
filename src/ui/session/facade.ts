@@ -20,6 +20,16 @@ import { uiStore } from '../stores/ui';
 
 /** Native confirm dialog (plugin-dialog in the app; a stub in tests). */
 export type ConfirmDialog = (message: string, title: string) => Promise<boolean>;
+/**
+ * A confirm whose affirmative comes in two flavours: just this once, or "and
+ * stop asking me". Native dialogs carry no checkbox, so it renders as a
+ * three-button message box; `never` means "go ahead, and turn the prompt off".
+ */
+export type ConfirmRememberDialog = (
+  message: string,
+  title: string,
+  labels: { confirm: string; never: string },
+) => Promise<'confirm' | 'never' | 'cancel'>;
 /** Native open-file dialog. Returns the selected path(s), or null if cancelled. */
 export type OpenFilesDialog = () => Promise<string[] | null>;
 /** One native-dialog file filter: a label plus bare extensions (no dots). */
