@@ -38,7 +38,7 @@
 import type { ThemePlugin } from './theme-plugins';
 
 /** Bump when any built-in definition below changes (see module comment). */
-export const SEED_VERSION = 5;
+export const SEED_VERSION = 6;
 
 /**
  * Built-ins we used to seed but no longer ship. Gruvbox/Everforest/Rosé Pine
@@ -361,6 +361,10 @@ const BUILT_IN_THEME_DEFS: ThemePlugin[] = [
       quote: '#7590a8',
       list: '#49bfc9',
     },
+    // Starfield behind stained glass, tinted in the palette above. The image
+    // file is bundled and seeded next to this theme's JSON by ipc/theme-loader
+    // (see SEED_IMAGES there); scripts/gen-theme-backgrounds.py generates it.
+    consoleBackground: { image: 'abyss-bg.webp' },
   },
   // ——— The color-wheel series: one theme per major hue. Green is covered by
   // the flagship Light/Dark Green pair. ———

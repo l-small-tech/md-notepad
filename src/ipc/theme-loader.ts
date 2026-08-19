@@ -27,6 +27,7 @@ import {
   type SyntaxPalette,
 } from '../core/theme-plugins';
 import { BUILT_IN_THEMES, RETIRED_THEME_IDS } from '../core/theme-seeds';
+import { seedImageBase64 } from './theme-seed-images';
 
 /** Filename slug (no extension), lowercased and reduced to a safe id. */
 function slugFromPath(path: string): string {
@@ -41,12 +42,14 @@ function slugFromPath(path: string): string {
 
 /** The on-disk JSON shape (the plugin minus its filename-derived id). */
 function toFileJson(plugin: ThemePlugin): string {
+  const terminal = terminalBlock(plugin);
   const body: {
     name: string;
     version?: number;
     mode: ThemeMode;
     branding: Branding;
     syntax?: SyntaxPalette;
+    terminal?: Record<string, unknown>;
     css?: string;
   } = {
     name: plugin.name,
@@ -54,9 +57,25 @@ function toFileJson(plugin: ThemePlugin): string {
     mode: plugin.mode,
     branding: plugin.branding,
     ...(plugin.syntax ? { syntax: plugin.syntax } : {}),
+    ...(terminal ? { terminal } : {}),
     ...(plugin.css ? { css: plugin.css } : {}),
   };
   return `${JSON.stringify(body, null, 2)}\n`;
+}
+
+/**
+ * The on-disk `terminal` block: the palette overrides plus the console-surface
+ * keys, which `parseThemePlugin` splits back apart on read. Undefined when the
+ * plugin carries neither, so themes without one stay byte-identical to before.
+ */
+function terminalBlock(plugin: ThemePlugin): Record<string, unknown> | undefined {
+  const surface = plugin.consoleBackground;
+  const block: Record<string, unknown> = {
+    ...(plugin.terminal ?? {}),
+    ...(surface?.image !== undefined ? { backgroundImage: surface.image } : {}),
+    ...(surface?.opacity !== undefined ? { backgroundOpacity: surface.opacity } : {}),
+  };
+  return Object.keys(block).length > 0 ? block : undefined;
 }
 
 /**
@@ -115,9 +134,32 @@ async function seedBuiltIns(themesDir: string, existingById: Map<string, string>
     } catch {
       // A failed seed/refresh is non-fatal: the theme just keeps its old copy
       // (or won't appear until writable); the rest of the folder still loads.
+      continue;
     }
+    await seedConsoleImage(themesDir, theme);
   }
   return written;
+}
+
+/**
+ * Write the bundled console background image a seeded theme references (see
+ * ipc/theme-seed-images.ts) next to its JSON. Runs only when the theme file
+ * itself was just seeded or refreshed — the same moment the definition
+ * changes — so a user who deletes the picture but keeps the theme isn't
+ * fighting a restore every boot. A failed write is non-fatal: the theme
+ * simply applies without its image until the next refresh.
+ */
+async function seedConsoleImage(themesDir: string, theme: ThemePlugin): Promise<void> {
+  const image = theme.consoleBackground?.image;
+  const base64 = image !== undefined ? seedImageBase64(image) : undefined;
+  if (image === undefined || base64 === undefined) {
+    return;
+  }
+  try {
+    await ipc.writeFileBase64(await join(themesDir, image), base64);
+  } catch {
+    // Non-fatal (see above).
+  }
 }
 
 /**

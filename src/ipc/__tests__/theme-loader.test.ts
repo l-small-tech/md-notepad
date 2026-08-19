@@ -22,8 +22,12 @@ const lgPath = `${DIR}/light-green.json`;
 function mockThemesFolder(initial: Record<string, string>) {
   const fs = new Map(Object.entries(initial));
   const writes: { path: string; text: string }[] = [];
+  const binaryWrites: { path: string; data: string }[] = [];
   const deletes: string[] = [];
   vi.spyOn(ipc, 'createDir').mockResolvedValue(undefined);
+  vi.spyOn(ipc, 'writeFileBase64').mockImplementation(async (path: string, data: string) => {
+    binaryWrites.push({ path, data });
+  });
   vi.spyOn(ipc, 'listThemeFiles').mockImplementation(async () => [...fs.keys()]);
   vi.spyOn(ipc, 'readTextFile').mockImplementation(async (path: string) => {
     const text = fs.get(path);
@@ -40,7 +44,7 @@ function mockThemesFolder(initial: Record<string, string>) {
     fs.delete(path);
     deletes.push(path);
   });
-  return { fs, writes, deletes };
+  return { fs, writes, binaryWrites, deletes };
 }
 
 /** The on-disk JSON a current-build seed would have written for light-green. */
@@ -254,6 +258,57 @@ describe('console background image', () => {
     });
     const read = vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
     await loadThemePlugins(DIR);
-    expect(read).not.toHaveBeenCalled();
+    // The just-seeded built-ins read THEIR OWN images; nothing reads for mine.
+    const seededImages = BUILT_IN_THEMES.flatMap((t) =>
+      t.consoleBackground?.image ? [`${DIR}/${t.consoleBackground.image}`] : [],
+    );
+    for (const call of read.mock.calls) {
+      expect(seededImages).toContain(call[0]);
+    }
+  });
+});
+
+describe('seeded console background images', () => {
+  // Abyss is the built-in that ships an image today; these tests pin the
+  // seeding contract through it.
+  const abyss = BUILT_IN_THEMES.find((t) => t.id === 'abyss')!;
+  const imgPath = `${DIR}/${abyss.consoleBackground!.image!}`;
+
+  test('a seeded theme file carries its terminal block and round-trips', async () => {
+    const { writes } = mockThemesFolder({});
+    vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+
+    await loadThemePlugins(DIR);
+
+    const seeded = writes.find((w) => w.path === `${DIR}/abyss.json`);
+    expect(seeded).toBeDefined();
+    const json = JSON.parse(seeded!.text);
+    expect(json.terminal.backgroundImage).toBe(abyss.consoleBackground!.image);
+  });
+
+  test('first run writes the bundled image next to the theme', async () => {
+    const { binaryWrites } = mockThemesFolder({});
+    vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+
+    await loadThemePlugins(DIR);
+
+    const write = binaryWrites.find((w) => w.path === imgPath);
+    expect(write, 'the bundled image should be seeded').toBeDefined();
+    expect(write!.data.length).toBeGreaterThan(0);
+    // A base64 payload, not a data: URL.
+    expect(write!.data.startsWith('data:')).toBe(false);
+  });
+
+  test('a current folder gets no image writes (a deleted image stays deleted)', async () => {
+    const { writes, binaryWrites } = mockThemesFolder({});
+    vi.spyOn(ipc, 'readFileBase64').mockResolvedValue('QUJD');
+    await loadThemePlugins(DIR); // first run seeds everything (current stamps)
+    writes.length = 0;
+    binaryWrites.length = 0;
+
+    await loadThemePlugins(DIR);
+
+    expect(writes).toHaveLength(0);
+    expect(binaryWrites).toHaveLength(0);
   });
 });
