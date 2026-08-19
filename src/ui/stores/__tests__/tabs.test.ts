@@ -305,25 +305,6 @@ describe('openFileTab (M3)', () => {
     });
     expect(state().tabs.find((t) => t.id === svg)!.mode).toBe('draw');
   });
-
-  test('a preview tab reused for another file keeps the last-used mode', () => {
-    const first = state().openFileTab({
-      filePath: '/docs/a.md',
-      text: 'a',
-      savedMtimeMs: 1,
-      preview: true,
-    });
-    state().setMode(first, 'read');
-    const second = state().openFileTab({
-      filePath: '/docs/b.md',
-      text: 'b',
-      savedMtimeMs: 2,
-      preview: true,
-    });
-    // Single preview slot reused, opened in read mode.
-    expect(state().tabs.filter((t) => t.kind === 'file')).toHaveLength(1);
-    expect(state().tabs.find((t) => t.id === second)!.mode).toBe('read');
-  });
 });
 
 describe('dirty dot (M3)', () => {

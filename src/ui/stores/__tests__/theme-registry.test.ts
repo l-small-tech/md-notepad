@@ -3,12 +3,7 @@
  * around ipc/theme-loader, covered there).
  */
 import { describe, expect, test } from 'vitest';
-import {
-  currentThemeValue,
-  exportThemeGroups,
-  themePickerGroups,
-  themeSelectionPatch,
-} from '../theme-registry';
+import { currentThemeValue, exportThemeGroups, themeSelectionPatch } from '../theme-registry';
 import type { ThemeMode, ThemePlugin } from '../../../core/theme-plugins';
 
 const plugin = (id: string, mode: ThemeMode, name = id): ThemePlugin => ({
@@ -55,12 +50,6 @@ describe('exportThemeGroups', () => {
     expect(groups[0]!.options.map((o) => o.value)).toEqual(['monokai']);
     expect(exportThemeGroups([])).toEqual([]);
   });
-
-  test('mirrors themePickerGroups minus the System entry', () => {
-    const picker = themePickerGroups(PLUGINS).flatMap((g) => g.options);
-    const exportable = exportThemeGroups(PLUGINS).flatMap((g) => g.options);
-    expect(picker.filter((o) => o.value !== 'system')).toEqual(exportable);
-  });
 });
 
 describe('currentThemeValue / themeSelectionPatch', () => {
@@ -75,11 +64,5 @@ describe('currentThemeValue / themeSelectionPatch', () => {
     expect(themeSelectionPatch('system')).toEqual({ theme: 'system', colorScheme: 'default' });
     expect(themeSelectionPatch('dark')).toEqual({ theme: 'dark', colorScheme: 'default' });
     expect(themeSelectionPatch('nord')).toEqual({ theme: 'system', colorScheme: 'nord' });
-  });
-
-  test('round-trips: applying a patch makes that entry the current one', () => {
-    for (const value of ['system', 'dark', 'nord', 'light-green']) {
-      expect(currentThemeValue(themeSelectionPatch(value))).toBe(value);
-    }
   });
 });

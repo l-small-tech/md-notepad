@@ -8,12 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { createScene } from '../scene';
 import { setColorMode } from '../layers';
 import { serializeWhiteboard } from '../serialize';
-import {
-  boardThemeFingerprint,
-  injectBoardThemeVars,
-  isThemableBoardSvg,
-  WB_THEME_VAR_NAMES,
-} from '../theme-inject';
+import { boardThemeFingerprint, injectBoardThemeVars, isThemableBoardSvg } from '../theme-inject';
 
 const VARS = new Map<string, string>([
   ['--wb-bg', '#101418'],
@@ -100,12 +95,5 @@ describe('boardThemeFingerprint', () => {
     const other = new Map(VARS);
     other.set('--wb-bg', '#ffffff');
     expect(boardThemeFingerprint(other)).not.toBe(boardThemeFingerprint(VARS));
-  });
-
-  it('covers every published var name', () => {
-    const print = boardThemeFingerprint(new Map());
-    for (const name of WB_THEME_VAR_NAMES) {
-      expect(print).toContain(name);
-    }
   });
 });

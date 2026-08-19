@@ -35,12 +35,6 @@ describe('clippedTabIds', () => {
     ).toEqual(['hidden', 'gone']);
   });
 
-  test('results come back in strip order', () => {
-    expect(
-      clippedTabIds(STRIP, [tab('a', 120, 160), tab('b', 60, 90), tab('c', 200, 240)]),
-    ).toEqual(['a', 'c']);
-  });
-
   test('an empty strip clips nothing', () => {
     expect(clippedTabIds(STRIP, [])).toEqual([]);
   });

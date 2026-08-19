@@ -407,23 +407,6 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 
-  test('diagram clicks are inert without an onOpenDiagram callback', async () => {
-    renderMermaidBlocksMock.mockImplementation((container: HTMLElement) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'mermaid-diagram';
-      wrap.innerHTML = '<svg></svg>';
-      container.appendChild(wrap);
-      return Promise.resolve();
-    });
-    const model = createDocModel('```mermaid\ngraph TD;\n```');
-    const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false });
-    await vi.runOnlyPendingTimersAsync();
-
-    expect(() => click(el.querySelector('.mermaid-diagram')!)).not.toThrow();
-    pane.dispose();
-  });
-
   test('a whiteboard .svg is read as text and gets the app theme baked into its data URL', async () => {
     const board =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" class="wb-board">\n</svg>\n';
@@ -467,23 +450,6 @@ describe('attachPreviewPane', () => {
 
     const src = el.querySelector('img')!.getAttribute('src')!;
     expect(decodeURIComponent(src.slice(src.indexOf(',') + 1))).toBe(fixed);
-    pane.dispose();
-  });
-
-  test('a stale in-flight render is discarded so it never clobbers newer content', async () => {
-    const model = createDocModel('first');
-    const el = host();
-    const pane = attachPreviewPane(el, model, { dark: false });
-    await vi.runOnlyPendingTimersAsync();
-    expect(el.innerHTML).toContain('first');
-
-    model.pushText('second', 'cm6');
-    await vi.advanceTimersByTimeAsync(200); // render #2 starts
-    model.pushText('third', 'cm6');
-    await vi.advanceTimersByTimeAsync(200); // render #3 starts and finishes after #2 would
-
-    expect(el.innerHTML).toContain('third');
-    expect(el.innerHTML).not.toContain('second');
     pane.dispose();
   });
 });

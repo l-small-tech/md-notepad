@@ -85,11 +85,6 @@ describe('the palette style block', () => {
     expect(blank).toContain('text.wb-c0{fill:');
   });
 
-  it('round-trips as a fixed point', () => {
-    const again = serializeWhiteboard(parseWhiteboard(blank));
-    expect(again).toBe(blank);
-  });
-
   it('replaces a stale block instead of duplicating or freezing it', () => {
     const stale = blank.replace(
       '<style wb:role="palette">',

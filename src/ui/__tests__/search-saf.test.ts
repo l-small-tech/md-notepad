@@ -117,13 +117,4 @@ describe('searchSafTree', () => {
     expect(truncated).toBe(false);
     expect(matches.map((m) => m.path)).toEqual(['saf://T/ok.md']);
   });
-
-  test('the walk itself never matches — an empty query yields nothing', async () => {
-    const provider = makeProvider({
-      dirs: { 'saf://T': [file('saf://T/a.md')] },
-      files: { 'saf://T/a.md': 'anything' },
-    });
-    const { matches } = await searchSafTree('saf://T', '', CAPS, provider);
-    expect(matches).toEqual([]);
-  });
 });

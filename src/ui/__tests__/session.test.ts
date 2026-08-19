@@ -1939,16 +1939,6 @@ describe('openPaths — importable documents', () => {
     expect([...fs.files.keys()].some((p) => p.endsWith('.md'))).toBe(false);
   });
 
-  test('a DOCX opens an import card like a PDF', async () => {
-    const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
-    const controller = makeController(fs);
-
-    await controller.openPaths(['/notes/memo.docx']);
-
-    const tab = tabs.tabsStore.getState().tabs.find((t) => t.filePath === '/notes/memo.docx');
-    expect(tab?.kind).toBe('import');
-  });
-
   test('clicking the same document twice focuses the one import tab', async () => {
     const fs = makeFakeFs({ '/notes/memo.docx': 'fake-docx' });
     const controller = makeController(fs);

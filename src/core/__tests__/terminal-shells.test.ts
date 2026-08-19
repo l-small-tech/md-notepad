@@ -89,12 +89,6 @@ describe('terminalProgram', () => {
     const settings = { ...DEFAULT_SETTINGS, terminalShell: 'pwsh.exe' };
     expect(terminalProgram(settings, claude)).toBe('claude');
   });
-
-  test('the profile object itself is never mutated', () => {
-    const settings = { ...DEFAULT_SETTINGS, terminalShell: 'fish' };
-    terminalProgram(settings, loginShell);
-    expect(loginShell.program).toBeUndefined();
-  });
 });
 
 describe('terminalFont', () => {

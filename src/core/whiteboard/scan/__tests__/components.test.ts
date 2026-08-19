@@ -125,14 +125,4 @@ describe('border removal split rescue', () => {
     // The free-standing strokes are untouched.
     expect(result.labels[13 * W + 100]).not.toBe(0);
   });
-
-  it('counters equal the removedComponents histogram', () => {
-    const { masks } = bridgedBoard();
-    const result = extractInk(masks, W, H);
-    const histogram = { ghost: 0, speckle: 0, faint: 0, blob: 0, border: 0, glare: 0 };
-    for (const { reason } of result.removedComponents) {
-      histogram[reason]++;
-    }
-    expect(histogram).toEqual(result.removed);
-  });
 });

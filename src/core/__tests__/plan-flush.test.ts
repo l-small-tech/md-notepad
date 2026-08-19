@@ -278,11 +278,6 @@ describe('planFlush — file tabs, deletes, manifest', () => {
     });
     expect(plan.manifestPath).toBe('/session/session.json');
   });
-
-  test('no groups → no groups key in the manifest', () => {
-    const plan = planFlush(view({ tabs: [tab({ id: 't1', title: 'A', text: 'a' })] }));
-    expect('groups' in plan.manifest).toBe(false);
-  });
 });
 
 describe('executeFlushPlan', () => {

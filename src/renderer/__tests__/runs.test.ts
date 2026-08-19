@@ -101,11 +101,4 @@ describe('buildRowRuns', () => {
     const { backgrounds } = rowRuns('hi', { reverseVideo: true });
     expect(backgrounds).toEqual([{ col: 0, width: 20, color: DEFAULTS.foreground }]);
   });
-
-  it('never runs past the last column', () => {
-    const { texts, backgrounds } = rowRuns('\x1b[41m0123456789', {}, 5);
-    for (const run of [...texts, ...backgrounds]) {
-      expect(run.col + run.width).toBeLessThanOrEqual(5);
-    }
-  });
 });

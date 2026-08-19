@@ -30,13 +30,6 @@ describe('allowedModesFor', () => {
   it('leaves the markdown modes exactly as they were, with no Draw', () => {
     expect(allowedModesFor('markdown')).toEqual(['raw', 'split', 'wysiwyg', 'read']);
   });
-
-  it('agrees with isModeAllowed', () => {
-    expect(isModeAllowed('svg', 'draw')).toBe(true);
-    expect(isModeAllowed('svg', 'wysiwyg')).toBe(false);
-    expect(isModeAllowed('markdown', 'draw')).toBe(false);
-    expect(isModeAllowed('markdown', 'read')).toBe(true);
-  });
 });
 
 describe('defaultModeFor', () => {

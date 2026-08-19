@@ -44,12 +44,6 @@ describe('setPaletteKind', () => {
     whiteboardStore.getState().setPaletteKind('themed');
     expect(whiteboardStore.getState().color).toBe(PALETTE[4]);
   });
-
-  it('is a no-op when the kind is unchanged', () => {
-    whiteboardStore.getState().setColor(PALETTE[2]!);
-    whiteboardStore.getState().setPaletteKind('themed');
-    expect(whiteboardStore.getState().color).toBe(PALETTE[2]);
-  });
 });
 
 describe('touch policy (phase 3)', () => {

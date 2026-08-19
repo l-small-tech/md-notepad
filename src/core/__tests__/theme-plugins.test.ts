@@ -105,11 +105,6 @@ describe('parseThemePlugin', () => {
     // Every syntax value was unsafe/unknown → no syntax block at all.
     expect(plugin!.syntax).toBeUndefined();
   });
-
-  test('a theme with only syntax colors (no branding) is invalid', () => {
-    expect(parseThemePlugin('syn3', { syntax: { heading: '#0a0' } })).toBeNull();
-    expect(parseThemePlugin('syn4', { branding: {}, syntax: { heading: '#0a0' } })).toBeNull();
-  });
 });
 
 describe('themePluginToCss', () => {

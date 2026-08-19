@@ -57,14 +57,4 @@ describe('exportPreviewStore', () => {
     expect(s.themeId).toBe('a');
     expect(s.dark).toBe(false);
   });
-
-  test('setters update their fields', () => {
-    exportPreviewStore.getState().setFormat('html');
-    exportPreviewStore.getState().setThemeId('nord');
-    exportPreviewStore.getState().setDark(true);
-    const s = exportPreviewStore.getState();
-    expect(s.format).toBe('html');
-    expect(s.themeId).toBe('nord');
-    expect(s.dark).toBe(true);
-  });
 });

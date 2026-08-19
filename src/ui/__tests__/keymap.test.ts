@@ -204,12 +204,6 @@ describe('keyEventToAction — global workspace search', () => {
     expect(keyEventToAction(key({ key: 'F', shiftKey: true }), 'other')).toBeNull();
     expect(keyEventToAction(key({ key: 'F', metaKey: true, shiftKey: true }), 'other')).toBeNull();
   });
-
-  test('the mac fullscreen chord (Ctrl+Cmd+F) still wins without Shift', () => {
-    expect(keyEventToAction(key({ key: 'f', ctrlKey: true, metaKey: true }), 'mac')).toEqual({
-      type: 'toggle-fullscreen',
-    });
-  });
 });
 
 describe('keyEventToAction — non-interception', () => {

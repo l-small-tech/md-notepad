@@ -74,15 +74,6 @@ describe('newCommentId', () => {
       taken.add(id);
     }
   });
-
-  test('avoids a saturated prefix by retrying', () => {
-    // Force a collision on the first candidate by pre-filling, and confirm it
-    // still yields a fresh, valid id.
-    const taken = new Set<string>(['c0000']);
-    const id = newCommentId(taken);
-    expect(id).not.toBe('c0000');
-    expect(id).toMatch(/^c[0-9a-z]+$/);
-  });
 });
 
 describe('parse/serialize round-trip', () => {

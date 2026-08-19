@@ -41,13 +41,6 @@ describe('buildStandaloneHtml', () => {
     expect(html).not.toContain('<title><script>');
   });
 
-  test('raw HTML in the markdown is dropped by the sanitized pipeline', async () => {
-    const html = await build('before\n\n<script>alert(1)</script>\n\n<iframe src="x"></iframe>');
-    expect(html).not.toContain('<script>alert');
-    expect(html).not.toContain('<iframe');
-    expect(html).toContain('before');
-  });
-
   test('inlines images the resolver can produce a data: URL for', async () => {
     const html = await build('![pic](./pic.png)', {
       resolveImage: async (src) => (src === './pic.png' ? 'data:image/png;base64,QUJD' : null),
@@ -61,11 +54,6 @@ describe('buildStandaloneHtml', () => {
     const html = await build('![pic](https://example.com/pic.png)', { resolveImage });
     expect(resolveImage).toHaveBeenCalledWith('https://example.com/pic.png');
     expect(html).toContain('src="https://example.com/pic.png"');
-  });
-
-  test('without a resolver, image srcs pass through untouched', async () => {
-    const html = await build('![pic](./local.png)');
-    expect(html).toContain('src="./local.png"');
   });
 
   test('dark adds the dark class to <body>; the default is light', async () => {

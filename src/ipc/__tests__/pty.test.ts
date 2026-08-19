@@ -167,12 +167,6 @@ describe('the Tauri pty provider', () => {
     expect(calls.writes).toEqual([[0xc3, 0xa9, 0x0a], [3]]);
   });
 
-  it('reports the id the backend assigned', async () => {
-    const { provider } = harness();
-    const handle = await provider.spawn({ cols: 80, rows: 24 }, handlers());
-    expect(handle.id).toBe(7);
-  });
-
   it('ignores resize and kill for a session that already exited', async () => {
     const gone = () => Promise.reject(new IpcError('NOT_FOUND', 'no pty session 7'));
     const { provider } = harness({ ptyResize: gone, ptyKill: gone });

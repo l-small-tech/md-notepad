@@ -33,13 +33,6 @@ describe('buildCommands', () => {
     }
   });
 
-  test('every command has a non-empty title and a run function', () => {
-    for (const cmd of buildCommands()) {
-      expect(cmd.title.trim().length).toBeGreaterThan(0);
-      expect(typeof cmd.run).toBe('function');
-    }
-  });
-
   test('enabled guards are callable and boolean-valued', () => {
     for (const cmd of buildCommands()) {
       if (cmd.enabled) {

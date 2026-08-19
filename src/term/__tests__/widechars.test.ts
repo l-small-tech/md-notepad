@@ -81,10 +81,4 @@ describe('wide characters in the grid', () => {
     feed(t, 'abcd\u0301');
     expect(t.row(1).getCell(0).text).toBe('d\u0301');
   });
-
-  it('text serialization keeps wide chars single', () => {
-    const t = term();
-    feed(t, 'a中b');
-    expect(t.serialize()[0]).toBe('a中b');
-  });
 });

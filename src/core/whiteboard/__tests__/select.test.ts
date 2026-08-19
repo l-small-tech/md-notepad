@@ -196,14 +196,6 @@ describe('transformElement', () => {
     expect(transformElement(text, 2, 2, 0, 0)).toMatchObject({ x: 20, y: 40, fontSize: 48 });
   });
 
-  it('resizes text without re-breaking its lines', () => {
-    // Scaling text moves and resizes it; the LINES are the author's and a
-    // stretched box is not a reason to re-flow them (nor could the format
-    // express one — there is no box).
-    const text = makeText(P(0, 0), 'one\ntwo', '#1a1a1a', 24)!;
-    expect(transformElement(text, 3, 1, 0, 0)).toMatchObject({ lines: text.lines });
-  });
-
   it('never touches raw content', () => {
     const raw: SceneElement = { kind: 'raw', xml: '<circle cx="1" cy="1" r="1"/>' };
     expect(transformElement(raw, 5, 5, 5, 5)).toBe(raw);

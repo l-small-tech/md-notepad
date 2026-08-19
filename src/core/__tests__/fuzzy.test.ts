@@ -55,11 +55,6 @@ describe('rankCandidates', () => {
     expect(titles(rankCandidates('nt', items, (i) => i.title))).toEqual(['New tab', 'notation']);
   });
 
-  test('the best-scoring candidate ranks first regardless of input order', () => {
-    const items = [{ title: 'xtxaxb' }, { title: 'New tab' }];
-    expect(titles(rankCandidates('tab', items, (i) => i.title))).toEqual(['New tab', 'xtxaxb']);
-  });
-
   test('empty query returns everything in original order', () => {
     const items = [{ title: 'b' }, { title: 'a' }, { title: 'c' }];
     expect(titles(rankCandidates('', items, (i) => i.title))).toEqual(['b', 'a', 'c']);

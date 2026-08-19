@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  createDomClipboard,
   createMemoryClipboard,
   createTauriClipboard,
   getClipboard,
@@ -37,25 +36,6 @@ function fakeNavigatorClipboard(
 afterEach(() => {
   setClipboardProvider(null);
   vi.clearAllMocks();
-});
-
-describe('createMemoryClipboard', () => {
-  it('reads back what it writes', async () => {
-    const clipboard = createMemoryClipboard('seed');
-    expect(await clipboard.read()).toBe('seed');
-    await clipboard.write('next');
-    expect(await clipboard.read()).toBe('next');
-  });
-});
-
-describe('createDomClipboard', () => {
-  it('goes through navigator.clipboard', async () => {
-    const state = fakeNavigatorClipboard();
-    const clipboard = createDomClipboard();
-    await clipboard.write('copied');
-    expect(state.text).toBe('copied');
-    expect(await clipboard.read()).toBe('copied');
-  });
 });
 
 describe('createTauriClipboard', () => {

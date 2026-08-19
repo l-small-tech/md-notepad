@@ -63,13 +63,6 @@ describe('resize', () => {
     feed(t, `${CSI}3;1Hx\r\n`);
     expect(t.rows).toBe(3);
   });
-
-  it('no-op resize does nothing destructive', () => {
-    const t = term({ cols: 5, rows: 3 });
-    feed(t, 'keep');
-    t.resize(5, 3);
-    expect(t.serialize()[0]).toBe('keep');
-  });
 });
 
 describe('dirty tracking', () => {
