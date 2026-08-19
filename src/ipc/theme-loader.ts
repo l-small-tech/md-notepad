@@ -306,56 +306,118 @@ async function withConsoleImage(plugin: ThemePlugin, themePath: string): Promise
 }
 
 /**
- * A JSON starter for the "New theme…" button: a full, working theme (the app's
- * own default light/dark palette) the user renames and tweaks. Picks a free
- * `my-theme[-N].json` so it never clobbers an existing id, and returns the new
- * id + path (the caller selects the id and reveals the file).
+ * First line of the AGENTS.md the app maintains in the themes folder. The
+ * whole file is regenerated whenever this marker changes (bump the version to
+ * ship a new guide) and left alone while it matches — so a user's own edits
+ * survive updates only by removing the marker line, which also opts the file
+ * out of regeneration for good.
  */
-export async function writeThemeTemplate(
-  themesDir: string,
-  existingIds: Set<string>,
-): Promise<{ id: string; path: string }> {
-  const base = 'my-theme';
-  let id = base;
-  let n = 2;
-  while (existingIds.has(id)) {
-    id = `${base}-${n++}`;
-  }
-  const path = await join(themesDir, `${id}.json`);
-  await ipc.atomicWriteText(path, toFileJson({ ...TEMPLATE, id, name: 'My Theme' }));
-  return { id, path };
-}
+const AGENT_GUIDE_MARKER =
+  '<!-- md-notepad themes agent guide v1 (auto-written; delete this line to keep your own edits) -->';
 
-/** Starter palette = the app's default (base.css) light values plus a brand
- *  trio; the template fills every branding key so the user edits in place. The
- *  optional `syntax` block demonstrates recoloring markdown elements (the
- *  `--md-*` vars) — seeded with the app's defaults so it's a no-op until edited. */
-const TEMPLATE: ThemePlugin = {
-  id: 'my-theme',
-  name: 'My Theme',
-  mode: 'light',
-  branding: {
-    primary: '#3574f0',
-    secondary: '#c42b1c',
-    tertiary: '#8a63d2',
-    bg: '#ffffff',
-    editorBg: '#f7f7f5',
-    bgAlt: '#f5f5f5',
-    bgHover: '#ececec',
-    fg: '#1f1f1f',
-    fgMuted: '#6e6e6e',
-    accent: '#3574f0',
-    border: '#e1e1e1',
-    danger: '#c42b1c',
-    selection: '#b5d1ff',
-  },
-  syntax: {
-    heading: '#3574f0',
-    bold: '#1f1f1f',
-    italic: '#6e6e6e',
-    link: '#3574f0',
-    code: '#c42b1c',
-    quote: '#6e6e6e',
-    list: '#6e6e6e',
-  },
-};
+const AGENT_GUIDE = `${AGENT_GUIDE_MARKER}
+
+# Editing this app's themes (guide for AI agents)
+
+You are in the themes folder of md-notepad, a markdown notepad app. Every
+\`.json\` file here is one color theme. Your job: edit these files (or add new
+ones) to make the changes the user asks for.
+
+## The rules that matter most
+
+1. **A theme file is strict JSON** — no comments, no trailing commas. One bad
+   file is skipped by the app (it does not break the others).
+2. **The file name is the theme's id** — lowercase letters, numbers and
+   dashes, ending in \`.json\` (\`midnight.json\` → theme "midnight"). To make
+   a NEW theme, create a new file; do not rename existing ones.
+3. **If you edit a built-in theme file, DELETE its top-level \`"version"\`
+   field.** Files carrying \`"version"\` are the app's own seeded copies and
+   get overwritten on app updates — removing the field marks the file as
+   user-owned so your edit survives. (Better: copy it to a new file name and
+   edit the copy.)
+4. **Changes are NOT picked up automatically.** After saving, tell the user:
+   click the tab bar's ⌄ button → Themes → Reload, then select the theme.
+5. Respect \`"mode"\`: \`"light"\` themes = dark text on light backgrounds,
+   \`"dark"\` = light text on dark. Keep text/background contrast comfortable
+   (aim for WCAG AA, ~4.5:1 for body text).
+
+## File format
+
+\`\`\`json
+{
+  "name": "Midnight",
+  "mode": "dark",
+  "branding": {
+    "primary": "#6ea1ff",
+    "secondary": "#ff6b5e",
+    "tertiary": "#8a63d2",
+    "bg": "#0f1419",
+    "editorBg": "#0b0f14",
+    "bgAlt": "#1a212b",
+    "bgHover": "#242d3a",
+    "fg": "#e6e6e6",
+    "fgMuted": "#8a94a3",
+    "accent": "#6ea1ff",
+    "border": "#2a3240",
+    "danger": "#ff6b5e",
+    "selection": "#264066"
+  }
+}
+\`\`\`
+
+Colors may be hex, \`rgb(...)\`, \`hsl(...)\`, or named CSS colors.
+
+\`branding\` keys — the brand trio: \`primary\` (signature color, usually =
+\`accent\`), \`secondary\`, \`tertiary\` (drive the drawing-pen palette). The
+interface: \`bg\` (app chrome), \`editorBg\` (writing surface, a hair off
+\`bg\`), \`bgAlt\` (panels), \`bgHover\` (hover highlight), \`fg\` (main text),
+\`fgMuted\` (secondary text), \`accent\` (links/headings), \`border\`,
+\`danger\` (warnings/delete), \`selection\` (selected-text highlight). Missing
+keys fall back to the app default for the theme's mode — set them all for a
+polished result.
+
+## Optional blocks (add only when asked or clearly needed)
+
+- \`"syntax"\`: recolor markdown elements. Keys: \`heading\` (or
+  \`heading1\`…\`heading6\`), \`bold\`, \`italic\`, \`strikethrough\`,
+  \`link\`, \`code\`, \`quote\`, \`list\`. Unset keys keep their normal color.
+- \`"terminal"\`: exact terminal colors (otherwise derived from branding).
+  Keys: \`background\`, \`foreground\`, \`cursor\`, \`cursorText\`,
+  \`selection\`, \`selectionText\`, the 8 ANSI names \`black\`…\`white\` and
+  \`brightBlack\`…\`brightWhite\`. Also \`backgroundImage\` (file name of an
+  image placed in THIS folder, e.g. \`"forest.png"\` — never a path or URL)
+  and \`backgroundOpacity\` (0–1; below 1 the app shows through the console).
+- \`"css"\`: raw CSS applied while the theme is selected. Last resort.
+
+## Workflow
+
+1. Ask the user what they want changed (which theme, what look) if they
+   haven't said.
+2. List the folder to see the themes; read the relevant file before editing.
+3. Make the edit (remember rule 3 for built-ins).
+4. Tell the user: ⌄ menu → Themes → Reload, then pick the theme — and ask if
+   it looks right. Iterate.
+`;
+
+/**
+ * Write (or refresh) the AGENTS.md guide the "AI theme" terminal points its
+ * agent at. Regenerated only when the version marker on line 1 is absent or
+ * stale, so a file the user de-marked stays theirs. Failures are swallowed —
+ * the agent session still works, just with less context.
+ */
+export async function ensureThemesAgentGuide(themesDir: string): Promise<void> {
+  const path = await join(themesDir, 'AGENTS.md');
+  try {
+    const { text } = await ipc.readTextFile(path);
+    if (text.split(/\r?\n/, 1)[0] === AGENT_GUIDE_MARKER) {
+      return;
+    }
+    if (!text.includes('md-notepad themes agent guide')) {
+      // No marker anywhere: the user took the file over (or wrote their own).
+      return;
+    }
+  } catch {
+    // Missing or unreadable — write it fresh.
+  }
+  await ipc.atomicWriteText(path, AGENT_GUIDE).catch(() => {});
+}

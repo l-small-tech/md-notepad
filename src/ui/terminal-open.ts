@@ -30,15 +30,17 @@ export function workspaceCwd(): string | null {
 
 /**
  * Open a terminal tab. No-op on Android, which has no pty — callers may still
- * call it unconditionally.
+ * call it unconditionally. `cwd` overrides the workspace default for callers
+ * that know where the session belongs (the AI-theme terminal starts in the
+ * themes folder).
  */
-export function openTerminal(profileId?: string): string | null {
+export function openTerminal(profileId?: string, cwd?: string): string | null {
   if (isAndroid()) {
     return null;
   }
   const settings = settingsStore.getState().settings;
   return tabsStore.getState().openTerminalTab({
     profileId: profileId ?? settings.defaultTerminalProfile,
-    cwd: workspaceCwd(),
+    cwd: cwd ?? workspaceCwd(),
   });
 }

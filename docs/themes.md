@@ -43,12 +43,13 @@ seconds. Read on.
 Every theme is one small `.json` file in your **themes folder**. Below the
 theme list in **⌄ menu → Themes** are the buttons for managing it:
 
-- **Open folder** — opens the themes folder in your file manager, so you can
-  see the files, drop new ones in, or make copies. *(Desktop only.)*
-- **New theme…** — creates a fresh theme file (a copy of the Default palette),
-  selects it, and reveals it so you can start editing.
-- **Reload** — re-reads the folder after you've edited or added files, so your
-  changes show up right away.
+- **AI theme** — opens an AI agent (Claude or ChatGPT — pick which in
+  **Settings → AI TUI**) in a terminal tab, already standing in the themes
+  folder and briefed on the file format. Just tell it what you want — "make
+  Lagoon's background a touch darker", "create a warm sepia light theme" —
+  and it edits or creates the files for you. *(Desktop only.)*
+- **Reload** — re-reads the folder after you (or the AI) have edited or added
+  files, so your changes show up right away.
 - **Help** — opens this page.
 
 The fifteen example themes live here too — open any of them to see exactly how
@@ -250,9 +251,13 @@ know CSS.
 
 ## Let an AI build your theme
 
-You don't have to pick the colors yourself. Paste the prompt below into any AI
-assistant (ChatGPT, Claude, Gemini, …), describe the mood you want, and drop the
-result into your themes folder.
+You don't have to pick the colors yourself. The **AI theme** button above is
+the fast path: it opens an agent right in the themes folder, which asks what
+you'd like and edits the files itself — you just click **Reload** after.
+
+No agent CLI installed? Paste the prompt below into any AI assistant (ChatGPT,
+Claude, Gemini, …), describe the mood you want, and drop the result into your
+themes folder.
 
 > I'm making a color theme for a markdown notepad app. A theme is a JSON file
 > with a `name`, a `mode` (either `"light"` or `"dark"` — the one look the

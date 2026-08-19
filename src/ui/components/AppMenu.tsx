@@ -28,9 +28,7 @@ import { uiStore, useUiStore } from '../stores/ui';
 import { currentThemeValue, themePickerGroups, useThemeRegistry } from '../stores/theme-registry';
 import { useWindowTheme } from '../stores/window-theme';
 import {
-  canRevealThemesFolder,
-  newTheme,
-  openThemesFolder,
+  openAiThemeTerminal,
   openThemesHelp,
   reloadThemes,
   selectTheme,
@@ -104,9 +102,9 @@ export function AppMenuDivider() {
 
 /**
  * The Themes page — every installed theme (same grouping and order as the
- * Settings dropdown, ✓ on the current one), then the folder actions that used
- * to live in Settings: Open folder / New theme… / Reload, plus Help, which
- * opens the bundled themes guide.
+ * Settings dropdown, ✓ on the current one), then AI theme (an agent terminal
+ * in the themes folder) / Reload, plus Help, which opens the bundled themes
+ * guide.
  *
  * It's a drill-in page of its popover rather than a flyout: one panel works
  * the same under a mouse and a finger (Android has no hover), and the theme
@@ -164,22 +162,17 @@ export function ThemesMenuPage({ onBack, onClose }: { onBack: () => void; onClos
         </Fragment>
       ))}
       <AppMenuDivider />
-      {canRevealThemesFolder() && (
+      {/* The AI-theme terminal replaced "Open folder" and "New theme…": the
+          agent edits, creates and reveals theme files by conversation. */}
+      {terminalsAvailable() && (
         <AppMenuItem
-          glyph="📂"
-          label="Open folder"
-          title="Show the themes folder in your file manager"
-          onPick={() => void openThemesFolder()}
+          glyph={<AiGlyph />}
+          label="AI theme"
+          title="Open an AI agent in the themes folder — describe the theme changes you want"
+          onPick={() => void openAiThemeTerminal()}
           onClose={onClose}
         />
       )}
-      <AppMenuItem
-        glyph="✚"
-        label="New theme…"
-        title="Create a starter theme file, select it, and reveal it"
-        onPick={() => void newTheme()}
-        onClose={onClose}
-      />
       <AppMenuItem
         glyph="⟲"
         label="Reload"

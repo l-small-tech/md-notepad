@@ -9,6 +9,7 @@
  */
 
 import {
+  AI_THEME_PROFILE_ID,
   AI_TUI_AGENT_IDS,
   AI_TUI_PROFILE_ID,
   CURSOR_STYLES,
@@ -68,6 +69,28 @@ export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string
   claude: { name: 'Claude', program: 'claude' },
   chatgpt: { name: 'ChatGPT', program: 'codex' },
 };
+
+/**
+ * The opening prompt the "AI theme" terminal hands the agent, so the session
+ * starts with the AGENT asking the user what to change. It points at the
+ * AGENTS.md the app writes into the themes folder
+ * (ipc/theme-loader.ts `ensureThemesAgentGuide`) — explicit, because only
+ * some agents read that file on their own.
+ */
+const AI_THEME_PROMPT =
+  'Read the AGENTS.md file in the current directory before doing anything else — ' +
+  "it explains this app's theme files and rules. Then ask me what changes I'd " +
+  'like to make to the themes, and edit the theme files here to match.';
+
+/**
+ * The agent's launch args for the AI-theme session. Claude Code is pinned to
+ * its small model by default — theme edits are small JSON changes, and the
+ * cheap model keeps the button low-cost to press; the user can always `/model`
+ * up mid-session.
+ */
+function aiThemeArgs(agent: AiTuiAgentId): string[] {
+  return agent === 'claude' ? ['--model', 'haiku', AI_THEME_PROMPT] : [AI_THEME_PROMPT];
+}
 
 /**
  * Current persisted-settings schema.
@@ -489,6 +512,7 @@ export function normalizeSettings(raw: unknown): Settings {
  * `TerminalPane` re-applies settings whenever the profile identity changes.
  */
 const AI_TUI_PROFILES = new Map<AiTuiAgentId, TerminalProfile>();
+const AI_THEME_PROFILES = new Map<AiTuiAgentId, TerminalProfile>();
 
 /**
  * The profile with this id, or the default one, or the first that exists.
@@ -500,19 +524,20 @@ export function resolveTerminalProfile(settings: Settings, id?: string): Termina
   if (byId) {
     return byId;
   }
-  if (id === AI_TUI_PROFILE_ID) {
+  if (id === AI_TUI_PROFILE_ID || id === AI_THEME_PROFILE_ID) {
     const agentId = settings.aiTuiAgent;
-    let profile = AI_TUI_PROFILES.get(agentId);
+    const cache = id === AI_TUI_PROFILE_ID ? AI_TUI_PROFILES : AI_THEME_PROFILES;
+    let profile = cache.get(agentId);
     if (!profile) {
       const agent = AI_TUI_AGENTS[agentId];
       profile = {
-        id: AI_TUI_PROFILE_ID,
-        name: agent.name,
+        id,
+        name: id === AI_TUI_PROFILE_ID ? agent.name : 'AI theme',
         program: agent.program,
-        args: [],
+        args: id === AI_TUI_PROFILE_ID ? [] : aiThemeArgs(agentId),
         env: {},
       };
-      AI_TUI_PROFILES.set(agentId, profile);
+      cache.set(agentId, profile);
     }
     return profile;
   }

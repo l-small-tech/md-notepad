@@ -269,6 +269,14 @@ export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
 export const AI_TUI_PROFILE_ID = 'ai-tui';
 
 /**
+ * The virtual profile the Themes menu's "AI theme" row opens: the configured
+ * AI TUI agent, started in the THEMES folder with an opening prompt that has
+ * it read the folder's AGENTS.md guide and ask what to change. Synthesized by
+ * `resolveTerminalProfile` like `AI_TUI_PROFILE_ID`.
+ */
+export const AI_THEME_PROFILE_ID = 'ai-theme';
+
+/**
  * A terminal tab's persistable layout: enough to respawn the same shells in
  * the same arrangement, and nothing more. Scrollback is never persisted — a
  * restored terminal is a NEW shell in the recorded directory, which is the

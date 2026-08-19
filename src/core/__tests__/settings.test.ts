@@ -9,7 +9,7 @@ import {
   pickUnusedColor,
   resolveTerminalProfile,
 } from '../settings';
-import { AI_TUI_PROFILE_ID } from '../types';
+import { AI_THEME_PROFILE_ID, AI_TUI_PROFILE_ID } from '../types';
 import {
   CURSOR_STYLES,
   EDITOR_FONT_IDS,
@@ -396,6 +396,21 @@ describe('the AI TUI virtual profile', () => {
     expect(resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID)).toBe(
       resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID),
     );
+  });
+
+  test('ai-theme resolves to the agent with its opening prompt; claude pinned to haiku', () => {
+    const claude = resolveTerminalProfile(DEFAULT_SETTINGS, AI_THEME_PROFILE_ID);
+    expect(claude.program).toBe('claude');
+    expect(claude.name).toBe('AI theme');
+    expect(claude.args.slice(0, 2)).toEqual(['--model', 'haiku']);
+    expect(claude.args[2]).toMatch(/AGENTS\.md/);
+    const chatgpt = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' },
+      AI_THEME_PROFILE_ID,
+    );
+    expect(chatgpt.program).toBe('codex');
+    expect(chatgpt.args).toHaveLength(1);
+    expect(chatgpt.args[0]).toMatch(/AGENTS\.md/);
   });
 
   test('a real profile with the ai-tui id shadows the virtual one', () => {
