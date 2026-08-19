@@ -6,8 +6,8 @@
  * `list_dir` call). Each workspace can carry an accent color (a named token
  * from WORKSPACE_COLORS, rendered as a stripe down its section; new
  * workspaces auto-pick an unused color). Right-clicking a workspace header
- * opens its context menu (new file/folder + color swatches, plus "Remove
- * workspace" for added workspaces); folder rows add "Rename" to that menu,
+ * opens its context menu ("Set active" + new file/folder + color swatches,
+ * plus "Remove workspace" for added workspaces); folder rows add "Rename",
  * file rows get a "Rename"-only menu (inline input in the row; extension
  * preserved). Workspace roots aren't renamable — their path anchors the
  * settings entry. Removing a workspace only forgets it — files are never
@@ -15,8 +15,10 @@
  *
  * Getting files IN:
  * - Paste (Ctrl+V with focus in the drawer): clipboard images/files are
- *   written into the SELECTED workspace/folder (click a header or folder row
- *   to select; the default workspace is selected initially). The selection
+ *   written into the SELECTED workspace/folder (click a folder row to select;
+ *   workspace headers require an explicit action — double-click, or
+ *   right-click → "Set active" — since a plain click only collapses/expands.
+ *   The default workspace is selected initially). The selection
  *   lives in `uiStore.selectedExplorerDir`, which is also the directory a new
  *   terminal tab starts in (see `terminal-open.ts`).
  * - OS drag-drop: main.tsx hit-tests Tauri's drag-drop events against the
@@ -793,19 +795,21 @@ export function FileExplorer() {
                     title={
                       ws.readOnly
                         ? `${ws.path}\nRead-only · Right-click: workspace color, remove`
-                        : `${ws.path}\nRight-click: new file, workspace color${ws.removable ? ', remove' : ''}`
+                        : `${ws.path}\nDouble-click: set active · Right-click: set active, new file, workspace color${ws.removable ? ', remove' : ''}`
                     }
                     aria-expanded={!isCollapsed}
                     onClick={(e) => {
                       // Alt+click also opens the context menu; a plain click
-                      // selects the workspace and collapses/expands it.
+                      // only collapses/expands — making the workspace active
+                      // is an explicit action (double-click, or the context
+                      // menu's "Set active").
                       if (e.altKey) {
                         setMenuFor(menuFor === ws.path ? null : ws.path);
                       } else {
-                        setSelectedDir(ws.path);
                         setCollapsedWs((prev) => toggleSet(prev, ws.path));
                       }
                     }}
+                    onDoubleClick={() => setSelectedDir(ws.path)}
                     onContextMenu={(e) => {
                       // Right-click (the native Windows gesture) opens the
                       // context menu instead of the webview's own.

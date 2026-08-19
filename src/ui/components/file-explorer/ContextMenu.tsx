@@ -47,6 +47,7 @@ interface FileMenuProps extends CommonProps {
 
 /**
  * The right-click menu for a directory: "New file"/"New folder" always;
+ * "Set active" at workspace level (a plain header click no longer selects);
  * "Rename" + "Delete folder" for subfolders (`renameTarget` given); the
  * workspace color swatches only at workspace level (`wsColor` given = a
  * workspace); a "Remove workspace" item for removable workspaces
@@ -266,6 +267,22 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
 
   return menuShell(
     <>
+      {/* Workspace level only (`wsColor` given): making a workspace active is
+          an explicit action — this item or a double-click on the header — a
+          plain click only collapses/expands. Offered even read-only: the
+          active dir also seeds new terminal tabs' cwd. */}
+      {wsColor !== undefined && (
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onSelectDir(dir);
+          }}
+        >
+          Set active
+        </button>
+      )}
       {!readOnly && (
         <button
           className="context-menu-item"

@@ -146,8 +146,9 @@ terminal's agent-status badge sits after the icon, not instead of it.
 ### Where a new terminal starts
 
 `terminal-open.ts` gives every new terminal tab the **selected workspace's
-directory** as its cwd: `uiStore.selectedExplorerDir` (whatever header or
-folder was last clicked in the explorer), falling back to the default notes-dir
+directory** as its cwd: `uiStore.selectedExplorerDir` (the last folder row
+clicked, or workspace explicitly set active via double-click or the header's
+right-click "Set active"), falling back to the default notes-dir
 workspace, and to the app's own cwd for a synced (`saf://`) selection. It does
 not inherit from the tab in front. A profile's own `cwd` still wins
 (`TerminalPane`), and splitting a pane still inherits that pane's cwd.
