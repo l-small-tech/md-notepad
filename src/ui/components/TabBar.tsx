@@ -16,8 +16,8 @@
  *
  * Agent status cues: a terminal tab whose shell prefixes its OSC title with a
  * status glyph (Claude Code writes `✳ ` when idle and alternates `◐ `/`◑ `
- * while it works) shows that glyph as a colored badge instead of as one more
- * 13px character in the label — amber and pulsing while working, green when
+ * while it works) shows that glyph as a colored badge IN PLACE of the kind
+ * icon (the badge already says "terminal", and the pair cost width) — amber and pulsing while working, green when
  * the turn is yours, blue when it is blocked on you, red when it failed.
  * core/tab-status.ts owns the glyph → activity table.
  *
@@ -204,13 +204,12 @@ function TabIcon({ tab }: { tab: TabEntry }) {
   );
 }
 
-/** The same icon + badge + label inside an overflow-menu row, which never ellipsizes. */
+/** The same icon-or-badge + label inside an overflow-menu row, which never ellipsizes. */
 function OverflowLabel({ tab }: { tab: TabEntry }) {
   const { cue, text } = tabLabelParts(tab);
   return (
     <>
-      <TabIcon tab={tab} />
-      {cue && <StatusBadge cue={cue} />}
+      {cue ? <StatusBadge cue={cue} /> : <TabIcon tab={tab} />}
       {text}
     </>
   );
@@ -334,12 +333,14 @@ function Tab({
       }}
       onDoubleClick={() => store().beginRename(tab.id)}
     >
-      <TabIcon tab={tab} />
+      {/* The agent status badge REPLACES the kind icon rather than joining it:
+          a terminal with a cue reads by its status, and the doubled glyph pair
+          cost horizontal space the title needs. */}
+      {cue ? <StatusBadge cue={cue} /> : <TabIcon tab={tab} />}
       {renaming ? (
         <RenameInput tab={tab} />
       ) : (
         <>
-          {cue && <StatusBadge cue={cue} />}
           <span className="tab-title">
             {text}
             {tab.kind === 'file' && tab.dirty && (
