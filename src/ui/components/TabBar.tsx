@@ -372,7 +372,16 @@ function Tab({
           closeTab(tab.id);
         }}
       >
-        ×
+        {/* Stroked SVG cross rather than a text ×: font glyphs render small and
+            sit off-baseline, so this matches the kind glyphs' crispness. */}
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+          <path
+            d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
       </button>
     </div>
   );
