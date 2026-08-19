@@ -20,8 +20,10 @@
   flex: 0 0 auto;
   /* Chrome, not content: nothing in the bar is selectable text. Without this
      a tab drag that wanders can select (or start a native text-drag of) the
-     bar's labels instead of moving the tab. */
+     bar's labels instead of moving the tab. WebKitGTK only honors the
+     -webkit- form, hence the pair (here and below). */
   user-select: none;
+  -webkit-user-select: none;
   /* On Android the app draws edge-to-edge under the status bar (enableEdgeToEdge).
      Pad the titlebar down by the top inset so tabs clear the clock/icons; the
      env() values are 0 on desktop, so height resolves to 38px there. box-sizing
@@ -97,6 +99,7 @@
   font-size: 13px;
   cursor: default;
   user-select: none;
+  -webkit-user-select: none;
   white-space: nowrap;
   scroll-snap-align: start;
 }
@@ -278,6 +281,15 @@
 .tab-dragging {
   opacity: 0.4;
   cursor: grabbing;
+}
+
+/* While a tab drag is live, NOTHING may start or extend a text selection —
+   the pointer sweeping the ribbon or editor would otherwise paint one (and a
+   release over painted text can start a native text-drag). */
+body.tab-drag-live,
+body.tab-drag-live * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* The drag ghost: a floating copy of the grabbed tab, moved per pointermove
@@ -619,6 +631,7 @@
   /* Menu rows are buttons, not selectable text (covers the app/overflow/
      terminal menus too — they share this class). */
   user-select: none;
+  -webkit-user-select: none;
   min-width: 128px;
   padding: 4px;
   background: var(--bg);
@@ -746,6 +759,7 @@
   /* The B/I/S/H… labels are buttons, never selectable text: a tab drag (or
      any wandering press) must not select or text-drag-ghost them. */
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .ribbon-left,
@@ -848,6 +862,7 @@
    with a selection callout of its own. */
 .ribbon-save {
   user-select: none;
+  -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
 
@@ -943,6 +958,7 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ---- Full screen -------------------------------------------------------- */
@@ -1484,6 +1500,7 @@ body.explorer-dragging,
 body.explorer-dragging * {
   cursor: grabbing !important;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 /* The selected paste destination (a workspace header or folder row). */

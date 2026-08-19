@@ -999,12 +999,15 @@ export function TabBar() {
     let torn: string | null = null;
     /** The pointer released while the tear-off spawn was still in flight. */
     let released = false;
+    /** Whole-window drag (single-tab) already requested once this gesture. */
+    let wholeWindowDragTried = false;
     pressingRef.current = true;
 
     function cleanup(): void {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
+      document.body.classList.remove('tab-drag-live');
       el.classList.remove('tab-dragging');
       setDropHint(null);
       setGhost(null);
@@ -1028,6 +1031,11 @@ export function TabBar() {
           // A tab that re-rendered away mid-press can't capture; drag on.
         }
         el.classList.add('tab-dragging');
+        // Nothing may select while the drag is live (body.tab-drag-live in
+        // app.css) — and any selection that already exists must go, or the
+        // sweeping pointer extends it across the ribbon and editor.
+        document.body.classList.add('tab-drag-live');
+        window.getSelection()?.removeAllRanges();
         // Ghost visuals only where BOTH halves can run (Windows): the DOM
         // pill inside the window, and the hidden OS window that takes over
         // for the part the DOM cannot paint — outside it (spawned now so
@@ -1085,10 +1093,17 @@ export function TabBar() {
       dropTargetRef.current = null;
       setDropHint(null);
       if (tabsStore.getState().tabs.length === 1) {
-        // A window's only tab IS the window — move the whole thing (works
-        // everywhere: the move starts from this window's own pointer grab).
-        cleanup();
-        startWholeWindowDrag();
+        // A window's only tab IS the window — ask the OS to move the whole
+        // thing (the move starts from this window's own pointer grab). The
+        // gesture deliberately stays ALIVE: a compositor that takes the move
+        // cancels our pointer stream (cleanup runs via pointercancel), while
+        // one that refuses leaves the drag running — so releasing outside the
+        // window still tears off through the old release path instead of the
+        // whole drag dying silently.
+        if (!wholeWindowDragTried) {
+          wholeWindowDragTried = true;
+          startWholeWindowDrag();
+        }
         return;
       }
       tearing = true;

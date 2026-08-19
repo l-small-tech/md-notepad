@@ -815,6 +815,11 @@ export function Ribbon() {
   return (
     <div
       className="ribbon"
+      // The whole bar is buttons and blank space — a press anywhere in it must
+      // never start a text selection (WebKit can otherwise anchor one in the
+      // nearest selectable content) or steal focus from the editor. Same
+      // preventDefault RibbonButton uses; inputs don't live in the ribbon.
+      onMouseDown={(e) => e.preventDefault()}
       onContextMenu={(e) => {
         // Free bar space has no menu of its own — swallow the event so the
         // webview default (Back / Reload / Inspect) never shows. Buttons and
