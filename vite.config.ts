@@ -38,7 +38,11 @@ export default defineConfig({
     strictPort: true,
     hmr: host ? { protocol: 'ws', host, port: port + 1 } : undefined,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      // src-tauri: Rust, not the frontend — cargo watches it. worktrees/: a
+      // sibling agent's checkout is a whole second copy of this app, and
+      // watching it means their `pnpm install` reloads OUR dev window (and
+      // floods the terminal) for changes that aren't ours.
+      ignored: ['**/src-tauri/**', '**/worktrees/**'],
     },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],

@@ -22,6 +22,7 @@
     "format": "prettier --write .",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:dev:verbose": "tauri dev --config src-tauri/tauri.dev.conf.json -- -- --verbose",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build --debug --apk",
     "android:deploy": "tauri android build --debug --apk --target aarch64 && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk",

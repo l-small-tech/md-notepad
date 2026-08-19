@@ -7,6 +7,8 @@ mod pty;
 mod shell;
 
 use std::sync::Mutex;
+
+use tauri_plugin_log::log::LevelFilter;
 // Only the single-instance closure below uses these traits (emit_to /
 // get_webview_window), and that closure is release-desktop-only: gated out on
 // mobile (no second process) and in debug builds (so a dev instance can coexist
@@ -50,9 +52,33 @@ fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Max log level for `tauri_plugin_log`, from `MDN_LOG` or argv.
+///
+/// The plugin's own default is TRACE, and nothing in this crate logs at all —
+/// so every TRACE line came from a dependency. The explorer's `notify` watcher
+/// is the worst of them: one line per inotify event under every watched folder,
+/// which on a dev run with this repo open buried cargo errors and vite HMR
+/// messages under ~700k lines in 90 seconds. INFO costs us nothing and keeps
+/// `tauri dev` readable.
+///
+/// `--verbose` (what `pnpm run tauri:dev:verbose` passes) opens it to DEBUG;
+/// `MDN_LOG` takes an explicit off/error/warn/info/debug/trace and wins over
+/// the flag. TRACE is the old firehose — reach for it deliberately.
+fn log_level_from(env: Option<&str>, args: &[String]) -> LevelFilter {
+    if let Some(level) = env.and_then(|v| v.trim().parse::<LevelFilter>().ok()) {
+        return level;
+    }
+    if args.iter().any(|a| a == "--verbose" || a == "-v") {
+        return LevelFilter::Debug;
+    }
+    LevelFilter::Info
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let startup_files = file_args(&std::env::args().collect::<Vec<_>>());
+    let args = std::env::args().collect::<Vec<_>>();
+    let startup_files = file_args(&args);
+    let log_level = log_level_from(std::env::var("MDN_LOG").ok().as_deref(), &args);
 
     let builder = tauri::Builder::default();
 
@@ -127,7 +153,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log_level)
+                .build(),
+        )
         .manage(StartupFiles(Mutex::new(startup_files)))
         .invoke_handler(tauri::generate_handler![
             drain_startup_files,
@@ -215,7 +245,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::file_args;
+    use super::{file_args, log_level_from, LevelFilter};
+
+    fn argv(flags: &[&str]) -> Vec<String> {
+        std::iter::once("md-notepad")
+            .chain(flags.iter().copied())
+            .map(str::to_string)
+            .collect()
+    }
 
     #[test]
     fn file_args_skips_exe_and_flags() {
@@ -232,5 +269,34 @@ mod tests {
     fn file_args_empty_argv() {
         assert!(file_args(&[]).is_empty());
         assert!(file_args(&["exe".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn log_level_defaults_to_info() {
+        assert_eq!(log_level_from(None, &argv(&[])), LevelFilter::Info);
+        assert_eq!(log_level_from(None, &argv(&["a.md"])), LevelFilter::Info);
+    }
+
+    #[test]
+    fn log_level_verbose_flag_opens_debug() {
+        assert_eq!(
+            log_level_from(None, &argv(&["--verbose"])),
+            LevelFilter::Debug
+        );
+        assert_eq!(log_level_from(None, &argv(&["-v"])), LevelFilter::Debug);
+    }
+
+    #[test]
+    fn log_level_env_wins_over_flag_and_ignores_junk() {
+        let verbose = argv(&["--verbose"]);
+        assert_eq!(log_level_from(Some("trace"), &verbose), LevelFilter::Trace);
+        assert_eq!(log_level_from(Some("OFF"), &verbose), LevelFilter::Off);
+        assert_eq!(
+            log_level_from(Some(" warn\n"), &argv(&[])),
+            LevelFilter::Warn
+        );
+        // Unparseable MDN_LOG falls through to the flag rather than panicking.
+        assert_eq!(log_level_from(Some("loud"), &verbose), LevelFilter::Debug);
+        assert_eq!(log_level_from(Some(""), &argv(&[])), LevelFilter::Info);
     }
 }

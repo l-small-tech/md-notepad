@@ -232,6 +232,7 @@ wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
 ```sh
 pnpm install
 pnpm run tauri dev      # run the app (vite + cargo, hot reload)
+pnpm run tauri:dev:verbose  # same, with app logging at DEBUG (MDN_LOG=trace for more)
 pnpm run tauri build    # produce installers for your OS
 ```
 

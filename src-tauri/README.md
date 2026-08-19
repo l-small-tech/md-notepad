@@ -97,5 +97,10 @@ code that behaves differently per OS.
   doesn't exist").
 - Dev loop: `pnpm run tauri dev` (spawns vite + cargo). Rust-only iteration:
   `cargo test` in `src-tauri/` is fast after the first build.
+- Logging: `tauri_plugin_log` defaults to TRACE, and no code in this crate
+  logs — so that level is pure dependency noise (the explorer's `notify`
+  watcher alone emitted ~700k lines in a 90-second dev run). `run()` caps it
+  at INFO. `pnpm run tauri:dev:verbose` passes `--verbose` for DEBUG, and
+  `MDN_LOG=off|error|warn|info|debug|trace` overrides both.
 - Windows needs MSVC Build Tools; Linux needs the webkit2gtk-4.1 stack
   (exact apt list in `.github/workflows/ci.yml`).
