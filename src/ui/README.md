@@ -117,9 +117,9 @@ style). A plain click on + makes **another one of whatever is in front** —
 `defaultNewTabChoice` in `core/new-tab.ts` (pure, tested): terminal → terminal,
 `.svg` → drawing, everything else → note. The ⌄ button — or alt-click,
 right-click, long-press or mod+Shift+N — opens the type picker instead, which
-lists every type explicitly — note, drawing, and one row per terminal profile
-(shell icon, no heading of its own: a shell is one more thing "+" makes) — so
-the inference is never the only route. mod+N follows the
+lists every type explicitly — note, one row per terminal profile (shell icon,
+no heading of its own: a shell is one more thing "+" makes), then the drawing —
+so the inference is never the only route. mod+N follows the
 same rule — the binding has always been labelled "New tab", not "New note".
 
 Under the tab kinds the picker carries the app rows — **Themes** (drilling

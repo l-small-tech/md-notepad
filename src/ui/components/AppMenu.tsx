@@ -234,13 +234,14 @@ function ShellGlyph() {
 }
 
 /**
- * The "what kind of tab" rows — note, drawing, and the terminal profile(s).
+ * The "what kind of tab" rows — note, the terminal profile(s), drawing.
  *
  * Shared because the choice is offered from two places: the "+" button's
  * picker and the bar menu's New tab page. Terminal profiles sit in the same
  * flat list as the document kinds rather than under a heading of their own:
- * "Shell" is one more thing the + button makes, not a separate section. They
- * are absent entirely on Android, which has no pty.
+ * a shell is one more thing the + button makes, not a separate section.
+ * Order is by how often it's picked — note, shell, then the drawing — and the
+ * shells are absent entirely on Android, which has no pty.
  */
 export function NewTabRows({ onClose }: { onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
@@ -253,12 +254,6 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
         onPick={() => runNewTabChoice('note')}
         onClose={onClose}
       />
-      <AppMenuItem
-        glyph="✎"
-        label="Vector drawing (.svg)"
-        onPick={() => runNewTabChoice('drawing')}
-        onClose={onClose}
-      />
       {terminalsAvailable() &&
         profiles.map((profile) => (
           <AppMenuItem
@@ -269,6 +264,12 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
             onClose={onClose}
           />
         ))}
+      <AppMenuItem
+        glyph="✎"
+        label="Vector drawing (.svg)"
+        onPick={() => runNewTabChoice('drawing')}
+        onClose={onClose}
+      />
     </>
   );
 }
