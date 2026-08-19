@@ -79,7 +79,7 @@ import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
 import { searchStore } from './ui/stores/search';
 import { isAndroid } from './ui/platform';
-import { globalCoordsTrusted, initGlobalCoordTrust } from './ui/global-coords';
+import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
 import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
@@ -609,12 +609,6 @@ async function boot(): Promise<void> {
   // Only now arm the debounced saver, so the initial load doesn't echo back a
   // write; every subsequent field edit persists.
   settingsStore.subscribe(persistSettingsDebounced);
-
-  // Whether this platform's global coordinates are real (X11/Windows —
-  // Wayland's are junk by protocol design). Gates the cross-window tab-drop
-  // hit-test and the OS drag ghost; resolved off the boot path — until the
-  // answer arrives those features just stay off (the safe direction).
-  initGlobalCoordTrust();
 
   // Install the platform storage provider BEFORE the controller captures
   // currentProvider(): on Android this routes local + synced (SAF) workspaces;

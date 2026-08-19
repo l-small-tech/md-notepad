@@ -56,7 +56,7 @@ import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
 import type { WorkspaceColor } from '../../core/types';
 import { workspaceCueFor } from '../workspace-cues';
 import { tabsStore, tabDisplayTitle, useTabsStore, type TabEntry } from '../stores/tabs';
-import { endOsGhost, setOsGhostOutside, startOsGhost } from '../tab-drag-ghost';
+import { endOsGhost, osGhostAvailable, setOsGhostOutside, startOsGhost } from '../tab-drag-ghost';
 import { AppActionRows, AppMenuDivider, IS_MAC, NewTabRows, ThemesMenuPage } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
@@ -73,8 +73,11 @@ import { isAndroid } from '../platform';
  * in the app window under the cursor (that window adopts it, Chrome-style) or,
  * over empty desktop, spawns a new window there — the session controller's
  * dropTabOut makes that call. Gated off only on Android, which is
- * single-window. While the drag is live, a ghost of the tab rides the cursor
- * (DragGhost below) and the source tab dims (.tab-dragging).
+ * single-window. While the drag is live the source tab dims (.tab-dragging);
+ * on Windows a ghost of the tab additionally rides the cursor — the DOM pill
+ * (DragGhost below) inside the window, an OS ghost window
+ * (ui/tab-drag-ghost.ts) beyond it. Other platforms can't run the OS half,
+ * and half a ghost reads as broken, so they show none (osGhostAvailable).
  *
  * On Linux/Wayland an app gets no global cursor position (screenX/screenY are
  * junk) and cannot place windows, so the release is judged in CLIENT
@@ -993,12 +996,15 @@ export function TabBar() {
           // A tab that re-rendered away mid-press can't capture; drag on.
         }
         el.classList.add('tab-dragging');
-        setGhost({ tabId, width: rect.width, x: ev.clientX - grabX, y: ev.clientY - grabY });
-        // And the ghost's other half: a hidden OS window (where the platform
-        // allows one), for the part of the drag the DOM ghost cannot paint —
-        // outside this window. Spawned now so it's ready by the time the
-        // cursor crosses the edge.
-        if (CAN_TEAR_OFF) {
+        // Ghost visuals only where BOTH halves can run (Windows): the DOM
+        // pill inside the window, and the hidden OS window that takes over
+        // for the part the DOM cannot paint — outside it (spawned now so
+        // it's ready by the time the cursor crosses the edge). Half a ghost
+        // that dies at the window border reads as broken, so platforms
+        // without the OS half (Linux, macOS) show no ghost at all — just
+        // the dimmed source tab and the drop indicator, as before.
+        if (osGhostAvailable()) {
+          setGhost({ tabId, width: rect.width, x: ev.clientX - grabX, y: ev.clientY - grabY });
           const dragTab = tabsStore.getState().tabs.find((t) => t.id === tabId);
           startOsGhost({
             title: dragTab ? tabLabelParts(dragTab).text : '',

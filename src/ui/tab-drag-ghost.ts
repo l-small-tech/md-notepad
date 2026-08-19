@@ -18,17 +18,18 @@
  * window" list and the close-handoff all skip `ghost-*` labels, and the
  * window-state plugin is filtered off them (src-tauri/src/lib.rs).
  *
- * Platform gate ({@link osGhostAvailable}): needs real global cursor
- * coordinates (ui/global-coords.ts — so never Wayland, where no app can draw
- * outside its windows), and not macOS, whose transparent webviews need the
- * private-API flag this app doesn't enable. Where the gate is closed the
- * clipped DOM ghost is simply all there is.
+ * Platform gate ({@link osGhostAvailable}): Windows only — the one platform
+ * with all three prerequisites: real global cursor coordinates (Linux/Wayland
+ * has none, and an app there cannot draw outside its windows at all),
+ * app-positioned windows, and transparent webviews without extra flags
+ * (macOS would need the private-API flag this app doesn't enable). TabBar
+ * gates the in-window DOM ghost on the same answer, so platforms that can't
+ * complete the picture show no half-ghost that dies at the window edge.
  */
 
 import { cursorPosition, getCurrentWindow, PhysicalPosition } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { globalCoordsTrusted } from './global-coords';
-import { desktopOs, isAndroid } from './platform';
+import { isWindows } from './platform';
 
 /** Logical px; matches the strip's tab height (38px bar − 6px card float). */
 const GHOST_HEIGHT = 32;
@@ -50,7 +51,7 @@ let current: OsGhost | null = null;
 
 /** Whether this platform can float a ghost window over the desktop at all. */
 export function osGhostAvailable(): boolean {
-  return !isAndroid() && desktopOs() !== 'mac' && globalCoordsTrusted();
+  return isWindows();
 }
 
 /**

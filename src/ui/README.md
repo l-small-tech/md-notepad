@@ -198,16 +198,18 @@ untouched, so switching back to a document restores exactly what was there.
 Releasing a tab drag outside the window (or right-click → "Move to new
 window") moves the tab into its own OS window — unless the release lands on
 ANOTHER app window, which then adopts the tab (Chrome-style; the session
-controller's `dropTabOut` makes the call). While the drag is live a ghost of
-the tab rides the cursor and the source tab dims. The ghost has two halves:
-a DOM pill inside the window (TabBar's DragGhost), and — where the platform
-has real global coordinates and transparent windows (Windows / X11, not
-Wayland or macOS) — a tiny always-on-top, click-through, non-focusable ghost
-WINDOW (label `ghost-*`, `ui/tab-drag-ghost.ts`) that takes over when the
-cursor leaves the window, so the pill keeps riding over the desktop and
-other windows. Ghost windows are not the app: `?ghost=1` renders just the
-pill (no controller, no manifest), every window enumeration skips `ghost-*`,
-and the window-state plugin is filtered off them. The model:
+controller's `dropTabOut` makes the call). While the drag is live the source
+tab dims; on WINDOWS a ghost of the tab additionally rides the cursor, in
+two halves: a DOM pill inside the window (TabBar's DragGhost), and a tiny
+always-on-top, click-through, non-focusable ghost WINDOW (label `ghost-*`,
+`ui/tab-drag-ghost.ts`) that takes over when the cursor leaves the window,
+so the pill keeps riding over the desktop and other windows. Only Windows
+has all the OS half's prerequisites (global cursor coordinates,
+app-positioned windows, flag-free transparent webviews), and a lone DOM
+ghost dying at the window edge reads as broken — so other platforms show no
+ghost at all (`osGhostAvailable`). Ghost windows are not the app: `?ghost=1`
+renders just the pill (no controller, no manifest), every window enumeration
+skips `ghost-*`, and the window-state plugin is filtered off them. The model:
 
 - **Every window is the full app** — same `main.tsx` boot, own JS context,
   own stores, own session controller. The window label decides the role:
@@ -249,11 +251,12 @@ and the window-state plugin is filtered off them. The model:
 - **Platform gating**: on Linux (Wayland offers no global cursor position or
   app-side window placement) the drag-out release is judged in client
   coordinates and the new window is spawned unpositioned — the compositor
-  places it. The drop-on-window hit-test needs REAL global coordinates, so
-  Linux gates it on the `display_server` command (env-sniffed in Rust): X11
-  gets it, Wayland falls back to tear-off — never a junk-coordinate drop
-  into the wrong window. Android is single-window; there only in-strip
-  reorder exists. The context-menu item works everywhere.
+  places it. The drop-on-window hit-test needs REAL global coordinates
+  (`ui/global-coords.ts`), which Linux is treated as not having — a drag out
+  always tears off there, never a junk-coordinate drop into the wrong
+  window — and the ghost visuals are Windows-only (see above). Android is
+  single-window; there only in-strip reorder exists. The context-menu items
+  ("Move to new window", "Move to window …") work everywhere.
 
 ## Keyboard shortcuts (single registry)
 
