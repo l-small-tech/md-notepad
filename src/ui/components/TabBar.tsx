@@ -45,7 +45,7 @@ import { newTabDefault } from '../new-tab';
 import { copyRawText } from '../tab-actions';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore, uiStore } from '../stores/ui';
-import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
+import { clippedTabIds, sameIds, wholeTabsFit, type StripItemRect } from '../tab-overflow';
 import { computeWorkspaceRuns } from '../../core/tab-workspaces';
 import { docFamilyForTab } from '../../core/doc-family';
 import { splitAgentStatus, type AgentStatusCue } from '../../core/tab-status';
@@ -706,13 +706,14 @@ export function TabBar() {
     if (!scroller) {
       return;
     }
-    // Measure at the strip's NATURAL width: the cap below narrows the element
-    // itself, so measuring the capped box would pin it there for good — the
-    // window could grow and the strip would never notice the new room.
-    // Uncapping momentarily widens the box, which clamps scrollLeft down when
-    // the strip is scrolled near its end — remember it so it can be restored.
+    // Measure at the strip's NATURAL width: the overrides below change the
+    // element itself, so measuring the adjusted box would pin it there for
+    // good — the window could grow and the strip would never notice the new
+    // room. Un-capping momentarily widens the box, which clamps scrollLeft
+    // down when the strip is scrolled near its end — remember and restore it.
     const scrollLeftBefore = scroller.scrollLeft;
     scroller.style.maxWidth = '';
+    scroller.style.removeProperty('--tab-justify-width');
     const strip = scroller.getBoundingClientRect();
     const items: StripItemRect[] = [];
     for (const node of scroller.children) {
@@ -727,8 +728,18 @@ export function TabBar() {
     // End the strip on a tab boundary — a tab sliced down the middle reads as
     // a rendering glitch, and the ›N button already says what is off screen.
     // The sliced tab was clipped either way, so the overflow list is unchanged.
-    const cap = wholeTabsWidth(strip.width, items);
-    scroller.style.maxWidth = cap === null ? '' : `${cap}px`;
+    // JUSTIFIED: rather than capping at the boundary and leaving the sub-tab
+    // remainder as a gap before the window controls, share it among the
+    // fitted tabs (--tab-justify-width overrides the tab min/max), so the
+    // strip ends flush against the ›N / "+ ⌄" group. n stretched tabs still
+    // end on a tab boundary — it now coincides with the strip's own edge.
+    const fit = wholeTabsFit(strip.width, items);
+    if (fit === null) {
+      scroller.style.maxWidth = '';
+    } else {
+      scroller.style.maxWidth = `${strip.width}px`;
+      scroller.style.setProperty('--tab-justify-width', `${strip.width / fit.count}px`);
+    }
     if (scroller.scrollLeft !== scrollLeftBefore) {
       scroller.scrollLeft = scrollLeftBefore;
     }

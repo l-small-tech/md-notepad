@@ -79,11 +79,14 @@ tabs (with a per-row close, since a clipped tab has no × on screen).
 Activating a tab scrolls it into view — from the keyboard or from that menu,
 landing on a tab you cannot see is useless.
 
-Whole tabs only: the strip is capped at the width a whole number of tabs
-occupies (`wholeTabsWidth`, same module) so its right edge never slices one,
-and `scroll-snap-align` keeps the left edge on a tab start once it scrolls.
-The cap comes from tab widths rather than live positions, so it does not move
-as the strip scrolls.
+Whole tabs only, justified: when the strip overflows, the fitted whole tabs
+stretch to share the sub-tab remainder (`wholeTabsFit` in the same module
+gives the count; `--tab-justify-width` overrides the tab min/max), so the
+right edge never slices a tab AND the strip ends flush against the ›N / "+ ⌄"
+group instead of leaving a gap before the window controls.
+`scroll-snap-align` keeps the left edge on a tab start once it scrolls. The
+fit comes from tab widths rather than live positions, so it does not move as
+the strip scrolls.
 
 What is clipped is **measured**, not computed from a width budget: the tabs
 are elastic, so the answer has to survive a resize, a renamed title, a

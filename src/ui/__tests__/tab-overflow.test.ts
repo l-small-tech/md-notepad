@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { clippedTabIds, sameIds, wholeTabsWidth, type StripItemRect } from '../tab-overflow';
+import {
+  clippedTabIds,
+  sameIds,
+  wholeTabsFit,
+  wholeTabsWidth,
+  type StripItemRect,
+} from '../tab-overflow';
 
 const STRIP = { left: 0, right: 100 };
 
@@ -71,6 +77,27 @@ describe('wholeTabsWidth', () => {
 
   test('an empty strip has nothing to cap', () => {
     expect(wholeTabsWidth(100, [])).toBeNull();
+  });
+});
+
+describe('wholeTabsFit', () => {
+  test('reports the fitted count alongside the boundary width', () => {
+    // Three 40px tabs in 100px: two fit whole, 20px of remainder to justify.
+    expect(wholeTabsFit(100, [tab('a', 0, 40), tab('b', 40, 80), tab('c', 80, 120)])).toEqual({
+      width: 80,
+      count: 2,
+    });
+  });
+
+  test('null when everything fits — nothing to justify', () => {
+    expect(wholeTabsFit(100, [tab('a', 0, 40), tab('b', 40, 80)])).toBeNull();
+  });
+
+  test('zero-width tabs (the phone layout) are not counted', () => {
+    expect(wholeTabsFit(50, [tab('hidden', 0, 0), tab('a', 0, 40), tab('b', 40, 80)])).toEqual({
+      width: 40,
+      count: 1,
+    });
   });
 });
 

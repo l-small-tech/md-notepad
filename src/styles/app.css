@@ -46,9 +46,10 @@
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   position: relative; /* anchors the drag drop-indicator */
-  /* Whole tabs only: TabBar caps the strip's width at a tab boundary so the
-     right edge never slices one, and snapping keeps the left edge on a tab
-     start once the strip is scrolled. */
+  /* Whole tabs only: while overflowing, TabBar stretches the fitted tabs to
+     fill the strip exactly (--tab-justify-width) so the right edge never
+     slices one and ends flush at the ›N / "+ ⌄" group; snapping keeps the
+     left edge on a tab start once the strip is scrolled. */
   scroll-snap-type: x mandatory;
 }
 
@@ -65,9 +66,14 @@
      they shrink from there — down to --tab-min-width, past which the strip
      scrolls — and never grow beyond it, so a two-tab window gets two normal
      tabs and a wide free stretch rather than two enormous ones. */
-  flex: 0 1 var(--tab-width, 220px);
-  max-width: var(--tab-width, 220px);
-  min-width: var(--tab-min-width, 96px);
+  /* --tab-justify-width is set by TabBar's measure() only while the strip
+     overflows: the fitted tabs stretch to share the sub-tab remainder so the
+     strip ends flush against the ›N / "+ ⌄" group (justified), instead of
+     leaving a gap before the window controls. Unset, the normal elastic
+     ideal/min pair applies. */
+  flex: 0 1 var(--tab-justify-width, var(--tab-width, 220px));
+  max-width: var(--tab-justify-width, var(--tab-width, 220px));
+  min-width: var(--tab-justify-width, var(--tab-min-width, 96px));
   padding: 0 8px 0 10px;
   /* Windows-Terminal-style cards: floated off the bar's top edge, rounded top
      corners, a visible gap between neighbors. The gap is a TRANSPARENT BORDER,

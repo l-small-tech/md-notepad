@@ -68,6 +68,24 @@ function isClipped(strip: Bounds, item: Bounds): boolean {
  * all) the two agree exactly anyway.
  */
 export function wholeTabsWidth(available: number, items: readonly Bounds[]): number | null {
+  return wholeTabsFit(available, items)?.width ?? null;
+}
+
+/** How an overflowing strip fits: the whole-tab cap and how many tabs it holds. */
+export interface WholeTabsFit {
+  /** Summed natural width of the fitted tabs (the boundary cap). */
+  width: number;
+  /** How many whole tabs fit — what the justified stretch divides by. */
+  count: number;
+}
+
+/**
+ * `wholeTabsWidth` plus the fitted-tab COUNT, for the justified layout: when
+ * the strip overflows, the sub-tab remainder (available − width) is not left
+ * as a gap before the window controls but shared among the `count` visible
+ * tabs, so the strip ends flush against the ›N / "+ ⌄" group.
+ */
+export function wholeTabsFit(available: number, items: readonly Bounds[]): WholeTabsFit | null {
   let total = 0;
   let fitted = 0;
   let overflowing = false;
@@ -83,7 +101,7 @@ export function wholeTabsWidth(available: number, items: readonly Bounds[]): num
     total += width;
     fitted += 1;
   }
-  return overflowing && fitted > 0 ? total : null;
+  return overflowing && fitted > 0 ? { width: total, count: fitted } : null;
 }
 
 /** Same ids in the same order — the guard against a measure/render loop. */
