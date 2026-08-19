@@ -19,6 +19,7 @@ import {
 import { getSourceAdapter } from '../editor-registry';
 import { ipc as nativeIpc } from '../../ipc/commands';
 import { isAndroid } from '../platform';
+import { conflictEligible, probeTabConflict, tabDocPath } from './conflict-probe';
 import { diffViewStore } from '../stores/diff-view';
 import { tabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -338,57 +339,30 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
   }
 
   async function checkConflict(id: string): Promise<void> {
-    const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || tab.kind !== 'file' || !tab.filePath) {
-      return;
-    }
-    try {
-      const stat = await ctx.ipc.statPath(tab.filePath);
-      const mtimeMoved = stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs;
-      if (!mtimeMoved) {
-        tabsStore.getState().setConflict(id, false);
-        return;
-      }
-      // mtime alone lies: touch, a sync client rewriting identical bytes, or a
-      // wall-clock fallback baseline all move it without changing anything.
-      // Only raise the banner when the CONTENT differs from what we believe is
-      // on disk (the last saved/loaded snapshot); otherwise silently adopt the
-      // new mtime. Disk matching the CURRENT text is also no conflict — there
-      // is nothing to resolve, reloading would be a no-op.
-      let changed = true;
-      let baseline = stat.mtimeMs ?? tab.savedMtimeMs ?? ctx.now();
-      try {
-        const { text, mtimeMs } = await ctx.ipc.readTextFile(tab.filePath);
-        changed = text !== tab.model.getPersisted('file') && text !== tab.model.getText();
-        baseline = mtimeMs;
-      } catch {
-        // Unreadable (e.g. rewritten as non-UTF-8) counts as changed.
-      }
-      if (changed) {
-        tabsStore.getState().setConflict(id, true);
-      } else {
-        tabsStore.getState().acknowledgeConflict(id, baseline);
-      }
-    } catch {
-      // A transient stat failure is not itself a conflict signal.
-    }
+    // A flush may be mid-write (its baselines not yet recorded); probing
+    // during that window would misread our own write as an external change.
+    await ctx.flushInFlight;
+    await probeTabConflict(ctx, id);
   }
 
+  /** Every open file AND note tab (window focus, restore, fs-changed). */
   async function checkAllFileConflicts(): Promise<void> {
-    const fileTabIds = tabsStore
+    await ctx.flushInFlight;
+    const ids = tabsStore
       .getState()
-      .tabs.filter((t) => t.kind === 'file')
+      .tabs.filter((t) => conflictEligible(t))
       .map((t) => t.id);
-    await Promise.all(fileTabIds.map((id) => checkConflict(id)));
+    await Promise.all(ids.map((id) => probeTabConflict(ctx, id)));
   }
 
   async function reloadFromDisk(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || tab.kind !== 'file' || !tab.filePath) {
+    const path = tab ? tabDocPath(tab) : null;
+    if (!tab || !path) {
       return;
     }
     try {
-      const { text, mtimeMs } = await ctx.ipc.readTextFile(tab.filePath);
+      const { text, mtimeMs } = await ctx.ipc.readTextFile(path);
       tab.model.pushText(text, 'file-load');
       tabsStore.getState().markSaved(id, mtimeMs);
       diffViewStore.getState().close(id);
@@ -402,11 +376,12 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
    *  DiffView (disk ↔ editor) for the tab. */
   async function viewDiff(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || tab.kind !== 'file' || !tab.filePath) {
+    const path = tab ? tabDocPath(tab) : null;
+    if (!tab || !path) {
       return;
     }
     try {
-      const { text } = await ctx.ipc.readTextFile(tab.filePath);
+      const { text } = await ctx.ipc.readTextFile(path);
       diffViewStore.getState().open(id, text);
     } catch (error) {
       uiStore.getState().showNotice(`Could not read "${tab.title}" from disk.`);
@@ -416,12 +391,13 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
 
   async function keepMine(id: string): Promise<void> {
     const tab = tabsStore.getState().tabs.find((t) => t.id === id);
-    if (!tab || tab.kind !== 'file' || !tab.filePath) {
+    const path = tab ? tabDocPath(tab) : null;
+    if (!tab || !path) {
       return;
     }
     let mtimeMs = tab.savedMtimeMs ?? ctx.now();
     try {
-      const stat = await ctx.ipc.statPath(tab.filePath);
+      const stat = await ctx.ipc.statPath(path);
       mtimeMs = stat.mtimeMs ?? mtimeMs;
     } catch {
       // Keep the previous baseline; the next save will re-stat anyway.

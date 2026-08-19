@@ -834,6 +834,13 @@ async function boot(): Promise<void> {
       fsRefreshTimer = setTimeout(() => {
         fsRefreshTimer = null;
         uiStore.getState().refreshExplorer();
+        // Live conflict detection: an external write inside a watched
+        // workspace (vim in the built-in terminal, a sync client) must raise
+        // the banner NOW, not at the next window refocus — before then, a
+        // flush or live save could clobber it. Cheap: one stat per open
+        // file/note tab; content is read only when an mtime moved, and the
+        // probe waits out any in-flight flush so our own writes never flag.
+        void controller.checkAllFileConflicts();
       }, 300);
     }).catch(() => {});
   }

@@ -154,9 +154,11 @@ export interface SessionController {
   saveActive(): Promise<void>;
   /** Ctrl+Shift+S: native save dialog, then write + retarget the active tab. */
   saveAsActive(): Promise<void>;
-  /** Stat one file tab against its baseline mtime; sets/clears its ConflictBanner. */
+  /** Probe one file/note tab against disk (mtime, then content); sets/clears
+   *  its ConflictBanner. See src/ui/session/conflict-probe.ts. */
   checkConflict(tabId: string): Promise<void>;
-  /** {@link checkConflict} for every open file tab (window focus, restore). */
+  /** {@link checkConflict} for every open file and note tab (window focus,
+   *  restore, fs-changed watcher). */
   checkAllFileConflicts(): Promise<void>;
   /** ConflictBanner "Reload": replace the model with the on-disk content. */
   reloadFromDisk(tabId: string): Promise<void>;
@@ -228,6 +230,13 @@ export interface SessionCtx {
   pinOnOpen: Set<string>;
   /** `from` path → consecutive rename-failure count (3-strikes suppression). */
   renameFailures: Map<string, number>;
+  /**
+   * The flush currently writing, or null. The conflict probe awaits it so a
+   * check triggered mid-flush (fs-changed fires for our own note writes)
+   * never misreads our own write — the write's baseline is recorded before
+   * this resolves. Set/cleared by flushSession only.
+   */
+  flushInFlight: Promise<void> | null;
   refreshNoteListing(): Promise<void>;
   /** First free `base.ext`, `base-2.ext`, … inside `dir` (case handled by FS). */
   uniquePathIn(dir: string, base: string, ext: string): Promise<string>;

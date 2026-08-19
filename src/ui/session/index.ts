@@ -217,6 +217,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     openingPaths: new Set<string>(),
     pinOnOpen: new Set<string>(),
     renameFailures: new Map<string, number>(),
+    flushInFlight: null,
 
     async refreshNoteListing(): Promise<void> {
       try {

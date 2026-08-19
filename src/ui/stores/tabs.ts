@@ -250,6 +250,13 @@ export interface TabsState {
    * Deliberately does NOT touch the model or the dirty flag.
    */
   acknowledgeConflict: (id: string, mtimeMs: number) => void;
+  /**
+   * Quietly advance a tab's on-disk baseline (and drop any conflict flag)
+   * WITHOUT requesting a flush — for flush bookkeeping (recording a note
+   * write's mtime) and for the conflict probe adopting a benign mtime move.
+   * The manifest picks the new value up on the next natural flush.
+   */
+  adoptBaseline: (id: string, mtimeMs: number) => void;
 }
 
 /**
@@ -918,6 +925,19 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, conflict } : t)) });
+    },
+
+    adoptBaseline(id, mtimeMs) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === id);
+      if (!tab || (tab.savedMtimeMs === mtimeMs && !tab.conflict)) {
+        return;
+      }
+      set({
+        tabs: s.tabs.map((t) =>
+          t.id === id ? { ...t, savedMtimeMs: mtimeMs, conflict: false } : t,
+        ),
+      });
     },
 
     acknowledgeConflict(id, mtimeMs) {

@@ -25,11 +25,27 @@ import { tabsStore, type RestoredTabInit } from '../stores/tabs';
 import { terminalsStore } from '../stores/terminals';
 import { uiStore } from '../stores/ui';
 import { isAndroid } from '../platform';
+import { probeTabConflict } from './conflict-probe';
 import type { SessionCtx } from './context';
 import { cursorByTab, pathKey, persistedToInit } from './facade';
 
 export function createFlushRestore(ctx: SessionCtx) {
   async function flushSession(): Promise<void> {
+    // Publish this run so the conflict probe can wait it out (fs-changed
+    // fires for our own writes; probing mid-flush would misread them).
+    let release!: () => void;
+    ctx.flushInFlight = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await flushSessionInner();
+    } finally {
+      ctx.flushInFlight = null;
+      release();
+    }
+  }
+
+  async function flushSessionInner(): Promise<void> {
     // Multi-window: another window's flusher may have created note files since
     // our last flush; re-list so planFlush's clobber guard sees them. (Cheap —
     // one readdir — and it also keeps the single-window cache honest.)
@@ -50,6 +66,25 @@ export function createFlushRestore(ctx: SessionCtx) {
       }
     }
 
+    // Pre-write guard for NOTE tabs: a note's file is written straight to
+    // disk by this flush (no Ctrl+S, no saveFileTab mtime check), so an
+    // external edit — vim on the note file — would be silently clobbered.
+    // Probe every note we are about to write; a detected conflict raises the
+    // banner and this flush leaves that file untouched (the edits stay in the
+    // model until the user resolves the banner).
+    const noteProbeIds = tabsStore
+      .getState()
+      .tabs.filter(
+        (t) =>
+          t.kind === 'note' &&
+          t.notePath !== null &&
+          t.savedMtimeMs !== null &&
+          !t.conflict &&
+          t.model.isDirty('session'),
+      )
+      .map((t) => t.id);
+    await Promise.all(noteProbeIds.map((id) => probeTabConflict(ctx, id)));
+
     const { tabs, activeTabId, closedNotePaths, obsoleteBufferTabIds } = tabsStore.getState();
 
     // Snapshot the text we are about to write per tab, so we only advance the
@@ -68,6 +103,14 @@ export function createFlushRestore(ctx: SessionCtx) {
     const suppressedRenamePaths = new Set(
       [...ctx.renameFailures].filter(([, count]) => count >= 3).map(([from]) => from),
     );
+    // A conflicted note is left COMPLETELY untouched — no write (above) and
+    // no title-derived rename either, so the external editor keeps a stable
+    // path until the banner is resolved.
+    for (const t of tabs) {
+      if (t.kind === 'note' && t.conflict && t.notePath) {
+        suppressedRenamePaths.add(t.notePath);
+      }
+    }
 
     const view: AppSessionView = {
       notesDir: ctx.notesDir,
@@ -83,7 +126,9 @@ export function createFlushRestore(ctx: SessionCtx) {
         title: t.title,
         text: assemblyTexts.get(t.id)!,
         mode: t.mode,
-        sessionDirty: t.model.isDirty('session'),
+        // A conflicted note is NOT written: the on-disk file holds someone
+        // else's changes until the banner is resolved (guard above).
+        sessionDirty: t.model.isDirty('session') && !(t.kind === 'note' && t.conflict),
         fileDirty: t.model.isDirty('file'),
         savedMtimeMs: t.savedMtimeMs,
         cursor: cursorByTab.get(t.id) ?? null,
@@ -118,13 +163,41 @@ export function createFlushRestore(ctx: SessionCtx) {
       consumedObsoleteBufferTabIds: obsoleteBufferTabIds,
     });
 
-    // Advance the session baseline only for tabs untouched since assembly.
+    // Advance the session baseline only for tabs untouched since assembly —
+    // and never for a conflicted note, whose file this flush did not write.
     for (const t of tabsStore.getState().tabs) {
       const written = assemblyTexts.get(t.id);
-      if (written !== undefined && t.model.getText() === written) {
+      if (
+        written !== undefined &&
+        t.model.getText() === written &&
+        !(t.kind === 'note' && t.conflict)
+      ) {
         t.model.markPersisted('session');
       }
     }
+
+    // Record the on-disk baseline for every note file this flush wrote (path
+    // taken AFTER applyFlushResult, so renames/assignments are reflected).
+    // This is what arms the conflict probe for note tabs.
+    const writtenNoteIds = view.tabs
+      .filter((t) => t.kind === 'note' && t.sessionDirty)
+      .map((t) => t.id);
+    await Promise.all(
+      writtenNoteIds.map(async (id) => {
+        const tab = tabsStore.getState().tabs.find((t) => t.id === id);
+        if (!tab || tab.kind !== 'note' || !tab.notePath) {
+          return;
+        }
+        try {
+          const stat = await ctx.ipc.statPath(tab.notePath);
+          if (stat.mtimeMs !== null) {
+            tabsStore.getState().adoptBaseline(id, stat.mtimeMs);
+          }
+        } catch {
+          // Leave the baseline; the probe's content compare self-heals later.
+        }
+      }),
+    );
 
     await ctx.refreshNoteListing();
   }
@@ -184,8 +257,11 @@ export function createFlushRestore(ctx: SessionCtx) {
           continue;
         }
         try {
-          const { text } = await ctx.ipc.readTextFile(pt.notePath);
-          restored.push(persistedToInit(pt, text));
+          const { text, mtimeMs } = await ctx.ipc.readTextFile(pt.notePath);
+          // The read's mtime becomes the note's conflict baseline: the model
+          // now holds exactly this on-disk state, so any later mtime move is
+          // a real external candidate (probe verifies content before flagging).
+          restored.push(persistedToInit({ ...pt, savedMtimeMs: mtimeMs }, text));
         } catch {
           missing.push(baseName(pt.notePath));
         }
@@ -394,9 +470,15 @@ export function createFlushRestore(ctx: SessionCtx) {
     try {
       const stat = await ctx.ipc.statPath(filePath);
       if (stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs) {
-        tabsStore.getState().setConflict(id, true);
-        uiStore.getState().showNotice(`"${tab.title}" changed on disk — resolve it before saving.`);
-        return false;
+        // An mtime move alone may be benign (touch, identical rewrite) — the
+        // probe reads and compares content, adopting the baseline when
+        // nothing really changed so the save may proceed.
+        if (await probeTabConflict(ctx, id)) {
+          uiStore
+            .getState()
+            .showNotice(`"${tab.title}" changed on disk — resolve it before saving.`);
+          return false;
+        }
       }
       // A missing file (deleted while open) is not a conflict: atomic_write_text
       // below simply recreates it.

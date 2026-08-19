@@ -1397,6 +1397,146 @@ describe('conflict detection, reload, and keep-mine (M3)', () => {
   });
 });
 
+describe('note-tab external-change protection', () => {
+  /** New note with text, flushed once so it has a path and an armed baseline. */
+  async function flushedNote(controller: ReturnType<typeof makeController>) {
+    const t = tabs.tabsStore.getState().tabs[0]!;
+    t.model.pushText('# Idea', 'cm6');
+    await controller.flushNow();
+    const tab = tabs.tabsStore.getState().tabs[0]!;
+    return { id: tab.id, notePath: tab.notePath! };
+  }
+
+  test('a flush records the written note file mtime as the conflict baseline', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { notePath } = await flushedNote(controller);
+
+    expect(tabs.tabsStore.getState().tabs[0]!.savedMtimeMs).toBe(fs.mtimes.get(notePath));
+  });
+
+  test('an externally changed note raises the banner and the flush leaves the file alone', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { id, notePath } = await flushedNote(controller);
+
+    fs.files.set(notePath, 'change made in vim');
+    fs.mtimes.set(notePath, 999);
+    tabs.tabsStore.getState().tabs[0]!.model.pushText('# Idea\ntyped more', 'cm6');
+    await controller.flushNow();
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(true);
+    expect(fs.files.get(notePath)).toBe('change made in vim'); // NOT clobbered
+    expect(tab.model.getText()).toBe('# Idea\ntyped more'); // edits kept in memory
+
+    // Still not clobbered by later flushes while the banner stands.
+    await controller.flushNow();
+    expect(fs.files.get(notePath)).toBe('change made in vim');
+  });
+
+  test('checkAllFileConflicts flags an externally changed note without any typing', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { id, notePath } = await flushedNote(controller);
+
+    fs.files.set(notePath, 'change made in vim');
+    fs.mtimes.set(notePath, 999);
+    await controller.checkAllFileConflicts();
+
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === id)!.conflict).toBe(true);
+  });
+
+  test('an mtime-only touch of a note is adopted silently and the flush proceeds', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { id, notePath } = await flushedNote(controller);
+
+    fs.mtimes.set(notePath, 999); // content unchanged
+    tabs.tabsStore
+      .getState()
+      .tabs.find((t) => t.id === id)!
+      .model.pushText('# Idea\nv2', 'cm6');
+    await controller.flushNow();
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(false);
+    expect(fs.files.get(notePath)).toBe('# Idea\nv2'); // write went through
+  });
+
+  test('reload on a conflicted note pulls the external content in', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { id, notePath } = await flushedNote(controller);
+    fs.files.set(notePath, 'change made in vim');
+    fs.mtimes.set(notePath, 999);
+    await controller.checkAllFileConflicts();
+
+    await controller.reloadFromDisk(id);
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.model.getText()).toBe('change made in vim');
+    expect(tab.conflict).toBe(false);
+    expect(tab.savedMtimeMs).toBe(999);
+  });
+
+  test('keep-mine on a conflicted note lets the next flush overwrite deliberately', async () => {
+    const fs = makeFakeFs();
+    const controller = makeController(fs);
+    const { id, notePath } = await flushedNote(controller);
+    fs.files.set(notePath, 'change made in vim');
+    fs.mtimes.set(notePath, 999);
+    tabs.tabsStore
+      .getState()
+      .tabs.find((t) => t.id === id)!
+      .model.pushText('# Idea\nv2', 'cm6');
+    await controller.flushNow();
+    expect(fs.files.get(notePath)).toBe('change made in vim'); // blocked while conflicted
+
+    await controller.keepMine(id);
+    await controller.flushNow();
+
+    const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+    expect(tab.conflict).toBe(false);
+    expect(fs.files.get(notePath)).toBe('# Idea\nv2'); // user chose their version
+  });
+
+  test('restore arms the note baseline from the read, so later changes are caught', async () => {
+    const manifest = {
+      schema: 1,
+      activeTabId: 'n1',
+      tabs: [
+        {
+          id: 'n1',
+          kind: 'note',
+          notePath: '/notes/idea.md',
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: 5, // stale manifest value; the restore read re-arms it
+          hasBuffer: false,
+          cursor: null,
+        },
+      ],
+    };
+    const fs = makeFakeFs({
+      [`${SESSION}/session.json`]: JSON.stringify(manifest),
+      '/notes/idea.md': 'on disk',
+    });
+    fs.mtimes.set('/notes/idea.md', 777);
+    const controller = makeController(fs);
+    await controller.restore();
+    expect(tabs.tabsStore.getState().tabs[0]!.savedMtimeMs).toBe(777);
+    expect(tabs.tabsStore.getState().tabs[0]!.conflict).toBe(false);
+
+    fs.files.set('/notes/idea.md', 'change made in vim');
+    fs.mtimes.set('/notes/idea.md', 888);
+    await controller.checkAllFileConflicts();
+
+    expect(tabs.tabsStore.getState().tabs[0]!.conflict).toBe(true);
+  });
+});
+
 describe('closeTabInteractive — dirty file tabs (M3)', () => {
   test('Cancel leaves the tab open', async () => {
     const fs = makeFakeFs({ '/docs/a.md': 'x' });
