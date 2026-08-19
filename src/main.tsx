@@ -66,6 +66,7 @@ import {
   type TabWindowInfo,
 } from './ui/session';
 import { uiStore } from './ui/stores/ui';
+import { listenActiveWorkspace } from './ui/active-workspace';
 import { exportPreviewStore } from './ui/stores/export-preview';
 import { diagramViewerStore } from './ui/stores/diagram-viewer';
 import { imageMimeType, isImagePath } from './core/images';
@@ -911,6 +912,10 @@ async function boot(): Promise<void> {
   void listen<{ label: string }>('window-focused', (event) => {
     windowFocusOrder.set(event.payload.label, ++windowFocusCounter);
   }).catch(() => {});
+
+  // "Set active" on a workspace fans out to every window by default (its
+  // right-click variant stays local — see ui/active-workspace.ts).
+  listenActiveWorkspace();
 
   // Live settings sync between windows (see persistSettingsDebounced). Our own
   // broadcast comes back too — drop it by label: the payload is a stale

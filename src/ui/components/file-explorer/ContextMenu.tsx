@@ -26,6 +26,7 @@ import {
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
+import { setActiveWorkspace } from '../../active-workspace';
 import { scanImageInto } from '../../scan-image';
 import { scanWhiteboardInto } from '../../scan-photo';
 
@@ -257,15 +258,27 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           an explicit action — this item — a plain click only
           collapses/expands (double-click was removed: too easy to hit by
           accident). Offered even read-only: the active dir also seeds new
-          terminal tabs' cwd. */}
+          terminal tabs' cwd. Like the theme picker, clicking applies to every
+          window; right-clicking keeps it to this one (desktop only — Android
+          is a single webview with no right-click). */}
       {wsColor !== undefined && (
         <button
           className="context-menu-item"
           role="menuitem"
+          title={isAndroid() ? undefined : 'Set for all windows (right-click: this window only)'}
           onClick={() => {
             onClose();
-            onSelectDir(dir);
+            setActiveWorkspace(dir);
           }}
+          onContextMenu={
+            isAndroid()
+              ? undefined
+              : (e) => {
+                  e.preventDefault();
+                  onClose();
+                  setActiveWorkspace(dir, { thisWindowOnly: true });
+                }
+          }
         >
           Set active
         </button>

@@ -154,7 +154,11 @@ terminal's agent-status badge sits after the icon, not instead of it.
 directory** as its cwd: `uiStore.selectedExplorerDir` (the last folder row
 clicked, a workspace explicitly set active via the header's right-click "Set
 active", or a freshly added workspace — adding one makes it active; the active
-workspace wears a check on its header), falling back to the default notes-dir
+workspace wears a check on its header). "Set active" mirrors the theme
+picker's split: clicking it applies to every window (broadcast over
+`active-workspace-changed`, `ui/active-workspace.ts`), right-clicking it keeps
+the change to this window; implicit selections (folder clicks, adding a
+workspace, `?ws=`) always stay window-local. It falls back to the default notes-dir
 workspace, and to the app's own cwd for a synced (`saf://`) selection. A
 torn-off window inherits the source window's active workspace (`?ws=` URL
 param, first spawn only). It does
