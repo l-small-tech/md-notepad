@@ -253,6 +253,22 @@ export interface TerminalProfile {
 export const SHELL_PROFILE_ID = 'shell';
 
 /**
+ * The agents the "AI TUI" new-tab row can launch; which one is active lives
+ * in `settings.aiTuiAgent`. The id → command table is `AI_TUI_AGENTS`
+ * (core/settings.ts).
+ */
+export const AI_TUI_AGENT_IDS = ['claude', 'chatgpt'] as const;
+export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
+
+/**
+ * The VIRTUAL profile id the "AI TUI" row opens. It is never stored in
+ * `terminalProfiles` — `resolveTerminalProfile` synthesizes it from
+ * `settings.aiTuiAgent` on demand, so a persisted terminal snapshot naming it
+ * respawns whatever agent is configured at restore time.
+ */
+export const AI_TUI_PROFILE_ID = 'ai-tui';
+
+/**
  * A terminal tab's persistable layout: enough to respawn the same shells in
  * the same arrangement, and nothing more. Scrollback is never persisted — a
  * restored terminal is a NEW shell in the recorded directory, which is the
@@ -366,6 +382,8 @@ export interface Settings {
   terminalProfiles: TerminalProfile[];
   /** Id of the profile a plain "New terminal" uses. */
   defaultTerminalProfile: string;
+  /** Which agent the "AI TUI" new-tab row launches. Default 'claude'. */
+  aiTuiAgent: AiTuiAgentId;
   /**
    * The shell every terminal runs — one choice for the whole app, not one per
    * profile (see `core/terminal-shells.ts`). A program name resolved against

@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import {
+  AI_TUI_AGENTS,
   DEFAULT_SETTINGS,
   SETTINGS_SCHEMA,
   MAX_EXPLORER_PATHS,
   normalizePathList,
   normalizeSettings,
   pickUnusedColor,
+  resolveTerminalProfile,
 } from '../settings';
+import { AI_TUI_PROFILE_ID } from '../types';
 import {
   CURSOR_STYLES,
   EDITOR_FONT_IDS,
@@ -26,6 +29,7 @@ describe('normalizeSettings', () => {
   test('valid fields pass through', () => {
     const settings = normalizeSettings({
       notesDir: 'D:/notes',
+      aiTuiAgent: 'chatgpt',
       // Light/Dark is a meaningful override only on the built-in default palette;
       // a plugin scheme is exercised by the merged-model test below.
       theme: 'dark',
@@ -54,6 +58,7 @@ describe('normalizeSettings', () => {
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
+      aiTuiAgent: 'chatgpt',
       theme: 'dark',
       colorScheme: 'default',
       fontSize: 16,
@@ -364,5 +369,41 @@ describe('terminal profiles: the schema-2 migration', () => {
   test('migrating away every profile falls back to the defaults, never an empty list', () => {
     const s = normalizeSettings({ schemaVersion: 0, terminalProfiles: [stockClaude] });
     expect(s.terminalProfiles).toEqual(DEFAULT_SETTINGS.terminalProfiles);
+  });
+});
+
+describe('the AI TUI virtual profile', () => {
+  test('the agent setting defaults to claude and rejects unknown values', () => {
+    expect(DEFAULT_SETTINGS.aiTuiAgent).toBe('claude');
+    expect(normalizeSettings({ aiTuiAgent: 'chatgpt' }).aiTuiAgent).toBe('chatgpt');
+    expect(normalizeSettings({ aiTuiAgent: 'skynet' }).aiTuiAgent).toBe('claude');
+  });
+
+  test('ai-tui resolves to the configured agent command', () => {
+    const claude = resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID);
+    expect(claude).toMatchObject({ name: 'Claude', program: 'claude' });
+    const chatgpt = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' },
+      AI_TUI_PROFILE_ID,
+    );
+    expect(chatgpt).toMatchObject({
+      name: AI_TUI_AGENTS.chatgpt.name,
+      program: AI_TUI_AGENTS.chatgpt.program,
+    });
+  });
+
+  test('resolution is identity-stable per agent (TerminalPane contract)', () => {
+    expect(resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID)).toBe(
+      resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID),
+    );
+  });
+
+  test('a real profile with the ai-tui id shadows the virtual one', () => {
+    const shadow = { id: AI_TUI_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
+    const s = {
+      ...DEFAULT_SETTINGS,
+      terminalProfiles: [...DEFAULT_SETTINGS.terminalProfiles, shadow],
+    };
+    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID)).toBe(shadow);
   });
 });

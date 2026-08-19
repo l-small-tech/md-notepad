@@ -20,6 +20,8 @@ import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
 import { openTerminal } from '../terminal-open';
+import { AI_TUI_AGENTS } from '../../core/settings';
+import { AI_TUI_PROFILE_ID } from '../../core/types';
 import { useSettingsStore } from '../stores/settings';
 import { searchStore } from '../stores/search';
 import { uiStore, useUiStore } from '../stores/ui';
@@ -235,7 +237,30 @@ function ShellGlyph() {
 }
 
 /**
- * The "what kind of tab" rows — note, the terminal profile(s), drawing.
+ * The AI TUI row's glyph: a six-spoke asterisk, the same mark the agents
+ * themselves print as their status glyph (✳), drawn so it matches the
+ * ShellGlyph's stroke weight.
+ */
+function AiGlyph() {
+  return (
+    <svg
+      className="app-menu-icon"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    >
+      <path d="M8 2.5v11M3.24 5.25l9.52 5.5M12.76 5.25l-9.52 5.5" />
+    </svg>
+  );
+}
+
+/**
+ * The "what kind of tab" rows — note, the AI TUI, the terminal profile(s),
+ * drawing.
  *
  * Shared because the choice is offered from two places: the "+" button's
  * picker and the bar menu's New tab page. Terminal profiles sit in the same
@@ -246,6 +271,7 @@ function ShellGlyph() {
  */
 export function NewTabRows({ onClose }: { onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
+  const aiAgent = useSettingsStore((s) => s.settings.aiTuiAgent);
 
   return (
     <>
@@ -255,6 +281,18 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
         onPick={() => runNewTabChoice('note')}
         onClose={onClose}
       />
+      {/* The AI TUI: a terminal running the configured agent, above the plain
+          shell because reaching for the agent is the more common pick. The row
+          wears the agent's name — which agent it is lives in Settings. */}
+      {terminalsAvailable() && (
+        <AppMenuItem
+          glyph={<AiGlyph />}
+          label={AI_TUI_AGENTS[aiAgent].name}
+          title="AI TUI — switch the agent in Settings"
+          onPick={() => openTerminal(AI_TUI_PROFILE_ID)}
+          onClose={onClose}
+        />
+      )}
       {terminalsAvailable() &&
         profiles.map((profile) => (
           <AppMenuItem

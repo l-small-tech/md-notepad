@@ -9,6 +9,8 @@
  */
 
 import {
+  AI_TUI_AGENT_IDS,
+  AI_TUI_PROFILE_ID,
   CURSOR_STYLES,
   DEFAULT_COLOR_SCHEME,
   EDITOR_FONT_IDS,
@@ -30,6 +32,7 @@ import {
   type ScanSmoothing,
 } from './whiteboard/scan/types';
 import type {
+  AiTuiAgentId,
   CursorStyle,
   EditorFontId,
   Settings,
@@ -53,6 +56,18 @@ import type {
 export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
   { id: SHELL_PROFILE_ID, name: 'Shell', args: [], env: {} },
 ];
+
+/**
+ * What each AI TUI agent launches. ChatGPT's terminal agent ships as the
+ * `codex` CLI — the label is the product the user picked, the program is what
+ * `PATH` actually knows. Kept as a fixed table (not user profiles): the "AI
+ * TUI" row is a switch between agents, and anything more bespoke is a custom
+ * profile in `terminalProfiles`.
+ */
+export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string }> = {
+  claude: { name: 'Claude', program: 'claude' },
+  chatgpt: { name: 'ChatGPT', program: 'codex' },
+};
 
 /**
  * Current persisted-settings schema.
@@ -100,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
   terminalProfiles: DEFAULT_TERMINAL_PROFILES.map((profile) => ({ ...profile })),
   defaultTerminalProfile: SHELL_PROFILE_ID,
+  aiTuiAgent: 'claude',
   terminalShell: AUTO_SHELL,
   terminalFont: 'fira-code',
   terminalScrollback: 10_000,
@@ -458,17 +474,47 @@ export function normalizeSettings(raw: unknown): Settings {
     // whitelist — so this only trims. A bad name surfaces as a spawn error in
     // the pane, which is more useful than silently running something else.
     terminalShell: normalizeShell(r.terminalShell),
+    aiTuiAgent: (AI_TUI_AGENT_IDS as readonly unknown[]).includes(r.aiTuiAgent)
+      ? (r.aiTuiAgent as AiTuiAgentId)
+      : d.aiTuiAgent,
     terminalFont: (TERMINAL_FONT_IDS as readonly unknown[]).includes(r.terminalFont)
       ? (r.terminalFont as TerminalFontId)
       : d.terminalFont,
   };
 }
 
-/** The profile with this id, or the default one, or the first that exists. */
+/**
+ * The synthesized AI TUI profiles, one per agent. Cached so
+ * `resolveTerminalProfile` keeps its same-object-every-call contract —
+ * `TerminalPane` re-applies settings whenever the profile identity changes.
+ */
+const AI_TUI_PROFILES = new Map<AiTuiAgentId, TerminalProfile>();
+
+/**
+ * The profile with this id, or the default one, or the first that exists.
+ * `AI_TUI_PROFILE_ID` is virtual: unless the user shadowed it with a real
+ * profile of that id, it resolves to the configured agent's command.
+ */
 export function resolveTerminalProfile(settings: Settings, id?: string): TerminalProfile {
   const byId = id ? settings.terminalProfiles.find((p) => p.id === id) : undefined;
   if (byId) {
     return byId;
+  }
+  if (id === AI_TUI_PROFILE_ID) {
+    const agentId = settings.aiTuiAgent;
+    let profile = AI_TUI_PROFILES.get(agentId);
+    if (!profile) {
+      const agent = AI_TUI_AGENTS[agentId];
+      profile = {
+        id: AI_TUI_PROFILE_ID,
+        name: agent.name,
+        program: agent.program,
+        args: [],
+        env: {},
+      };
+      AI_TUI_PROFILES.set(agentId, profile);
+    }
+    return profile;
   }
   const fallback = settings.terminalProfiles.find((p) => p.id === settings.defaultTerminalProfile);
   return fallback ?? settings.terminalProfiles[0] ?? { ...DEFAULT_TERMINAL_PROFILES[0]! };

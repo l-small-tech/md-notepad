@@ -70,6 +70,11 @@ const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: 
   { value: 'bar', label: 'Bar' },
 ];
 
+const AI_TUI_OPTIONS: { value: Settings['aiTuiAgent']; label: string }[] = [
+  { value: 'claude', label: 'Claude (default)' },
+  { value: 'chatgpt', label: 'ChatGPT' },
+];
+
 const TERMINAL_BELL_OPTIONS: { value: Settings['terminalBell']; label: string }[] = [
   { value: 'cursor', label: 'Cursor changes shape (default)' },
   { value: 'visual', label: 'Flash the pane' },
@@ -581,6 +586,26 @@ function TerminalSection({ settings }: { settings: Settings }) {
         Profiles (arguments, folder, environment) are edited in <code>settings.json</code> under{' '}
         <code>terminalProfiles</code>. A profile with no <code>program</code> of its own runs the
         shell chosen above.
+      </p>
+
+      <label className="settings-row">
+        <span className="settings-label">AI TUI</span>
+        <select
+          className="settings-control"
+          value={settings.aiTuiAgent}
+          onChange={(e) => update({ aiTuiAgent: e.target.value as Settings['aiTuiAgent'] })}
+        >
+          {AI_TUI_OPTIONS.map((a) => (
+            <option key={a.value} value={a.value}>
+              {a.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <p className="settings-hint">
+        The agent the new-tab menu&apos;s AI row launches — its command (<code>claude</code> or{' '}
+        <code>codex</code>) must be on <code>PATH</code>.
       </p>
 
       <label className="settings-row">
