@@ -202,9 +202,11 @@ function persistSettingsDebounced(): void {
       // for the session; the next change retries.
     });
     // Multi-window: mirror the change into the other windows live (theme, fonts
-    // …). Receivers compare before replacing, so the echo converges instead of
-    // ping-ponging. No-op outside a Tauri webview.
-    void emit('settings-changed', settings).catch(() => {});
+    // …). `from` lets the receiver drop this window's own echo — the payload is
+    // a snapshot from emit time, and folding it back in would clobber any edit
+    // made during the event round-trip (a click landing just after the debounce
+    // fired would visibly revert). No-op outside a Tauri webview.
+    void emit('settings-changed', { from: WINDOW_LABEL, settings }).catch(() => {});
   }, 400);
 }
 
@@ -613,11 +615,16 @@ async function boot(): Promise<void> {
     void controller.flushNow();
   }).catch(() => {});
 
-  // Live settings sync between windows (see persistSettingsDebounced). A
-  // window-only theme survives the fold — including the echo of our own
-  // broadcast, which carries the shared theme and would otherwise undo it.
-  void listen<Settings>('settings-changed', (event) => {
-    const incoming = normalizeSettings(event.payload);
+  // Live settings sync between windows (see persistSettingsDebounced). Our own
+  // broadcast comes back too — drop it by label: the payload is a stale
+  // snapshot, and this window already has the live value (folding the echo in
+  // would revert any setting changed during the round-trip). A window-only
+  // theme survives folding a sibling's broadcast via mergeIncomingSettings.
+  void listen<{ from: string; settings: Settings }>('settings-changed', (event) => {
+    if (event.payload.from === WINDOW_LABEL) {
+      return;
+    }
+    const incoming = normalizeSettings(event.payload.settings);
     const merged = mergeIncomingSettings(incoming, windowThemeStore.getState().override);
     if (merged.override !== windowThemeStore.getState().override) {
       windowThemeStore.getState().set(merged.override);
