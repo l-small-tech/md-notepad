@@ -46,7 +46,7 @@ import type { EditorMode, TabKind, TabState, TerminalSnapshot } from '../../core
 import { orderTabsByWorkspace } from '../../core/tab-workspaces';
 import { workspaceCueFor } from '../workspace-cues';
 import { settingsStore } from './settings';
-import { terminalsStore } from './terminals';
+import { activePaneCwd, terminalsStore } from './terminals';
 import { requestFlush } from './flush-signal';
 import { isMobile } from '../platform';
 
@@ -87,6 +87,16 @@ export interface TabEntry extends TabState {
    * Null until a shell sets one — the profile name is the fallback.
    */
   terminalTitle: string | null;
+  /**
+   * kind='terminal' only: the focused pane's working directory — its last
+   * OSC 7, else the directory it was spawned in — mirrored from the terminals
+   * store (see the subscription beside `setTerminalCwd`). It is what places a
+   * terminal in a workspace for the strip's color cue (`workspaceCueFor`), so
+   * a shell that `cd`s into another workspace changes color, and one that
+   * leaves every open workspace loses it. Not persisted: the pane cwds in the
+   * terminal snapshot are the durable record.
+   */
+  terminalCwd: string | null;
 }
 
 /** Everything needed to rebuild one tab at restore time (content already read). */
@@ -216,6 +226,12 @@ export interface TabsState {
   }) => string;
   /** Mirror the focused pane's shell title onto the tab label. */
   setTerminalTitle: (tabId: string, title: string | null) => void;
+  /**
+   * Mirror the focused pane's working directory onto the tab (see
+   * `TabEntry.terminalCwd`). With `groupTabsByWorkspace` on, a terminal that
+   * moved into another workspace is re-slotted into that workspace's run.
+   */
+  setTerminalCwd: (tabId: string, cwd: string | null) => void;
   openImageTab: (input: {
     filePath: string;
     savedMtimeMs: number | null;
@@ -366,6 +382,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       preview: false,
       readOnly: init?.readOnly ?? false,
       terminalTitle: null,
+      terminalCwd: null,
     };
 
     // A terminal tab's "content" is its pane layout, so it is created here —
@@ -385,6 +402,9 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       });
       // The label until the shell sets its own OSC title.
       entry.title = customTitle ?? resolveTerminalProfile(settings, profileId).name;
+      // The spawn directory is the best guess until the shell's first OSC 7 —
+      // for a restored layout, the focused pane's recorded cwd.
+      entry.terminalCwd = activePaneCwd(terminalsStore.getState(), id);
     }
 
     model.subscribe((change) => {
@@ -473,6 +493,23 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     const byId = new Map(list.map((t) => [t.id, t]));
     return order.map((o) => byId.get(o.id)!);
   }
+
+  // The one place the terminals store writes back into this one: every
+  // terminal tab mirrors its FOCUSED pane's cwd (`TabEntry.terminalCwd`),
+  // whether it changed because the shell `cd`d (OSC 7), because focus moved
+  // to another pane, or because a pane closed. Title changes — the frequent
+  // ones — fall through untouched, which is what keeps the two stores apart.
+  terminalsStore.subscribe((terminals) => {
+    for (const tab of get().tabs) {
+      if (tab.kind !== 'terminal' || !terminals.sessions[tab.id]) {
+        continue;
+      }
+      const cwd = activePaneCwd(terminals, tab.id);
+      if (cwd !== tab.terminalCwd) {
+        get().setTerminalCwd(tab.id, cwd);
+      }
+    }
+  });
 
   const first = makeTab();
 
@@ -814,6 +851,22 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }
       set({
         tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, terminalTitle: title } : t)),
+      });
+    },
+
+    setTerminalCwd(tabId, cwd) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.kind !== 'terminal' || tab.terminalCwd === cwd) {
+        return;
+      }
+      // Re-arranged rather than just recolored: with grouping on, a terminal
+      // standing in another workspace belongs in that workspace's run, or the
+      // strip's bands and its colors would disagree.
+      set({
+        tabs: arrangeByWorkspace(
+          s.tabs.map((t) => (t.id === tabId ? { ...t, terminalCwd: cwd } : t)),
+        ),
       });
     },
 

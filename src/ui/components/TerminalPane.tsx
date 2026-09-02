@@ -19,10 +19,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { isDarkColor } from '../../core/color';
-import { profileFontSize, terminalProgram } from '../../core/settings';
+import {
+  aiTuiAgentName,
+  profileFontSize,
+  resolveTerminalProfile,
+  terminalProgram,
+} from '../../core/settings';
+import { cdCommand, cdTarget, listCommand, quoteCommand } from '../../core/shell-commands';
+import { pathFromFileUrl, withShellIntegration } from '../../core/shell-integration';
 import { terminalEnvHints } from '../../core/terminal-palette';
-import type { Settings, TerminalProfile } from '../../core/types';
+import { shellKind, type ShellKind } from '../../core/terminal-shells';
+import { AI_TUI_PROFILE_ID, type Settings, type TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
+import { pickDirectory } from '../../ipc/dialog';
 import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
 import { TermInput, TermView, type TerminalTheme } from '../../renderer';
 import { Terminal } from '../../term';
@@ -35,8 +44,12 @@ import {
   type TerminalScroll,
 } from '../keymap';
 import { isExternalHref } from '../../core/external-links';
+import { desktopOs } from '../platform';
+import { shellIntegrationFor } from '../shell-integration';
+import { defaultShellStore } from '../stores/default-shell';
 import { externalLinkStore } from '../stores/external-link';
 import { currentFont } from '../terminal-theme';
+import { workspaceRoots } from '../workspace-cues';
 
 /** Inset between the pane edge and the first cell, in CSS pixels. */
 const PADDING = 8;
@@ -98,20 +111,17 @@ function isTextField(element: Element | null): boolean {
   return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
 }
 
-/** `file://host/path` (OSC 7) → a plain path a pty can be spawned in. */
-function pathFromFileUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'file:') {
-      return null;
-    }
-    const pathname = decodeURIComponent(parsed.pathname);
-    // `file:///C:/…` parses to pathname `/C:/…` — strip the artificial slash
-    // or the value fails later as a spawn cwd on Windows.
-    return (/^\/[A-Za-z]:(\/|$)/.test(pathname) ? pathname.slice(1) : pathname) || null;
-  } catch {
-    return null;
-  }
+/** What the right-click menu needs to know at the moment it opens. */
+interface MenuState {
+  x: number;
+  y: number;
+  /** Whether Copy has anything to copy; the selection cannot change while the menu is up. */
+  hasSelection: boolean;
+  /**
+   * A full-screen program (an agent TUI, vim) holds the alternate screen: the
+   * shell helpers are hidden then, since typing `cd` into vim helps nobody.
+   */
+  altScreen: boolean;
 }
 
 export function TerminalPane({
@@ -136,10 +146,15 @@ export function TerminalPane({
 
   const [status, setStatus] = useState<string | null>('starting…');
   const [bell, setBell] = useState(false);
-  /** Where the right-click menu is, and whether it has a selection to copy. */
-  const [menu, setMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   /** Font zoom, in steps from the configured size. Per pane, not persisted. */
   const [zoom, setZoom] = useState(0);
+  /**
+   * Which shell this pane runs — known once the spawn has resolved the
+   * program; null for anything that is not a plain shell (an agent TUI, a
+   * profile with its own program) and therefore gets no shell helpers.
+   */
+  const [paneShell, setPaneShell] = useState<ShellKind | null>(null);
 
   // Props the long-lived objects read: kept in a ref so a new callback identity
   // (every render, in practice) never tears down a pty.
@@ -267,10 +282,16 @@ export function TerminalPane({
       confirmPaste: (text) => confirmMultilinePaste(text),
       // The system clipboard, not the web view's — see src/ipc/clipboard.ts.
       clipboard: getClipboard(),
-      // Whether Copy is worth offering is decided when the menu opens: the
-      // selection cannot change while it is up.
+      // Whether Copy is worth offering, and whether a shell prompt is even
+      // there to type at, are decided when the menu opens: neither can change
+      // while it is up.
       onContextMenu: (event) =>
-        setMenu({ x: event.clientX, y: event.clientY, hasSelection: input.hasSelection }),
+        setMenu({
+          x: event.clientX,
+          y: event.clientY,
+          hasSelection: input.hasSelection,
+          altScreen: term.altScreen,
+        }),
     });
     inputRef.current = input;
 
@@ -291,8 +312,14 @@ export function TerminalPane({
     }
 
     /** Actions this pane owns; the rest go up to the app shell. */
-    function runAction(action: ShortcutAction): void {
+    function runAction(action: ShortcutAction | PaneAction): void {
       switch (action.type) {
+        case 'terminal-send':
+          // Typed as keystrokes (not a paste): a shell with bracketed paste on
+          // would otherwise hold the trailing Enter as a literal newline.
+          void handleRef.current?.write(action.text);
+          input.focus();
+          return;
         case 'terminal-copy':
           // Clearing after a copy is what makes Ctrl+C safe to bind: the next
           // one finds no selection and goes to the shell as SIGINT.
@@ -419,17 +446,35 @@ export function TerminalPane({
 
     void (async () => {
       try {
+        // Shell integration — the prompt hook that reports `cd` (OSC 7) and
+        // lets the tab wear its workspace's color — goes ONLY to a plain
+        // shell profile: one naming no program of its own, so the app's Shell
+        // setting or the platform default decides. An agent TUI, ssh, or a
+        // hand-configured profile is spawned exactly as written.
+        let launch = { args: initialProfile.args, env: initialProfile.env };
+        let kind: ShellKind | null = null;
+        if (initialProfile.program === undefined) {
+          kind = shellKind(program ?? (await defaultShellStore.getState().resolve()));
+          if (kind) {
+            launch = withShellIntegration(launch, await shellIntegrationFor(kind));
+          }
+        }
+        if (disposed) {
+          return;
+        }
+        setPaneShell(kind);
         const handle = await getPtyProvider().spawn(
           {
             ...view.gridSize,
             ...(program ? { program } : {}),
-            args: initialProfile.args,
+            args: launch.args,
             ...(startCwd ? { cwd: startCwd } : {}),
-            // The light/dark hint goes FIRST so a profile that sets the same
-            // variable overrides it — a user's own env is never second-guessed.
+            // The light/dark hint goes FIRST so shell integration and, above
+            // all, a profile that sets the same variable override it — a
+            // user's own env is never second-guessed.
             env: {
               ...terminalEnvHints(isDarkColor(initialTheme.background)),
-              ...initialProfile.env,
+              ...launch.env,
             },
           },
           {
@@ -587,6 +632,11 @@ export function TerminalPane({
         <PaneMenu
           menu={menu}
           paneId={paneId}
+          // Helpers only at a shell prompt: a plain shell, not showing a
+          // full-screen program.
+          shell={menu.altScreen ? null : paneShell}
+          cwd={cwd ?? null}
+          settings={settings}
           onClose={() => setMenu(null)}
           mac={platform === 'mac'}
         />
@@ -600,15 +650,29 @@ export function TerminalPane({
  * `TabContextMenu`). Every item runs through the pane's registered action
  * runner rather than a second copy of the switch: "Copy" from the menu, from
  * the palette and from Ctrl+Shift+C have to be one implementation.
+ *
+ * With `shell` set the menu also carries the SHELL HELPERS — three items that
+ * type an ordinary command at the prompt (and press Enter) so a user who finds
+ * the shell intimidating can watch what they would have typed: change
+ * directory through the OS folder picker, list the files, start the AI agent.
+ * The tooltips spell the command out; that is the teaching.
  */
 function PaneMenu({
   menu,
   paneId,
+  shell,
+  cwd,
+  settings,
   onClose,
   mac,
 }: {
-  menu: { x: number; y: number; hasSelection: boolean };
+  menu: MenuState;
   paneId: string;
+  /** The plain shell at the prompt, or null when the helpers do not apply. */
+  shell: ShellKind | null;
+  /** The pane's current working directory, as far as the app knows. */
+  cwd: string | null;
+  settings: Settings;
   onClose: () => void;
   mac: boolean;
 }) {
@@ -642,6 +706,40 @@ function PaneMenu({
     onClose();
     runShortcutAction(action);
   }
+
+  /** Type a command at the prompt and press Enter. */
+  function type(command: string) {
+    onClose();
+    runPaneAction(paneId, { type: 'terminal-send', text: `${command}\r` });
+  }
+
+  async function changeDirectory(kind: ShellKind) {
+    onClose();
+    const picked = await pickDirectory(cwd, 'Change directory');
+    if (!picked) {
+      return;
+    }
+    // Relative inside the workspace the shell is already in (`cd ..\docs`),
+    // absolute anywhere else — the spelling a person would choose.
+    const os = desktopOs() === 'windows' ? 'windows' : 'posix';
+    const target = cdTarget(cwd, picked, workspaceRoots(), os);
+    runPaneAction(paneId, {
+      type: 'terminal-send',
+      text: `${cdCommand(kind, target.path)}\r`,
+    });
+  }
+
+  // The agent the "Open <agent>" helper starts: the configured AI TUI's
+  // command line, quoted for this shell. Hidden while unconfigured (a custom
+  // agent with an empty command has no program).
+  const agentProfile = resolveTerminalProfile(settings, AI_TUI_PROFILE_ID);
+  const agent =
+    shell && agentProfile.program
+      ? {
+          name: aiTuiAgentName(settings),
+          command: quoteCommand(shell, agentProfile.program, agentProfile.args),
+        }
+      : null;
 
   return (
     <div
@@ -679,6 +777,37 @@ function PaneMenu({
       >
         Clear scrollback<span className="tab-menu-chord">{chord('K')}</span>
       </button>
+      {shell && (
+        <>
+          <div className="tab-menu-sep" role="separator" />
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title={`Pick a folder, then type ${cdCommand(shell, '<folder>')} — the shell moves there`}
+            onClick={() => void changeDirectory(shell)}
+          >
+            Change directory…
+          </button>
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title={`Type ${listCommand(shell)} — show the files in the current folder`}
+            onClick={() => type(listCommand(shell))}
+          >
+            List files
+          </button>
+          {agent && (
+            <button
+              className="tab-menu-item"
+              role="menuitem"
+              title={`Type ${agent.command} — start ${agent.name} in the current folder`}
+              onClick={() => type(agent.command)}
+            >
+              Open {agent.name}
+            </button>
+          )}
+        </>
+      )}
       <div className="tab-menu-sep" role="separator" />
       <button
         className="tab-menu-item"

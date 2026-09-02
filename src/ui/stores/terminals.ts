@@ -342,3 +342,15 @@ export function activePaneOf(tabId: string): TerminalPaneState | null {
   const session = state.sessions[tabId];
   return session ? (state.panes[session.activePaneId] ?? null) : null;
 }
+
+/**
+ * The working directory a terminal TAB is "in": its focused pane's cwd (the
+ * last OSC 7 the shell sent, or the directory it was spawned in), or null
+ * when the tab has no session or the pane never learned one. A selector, so
+ * the tabs store can mirror it onto the tab entry and the strip can color a
+ * terminal by the workspace it is standing in.
+ */
+export function activePaneCwd(state: Pick<TerminalsState, 'sessions' | 'panes'>, tabId: string) {
+  const session = state.sessions[tabId];
+  return session ? (state.panes[session.activePaneId]?.cwd ?? null) : null;
+}

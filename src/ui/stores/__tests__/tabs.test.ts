@@ -19,8 +19,13 @@ vi.mock('../../platform', () => ({
  */
 const settings = vi.hoisted(() => ({ groupTabsByWorkspace: false }));
 vi.mock('../../workspace-cues', () => ({
-  workspaceCueFor: (tab: { filePath: string | null; notePath: string | null }) => {
-    const path = tab.filePath ?? tab.notePath ?? '';
+  workspaceCueFor: (tab: {
+    kind: string;
+    filePath: string | null;
+    notePath: string | null;
+    terminalCwd?: string | null;
+  }) => {
+    const path = (tab.kind === 'terminal' ? tab.terminalCwd : (tab.filePath ?? tab.notePath)) ?? '';
     for (const root of ['/red', '/blue']) {
       if (path.startsWith(`${root}/`)) {
         return { key: root, color: null };
@@ -792,6 +797,104 @@ describe('terminal tabs', () => {
     expect(mod.tabDisplayTitle(tab)).toBe('Shell');
     expect(terminals.terminalsStore.getState().sessions[id]).toBeDefined();
     expect(terminals.activePaneOf(id)).toMatchObject({ profileId: 'shell', cwd: '/work' });
+  });
+
+  test("the tab mirrors the focused pane's cwd: seeded from the spawn dir, following cd", async () => {
+    const terminals = await import('../terminals');
+    const id = state().openTerminalTab({ profileId: 'shell', cwd: '/work' });
+    const tab = () => state().tabs.find((t) => t.id === id)!;
+    expect(tab().terminalCwd).toBe('/work');
+
+    const pane = terminals.activePaneOf(id)!;
+    terminals.terminalsStore.getState().setPaneCwd(pane.id, '/work/src');
+    expect(tab().terminalCwd).toBe('/work/src');
+  });
+
+  test('the mirror follows focus between panes, and a split inherits its source', async () => {
+    const terminals = await import('../terminals');
+    const id = state().openTerminalTab({ profileId: 'shell', cwd: '/a' });
+    const tab = () => state().tabs.find((t) => t.id === id)!;
+    const first = terminals.activePaneOf(id)!.id;
+
+    terminals.terminalsStore.getState().splitActivePane(id, 'row');
+    const second = terminals.activePaneOf(id)!.id;
+    expect(second).not.toBe(first);
+    expect(tab().terminalCwd).toBe('/a');
+
+    terminals.terminalsStore.getState().setPaneCwd(second, '/b');
+    expect(tab().terminalCwd).toBe('/b');
+    terminals.terminalsStore.getState().focusPane(id, first);
+    expect(tab().terminalCwd).toBe('/a');
+    // Closing the focused pane hands the tab to the survivor.
+    terminals.terminalsStore.getState().closePane(first);
+    expect(tab().terminalCwd).toBe('/b');
+  });
+
+  test('a shell title change does not touch the tab array (the stores stay decoupled)', async () => {
+    const terminals = await import('../terminals');
+    const id = state().openTerminalTab({ profileId: 'shell', cwd: '/a' });
+    const before = state().tabs;
+    terminals.terminalsStore.getState().setPaneTitle(terminals.activePaneOf(id)!.id, 'vim');
+    expect(state().tabs).toBe(before);
+  });
+
+  test("a restored tab starts from its focused pane's recorded cwd", async () => {
+    state().restoreSession({
+      tabs: [
+        {
+          id: 't1',
+          kind: 'terminal',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'term',
+          savedMtimeMs: null,
+          text: '',
+          terminal: {
+            tree: {
+              kind: 'split',
+              id: 's1',
+              direction: 'row',
+              ratio: 0.5,
+              first: { kind: 'leaf', id: 'p1' },
+              second: { kind: 'leaf', id: 'p2' },
+            },
+            activePaneId: 'p2',
+            panes: [
+              { id: 'p1', profileId: 'shell', cwd: '/a' },
+              { id: 'p2', profileId: 'shell', cwd: '/b' },
+            ],
+          },
+        },
+      ],
+      activeTabId: 't1',
+    });
+    expect(tabAt(0).terminalCwd).toBe('/b');
+  });
+
+  test('with grouping on, a terminal that cds into a workspace is re-slotted into its run', async () => {
+    settings.groupTabsByWorkspace = true;
+    const terminals = await import('../terminals');
+    // Opening appends (only reorder/restore/cd arrange): [note] [red] [red] [blue] [terminal in /tmp]
+    const red1 = state().openFileTab({ filePath: '/red/a.md', text: '', savedMtimeMs: 1 });
+    const red2 = state().openFileTab({ filePath: '/red/b.md', text: '', savedMtimeMs: 1 });
+    const blue = state().openFileTab({ filePath: '/blue/c.md', text: '', savedMtimeMs: 1 });
+    const term = state().openTerminalTab({ profileId: 'shell', cwd: '/tmp' });
+    const order = () =>
+      state()
+        .tabs.map((t) => t.id)
+        .slice(1);
+    expect(order()).toEqual([red1, red2, blue, term]);
+
+    // cd into the red workspace: the terminal joins the red run.
+    const pane = terminals.activePaneOf(term)!.id;
+    terminals.terminalsStore.getState().setPaneCwd(pane, '/red/sub');
+    expect(order()).toEqual([red1, red2, term, blue]);
+
+    // Leaving every workspace: no key, so the tab keeps its place.
+    terminals.terminalsStore.getState().setPaneCwd(pane, '/tmp');
+    expect(order()).toEqual([red1, red2, term, blue]);
+    expect(state().tabs.find((t) => t.id === term)?.terminalCwd).toBe('/tmp');
   });
 
   test("the shell's own title takes over the label; a rename beats even that", async () => {

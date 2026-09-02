@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { paneIds } from '../../../core/panes';
-import { activePaneOf, resetTerminalIds, terminalsStore } from '../terminals';
+import { activePaneCwd, activePaneOf, resetTerminalIds, terminalsStore } from '../terminals';
 
 function reset(): void {
   resetTerminalIds();
@@ -210,5 +210,27 @@ describe('snapshot / restore', () => {
 
   test('a tab with no session snapshots as null', () => {
     expect(store().snapshot('nope')).toBeNull();
+  });
+});
+
+describe('activePaneCwd', () => {
+  test("is the focused pane's cwd, following focus and OSC 7 updates", () => {
+    store().openSession('t1', { profileId: 'shell', cwd: '/a' });
+    expect(activePaneCwd(store(), 't1')).toBe('/a');
+
+    const first = store().sessions.t1!.activePaneId;
+    store().splitActivePane('t1', 'row');
+    const second = store().sessions.t1!.activePaneId;
+    store().setPaneCwd(second, '/b');
+    expect(activePaneCwd(store(), 't1')).toBe('/b');
+
+    store().focusPane('t1', first);
+    expect(activePaneCwd(store(), 't1')).toBe('/a');
+  });
+
+  test('null for a tab with no session or a pane that never learned its cwd', () => {
+    expect(activePaneCwd(store(), 'nope')).toBeNull();
+    store().openSession('t1', { profileId: 'shell' });
+    expect(activePaneCwd(store(), 't1')).toBeNull();
   });
 });

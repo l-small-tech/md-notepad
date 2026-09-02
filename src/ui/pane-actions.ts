@@ -16,18 +16,25 @@ import type { ShortcutAction } from './keymap';
 /**
  * The terminal actions a PANE services itself. The rest (split, close pane,
  * cycle pane) are layout changes and belong to `terminalsStore`.
+ *
+ * `terminal-send` has no shortcut: it is how the right-click helpers type a
+ * command (`cd …`, `ls`, the agent's launch line) into the pane's pty — raw
+ * keystrokes, not a paste, so a shell with bracketed paste on still runs it
+ * on the Enter that follows.
  */
-export type PaneAction = Extract<
-  ShortcutAction,
-  | { type: 'terminal-copy' }
-  | { type: 'terminal-paste' }
-  | { type: 'terminal-select-all' }
-  | { type: 'terminal-clear-scrollback' }
-  | { type: 'terminal-scroll' }
-  | { type: 'font-inc' }
-  | { type: 'font-dec' }
-  | { type: 'font-reset' }
->;
+export type PaneAction =
+  | Extract<
+      ShortcutAction,
+      | { type: 'terminal-copy' }
+      | { type: 'terminal-paste' }
+      | { type: 'terminal-select-all' }
+      | { type: 'terminal-clear-scrollback' }
+      | { type: 'terminal-scroll' }
+      | { type: 'font-inc' }
+      | { type: 'font-dec' }
+      | { type: 'font-reset' }
+    >
+  | { type: 'terminal-send'; text: string };
 
 const runners = new Map<string, (action: PaneAction) => void>();
 

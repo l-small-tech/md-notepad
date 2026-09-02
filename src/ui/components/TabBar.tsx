@@ -345,7 +345,7 @@ function Tab({
       className={className}
       role="tab"
       aria-selected={active}
-      title={tab.filePath ?? label}
+      title={tab.filePath ?? tab.terminalCwd ?? label}
       data-strip-tab={tab.id}
       data-strip-workspace={workspaceKey ?? undefined}
       data-color={color ?? undefined}
@@ -725,7 +725,7 @@ function OverflowMenu({
           <button
             className="tab-menu-item tab-overflow-item"
             role="menuitem"
-            title={tab.filePath ?? undefined}
+            title={tab.filePath ?? tab.terminalCwd ?? undefined}
             onClick={() => {
               tabsStore.getState().activateTab(tab.id);
               onClose();

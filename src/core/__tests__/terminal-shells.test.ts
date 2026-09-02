@@ -5,9 +5,37 @@ import {
   autoShellLabel,
   isListedShell,
   normalizeShell,
+  shellKind,
   shellOptions,
   type DesktopOs,
 } from '../terminal-shells';
+
+describe('shellKind', () => {
+  test('judges by basename, ignoring directories, case and a .exe suffix', () => {
+    expect(shellKind('pwsh.exe')).toBe('pwsh');
+    expect(shellKind('C:\\Program Files\\PowerShell\\7\\pwsh.exe')).toBe('pwsh');
+    expect(shellKind('pwsh-preview')).toBe('pwsh');
+    expect(shellKind('powershell.exe')).toBe('powershell');
+    expect(shellKind('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\PowerShell.EXE')).toBe(
+      'powershell',
+    );
+    expect(shellKind('cmd.exe')).toBe('cmd');
+    expect(shellKind('/bin/bash')).toBe('bash');
+    expect(shellKind('/usr/local/bin/zsh')).toBe('zsh');
+    expect(shellKind('fish')).toBe('fish');
+    expect(shellKind('/bin/sh')).toBe('sh');
+    expect(shellKind('dash')).toBe('sh');
+  });
+
+  test('anything else is null — an agent, ssh, an unknown shell, nothing', () => {
+    expect(shellKind('claude')).toBeNull();
+    expect(shellKind('ssh')).toBeNull();
+    expect(shellKind('nu')).toBeNull();
+    expect(shellKind('')).toBeNull();
+    expect(shellKind(null)).toBeNull();
+    expect(shellKind(undefined)).toBeNull();
+  });
+});
 import { DEFAULT_SETTINGS, normalizeSettings, terminalProgram } from '../settings';
 import { SHELL_PROFILE_ID, type TerminalProfile } from '../types';
 

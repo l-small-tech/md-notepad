@@ -123,6 +123,15 @@ export class Terminal {
     return this.screen.modes();
   }
 
+  /**
+   * True while the application holds the alternate screen (DEC 47/1047/1049) —
+   * a full-screen program such as an editor or an agent TUI is running, and
+   * whatever is typed goes to it rather than to a shell prompt.
+   */
+  get altScreen(): boolean {
+    return this.screen.modes().altScreen;
+  }
+
   /** Grid row `y` (0 = top of the live screen). */
   row(y: number): Row {
     return this.screen.row(y);
