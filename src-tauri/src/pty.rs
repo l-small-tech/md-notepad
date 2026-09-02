@@ -226,6 +226,11 @@ fn build_command(options: &SpawnOptions) -> CommandBuilder {
     // Env hygiene: claim exactly what src/term actually implements.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // The inherited PATH plus what the process missed (an installer's registry
+    // edit on Windows, the user-space bin dirs a desktop launch lacks on
+    // unix) — so an agent installed from one tab launches from the next. See
+    // `shell::search_path`; a profile's own `env.PATH` below still wins.
+    cmd.env("PATH", crate::shell::search_path());
     for (key, value) in &options.env {
         cmd.env(key, value);
     }

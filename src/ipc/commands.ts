@@ -301,6 +301,12 @@ export const ipc = {
 
   /** The shell a profile spawns when it names no program. */
   defaultShell: () => call<string>('default_shell'),
+  /** Desktop only: where each program name resolves on `PATH` (honoring
+   *  `PATHEXT` on Windows, so an npm `.cmd` shim counts), or null when it is
+   *  not installed. Every requested name is a key in the answer. Not
+   *  registered on Android — only call behind a platform check. */
+  findPrograms: (names: string[]) =>
+    call<Record<string, string | null>>('find_programs', { names }),
 
   ptySpawn: (options: PtySpawnArgs, onEvent: Channel<PtyMessage>) =>
     call<number>('pty_spawn', { options, onEvent }),

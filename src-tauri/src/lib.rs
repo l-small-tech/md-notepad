@@ -183,6 +183,8 @@ pub fn run() {
             #[cfg(desktop)]
             default_shell,
             #[cfg(desktop)]
+            commands::programs::find_programs,
+            #[cfg(desktop)]
             commands::pty::pty_spawn,
             #[cfg(desktop)]
             commands::pty::pty_write,
