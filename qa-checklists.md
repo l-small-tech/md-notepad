@@ -93,6 +93,12 @@ sibling `session/` folder).
 - [ ] Rename a file and a folder to the SAME name with different capitals
       (`notes` → `Notes`) → the sidebar shows the new spelling, no "already
       exists" notice, and an open tab from that folder still saves.
+- [ ] CLOUD STORAGE (a workspace inside Google Drive `G:\My Drive\…` and one
+      inside OneDrive): rename a file, rename it again changing only capitals,
+      rename a folder, drag a file from the cloud workspace onto a local one
+      and back. Each succeeds and the sidebar shows the result; a failure
+      notice must name the reason ("Could not move …: io error: …"), never a
+      bare "Could not move".
 
 ## M4 — Preview
 

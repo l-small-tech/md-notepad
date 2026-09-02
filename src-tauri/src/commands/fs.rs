@@ -540,11 +540,16 @@ pub async fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
 /// spellings the frontend's mixed `/`+`\` joins can produce. Identity, not
 /// string comparison: device+inode on Unix (macOS `realpath` does NOT correct
 /// the case, so canonicalizing would miss exactly the case we care about),
-/// canonical path on Windows (whose canonicalize resolves to the on-disk
-/// spelling). Both follow symlinks, so a symlink AT `to` pointing at `from`
-/// counts as the same entry — an acceptable edge for a rename the user just
-/// asked for. When identity can't be established the answer is `false`, and the
-/// caller keeps its no-clobber refusal.
+/// canonical path on Windows — whose canonicalize resolves to the on-disk
+/// spelling on NTFS, but NOT on every volume: Google Drive's virtual drive
+/// (and other cloud/FUSE mounts presenting as FAT) echoes back whatever
+/// spelling was asked for, so `notes.md` and `Notes.md` canonicalize to two
+/// different strings for the one file. When the canonical paths disagree the
+/// directory listing decides (`is_same_entry_by_listing`): it carries the true
+/// on-disk names on every volume. Both follow symlinks, so a symlink AT `to`
+/// pointing at `from` counts as the same entry — an acceptable edge for a
+/// rename the user just asked for. When identity can't be established the
+/// answer is `false`, and the caller keeps its no-clobber refusal.
 fn is_same_entry(from: &Path, to: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -556,11 +561,50 @@ fn is_same_entry(from: &Path, to: &Path) -> bool {
     }
     #[cfg(not(unix))]
     {
-        match (fs::canonicalize(from), fs::canonicalize(to)) {
-            (Ok(a), Ok(b)) => a == b,
-            _ => false,
+        if let (Ok(a), Ok(b)) = (fs::canonicalize(from), fs::canonicalize(to)) {
+            if a == b {
+                return true;
+            }
         }
+        is_same_entry_by_listing(from, to)
     }
+}
+
+/// The volume-agnostic same-entry test: `from` and `to` are siblings whose
+/// names differ only in letter case, and their directory holds exactly ONE
+/// entry under that name (compared case-folded). One entry means the two
+/// spellings are aliases of it (a case-insensitive directory); two means the
+/// filesystem keeps them apart (a case-sensitive directory), and the rename
+/// really would clobber. Case folding is Unicode lowercase — the same fold
+/// the frontend's `pathKey` applies when it decides a rename is case-only.
+#[cfg(not(unix))]
+fn is_same_entry_by_listing(from: &Path, to: &Path) -> bool {
+    let fold = |s: &std::ffi::OsStr| s.to_string_lossy().to_lowercase();
+    let (Some(from_name), Some(to_name)) = (from.file_name(), to.file_name()) else {
+        return false;
+    };
+    let (Some(from_dir), Some(to_dir)) = (from.parent(), to.parent()) else {
+        return false;
+    };
+    if fold(from_name) != fold(to_name) {
+        return false;
+    }
+    let same_dir = match (fs::canonicalize(from_dir), fs::canonicalize(to_dir)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if !same_dir {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(from_dir) else {
+        return false;
+    };
+    let wanted = fold(to_name);
+    entries
+        .flatten()
+        .filter(|e| fold(&e.file_name()) == wanted)
+        .count()
+        == 1
 }
 
 /// Rename `from` onto a `to` that IS `from` — a case-only change on a
@@ -1097,6 +1141,38 @@ mod tests {
         assert_eq!(err.code(), "EXISTS");
         assert_eq!(fs::read_to_string(&a).unwrap(), "a");
         assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+    }
+
+    /// The listing-based identity test that stands in for `canonicalize` on
+    /// volumes which echo the queried spelling back (Google Drive's mount).
+    #[cfg(not(unix))]
+    #[test]
+    fn same_entry_by_listing_recognizes_a_case_only_alias() {
+        let dir = tmpdir();
+        let lower = dir.path().join("notes.md");
+        let upper = dir.path().join("Notes.md");
+        let other = dir.path().join("other.md");
+        fs::write(&lower, "a").unwrap();
+        fs::write(&other, "b").unwrap();
+
+        if case_insensitive(dir.path()) {
+            // One entry answers to both spellings: an alias, not a clobber.
+            assert!(is_same_entry_by_listing(&lower, &upper));
+            assert!(is_same_entry_by_listing(&upper, &lower));
+        } else {
+            // Two distinct entries under the folded name: a real collision.
+            fs::write(&upper, "c").unwrap();
+            assert!(!is_same_entry_by_listing(&lower, &upper));
+        }
+        // Different names are never the same entry, whatever the case rules.
+        assert!(!is_same_entry_by_listing(&lower, &other));
+        // Nor is the same name in a different directory.
+        let elsewhere = tmpdir();
+        fs::write(elsewhere.path().join("Notes.md"), "d").unwrap();
+        assert!(!is_same_entry_by_listing(
+            &lower,
+            &elsewhere.path().join("Notes.md")
+        ));
     }
 
     #[test]

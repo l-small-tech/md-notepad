@@ -7,6 +7,7 @@
 
 import { baseName, dirName, extName, joinPath, relativePath } from '../../core/session/plan-flush';
 import { docFamilyFor } from '../../core/doc-family';
+import { withErrorDetail } from '../../core/error-text';
 import { isImagePath } from '../../core/images';
 import { converterFor } from '../../core/import/registry';
 import {
@@ -294,7 +295,7 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
       }
       tabsStore.getState().retargetFilePath(id, { filePath: newPath, mtimeMs });
     } catch (error) {
-      uiStore.getState().showNotice(`Could not rename "${tab.title}".`);
+      uiStore.getState().showNotice(withErrorDetail(`Could not rename "${tab.title}"`, error));
       ctx.deps.onError?.(error);
     }
   }

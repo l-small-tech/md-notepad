@@ -7,6 +7,7 @@
 
 import { baseName, dirName, extName, joinPath } from '../../core/session/plan-flush';
 import { commentsPathFor, isCommentsPath } from '../../core/comments';
+import { withErrorDetail } from '../../core/error-text';
 import { blankWhiteboardSource } from '../../core/whiteboard/serialize';
 import { dropTrailingExtension, sanitizeFileBaseName } from '../../core/title';
 import { settingsStore } from '../stores/settings';
@@ -223,7 +224,7 @@ export function createExplorerOps(
     try {
       await ctx.ipc.renamePath(path, newPath);
     } catch (error) {
-      uiStore.getState().showNotice(`Could not rename "${baseName(path)}".`);
+      uiStore.getState().showNotice(withErrorDetail(`Could not rename "${baseName(path)}"`, error));
       ctx.deps.onError?.(error);
       return;
     }
@@ -324,7 +325,7 @@ export function createExplorerOps(
     try {
       await ctx.ipc.renamePath(source, newPath);
     } catch (error) {
-      uiStore.getState().showNotice(`Could not move "${baseName(source)}".`);
+      uiStore.getState().showNotice(withErrorDetail(`Could not move "${baseName(source)}"`, error));
       ctx.deps.onError?.(error);
       return;
     }

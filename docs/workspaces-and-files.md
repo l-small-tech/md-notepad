@@ -56,6 +56,10 @@ Right-click gets you everywhere:
   The app asks before moving; you can turn that question off in Settings.
   Note tabs that leave the Notes folder become ordinary file tabs (they keep
   their file; only the "the tab title names the file" behavior stops).
+- **Cloud-synced folders** (Google Drive, OneDrive, Dropbox) work like any
+  other workspace, including the capitals-only rename and moves to and from a
+  local folder. If a rename or move does fail there, the notice quotes the
+  filesystem's own reason so you can tell a sync lock from a real collision.
 
 ## Getting files in from elsewhere
 
