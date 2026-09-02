@@ -234,6 +234,52 @@ sibling `session/` folder).
 - [ ] Android: ribbon buttons open palette / outline / search; "Print /
       Save as PDF" is not offered; "Export as HTML" works via SAF save.
 
+## Terminal — shell integration, workspace cue, right-click helpers
+
+- [ ] New terminal (plain shell) with two colored workspaces open → the tab
+      wears the color of the workspace it started in. `cd` into a folder of
+      the OTHER workspace → the tab changes color when the prompt returns.
+      `cd` to your home folder (outside every workspace) → no color. `cd`
+      back → color returns. Tooltip on the tab shows the current folder.
+- [ ] Same check on each shell your OS offers in Settings → Terminal → Shell
+      (Windows: pwsh, Windows PowerShell, cmd; macOS: zsh, bash, fish;
+      Linux: bash, zsh, fish). The prompt looks exactly as before (your
+      `$PROFILE` / `.bashrc` / `.zshrc` / `config.fish` still ran); no
+      stray `]7;` text is visible; PowerShell shows no logo banner.
+- [ ] A shell whose prompt shows the last command's status (e.g.
+      oh-my-posh / starship, or `function prompt { if ($?) {'ok> '} else
+      {'bad> '} }`) still reports failures correctly after a failing command.
+- [ ] Split pane (Ctrl+Shift+D), `cd` into another workspace in the new
+      pane → tab recolors; click the first pane → tab shows the first pane's
+      workspace again. Close a pane → the survivor's folder decides.
+- [ ] Restart the app with a terminal tab open → the restored tab wears the
+      recorded pane's workspace color before the shell's first prompt.
+- [ ] With Settings → Arrange tabs by workspace ON: a terminal that `cd`s
+      into a workspace moves next to that workspace's tabs; one that leaves
+      every workspace stays where it is.
+- [ ] Right-click a plain-shell pane → below Clear scrollback: **Change
+      directory…**, **List files**, **Open <agent>**, each with a tooltip
+      naming the exact command. Right-click an AI TUI tab (or a shell running
+      `vim` / `less`) → those three items are absent.
+- [ ] **List files** types `ls` (PowerShell) / `dir` (cmd) / `ls -l` (POSIX)
+      and it runs — even with bracketed paste on (PSReadLine, zsh, bash 5.1+).
+- [ ] **Change directory…** → picker opens at the pane's current folder. Pick
+      a subfolder of the workspace you're in → a RELATIVE `cd` (`cd sub`,
+      `cd ..\other` / `cd ../other`). Pick a folder in another workspace or on
+      another drive → an ABSOLUTE `cd`. A folder with spaces → quoted for the
+      shell (`cd 'C:\My Notes'`, cmd: `cd /d "C:\My Notes"`). Cancel → nothing
+      typed. The tab recolors after the `cd`.
+- [ ] **Open <agent>** types the configured AI TUI command (Settings → AI TUI;
+      a custom command with spaces/args is quoted correctly) and the agent
+      starts. With an EMPTY custom command the item is absent.
+- [ ] A terminal profile in `settings.json` that names its own `program`
+      (e.g. `pwsh.exe`) starts with no integration args and no helpers —
+      the opt-out route.
+- [ ] `<appDataDir>/shell-integration/` holds `bash/bashrc` and
+      `zsh/.zshenv`, `.zprofile`, `.zshrc` after the first bash/zsh terminal;
+      hand-edit one, open another terminal → it is NOT rewritten until the
+      app restarts (once per process), and IS rewritten after a restart.
+
 ## Mobile (Android)
 
 - [ ] Tap the editor text → the soft keyboard opens and the caret lands where

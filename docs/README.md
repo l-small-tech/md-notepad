@@ -29,7 +29,10 @@ Read these in order the first time, or jump straight to what you need:
 7. **[Settings](settings.md)** — every option explained, plus how updates work.
 8. **[Themes](themes.md)** — pick a theme, or make your own (an AI can write one
    for you).
-9. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
+9. **[Terminal tabs](terminal.md)** — a shell (or an AI agent) beside your
+   notes: workspace colors that follow `cd`, and right-click helpers that type
+   the command for you.
+10. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
 
 ## About this documentation
 
