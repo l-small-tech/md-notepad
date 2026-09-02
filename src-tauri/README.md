@@ -24,12 +24,20 @@ session concepts in Rust, stop and move it to `src/core`.
   shell. `src/shell.rs` resolves the default shell when the frontend's
   profile names no program: PowerShell 7 (else Windows PowerShell) on
   Windows, zsh on macOS, bash on Linux — each probed on `PATH` first, then
-  `$SHELL`, then a shell that always exists.
+  `$SHELL`, then a shell that always exists. It also owns `search_path`
+  (the inherited `PATH` plus what a running process never sees: the
+  registry's user/machine `PATH` on Windows, the user-space bin dirs a
+  desktop launch lacks on unix) and `find_program` (a `which` honoring
+  `PATHEXT`) — used by the pty spawn and by `commands/programs.rs`.
+- `src/commands/programs.rs` — `find_programs(names)` (**desktop only**):
+  each name → its resolved path or null, so the Settings dialog can dim the
+  AI TUI agents that are not installed and offer to install them. Policy-free:
+  which names to ask about lives in `src/ui/stores/tui-availability.ts`.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and
   `closed` travel down the same channel as JSON so they stay ordered against
-  the output they follow. Commands: `default_shell`, `pty_spawn`,
+  the output they follow. Commands: `default_shell`, `find_programs`, `pty_spawn`,
   `pty_write`, `pty_resize`, `pty_kill`.
 - `capabilities/default.json` — plugin/core permissions for every app
   window: `main` plus torn-off tab windows (`w-*`, M8). Custom commands

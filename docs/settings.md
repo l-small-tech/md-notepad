@@ -85,6 +85,56 @@ remembered. Press Esc or click outside the panel to close it.
 - **Image folder name** — the name of the images folder used by the
   "subfolder" and "workspace root" choices.
 
+## Terminal (desktop only)
+
+Terminal tabs have their own group of settings; none of these exist on
+Android, which has no terminal.
+
+- **Shell** — the shell every terminal runs. **Automatic** picks your
+  system's usual one (PowerShell 7 on Windows, zsh on macOS, bash on Linux);
+  the list offers the common alternatives, and **Custom…** takes any program
+  name or full path. Applies to terminals opened from now on.
+- **Font** — the typeface for terminal text. **Fira Code** by default —
+  terminals want box-drawing and column alignment more than prose does — or
+  **Match editor font** to follow your notes. The *size* always follows the
+  editor's **Font size** (and **Ctrl+=** / **Ctrl+-** inside a terminal zooms
+  just that pane).
+- **Default profile** — which launch configuration a plain **New terminal**
+  uses. Profiles are edited by hand in `settings.json` under
+  `terminalProfiles`; each has an `id`, a `name`, optional `program` and
+  `args`, an optional starting folder `cwd`, extra `env`, and two optional
+  size fields: `fontSize` (an absolute cell size in pixels) or
+  `fontSizeDelta` (pixels added to the editor's font size — `2` means "two
+  larger than my notes", and it keeps following Ctrl+= / Ctrl+-). If both are
+  present, `fontSize` wins.
+- **AI TUI** — the coding agent the new-tab menu's **AI** row launches:
+  **Claude** (Claude Code, the default), **ChatGPT** (the `codex` CLI),
+  **Gemini**, **Grok**, **Copilot** (GitHub Copilot CLI), **opencode**, or
+  **Custom…** with your own command line (`aider --model sonnet`). The app
+  checks which of these are actually installed — at start-up, whenever this
+  dialog opens, and on **Re-check** — and shows each one's status:
+  - Found: a check mark and where the command lives.
+  - Not found: the name is dimmed (you can still pick it) with an **Install**
+    button beside it. Install opens a terminal tab and types the tool's
+    official install command into your shell — a package manager you already
+    have (winget, Homebrew, scoop) when the tool ships there, otherwise its own
+    user-space installer, otherwise `npm install -g` (with Node.js installed
+    first if you have no `npm`). Nothing runs hidden: you see the exact
+    command, answer any prompt yourself, and keep the shell afterwards. Close
+    that tab (or press **Re-check**) and the row updates.
+
+  The AI tab renders a touch larger than your notes — two pixels over the
+  editor's font size — since an agent's output is mostly read, not typed.
+  It still follows Ctrl+= / Ctrl+-. (The **AI theme** button in
+  ☰ Menu → Themes opens the same agent, in your themes folder.)
+- **Cursor style**, **Blinking cursor**, **Scrollback**, **Lines per
+  scroll**, **Bell** (never a sound — the cursor changes shape, the pane
+  flashes, or nothing), **Copy on select**, **Confirm multi-line paste**,
+  **Confirm closing a running shell**, **Keep the pane open after the shell
+  exits**, **Alt sends Escape**, **Backspace sends DEL**, and **Let programs
+  set the clipboard (OSC 52)** — the usual terminal-emulator knobs, each
+  explained on its row.
+
 ## Notes folder
 
 Shows where your notes live, with a **Change…** button to move them. When
