@@ -33,18 +33,33 @@ export interface CueableTab {
   kind: string;
   notePath: string | null;
   filePath: string | null;
+  /**
+   * kind='terminal': the focused pane's current working directory (mirrored
+   * from the terminals store by `tabsStore`), so a shell wears the color of
+   * the workspace it is standing in and changes color when it `cd`s.
+   */
+  terminalCwd?: string | null;
+}
+
+/** The path a tab is placed by: its file, or for a terminal the folder its shell is in. */
+export function cuePathFor(tab: CueableTab): string | null {
+  if (tab.kind === 'terminal') {
+    return tab.terminalCwd ?? null;
+  }
+  return tab.filePath ?? tab.notePath;
 }
 
 /**
- * The workspace a tab belongs to, or null when it has no file (a terminal) or
- * its file lies outside every workspace. Note tabs belong to the default
- * workspace BY DEFINITION — their file lives in the notes dir — so a brand-new
- * note wears the right color before its first flush has given it a path.
+ * The workspace a tab belongs to, or null when it has no path (a terminal
+ * whose shell has not said where it is) or its path lies outside every
+ * workspace — a terminal that `cd`s out of every open folder loses its cue.
+ * Note tabs belong to the default workspace BY DEFINITION — their file lives
+ * in the notes dir — so a brand-new note wears the right color before its
+ * first flush has given it a path.
  */
 export function workspaceCueFor(tab: CueableTab): WorkspaceMatch | null {
   const roots = workspaceRoots();
-  const path = tab.filePath ?? tab.notePath;
-  const match = workspaceForPath(path, roots);
+  const match = workspaceForPath(cuePathFor(tab), roots);
   if (match) {
     return match;
   }

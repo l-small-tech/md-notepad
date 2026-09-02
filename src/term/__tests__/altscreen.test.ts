@@ -8,11 +8,13 @@ describe('alternate screen', () => {
     expect(t.cursor.x).toBe(4);
     t.write(`${CSI}?1049h`);
     expect(t.modes().altScreen).toBe(true);
+    expect(t.altScreen).toBe(true);
     expect(t.serialize()).toEqual(['', '', '']);
     feed(t, `${CSI}HALT`);
     expect(t.serialize()[0]).toBe('ALT');
     t.write(`${CSI}?1049l`);
     expect(t.modes().altScreen).toBe(false);
+    expect(t.altScreen).toBe(false);
     expect(t.serialize()[0]).toBe('main');
     expect(t.cursor.x).toBe(4);
   });

@@ -191,6 +191,38 @@ per-profile launch configs.
   FAMILY is separate: the size still follows `--editor-font-size`, so mod+=/-/0
   keeps driving terminal cells.
 
+### Where a terminal IS, and the color it wears
+
+`TerminalPaneState.cwd` follows the shell through OSC 7. No stock shell emits
+it, so a PLAIN SHELL profile (one naming no `program` — the Shell setting or
+the platform default, resolved through `stores/default-shell` when it is
+Automatic) is spawned with shell integration: `core/shell-integration.ts`
+decides the extra args/env per `shellKind`, `ui/shell-integration.ts` writes
+the bash/zsh scripts under `<appDataDir>/shell-integration` once per process,
+and `TerminalPane` folds them in (`withShellIntegration`) — profile args first,
+profile env on top. A profile with its own program (the AI TUI, ssh) is spawned
+exactly as written; that is also the opt-out.
+
+The tab strip colors a terminal by its FOCUSED pane's cwd. The terminals store
+stays separate from the tabs store on purpose (title churn), so `tabs.ts`
+subscribes to it and mirrors ONLY the focused pane's cwd onto
+`TabEntry.terminalCwd` (seeded from the spawn/restored cwd; `setTerminalCwd`
+re-runs the workspace arrangement when grouping is on). `workspaceCueFor`
+places a terminal by that field, so the strip, the run bands, the overflow
+switcher and `groupTabsByWorkspace` all agree; a shell outside every open
+workspace has no cue.
+
+### Shell helpers (the pane's right-click menu)
+
+On a plain shell that is NOT on the alternate screen (`Terminal.altScreen` —
+an agent TUI or vim owns the pane then), `PaneMenu` adds **Change directory…**
+(OS folder picker via `ipc/dialog.ts`, then `cdTarget` + `cdCommand`), **List
+files** and **Open <agent>** (`quoteCommand` of the AI TUI profile). Each
+types a command plus `\r` through the pane's action runner
+(`PaneAction` `terminal-send` — raw keystrokes, not a paste, so bracketed
+paste cannot swallow the Enter) and carries a `title` tooltip naming the exact
+command: the helpers exist to teach the shell, not to hide it.
+
 ## TerminalTab — the keep-your-box rule (I10)
 
 The opposite of I7's `display: none`, for the opposite reason. A terminal

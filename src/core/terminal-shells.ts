@@ -79,3 +79,46 @@ export function isListedShell(os: DesktopOs, program: string): boolean {
 export function normalizeShell(raw: unknown): string {
   return typeof raw === 'string' ? raw.trim() : AUTO_SHELL;
 }
+
+/**
+ * The shells the app knows how to talk to — what decides the shell
+ * integration it injects (`core/shell-integration.ts`) and how a command is
+ * quoted for it (`core/shell-commands.ts`). `sh` covers the POSIX minimum
+ * (dash, ash, busybox): quotable, but with no prompt hook worth injecting.
+ */
+export type ShellKind = 'pwsh' | 'powershell' | 'cmd' | 'bash' | 'zsh' | 'fish' | 'sh';
+
+/**
+ * Which shell a program is, judged by its basename: `pwsh.exe`, `/bin/bash`,
+ * `C:\Windows\System32\cmd.exe`, `pwsh-preview`. Null for anything else — an
+ * agent CLI, an ssh wrapper, a shell the app has no integration for — which
+ * callers treat as "leave the command line alone".
+ */
+export function shellKind(program: string | null | undefined): ShellKind | null {
+  if (!program) {
+    return null;
+  }
+  const base = program.trim().replaceAll('\\', '/').split('/').pop() ?? '';
+  const name = base.toLowerCase().replace(/\.exe$/, '');
+  if (name.startsWith('pwsh')) {
+    return 'pwsh';
+  }
+  switch (name) {
+    case 'powershell':
+      return 'powershell';
+    case 'cmd':
+      return 'cmd';
+    case 'bash':
+      return 'bash';
+    case 'zsh':
+      return 'zsh';
+    case 'fish':
+      return 'fish';
+    case 'sh':
+    case 'dash':
+    case 'ash':
+      return 'sh';
+    default:
+      return null;
+  }
+}

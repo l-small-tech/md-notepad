@@ -72,6 +72,17 @@ export async function resolveThemesDir(platform: Runtime = detectRuntime()): Pro
 }
 
 /**
+ * Where the app keeps the shell-integration scripts a plain bash/zsh terminal
+ * is pointed at (`core/shell-integration.ts`, written by
+ * `ui/shell-integration.ts`): `<appDataDir>/shell-integration`. Machine-local
+ * app state like the session dir — never user-configurable, rewritten on use.
+ * Desktop only; nothing on Android opens a terminal.
+ */
+export async function resolveShellIntegrationDir(): Promise<string> {
+  return await join(await appDataDir(), 'shell-integration');
+}
+
+/**
  * Where "Debug insert" drops its scan intermediates (see ui/scan-debug.ts).
  *
  * App-owned local storage, never beside the board: one dump is a full-resolution

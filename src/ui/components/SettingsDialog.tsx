@@ -32,8 +32,8 @@ import {
   isListedShell,
   shellOptions,
 } from '../../core/terminal-shells';
-import { ipc } from '../../ipc/commands';
 import { openDocs, requestChangeNotesDir } from '../session';
+import { defaultShellStore, useDefaultShell } from '../stores/default-shell';
 import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
 import { desktopOs, isAndroid } from '../platform';
@@ -503,21 +503,12 @@ function ShellRow({ shell }: { shell: string }) {
   const os = desktopOs();
   const [custom, setCustom] = useState(() => shell !== AUTO_SHELL && !isListedShell(os, shell));
   // What "Auto" would actually run, so its row can say so: "Auto (zsh)". The
-  // backend picks it (src-tauri/src/shell.rs); until it answers, plain "Auto".
-  const [autoShell, setAutoShell] = useState<string | null>(null);
+  // backend picks it (src-tauri/src/shell.rs) and the answer is cached in
+  // `defaultShellStore` — terminal panes need the same one; until it arrives,
+  // plain "Auto".
+  const autoShell = useDefaultShell();
   useEffect(() => {
-    let alive = true;
-    void ipc
-      .defaultShell()
-      .then((program) => {
-        if (alive) {
-          setAutoShell(program);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+    void defaultShellStore.getState().resolve();
   }, []);
 
   return (
