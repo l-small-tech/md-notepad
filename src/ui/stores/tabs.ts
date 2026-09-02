@@ -113,6 +113,8 @@ export interface RestoredTabInit {
   terminalProfileId?: string;
   /** kind='terminal' only: inherited working directory for a new session. */
   terminalCwd?: string | null;
+  /** kind='terminal' only: a line typed into the new shell once it is ready (never persisted). */
+  terminalInitialInput?: string | null;
 }
 
 /** What the session controller applies back after a flush completes. */
@@ -205,6 +207,12 @@ export interface TabsState {
     cwd?: string | null;
     /** A restored layout (manifest), which wins over profileId/cwd. */
     snapshot?: TerminalSnapshot | null;
+    /**
+     * A command line typed into the shell once it is ready, Enter included —
+     * how the Settings dialog runs an agent's install command in plain sight.
+     * Never persisted: a restored terminal is a fresh shell.
+     */
+    initialInput?: string | null;
   }) => string;
   /** Mirror the focused pane's shell title onto the tab label. */
   setTerminalTitle: (tabId: string, title: string | null) => void;
@@ -373,6 +381,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         profileId,
         cwd: init?.terminalCwd ?? null,
         snapshot: init?.terminal ?? null,
+        initialInput: init?.terminalInitialInput ?? null,
       });
       // The label until the shell sets its own OSC title.
       entry.title = customTitle ?? resolveTerminalProfile(settings, profileId).name;
@@ -777,7 +786,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       return tab.id;
     },
 
-    openTerminalTab({ profileId, cwd = null, snapshot = null }) {
+    openTerminalTab({ profileId, cwd = null, snapshot = null, initialInput = null }) {
       const tab = makeTab({
         id: nanoid(),
         kind: 'terminal',
@@ -790,6 +799,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         terminalProfileId: profileId,
         terminalCwd: cwd,
         terminal: snapshot,
+        terminalInitialInput: initialInput,
       });
       addTab(tab, false);
       requestFlush();

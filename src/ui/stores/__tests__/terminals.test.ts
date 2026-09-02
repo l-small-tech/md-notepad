@@ -125,6 +125,44 @@ describe('pane state', () => {
   });
 });
 
+describe('initial input (the Install button typing into a new shell)', () => {
+  test('rides on the first pane, is cleared once, and blank means none', () => {
+    store().openSession('t1', { profileId: 'shell', initialInput: 'npm install -g x' });
+    const pane = activePaneOf('t1')!;
+    expect(pane.initialInput).toBe('npm install -g x');
+
+    store().clearInitialInput(pane.id);
+    expect(store().panes[pane.id]!.initialInput).toBeNull();
+    // Idempotent: clearing again changes nothing (same state object).
+    const before = store().panes;
+    store().clearInitialInput(pane.id);
+    expect(store().panes).toBe(before);
+
+    store().openSession('t2', { profileId: 'shell', initialInput: '' });
+    expect(activePaneOf('t2')!.initialInput).toBeNull();
+    store().openSession('t3', { profileId: 'shell' });
+    expect(activePaneOf('t3')!.initialInput).toBeNull();
+  });
+
+  test('a split does not inherit it, and a snapshot never records it', () => {
+    store().openSession('t1', { profileId: 'shell', initialInput: 'brew install node' });
+    store().splitActivePane('t1', 'row');
+    expect(activePaneOf('t1')!.initialInput).toBeNull();
+
+    const snapshot = store().snapshot('t1')!;
+    for (const pane of snapshot.panes) {
+      expect(pane).not.toHaveProperty('initialInput');
+    }
+    expect(JSON.stringify(snapshot)).not.toContain('brew install');
+
+    // And a restored session types nothing.
+    store().openSession('t2', { profileId: 'shell', snapshot, initialInput: 'ignored' });
+    for (const id of paneIds(store().sessions.t2!.tree)) {
+      expect(store().panes[id]!.initialInput).toBeNull();
+    }
+  });
+});
+
 describe('snapshot / restore', () => {
   test('a snapshot round-trips the layout with fresh pane ids', () => {
     store().openSession('t1', { profileId: 'claude', cwd: '/a' });

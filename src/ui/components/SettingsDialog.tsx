@@ -19,13 +19,16 @@ import type {
   UiFontId,
 } from '../../core/types';
 import {
+  AI_TUI_AGENTS,
   DEFAULT_SETTINGS,
   MAX_FONT_SIZE,
   MIN_FONT_SIZE,
   TERMINAL_SCROLLBACK_RANGE,
   TERMINAL_SCROLL_LINES_RANGE,
 } from '../../core/settings';
+import { installCommandFor } from '../../core/tui-install';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
+import { AI_TUI_AGENT_IDS, type AiTuiAgentId } from '../../core/types';
 import {
   AUTO_SHELL,
   autoShellLabel,
@@ -46,8 +49,15 @@ import {
   themePluginOptions,
 } from '../stores/theme-registry';
 import { DEFAULT_COLOR_SCHEME } from '../../core/types';
+import {
+  agentRowModel,
+  installContextOf,
+  tuiAvailabilityStore,
+  useTuiAvailability,
+} from '../stores/tui-availability';
 import { uiStore, useUiStore } from '../stores/ui';
 import { useWindowTheme } from '../stores/window-theme';
+import { installAgent } from '../tui-install';
 import { checkForUpdate, useUpdateStore } from '../update';
 
 const MODES: { value: EditorMode; label: string }[] = [
@@ -74,14 +84,6 @@ const TERMINAL_CURSOR_OPTIONS: { value: Settings['terminalCursorStyle']; label: 
   { value: 'block', label: 'Block (default)' },
   { value: 'underline', label: 'Underline' },
   { value: 'bar', label: 'Bar' },
-];
-
-const AI_TUI_OPTIONS: { value: Settings['aiTuiAgent']; label: string }[] = [
-  { value: 'claude', label: 'Claude (default)' },
-  { value: 'chatgpt', label: 'ChatGPT' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'grok', label: 'Grok' },
-  { value: 'custom', label: 'Custom…' },
 ];
 
 const TERMINAL_BELL_OPTIONS: { value: Settings['terminalBell']; label: string }[] = [
@@ -567,6 +569,93 @@ function ShellRow({ shell }: { shell: string }) {
   );
 }
 
+/**
+ * The AI TUI agent picker: one radio row per agent plus "Custom…". Each row
+ * carries what `tui-availability` knows — a muted name and an **Install**
+ * button when the command is not on PATH, the resolved path when it is,
+ * nothing while unknown. Every decision (what to show, whether an install
+ * route exists) is made in the store and core; this only lays it out.
+ */
+function AiTuiRows({ settings }: { settings: Settings }) {
+  const os = desktopOs();
+  const agents = useTuiAvailability((s) => s.agents);
+  const custom = useTuiAvailability((s) => s.custom);
+  const tools = useTuiAvailability((s) => s.tools);
+  const checking = useTuiAvailability((s) => s.checking);
+  const refresh = () => void tuiAvailabilityStore.getState().refresh();
+  // Opening the dialog is a natural moment to look again: the user may have
+  // just installed something in a terminal tab.
+  useEffect(refresh, []);
+
+  const ctx = installContextOf(tools);
+  const selectAgent = (id: Settings['aiTuiAgent']) => update({ aiTuiAgent: id });
+  const customModel = agentRowModel(custom, false);
+
+  return (
+    <div className="settings-row settings-row-notes">
+      <span className="settings-label">AI TUI</span>
+      <div className="settings-agent-list" role="radiogroup" aria-label="AI TUI agent">
+        {AI_TUI_AGENT_IDS.map((id: AiTuiAgentId) => {
+          const row = agentRowModel(agents[id], installCommandFor(id, os, ctx) !== null);
+          const inputId = `ai-tui-agent-${id}`;
+          return (
+            <div
+              key={id}
+              className={`settings-agent-row${row.dimmed ? ' settings-agent-row-missing' : ''}`}
+            >
+              <input
+                id={inputId}
+                type="radio"
+                name="ai-tui-agent"
+                checked={settings.aiTuiAgent === id}
+                onChange={() => selectAgent(id)}
+              />
+              <label className="settings-agent-name" htmlFor={inputId}>
+                {AI_TUI_AGENTS[id].name}
+                {id === DEFAULT_SETTINGS.aiTuiAgent ? ' (default)' : ''}
+              </label>
+              <span className="settings-agent-hint" title={row.title ?? undefined}>
+                {row.hint}
+              </span>
+              {row.install && (
+                <button
+                  className="settings-button"
+                  title={`Open a terminal and run the ${AI_TUI_AGENTS[id].name} install command`}
+                  onClick={() => void installAgent(id)}
+                >
+                  Install
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <div
+          className={`settings-agent-row${customModel.dimmed ? ' settings-agent-row-missing' : ''}`}
+        >
+          <input
+            id="ai-tui-agent-custom"
+            type="radio"
+            name="ai-tui-agent"
+            checked={settings.aiTuiAgent === 'custom'}
+            onChange={() => selectAgent('custom')}
+          />
+          <label className="settings-agent-name" htmlFor="ai-tui-agent-custom">
+            Custom…
+          </label>
+          <span className="settings-agent-hint" title={customModel.title ?? undefined}>
+            {customModel.hint}
+          </span>
+        </div>
+      </div>
+      <div className="settings-agent-actions">
+        <button className="settings-button" disabled={checking} onClick={refresh}>
+          {checking ? 'Checking…' : 'Re-check'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TerminalSection({ settings }: { settings: Settings }) {
   if (!terminalsAvailable()) {
     return null;
@@ -614,20 +703,7 @@ function TerminalSection({ settings }: { settings: Settings }) {
         shell chosen above.
       </p>
 
-      <label className="settings-row">
-        <span className="settings-label">AI TUI</span>
-        <select
-          className="settings-control"
-          value={settings.aiTuiAgent}
-          onChange={(e) => update({ aiTuiAgent: e.target.value as Settings['aiTuiAgent'] })}
-        >
-          {AI_TUI_OPTIONS.map((a) => (
-            <option key={a.value} value={a.value}>
-              {a.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <AiTuiRows settings={settings} />
 
       {settings.aiTuiAgent === 'custom' && (
         <label className="settings-row">
@@ -639,13 +715,16 @@ function TerminalSection({ settings }: { settings: Settings }) {
             placeholder="aider --model sonnet"
             value={settings.aiTuiCustomCommand}
             onChange={(e) => update({ aiTuiCustomCommand: e.target.value })}
+            // The custom program's own found/missing hint follows what was typed.
+            onBlur={() => void tuiAvailabilityStore.getState().refresh()}
           />
         </label>
       )}
 
       <p className="settings-hint">
-        The agent the new-tab menu&apos;s AI row launches — its command (<code>claude</code>,{' '}
-        <code>codex</code>, or the custom command line) must be on <code>PATH</code>.
+        The agent the new-tab menu&apos;s AI row launches. Agents not found on <code>PATH</code> are
+        dimmed; <b>Install</b> opens a terminal and types the official install command, so you see
+        exactly what runs. Close that tab (or press <b>Re-check</b>) when it finishes.
       </p>
 
       <label className="settings-row">

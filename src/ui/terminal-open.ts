@@ -28,13 +28,27 @@ export function workspaceCwd(): string | null {
   return dir;
 }
 
+export interface OpenTerminalOptions {
+  /**
+   * A command line typed into the shell, Enter included, once it is ready —
+   * the Settings dialog's Install button runs an agent's install command this
+   * way so the user sees the exact line and keeps the shell afterwards.
+   * Transient: never part of the session snapshot.
+   */
+  initialInput?: string;
+}
+
 /**
  * Open a terminal tab. No-op on Android, which has no pty — callers may still
  * call it unconditionally. `cwd` overrides the workspace default for callers
  * that know where the session belongs (the AI-theme terminal starts in the
  * themes folder).
  */
-export function openTerminal(profileId?: string, cwd?: string): string | null {
+export function openTerminal(
+  profileId?: string,
+  cwd?: string,
+  options: OpenTerminalOptions = {},
+): string | null {
   if (isAndroid()) {
     return null;
   }
@@ -42,5 +56,6 @@ export function openTerminal(profileId?: string, cwd?: string): string | null {
   return tabsStore.getState().openTerminalTab({
     profileId: profileId ?? settings.defaultTerminalProfile,
     cwd: cwd ?? workspaceCwd(),
+    initialInput: options.initialInput ?? null,
   });
 }

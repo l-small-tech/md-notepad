@@ -144,6 +144,18 @@ sibling `session/` folder).
       preview, wysiwyg).
 - [ ] Font size mod+= / mod+- / mod+0 affects all three modes and persists.
 - [ ] Word wrap toggle affects raw/split immediately.
+- [ ] Settings → AI TUI (desktop): six agent rows + Custom…, radio semantics
+      (one selected; the new-tab AI row's label follows). Agents on PATH show
+      ✓ + path; agents not on PATH are dimmed with an **Install** button; a
+      fresh launch shows neither for an instant, then fills in (no start-up
+      delay). Re-check flips a row after installing/uninstalling by hand.
+- [ ] AI TUI → Install on a missing agent: a new terminal tab opens in the
+      default workspace, the shell prompt appears, then the official install
+      command is typed and runs (correct dialect for PowerShell / cmd / bash).
+      Closing that tab re-checks and un-dims the row without a restart —
+      including when the installer added a new PATH directory (Windows).
+- [ ] AI TUI / AI theme tabs render 2px larger than the editor font; Ctrl+= /
+      Ctrl+- in the pane still zooms from there; a plain shell tab is unchanged.
 - [ ] Perf spot-check: cold start (release build) feels ≈1s; typing in a
       1MB doc has no visible lag; idle RAM (Task Manager, all processes
       summed) < 150MB on Windows.

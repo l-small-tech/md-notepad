@@ -33,6 +33,7 @@ do not rewrite them.
 | `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
 | `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
 | `terminal-shells.ts` | terminal | the shells the settings picker offers per desktop OS; `settings.terminalShell` is ONE global choice, not one per profile |
+| `tui-install.ts` | terminal | the install command the Settings dialog's **Install** button types for a missing AI TUI agent: official routes per agent × OS × available package managers (winget/brew/scoop → own installer → npm, with a Node step when npm is absent), spelled for the shell that runs it (POSIX / pwsh / Windows PowerShell / cmd) |
 | `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor (AA on light surfaces, where a dark-assuming TUI's text lands); an optional `terminal` block in a theme merges over it. Also `terminalEnvHints` — the `COLORFGBG` light/dark hint a pty is spawned with |
 
 ## Contracts you must not break

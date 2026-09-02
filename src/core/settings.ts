@@ -70,7 +70,29 @@ export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string
   chatgpt: { name: 'ChatGPT', program: 'codex' },
   gemini: { name: 'Gemini', program: 'gemini' },
   grok: { name: 'Grok', program: 'grok' },
+  copilot: { name: 'Copilot', program: 'copilot' },
+  opencode: { name: 'opencode', program: 'opencode' },
 };
+
+/**
+ * How much larger than the editor font the virtual AI profiles render, in
+ * CSS pixels (`TerminalProfile.fontSizeDelta`). An agent's TUI is mostly
+ * read — streamed prose, diffs, status lines — so it earns a touch more size
+ * than the note beside it, while still following mod+=/-/0 with the editor.
+ */
+export const AI_TUI_FONT_SIZE_DELTA = 2;
+
+/** Bounds for a profile's `fontSizeDelta`; the same span the pane zoom allows. */
+export const FONT_SIZE_DELTA_RANGE = { min: -8, max: 24 } as const;
+
+/**
+ * The cell size a profile asks for, before per-pane zoom: an absolute
+ * `fontSize` wins outright; otherwise the editor-derived size plus the
+ * profile's delta. Never below 1px, whatever the delta.
+ */
+export function profileFontSize(profile: TerminalProfile, editorSize: number): number {
+  return Math.max(1, profile.fontSize ?? editorSize + (profile.fontSizeDelta ?? 0));
+}
 
 /**
  * Split the 'custom' AI TUI command line into program + args. Whitespace
@@ -135,6 +157,20 @@ function aiThemeArgs(agent: AiTuiAgentId | 'custom'): string[] {
       // The Grok CLI's `-p` is headless, so the prompt goes positionally the
       // way Claude's does and the session stays interactive.
       return ['--model', 'grok-code-fast-1', AI_THEME_PROMPT];
+    case 'copilot':
+      // Copilot CLI has no way to open its TUI with a prompt: `-p` runs
+      // headless and exits, a positional argument is not a prompt, and an
+      // `--initial-prompt` flag was declined upstream (github/copilot-cli
+      // #2028). So it starts empty — it reads the folder's AGENTS.md on its
+      // own, so the guide still reaches it — pinned to its cheapest model
+      // (`copilot --model claude-haiku-4.5`, the docs' own example).
+      return ['--model', 'claude-haiku-4.5'];
+    case 'opencode':
+      // opencode's `--prompt` is a flag of the TUI command and keeps the
+      // session interactive (`opencode run` is the headless one). No model
+      // pin: its ids are `provider/model`, and which providers the user has
+      // configured is unknowable here — the wrong one fails to start.
+      return ['--prompt', AI_THEME_PROMPT];
     case 'custom':
       // An unknown CLI: no model flags to pin — just hand it the prompt and
       // hope it takes an opening argument the way the known agents do.
@@ -349,6 +385,12 @@ export function normalizeTerminalProfile(raw: unknown): TerminalProfile | null {
     typeof raw.fontSize === 'number' && Number.isFinite(raw.fontSize)
       ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(raw.fontSize)))
       : undefined;
+  // A delta of 0 is the same as none, and is dropped so the profile stays as
+  // small as what the user meant.
+  const fontSizeDelta =
+    typeof raw.fontSizeDelta === 'number' && Number.isFinite(raw.fontSizeDelta)
+      ? clampInt(raw.fontSizeDelta, 0, FONT_SIZE_DELTA_RANGE.min, FONT_SIZE_DELTA_RANGE.max)
+      : 0;
   return {
     id,
     name,
@@ -357,6 +399,7 @@ export function normalizeTerminalProfile(raw: unknown): TerminalProfile | null {
     ...(cwd ? { cwd } : {}),
     env: normalizeEnv(raw.env),
     ...(fontSize !== undefined ? { fontSize } : {}),
+    ...(fontSizeDelta !== 0 ? { fontSizeDelta } : {}),
   };
 }
 
@@ -385,7 +428,8 @@ function isStockClaudeProfile(p: TerminalProfile): boolean {
     p.args.length === 0 &&
     Object.keys(p.env).length === 0 &&
     p.cwd === undefined &&
-    p.fontSize === undefined
+    p.fontSize === undefined &&
+    p.fontSizeDelta === undefined
   );
 }
 
@@ -620,6 +664,8 @@ export function resolveTerminalProfile(settings: Settings, id?: string): Termina
         ...(program !== undefined ? { program } : {}),
         args: id === AI_TUI_PROFILE_ID ? baseArgs : [...baseArgs, ...aiThemeArgs(agentId)],
         env: {},
+        // Slightly larger cells than the editor (see AI_TUI_FONT_SIZE_DELTA).
+        fontSizeDelta: AI_TUI_FONT_SIZE_DELTA,
       };
       cache.set(key, profile);
     }

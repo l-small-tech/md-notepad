@@ -2364,6 +2364,7 @@ dependencies = [
  "thiserror 2.0.18",
  "webkit2gtk",
  "windows",
+ "winreg 0.55.0",
 ]
 
 [[package]]

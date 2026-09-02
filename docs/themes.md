@@ -43,8 +43,9 @@ seconds. Read on.
 Every theme is one small `.json` file in your **themes folder**. Below the
 theme list in **⌄ menu → Themes** are the buttons for managing it:
 
-- **AI theme** — opens an AI agent (Claude, ChatGPT, Gemini or Grok — pick which in
-  **Settings → AI TUI**) in a terminal tab, already standing in the themes
+- **AI theme** — opens an AI agent (Claude, ChatGPT, Gemini, Grok, Copilot or
+  opencode — pick which in **Settings → AI TUI**, which also installs one for
+  you if it isn't yet) in a terminal tab, already standing in the themes
   folder and briefed on the file format. Just tell it what you want — "make
   Lagoon's background a touch darker", "create a warm sepia light theme" —
   and it edits or creates the files for you. *(Desktop only.)*

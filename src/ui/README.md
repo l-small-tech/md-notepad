@@ -189,7 +189,33 @@ per-profile launch configs.
   following the editor font, because box-drawing and column alignment are not
   what a prose typeface is chosen for; `'match'` opts back in. Only the
   FAMILY is separate: the size still follows `--editor-font-size`, so mod+=/-/0
-  keeps driving terminal cells.
+  keeps driving terminal cells. A profile may still shift that size:
+  `fontSize` (absolute) or `fontSizeDelta` (relative to the editor) —
+  `core/settings.ts`'s `profileFontSize` resolves them; the virtual AI TUI /
+  AI theme profiles carry `fontSizeDelta: 2` so an agent's output reads a
+  touch larger than the note beside it.
+
+### Which AI agents are installed, and installing one
+
+The Settings dialog's AI TUI picker is a radio list (`AiTuiRows`) fed by
+`stores/tui-availability.ts`: one `ipc.findPrograms` scan answers for every
+agent's command, the custom command's program and the install tools
+(`core/tui-install.ts`'s `INSTALL_TOOLS`). `refresh()` runs fire-and-forget
+after React mounts (main.tsx), when the picker mounts, on **Re-check**, and
+when an install tab closes; the newest scan wins over a late answer; Android
+is a no-op. The row model (`agentRowModel`) is pure: unknown → nothing,
+installed → ✓ + path, missing → dimmed name + **Install** if
+`installCommandFor` has a route.
+
+**Install** (`ui/tui-install.ts`) opens an ordinary shell tab in the default
+workspace and hands the command to it as `initialInput`: a transient field on
+`TerminalPaneState` / `openTerminalTab` that `TerminalPane` writes to the pty
+ONCE — after the shell's first output and a short quiet period (`\r`
+appended), or 4s after spawn if the shell stays silent — then clears via
+`clearInitialInput`. Splits do not inherit it and `snapshot()` never records
+it, so a restored terminal never re-runs an install. The dialect (POSIX /
+pwsh / Windows PowerShell / cmd) follows the shell that profile will spawn:
+its own program, else `settings.terminalShell`, else `ipc.defaultShell()`.
 
 ## TerminalTab — the keep-your-box rule (I10)
 

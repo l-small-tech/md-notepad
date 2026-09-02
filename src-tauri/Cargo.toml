@@ -33,6 +33,10 @@ tauri-plugin-clipboard-manager = "2"
 # tauri/wry — this direct dependency only turns on the WinRT namespaces the
 # OCR command uses.
 [target.'cfg(target_os = "windows")'.dependencies]
+# The persistent user/machine PATH from the registry (shell.rs `search_path`):
+# what a NEW console would see, which a running process's environment snapshot
+# does not. Already in the dependency graph via tauri.
+winreg = "0.55"
 windows = { version = "0.61", features = [
   "Foundation",
   "Foundation_Collections",

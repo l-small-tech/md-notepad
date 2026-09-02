@@ -2334,6 +2334,56 @@ body.explorer-dragging * {
   background: var(--bg-alt);
 }
 
+/* ---- AI TUI agent rows ---------------------------------------------------
+   A radio list in place of a select, because each agent carries status: the
+   ones not found on PATH are muted and get an Install button; the ones found
+   show where. */
+
+.settings-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.settings-agent-row input[type='radio'] {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.settings-agent-name {
+  flex: 0 0 auto;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+/* Still selectable — dimming says "won't launch as is", not "disabled". */
+.settings-agent-row-missing .settings-agent-name {
+  color: var(--fg-muted);
+}
+
+.settings-agent-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.settings-agent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ---- Export preview dialog ----------------------------------------------
    Shares the settings dialog's backdrop/header/footer skins; the dialog is
    larger because its body is a live render of the exported document. */
