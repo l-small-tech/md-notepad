@@ -79,6 +79,8 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
               theme={theme}
               active={active && session.activePaneId === paneId}
               cwd={pane.cwd}
+              initialInput={pane.initialInput}
+              onInitialInputSent={() => terminalsStore.getState().clearInitialInput(paneId)}
               onTitle={(title) => {
                 terminalsStore.getState().setPaneTitle(paneId, title);
                 // Only the focused pane names the tab.

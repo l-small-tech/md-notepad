@@ -51,6 +51,7 @@ import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
+import { tuiAvailabilityStore } from './ui/stores/tui-availability';
 import {
   appendImagesToMd,
   createSessionController,
@@ -771,6 +772,11 @@ async function boot(): Promise<void> {
   // never appears over app chrome (src/ui/context-menu-guard.ts).
   installContextMenuGuard();
   createRoot(document.getElementById('root')!).render(<App />);
+
+  // Which AI TUI agents are on PATH, for the Settings dialog's agent rows.
+  // Fire-and-forget AFTER the mount: one async IPC call whose answer nobody
+  // is waiting for, so it costs the first paint nothing. A no-op on Android.
+  void tuiAvailabilityStore.getState().refresh();
 
   // First-launch CLI args sit in managed state until the frontend drains
   // them; only the main window exists at that point (see src-tauri/src/lib.rs).

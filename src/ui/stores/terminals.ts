@@ -45,6 +45,15 @@ export interface TerminalPaneState {
   /** The child exited (the pane is only still here because onExit = 'keep'). */
   exited: boolean;
   exitCode: number | null;
+  /**
+   * Text to type into the shell once, as soon as it is ready — the Settings
+   * dialog's **Install** button opens a shell and has it run the install
+   * command this way, so the user sees the exact line and keeps the shell
+   * afterwards. Transient: the pane clears it after writing, a split does not
+   * inherit it, and `snapshot` never records it (a restored terminal is a new
+   * shell, not a replay).
+   */
+  initialInput: string | null;
 }
 
 export interface TerminalSession {
@@ -58,6 +67,8 @@ export interface OpenSessionInit {
   cwd?: string | null;
   /** A restored layout; when present it wins over profileId/cwd. */
   snapshot?: TerminalSnapshot | null;
+  /** A line to type into the first pane's shell once it is ready (see `TerminalPaneState`). */
+  initialInput?: string | null;
 }
 
 interface TerminalsState {
@@ -79,6 +90,8 @@ interface TerminalsState {
   setPaneTitle: (paneId: string, title: string) => void;
   setPaneCwd: (paneId: string, cwd: string) => void;
   markExited: (paneId: string, code: number) => void;
+  /** The pane wrote its `initialInput`; forget it so nothing can type it twice. */
+  clearInitialInput: (paneId: string) => void;
 
   /** The persistable layout, or null for a tab with no session. */
   snapshot: (tabId: string) => TerminalSnapshot | null;
@@ -93,7 +106,13 @@ export function resetTerminalIds(): void {
   counter = 0;
 }
 
-function makePane(id: string, tabId: string, profileId: string, cwd?: string | null) {
+function makePane(
+  id: string,
+  tabId: string,
+  profileId: string,
+  cwd?: string | null,
+  initialInput?: string | null,
+) {
   return {
     id,
     tabId,
@@ -102,6 +121,7 @@ function makePane(id: string, tabId: string, profileId: string, cwd?: string | n
     cwd: cwd ?? null,
     exited: false,
     exitCode: null,
+    initialInput: initialInput || null,
   } satisfies TerminalPaneState;
 }
 
@@ -158,7 +178,10 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
     const id = nextPaneId();
     set({
       sessions: { ...get().sessions, [tabId]: { tree: leaf(id), activePaneId: id } },
-      panes: { ...get().panes, [id]: makePane(id, tabId, init.profileId, init.cwd) },
+      panes: {
+        ...get().panes,
+        [id]: makePane(id, tabId, init.profileId, init.cwd, init.initialInput),
+      },
     });
   },
 
@@ -278,6 +301,14 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
       return;
     }
     set({ panes: { ...get().panes, [paneId]: { ...pane, exited: true, exitCode: code } } });
+  },
+
+  clearInitialInput(paneId) {
+    const pane = get().panes[paneId];
+    if (!pane || pane.initialInput === null) {
+      return;
+    }
+    set({ panes: { ...get().panes, [paneId]: { ...pane, initialInput: null } } });
   },
 
   snapshot(tabId) {
