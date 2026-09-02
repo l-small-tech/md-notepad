@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { terminalProgram } from '../../core/settings';
+import { profileFontSize, terminalProgram } from '../../core/settings';
 import type { Settings, TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
 import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
@@ -49,6 +49,15 @@ const BELL_MS = 120;
  * to sit still long enough to be noticed without being looked for.
  */
 const BELL_CURSOR_MS = 400;
+/**
+ * `initialInput` is typed once the shell has gone quiet: a shell announces
+ * itself in a burst (banner, then the prompt a beat later), and text sent
+ * mid-burst can land before the line editor is listening. So the write waits
+ * for the first output and then for this long without any more.
+ */
+const INITIAL_INPUT_SETTLE_MS = 300;
+/** …but no longer than this after spawn, in case a shell prints nothing at all. */
+const INITIAL_INPUT_MAX_WAIT_MS = 4000;
 
 const platform = detectPlatform(typeof navigator === 'undefined' ? '' : navigator.platform);
 
@@ -66,6 +75,14 @@ export interface TerminalPaneProps {
   active: boolean;
   /** Where to start: a restored or inherited working directory. */
   cwd?: string | null;
+  /**
+   * A line to type into the shell once it is ready, Enter included (the
+   * Settings dialog's Install button). Read once, at spawn — see the store
+   * field of the same name for why it is transient.
+   */
+  initialInput?: string | null;
+  /** `initialInput` has been written; the owner forgets it so it is never sent twice. */
+  onInitialInputSent?: () => void;
   onTitle: (title: string) => void;
   onCwd: (cwd: string) => void;
   /** The child exited; the app decides whether the pane closes (settings). */
@@ -102,6 +119,8 @@ export function TerminalPane({
   theme,
   active,
   cwd,
+  initialInput,
+  onInitialInputSent,
   onTitle,
   onCwd,
   onExit,
@@ -122,9 +141,31 @@ export function TerminalPane({
 
   // Props the long-lived objects read: kept in a ref so a new callback identity
   // (every render, in practice) never tears down a pty.
-  const latest = useRef({ profile, settings, theme, cwd, onTitle, onCwd, onExit, onFocus });
+  const latest = useRef({
+    profile,
+    settings,
+    theme,
+    cwd,
+    initialInput,
+    onInitialInputSent,
+    onTitle,
+    onCwd,
+    onExit,
+    onFocus,
+  });
   useEffect(() => {
-    latest.current = { profile, settings, theme, cwd, onTitle, onCwd, onExit, onFocus };
+    latest.current = {
+      profile,
+      settings,
+      theme,
+      cwd,
+      initialInput,
+      onInitialInputSent,
+      onTitle,
+      onCwd,
+      onExit,
+      onFocus,
+    };
   });
 
   useEffect(() => {
@@ -137,10 +178,39 @@ export function TerminalPane({
       settings: initialSettings,
       theme: initialTheme,
       cwd: initialCwd,
+      initialInput: pendingInput,
     } = latest.current;
 
     let disposed = false;
     let bellTimer: ReturnType<typeof setTimeout> | null = null;
+    // The one-shot `initialInput`: armed by the first output, re-armed by each
+    // further chunk, fired when the shell has been quiet for a moment.
+    let inputSent = false;
+    let inputTimer: ReturnType<typeof setTimeout> | null = null;
+    let inputDeadline: ReturnType<typeof setTimeout> | null = null;
+    function sendInitialInput(): void {
+      if (inputSent || disposed || !pendingInput) {
+        return;
+      }
+      inputSent = true;
+      if (inputTimer) {
+        clearTimeout(inputTimer);
+      }
+      if (inputDeadline) {
+        clearTimeout(inputDeadline);
+      }
+      void handleRef.current?.write(`${pendingInput}\r`);
+      latest.current.onInitialInputSent?.();
+    }
+    function armInitialInput(): void {
+      if (inputSent || !pendingInput) {
+        return;
+      }
+      if (inputTimer) {
+        clearTimeout(inputTimer);
+      }
+      inputTimer = setTimeout(sendInitialInput, INITIAL_INPUT_SETTLE_MS);
+    }
     // The view sizes the engine from the element, so the pty is spawned with
     // the grid that is actually on screen — no initial 80×24 redraw.
     const term = new Terminal({
@@ -151,10 +221,10 @@ export function TerminalPane({
     const view = new TermView(surface, {
       terminal: term,
       theme: initialTheme,
-      font: {
-        ...currentFont(initialSettings.terminalFont),
-        ...(initialProfile.fontSize ? { size: initialProfile.fontSize } : {}),
-      },
+      font: (() => {
+        const font = currentFont(initialSettings.terminalFont);
+        return { ...font, size: profileFontSize(initialProfile, font.size) };
+      })(),
       padding: PADDING,
       cursorStyle: initialSettings.terminalCursorStyle,
       cursorBlink: initialSettings.terminalCursorBlink,
@@ -357,6 +427,7 @@ export function TerminalPane({
             onData: (bytes) => {
               term.write(bytes);
               view.requestRender();
+              armInitialInput();
             },
             onExit: (code) => {
               setStatus(code === 0 ? 'shell exited' : `shell exited (${code})`);
@@ -370,6 +441,9 @@ export function TerminalPane({
         }
         handleRef.current = handle;
         setStatus(null);
+        if (pendingInput) {
+          inputDeadline = setTimeout(sendInitialInput, INITIAL_INPUT_MAX_WAIT_MS);
+        }
       } catch (error) {
         setStatus(`spawn failed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -379,6 +453,12 @@ export function TerminalPane({
       disposed = true;
       if (bellTimer) {
         clearTimeout(bellTimer);
+      }
+      if (inputTimer) {
+        clearTimeout(inputTimer);
+      }
+      if (inputDeadline) {
+        clearTimeout(inputDeadline);
       }
       registerPaneActions(paneId, null);
       offResize();
@@ -406,7 +486,7 @@ export function TerminalPane({
       return;
     }
     const font = currentFont(settings.terminalFont);
-    view.setFont({ ...font, size: Math.max(1, (profile.fontSize ?? font.size) + zoom) });
+    view.setFont({ ...font, size: Math.max(1, profileFontSize(profile, font.size) + zoom) });
     view.setCursorStyle(settings.terminalCursorStyle, settings.terminalCursorBlink);
     view.setSmoothScroll(settings.smoothScrolling);
     view.setTheme(theme);

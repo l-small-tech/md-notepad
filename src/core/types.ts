@@ -247,6 +247,14 @@ export interface TerminalProfile {
   env: Record<string, string>;
   /** Per-profile cell-size override, in CSS pixels. Unset = the editor font size. */
   fontSize?: number;
+  /**
+   * Cell size relative to the editor font, in CSS pixels (`+2` = two pixels
+   * larger than the editor, and it keeps following mod+=/-/0). Ignored when
+   * `fontSize` is set — an absolute size is an absolute size. The virtual AI
+   * profiles use this: an agent's TUI is read, not typed into, and reads
+   * better a touch larger than the note beside it.
+   */
+  fontSizeDelta?: number;
 }
 
 /** The profile that runs the login shell. Always present. */
@@ -257,7 +265,14 @@ export const SHELL_PROFILE_ID = 'shell';
  * in `settings.aiTuiAgent`. The id → command table is `AI_TUI_AGENTS`
  * (core/settings.ts).
  */
-export const AI_TUI_AGENT_IDS = ['claude', 'chatgpt', 'gemini', 'grok'] as const;
+export const AI_TUI_AGENT_IDS = [
+  'claude',
+  'chatgpt',
+  'gemini',
+  'grok',
+  'copilot',
+  'opencode',
+] as const;
 export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
 
 /**

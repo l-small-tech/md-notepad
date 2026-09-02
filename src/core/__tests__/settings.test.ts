@@ -1,18 +1,22 @@
 import { describe, expect, test } from 'vitest';
 import {
   AI_TUI_AGENTS,
+  AI_TUI_FONT_SIZE_DELTA,
   aiTuiAgentName,
   DEFAULT_SETTINGS,
+  FONT_SIZE_DELTA_RANGE,
   SETTINGS_SCHEMA,
   keepWindowLocalSettings,
   MAX_EXPLORER_PATHS,
   normalizePathList,
   normalizeSettings,
+  normalizeTerminalProfile,
   parseCommandLine,
   pickUnusedColor,
+  profileFontSize,
   resolveTerminalProfile,
 } from '../settings';
-import { AI_THEME_PROFILE_ID, AI_TUI_PROFILE_ID } from '../types';
+import { AI_THEME_PROFILE_ID, AI_TUI_AGENT_IDS, AI_TUI_PROFILE_ID } from '../types';
 import {
   CURSOR_STYLES,
   EDITOR_FONT_IDS,
@@ -376,13 +380,103 @@ describe('terminal profiles: the schema-2 migration', () => {
   });
 });
 
+describe('terminal profiles: font size', () => {
+  const base = { id: 'p', name: 'P', args: [], env: {} };
+
+  test('fontSizeDelta is rounded, clamped, and dropped when zero or absent', () => {
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: 2 })!.fontSizeDelta).toBe(2);
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: -3.4 })!.fontSizeDelta).toBe(-3);
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: 99 })!.fontSizeDelta).toBe(
+      FONT_SIZE_DELTA_RANGE.max,
+    );
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: -99 })!.fontSizeDelta).toBe(
+      FONT_SIZE_DELTA_RANGE.min,
+    );
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: 0 })).not.toHaveProperty(
+      'fontSizeDelta',
+    );
+    expect(normalizeTerminalProfile({ ...base, fontSizeDelta: 'big' })).not.toHaveProperty(
+      'fontSizeDelta',
+    );
+    expect(normalizeTerminalProfile(base)).not.toHaveProperty('fontSizeDelta');
+    // Through the whole settings blob too.
+    const s = normalizeSettings({ terminalProfiles: [{ ...base, fontSizeDelta: 4 }] });
+    expect(s.terminalProfiles[0]!.fontSizeDelta).toBe(4);
+  });
+
+  test('profileFontSize: absolute fontSize wins, else editor size plus delta, never below 1', () => {
+    expect(profileFontSize({ ...base }, 14)).toBe(14);
+    expect(profileFontSize({ ...base, fontSizeDelta: 2 }, 14)).toBe(16);
+    expect(profileFontSize({ ...base, fontSizeDelta: -2 }, 14)).toBe(12);
+    expect(profileFontSize({ ...base, fontSize: 20, fontSizeDelta: 2 }, 14)).toBe(20);
+    expect(profileFontSize({ ...base, fontSizeDelta: -8 }, 8)).toBe(1);
+  });
+});
+
 describe('the AI TUI virtual profile', () => {
   test('the agent setting defaults to claude and rejects unknown values', () => {
     expect(DEFAULT_SETTINGS.aiTuiAgent).toBe('claude');
-    expect(normalizeSettings({ aiTuiAgent: 'chatgpt' }).aiTuiAgent).toBe('chatgpt');
-    expect(normalizeSettings({ aiTuiAgent: 'gemini' }).aiTuiAgent).toBe('gemini');
-    expect(normalizeSettings({ aiTuiAgent: 'grok' }).aiTuiAgent).toBe('grok');
+    // Every known id round-trips, including the two later additions.
+    expect(AI_TUI_AGENT_IDS).toEqual([
+      'claude',
+      'chatgpt',
+      'gemini',
+      'grok',
+      'copilot',
+      'opencode',
+    ]);
+    for (const id of AI_TUI_AGENT_IDS) {
+      expect(normalizeSettings({ aiTuiAgent: id }).aiTuiAgent).toBe(id);
+    }
     expect(normalizeSettings({ aiTuiAgent: 'skynet' }).aiTuiAgent).toBe('claude');
+    // Case matters: ids are what the table is keyed by.
+    expect(normalizeSettings({ aiTuiAgent: 'Copilot' }).aiTuiAgent).toBe('claude');
+  });
+
+  test('every agent has a command; Copilot and opencode launch by their own names', () => {
+    for (const id of AI_TUI_AGENT_IDS) {
+      expect(AI_TUI_AGENTS[id].program.length).toBeGreaterThan(0);
+      expect(AI_TUI_AGENTS[id].name.length).toBeGreaterThan(0);
+    }
+    expect(AI_TUI_AGENTS.copilot).toEqual({ name: 'Copilot', program: 'copilot' });
+    expect(AI_TUI_AGENTS.opencode).toEqual({ name: 'opencode', program: 'opencode' });
+  });
+
+  test('ai-theme for Copilot pins a cheap model and passes no prompt; opencode uses --prompt', () => {
+    // Copilot CLI cannot open its TUI with a prompt (`-p` is headless), so
+    // the args carry only the model pin.
+    const copilot = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'copilot' },
+      AI_THEME_PROFILE_ID,
+    );
+    expect(copilot.program).toBe('copilot');
+    expect(copilot.args).toEqual(['--model', 'claude-haiku-4.5']);
+    expect(copilot.args.some((a) => /AGENTS\.md/.test(a))).toBe(false);
+
+    const opencode = resolveTerminalProfile(
+      { ...DEFAULT_SETTINGS, aiTuiAgent: 'opencode' },
+      AI_THEME_PROFILE_ID,
+    );
+    expect(opencode.program).toBe('opencode');
+    expect(opencode.args[0]).toBe('--prompt');
+    expect(opencode.args[1]).toMatch(/AGENTS\.md/);
+    expect(opencode.args).toHaveLength(2);
+  });
+
+  test('the virtual AI profiles render slightly larger than the editor', () => {
+    for (const id of [AI_TUI_PROFILE_ID, AI_THEME_PROFILE_ID]) {
+      const profile = resolveTerminalProfile(DEFAULT_SETTINGS, id);
+      expect(profile.fontSize).toBeUndefined();
+      expect(profile.fontSizeDelta).toBe(AI_TUI_FONT_SIZE_DELTA);
+      expect(profileFontSize(profile, 14)).toBe(14 + AI_TUI_FONT_SIZE_DELTA);
+    }
+    // A real profile shadowing the id keeps its own (absent) delta.
+    const shadow = { id: AI_TUI_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
+    const s = {
+      ...DEFAULT_SETTINGS,
+      terminalProfiles: [...DEFAULT_SETTINGS.terminalProfiles, shadow],
+    };
+    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID).fontSizeDelta).toBeUndefined();
   });
 
   test('ai-tui resolves to the configured agent command', () => {
