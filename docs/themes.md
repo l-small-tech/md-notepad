@@ -172,6 +172,14 @@ and `fg` become the surface and the text — and each derived color is checked
 against the background and nudged until it's comfortably readable. Every theme
 therefore arrives with a working terminal palette and nothing to decide.
 
+In a **light** theme the palette is deliberately inverted from what the names
+suggest: "bright" colors are *darker* than their plain twins, and `white` /
+`brightWhite` are inks rather than paper. That is because a program written for
+a dark terminal writes its ordinary text in exactly those colors — leave them
+pale and the text disappears. Every derived light color clears the WCAG AA
+ratio (4.5:1) against the surface, except `black`, which stays dark so programs
+can still use it as a background.
+
 If you want exact control, add an optional `"terminal"` block. Anything you
 leave out stays derived, so setting one key sets one key:
 
@@ -199,7 +207,7 @@ The keys:
 | `selection` | The highlight behind selected terminal text. |
 | `selectionText` | Text inside a selection. `null` = each character keeps its own color. |
 | `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` | ANSI colors 0–7. |
-| `brightBlack` … `brightWhite` | ANSI colors 8–15. |
+| `brightBlack` `brightRed` `brightGreen` `brightYellow` `brightBlue` `brightMagenta` `brightCyan` `brightWhite` | ANSI colors 8–15. |
 
 ### The console background: an image, or see-through
 
@@ -232,6 +240,38 @@ the picture.
 The terminal's **font** is not part of the theme: terminal cells use the same
 Editor font and size as your notes, so Ctrl/Cmd `+` / `-` resizes them too
 (and `Ctrl+Shift` with `+` / `-` zooms one pane on its own).
+
+### Light themes and AI agents
+
+Coding agents draw their own interface, and most of them ship a dark look by
+default. On a light theme that can mean grey-on-white text until the agent
+learns where it is. md-notepad tells it three ways, all automatically:
+
+- It answers the **background-color query** (`OSC 11`, and `OSC 10`/`12` for
+  the foreground and cursor) with the live theme colors, in xterm's format and
+  terminated the way the question was asked — several agents give up after
+  100ms and assume "dark".
+- It sets **`COLORFGBG`** in the shell's environment (`0;15` on a light theme,
+  `15;0` on a dark one), which is what agents read *before* their first frame.
+- It supports the newer **light/dark notification** protocol (DEC mode 2031 /
+  `CSI ? 996 n`), so an agent that subscribes is told the moment you switch
+  themes and re-colors itself without restarting.
+
+What each agent does with that, and how to fix it by hand if it guesses wrong:
+
+| Agent | How it decides | If it still looks dark |
+| ----- | -------------- | ---------------------- |
+| **Claude Code** | `COLORFGBG` first, then the `OSC 11` query — but only when its theme is set to `auto`. | `/theme` → **auto** (or **Light**). For a look that follows *this* theme's palette instead of its own, pick **light-ansi**. |
+| **GitHub Copilot CLI** | The `OSC 11` query, on a short timeout. | `/theme` → pick a lighter color mode. It paints in fixed 24-bit color, so the theme's ANSI palette can't help it. |
+| **OpenAI Codex CLI** | Uses `OSC 10` + `OSC 11` only for its input box; the rest of its interface uses your terminal's own colors, so it follows this theme already. | `/theme` changes syntax highlighting only. On Windows it reads the console attributes instead of asking, and can get the input box wrong. |
+| **Gemini CLI** | Polls `OSC 11` and switches between its Default and Default Light themes on its own. | `/theme` → **ANSI Light** to use this theme's palette, or **Default Light**. |
+| **opencode** | The DEC 2031 notification, falling back to `OSC 11`. | `/theme` → **system**, which paints with this theme's ANSI colors. |
+| **Grok CLI** | Your *operating system's* light/dark setting first, then `OSC 11`. md-notepad also sets `GROK_APPEARANCE` so it follows the app's theme rather than the OS's. | `/theme` → a light theme, or run `grok --minimal` for a terminal-native look. |
+
+Each of those `/theme` commands is a one-time choice the agent remembers.
+
+A profile's own environment always wins: set `COLORFGBG` (or `GROK_APPEARANCE`)
+in a terminal profile's `env` and md-notepad's hint steps aside.
 
 ### Advanced: the `css` field (optional)
 

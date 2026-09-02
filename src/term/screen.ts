@@ -132,6 +132,15 @@ export class Screen implements ParserActions {
   foregroundColor = 0xe6e6e6;
   backgroundColor = 0x0b0f14;
   cursorColor = 0xe6e6e6;
+  /**
+   * DEC private mode 2031: while set, a light/dark change is *pushed* to the
+   * application instead of waiting to be asked. Defined by Contour and now
+   * implemented by Ghostty, Kitty and VTE; on the application side opencode
+   * (through OpenTUI) prefers it over the OSC 11 guess, and Bubble Tea v2
+   * exposes it — so a TUI that enables this re-themes itself the moment the
+   * user switches between a light and a dark app theme.
+   */
+  themeReports = false;
   private paletteOverrides = new Map<number, number>();
 
   readonly scrollback: Scrollback;
@@ -623,6 +632,12 @@ export class Screen implements ParserActions {
         this.reportCursorPosition('?');
         return;
       }
+      if (intermediates === '' && final === 0x6e && p(0) === 996) {
+        // DSR-LIGHTDARK: "is this terminal light or dark?", the query that
+        // replaced guessing from OSC 11's luminance.
+        this.reportColorScheme();
+        return;
+      }
       if (intermediates === '$' && final === 0x70) {
         this.reportDecMode(p(0));
         return;
@@ -670,11 +685,13 @@ export class Screen implements ParserActions {
     }
   }
 
-  oscDispatch(data: string): void {
+  oscDispatch(data: string, stTerminated = false): void {
     const sep = data.indexOf(';');
     const id = Number.parseInt(sep === -1 ? data : data.slice(0, sep), 10);
     const rest = sep === -1 ? '' : data.slice(sep + 1);
     if (Number.isNaN(id)) return;
+    // A query is answered with the terminator it was asked with (xterm's rule).
+    const terminator = stTerminated ? '\x1b\\' : '\x07';
 
     switch (id) {
       case 0:
@@ -684,7 +701,7 @@ export class Screen implements ParserActions {
       case 1:
         return; // icon name — no icon to set
       case 4:
-        this.oscPalette(rest);
+        this.oscPalette(rest, terminator);
         return;
       case 104:
         if (rest === '') this.paletteOverrides.clear();
@@ -700,7 +717,7 @@ export class Screen implements ParserActions {
       case 10:
       case 11:
       case 12:
-        this.oscDynamicColor(id, rest);
+        this.oscDynamicColor(id, rest, terminator);
         return;
       case 110:
       case 111:
@@ -997,6 +1014,13 @@ export class Screen implements ParserActions {
         this.synchronizedOutput = set;
         if (!set) this.markAllDirty();
         return;
+      case 2031:
+        // Subscription only: per the Contour spec that defined this mode, the
+        // terminal reports when the palette *changes*, and an application that
+        // wants the current state asks with `CSI ? 996 n`. Answering the enable
+        // itself would inject a DSR into whatever exchange follows it.
+        this.themeReports = set;
+        return;
       default:
         return;
     }
@@ -1021,6 +1045,7 @@ export class Screen implements ParserActions {
       1049: this.altScreenActive,
       2004: this.bracketedPaste,
       2026: this.synchronizedOutput,
+      2031: this.themeReports,
     };
     const value = mode in known ? (known[mode] ? 1 : 2) : 0;
     this.respond(`\x1b[?${mode};${value}$y`);
@@ -1097,6 +1122,7 @@ export class Screen implements ParserActions {
     this.applicationKeypad = false;
     this.bracketedPaste = false;
     this.synchronizedOutput = false;
+    this.themeReports = false;
     this.focusReporting = false;
     this.reverseVideo = false;
     this.mouseTracking = 'none';
@@ -1264,7 +1290,7 @@ export class Screen implements ParserActions {
     this.events.onTitle?.(title);
   }
 
-  private oscPalette(rest: string): void {
+  private oscPalette(rest: string, terminator: string): void {
     // `4;idx;spec[;idx;spec...]`; spec `?` queries.
     const parts = rest.split(';');
     for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -1273,7 +1299,7 @@ export class Screen implements ParserActions {
       if (Number.isNaN(index) || index < 0 || index > 255) continue;
       if (spec === '?') {
         const rgb = this.paletteColorRgb(index);
-        this.respond(`\x1b]4;${index};${formatColor(rgb)}\x07`);
+        this.respond(`\x1b]4;${index};${formatColor(rgb)}${terminator}`);
       } else {
         const rgb = parseColorSpec(spec);
         if (rgb !== null) {
@@ -1284,11 +1310,20 @@ export class Screen implements ParserActions {
     }
   }
 
-  private oscDynamicColor(id: number, spec: string): void {
+  /**
+   * OSC 10/11/12 — the default foreground/background/cursor colors.
+   *
+   * The `?` query is how a TUI asks "am I on a light or a dark terminal?", so
+   * the answer must be the xterm one to the byte: `rgb:RRRR/GGGG/BBBB` with
+   * 16-bit-per-channel digits, terminated the way the query was. The values
+   * reported are whatever the host last seeded from the theme
+   * (`setDefaultColors`), so a query always describes the palette on screen.
+   */
+  private oscDynamicColor(id: number, spec: string, terminator: string): void {
     if (spec === '?') {
       const rgb =
         id === 10 ? this.foregroundColor : id === 11 ? this.backgroundColor : this.cursorColor;
-      this.respond(`\x1b]${id};${formatColor(rgb)}\x07`);
+      this.respond(`\x1b]${id};${formatColor(rgb)}${terminator}`);
       return;
     }
     const rgb = parseColorSpec(spec);
@@ -1364,6 +1399,40 @@ export class Screen implements ParserActions {
 
   private respond(data: string): void {
     this.events.onResponse?.(data);
+  }
+
+  /**
+   * Is the surface a dark one? WCAG relative luminance of the *background*,
+   * the same measure `core/color.ts` uses — inlined because `src/term`
+   * imports nothing app-local (invariant I9).
+   */
+  get backgroundIsDark(): boolean {
+    const part = (shift: number) => {
+      const value = ((this.backgroundColor >> shift) & 0xff) / 255;
+      return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * part(16) + 0.7152 * part(8) + 0.0722 * part(0) < 0.35;
+  }
+
+  /** DSR 997: `1` = dark, `2` = light. Both a reply and an unsolicited push. */
+  private reportColorScheme(): void {
+    this.respond(`\x1b[?997;${this.backgroundIsDark ? 1 : 2}n`);
+  }
+
+  /**
+   * Seed the OSC 10/11/12 defaults from the host's theme.
+   *
+   * This is also the theme-change hook: when the surface flips from dark to
+   * light (or back) while an application holds mode 2031 open, it gets the
+   * unsolicited report and re-themes itself without being restarted.
+   */
+  setDefaultColors(colors: { foreground?: number; background?: number; cursor?: number }): void {
+    const wasDark = this.backgroundIsDark;
+    if (colors.foreground !== undefined) this.foregroundColor = colors.foreground;
+    if (colors.background !== undefined) this.backgroundColor = colors.background;
+    if (colors.cursor !== undefined) this.cursorColor = colors.cursor;
+    if (this.themeReports && this.backgroundIsDark !== wasDark) this.reportColorScheme();
+    this.markAllDirty();
   }
 
   private reportCursorPosition(prefix: string): void {

@@ -234,6 +234,40 @@ sibling `session/` folder).
 - [ ] Android: ribbon buttons open palette / outline / search; "Print /
       Save as PDF" is not offered; "Export as HTML" works via SAF save.
 
+## Terminal — light themes and AI agents
+
+Run these with a light theme selected (**Light Green** and **Beacon** are the
+two extremes: a tinted near-white surface and pure white). Repeat the first
+three on a dark theme to confirm nothing regressed.
+
+- [ ] `echo -e '\e]11;?\a'` in a terminal tab prints the theme's surface color
+      as `rgb:RRRR/GGGG/BBBB`. Switch theme (⌄ → Themes) without restarting the
+      shell and run it again → the NEW color, no shell restart needed.
+- [ ] `printf '\e[?996n'` prints `^[[?997;2n` under a light theme and
+      `^[[?997;1n` under a dark one.
+- [ ] `echo $COLORFGBG` in a fresh terminal tab → `0;15` on a light theme,
+      `15;0` on a dark one. Set `COLORFGBG` in a terminal profile's `env` →
+      the profile's value is what the shell sees.
+- [ ] Run a color test (`for i in $(seq 0 15); do printf "\e[3${i}m%02d " $i;
+      done`) on a light theme: every number is comfortably readable, including
+      7 (white) and 15 (bright white). Nothing is a pale ghost.
+- [ ] `ls --color`, `git log --oneline --decorate`, `git diff` on a light
+      theme: added/removed lines, branch names and hashes are all readable.
+- [ ] AI TUI tab with **Claude Code** on a light theme: with `/theme` set to
+      `auto` it comes up light. `/theme` → `light-ansi` follows this theme's
+      own palette. Check the input box, the "thinking" spinner, and dim
+      helper text ("esc to interrupt") — dim must be *fainter* than body
+      text, never darker/heavier.
+- [ ] Same with **GitHub Copilot CLI**: it should start light. If it starts
+      dark, `/theme` once — it paints in fixed 24-bit color, so a wrong guess
+      cannot be fixed by the palette.
+- [ ] Switch from a light theme to a dark one while an agent is running: the
+      console surface and any palette-colored output re-theme immediately; an
+      agent that supports live re-theming (opencode) follows.
+- [ ] A TUI that paints on an ANSI-black background (`printf '\e[40;37m bar
+      \e[0m'`) is the known trade-off on light themes: readable, but low
+      contrast. Confirm it is not *invisible*.
+
 ## Mobile (Android)
 
 - [ ] Tap the editor text → the soft keyboard opens and the caret lands where

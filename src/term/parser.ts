@@ -25,8 +25,14 @@ export interface ParserActions {
   execute(code: number): void;
   escDispatch(intermediates: string, final: number): void;
   csiDispatch(prefix: string, params: Params, intermediates: string, final: number): void;
-  /** Full OSC payload, e.g. `0;my title`. */
-  oscDispatch(data: string): void;
+  /**
+   * Full OSC payload, e.g. `0;my title`. `stTerminated` is true when the
+   * string ended with ST (`ESC \`) rather than BEL, because a query's answer
+   * must use the SAME terminator the query did: a client that scans for
+   * `ESC \` hangs on a BEL-terminated reply (and then falls back to guessing
+   * the background color, which is exactly what OSC 11 exists to avoid).
+   */
+  oscDispatch(data: string, stTerminated: boolean): void;
   dcsDispatch(
     prefix: string,
     params: Params,
@@ -145,7 +151,7 @@ export class Parser {
     if (cp === 0x1b) {
       // Leaving OSC via ESC: xterm treats ESC (usually ESC \ = ST) as a
       // terminator, so the collected string dispatches.
-      if (this.state === State.OscString) this.dispatchOsc();
+      if (this.state === State.OscString) this.dispatchOsc(true);
       else if (this.state === State.DcsPassthrough) this.dispatchDcs();
       this.enterEscape();
       return;
@@ -232,7 +238,7 @@ export class Parser {
 
       case State.OscString:
         if (cp === 0x07) {
-          this.dispatchOsc();
+          this.dispatchOsc(false);
           this.state = State.Ground;
         } else if (cp >= 0x20 && this.stringData.length < MAX_STRING) {
           this.stringData += String.fromCodePoint(cp);
@@ -347,8 +353,8 @@ export class Parser {
     this.state = State.DcsPassthrough;
   }
 
-  private dispatchOsc(): void {
-    this.actions.oscDispatch(this.stringData);
+  private dispatchOsc(stTerminated: boolean): void {
+    this.actions.oscDispatch(this.stringData, stTerminated);
     this.stringData = '';
   }
 

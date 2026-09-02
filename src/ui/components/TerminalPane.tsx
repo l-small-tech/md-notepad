@@ -18,7 +18,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { isDarkColor } from '../../core/color';
 import { terminalProgram } from '../../core/settings';
+import { terminalEnvHints } from '../../core/terminal-palette';
 import type { Settings, TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
 import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
@@ -161,7 +163,9 @@ export function TerminalPane({
       smoothScroll: initialSettings.smoothScrolling,
     });
     // Seed OSC 10/11/12 so an application querying the background color learns
-    // the theme's, and gets light/dark detection right.
+    // the theme's, and gets light/dark detection right. The theme effect below
+    // re-seeds on every change, which is also what pushes a DEC 2031 report to
+    // a subscribed TUI when the user switches between a light and a dark theme.
     view.setTheme(initialTheme);
     termRef.current = term;
     viewRef.current = view;
@@ -351,7 +355,12 @@ export function TerminalPane({
             ...(program ? { program } : {}),
             args: initialProfile.args,
             ...(startCwd ? { cwd: startCwd } : {}),
-            env: initialProfile.env,
+            // The light/dark hint goes FIRST so a profile that sets the same
+            // variable overrides it — a user's own env is never second-guessed.
+            env: {
+              ...terminalEnvHints(isDarkColor(initialTheme.background)),
+              ...initialProfile.env,
+            },
           },
           {
             onData: (bytes) => {

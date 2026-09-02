@@ -30,9 +30,18 @@ export interface DefaultColors {
 }
 
 export interface ColorOptions {
-  /** SGR bold promotes palette colors 0–7 to their bright twin (xterm default). */
+  /**
+   * SGR bold promotes palette colors 0–7 to their bright twin (xterm default).
+   * Safe on light palettes because "bright" there means *darker* — see
+   * `core/terminal-palette.ts`.
+   */
   boldIsBright?: boolean;
-  /** How far SGR dim pulls text toward the background (0–1). */
+  /**
+   * How far SGR dim pulls text toward the background (0–1). Toward the
+   * BACKGROUND, not toward black: on a light theme "less bright" would mean
+   * more contrast, which turns an application's faintest text into its
+   * loudest.
+   */
   dimAmount?: number;
 }
 

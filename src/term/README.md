@@ -37,7 +37,11 @@ define the VT behaviour the rest of the terminal feature relies on.
 ## Tests
 
 `__tests__/` covers the parser, SGR, movement, modes, scroll regions, resize
-(reflow), wide characters, OSC, alt screen, and a byte-level fuzz pass. The
+(reflow), wide characters, OSC, alt screen, and a byte-level fuzz pass.
+`theme-detect.test.ts` is the light/dark contract specifically — the OSC
+10/11/12 query answers and the DEC 2031 / DSR 996 reports every AI TUI uses to
+decide whether to paint a light or a dark interface; it names which agent
+relies on which, so a change here has a visible consequence attached. The
 **replay** suite is the end-to-end proof: `fixtures/*.bin` are raw byte
 streams captured from real programs (vim, less, htop, claude-code) with
 `fixtures/*.txt` the screen `tmux` itself ended up with; the engine must

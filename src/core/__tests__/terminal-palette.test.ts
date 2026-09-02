@@ -1,32 +1,21 @@
 import { describe, expect, test } from 'vitest';
-import { parseColor } from '../color';
+import { contrastRatio, luminance, parseColor } from '../color';
+import { BUILT_IN_THEMES } from '../theme-seeds';
 import { parseThemePlugin } from '../theme-plugins';
 import {
   ANSI_NAMES,
   BASE_PALETTE_DARK,
   BASE_PALETTE_LIGHT,
+  DEFAULT_ANSI_LIGHT,
   deriveTerminalColors,
   terminalColorsFor,
+  terminalEnvHints,
 } from '../terminal-palette';
 import { readFileSync } from 'node:fs';
 
-/** WCAG relative luminance, mirroring what `ensureContrast` measures. */
-function luminance(rgb: number): number {
-  const channel = (v: number) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return (
-    0.2126 * channel((rgb >> 16) & 0xff) +
-    0.7152 * channel((rgb >> 8) & 0xff) +
-    0.0722 * (rgb & 0xff)
-  );
-}
-
+/** The measured contrast between two hex colors — the same math the floor uses. */
 function contrast(a: string, b: string): number {
-  const la = luminance(parseColor(a)!);
-  const lb = luminance(parseColor(b)!);
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  return contrastRatio(parseColor(a)!, parseColor(b)!);
 }
 
 describe('the base palette mirrors base.css', () => {
@@ -92,11 +81,101 @@ describe('deriveTerminalColors', () => {
     }
   });
 
+  // The light floors are the whole point of this file for AI TUIs: an agent
+  // that assumes a dark terminal paints its prose in ANSI colors, and on a
+  // light surface those are what the user has to read.
+  describe('light mode clears the AA body-text floor', () => {
+    const lightThemes = [
+      { id: '(no plugin)', branding: {} },
+      ...BUILT_IN_THEMES.filter((theme) => theme.mode === 'light'),
+    ];
+
+    test.each(lightThemes.map((theme) => [theme.id, theme.branding] as const))(
+      '%s',
+      (_id, branding) => {
+        const colors = deriveTerminalColors(branding, 'light');
+        for (const [index, hex] of colors.ansi.entries()) {
+          if (index === 0) {
+            continue; // ANSI black is a background color; exempt on purpose.
+          }
+          const floor = index === 8 ? 3 : 4.5;
+          expect(contrast(hex, colors.background), `ansi ${index} (${hex})`).toBeGreaterThanOrEqual(
+            floor - 0.001,
+          );
+        }
+      },
+    );
+
+    test('every color also clears the floor against the app-default surface', () => {
+      // A theme may omit `editorBg`; then base.css's light surface is what the
+      // terminal is painted on, so that is what the palette is measured against.
+      const colors = deriveTerminalColors({ fg: '#101010' }, 'light');
+      expect(colors.background).toBe(BASE_PALETTE_LIGHT.editorBg);
+      for (const [index, hex] of colors.ansi.entries()) {
+        if (index === 0) continue;
+        expect(
+          contrast(hex, BASE_PALETTE_LIGHT.editorBg),
+          `ansi ${index} (${hex})`,
+        ).toBeGreaterThanOrEqual((index === 8 ? 3 : 4.5) - 0.001);
+      }
+    });
+
+    test('white (normal text) is never lighter than brightBlack (dim text)', () => {
+      // Backwards ordering is what made a TUI's prose harder to read than its
+      // own comments — see the `ansi[7]` note in terminal-palette.ts. The
+      // tolerance is for a theme like Beacon, whose `fgMuted` is already
+      // near-ink: there the two land within noise of each other, which is fine.
+      for (const { id, branding } of lightThemes) {
+        const { ansi } = deriveTerminalColors(branding, 'light');
+        const white = luminance(parseColor(ansi[7]!)!);
+        const brightBlack = luminance(parseColor(ansi[8]!)!);
+        expect(white, `${id} white vs brightBlack`).toBeLessThanOrEqual(brightBlack + 0.02);
+      }
+    });
+
+    test('the built-in light palette is legible on white without derivation', () => {
+      // `DEFAULT_ANSI_LIGHT` is also the renderer's standalone light palette.
+      for (const [index, hex] of DEFAULT_ANSI_LIGHT.entries()) {
+        if (index === 0) continue;
+        expect(contrast(hex, '#ffffff'), `ansi ${index} (${hex})`).toBeGreaterThanOrEqual(
+          index === 8 ? 3 : 4.5,
+        );
+      }
+    });
+  });
+
+  test('dark mode keeps its own, lower floor', () => {
+    // Raising the light floor must not have moved dark themes: a light-text
+    // ratio reads heavier on a dark surface than the same number does on paper.
+    // `#6b6b6b` on this surface measures ~3.6 — over the dark floor, under the
+    // light one — so it survives untouched only while the two differ.
+    const colors = deriveTerminalColors({ editorBg: '#0b0f14', danger: '#6b6b6b' }, 'dark');
+    expect(contrast('#6b6b6b', colors.background)).toBeGreaterThan(3);
+    expect(contrast('#6b6b6b', colors.background)).toBeLessThan(4.5);
+    expect(colors.ansi[1]).toBe('#6b6b6b');
+  });
+
   test('light and dark derive differently from the same branding', () => {
     const branding = { editorBg: '#ffffff', fg: '#000000' };
     expect(deriveTerminalColors(branding, 'light').ansi).not.toEqual(
       deriveTerminalColors(branding, 'dark').ansi,
     );
+  });
+});
+
+describe('terminalEnvHints', () => {
+  test('COLORFGBG names the palette indices a light or dark surface implies', () => {
+    // The rxvt convention: `fg;bg` as palette indices. Every "is this terminal
+    // light?" helper that predates OSC 11 reads exactly this.
+    expect(terminalEnvHints(false).COLORFGBG).toBe('0;15');
+    expect(terminalEnvHints(true).COLORFGBG).toBe('15;0');
+  });
+
+  test('the Grok CLI gets its appearance pinned to the console it draws on', () => {
+    expect(terminalEnvHints(false).GROK_APPEARANCE).toBe('light');
+    expect(terminalEnvHints(true).GROK_APPEARANCE).toBe('dark');
+    // Never the LC_ twin: that one is forwarded over SSH by AcceptEnv LC_*.
+    expect(terminalEnvHints(false)).not.toHaveProperty('LC_GROK_APPEARANCE');
   });
 });
 

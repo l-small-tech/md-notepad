@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { contrastRatio as contrast, luminance } from '../../core/color';
 import { Terminal, type Cell } from '../../term';
 import { ColorResolver } from '../colors';
-import { DEFAULT_DARK_THEME, type TerminalTheme } from '../theme';
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, type TerminalTheme } from '../theme';
 
 const THEME: TerminalTheme = {
   ...DEFAULT_DARK_THEME,
@@ -114,6 +115,34 @@ describe('ColorResolver', () => {
     expect(dim).not.toBe(bright);
     // 40% of the way from #d0d0d0 (208) to #101010 (16): 208 - 76.8 → 131.
     expect(dim).toBe(0x838383);
+  });
+
+  it('pulls dim text toward a LIGHT background too — dim means closer, not darker', () => {
+    // The trap this guards: "dim" implemented as "reduce brightness" makes text
+    // DARKER, which on a light theme increases contrast and turns an agent's
+    // faint hints into its loudest text. Dim is relative to the surface.
+    const light: TerminalTheme = { ...DEFAULT_LIGHT_THEME };
+    const defaults = { foreground: 0x1b2027, background: 0xfbfcfe, cursor: 0x1b2027 };
+    const paper = new ColorResolver(light, defaults);
+    const plain = paper.resolve(cell('0')).fg;
+    const dim = paper.resolve(cell('2')).fg;
+    expect(luminance(dim)).toBeGreaterThan(luminance(plain));
+    expect(contrast(dim, defaults.background)).toBeLessThan(contrast(plain, defaults.background));
+  });
+
+  it('bold never lightens text on a light palette', () => {
+    // SGR 1 promotes colors 0–7 to 8–15 (xterm's boldIsBright). On a light
+    // palette "bright" is DARKER by construction, so bold has to read as
+    // heavier, not fainter — the one exception is black→brightBlack, which is
+    // a gray by definition and still clears the dim floor.
+    const light: TerminalTheme = { ...DEFAULT_LIGHT_THEME };
+    const defaults = { foreground: 0x1b2027, background: 0xfbfcfe, cursor: 0x1b2027 };
+    const paper = new ColorResolver(light, defaults);
+    for (const index of [1, 2, 3, 4, 5, 6, 7]) {
+      const plain = paper.resolve(cell(`3${index}`)).fg;
+      const bold = paper.resolve(cell(`1;3${index}`)).fg;
+      expect(luminance(bold), `bold ${index}`).toBeLessThanOrEqual(luminance(plain));
+    }
   });
 
   it('reports invisible cells as hidden without dropping their background', () => {

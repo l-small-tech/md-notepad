@@ -47,6 +47,11 @@ export const DEFAULT_DARK_THEME: TerminalTheme = {
  * Default light palette. The ANSI colors are darkened rather than reused:
  * bright terminal colors on a light background are the classic unreadable
  * combination, and every TUI assumes its palette contrasts with the surface.
+ * So on this palette "bright" means darker, and colors 7/15 ("white",
+ * "bright white") are inks, not paper — a TUI written for a dark terminal
+ * writes its prose in them. Everything but black (which stays a background
+ * color) clears WCAG AA against the surface; `core/terminal-palette.ts`
+ * mirrors these values and derives themed palettes to the same rule.
  */
 export const DEFAULT_LIGHT_THEME: TerminalTheme = {
   background: 0xfbfcfe,
@@ -56,8 +61,8 @@ export const DEFAULT_LIGHT_THEME: TerminalTheme = {
   selection: 0xbcd4f6,
   selectionText: null,
   ansi: [
-    0x2e3440, 0xb02a1f, 0x3f7d20, 0x9a6b09, 0x1f5fc4, 0x7a3fa8, 0x0e6b78, 0xc7cdd6, 0x5b6673,
-    0xd0392a, 0x53a12c, 0xbc8712, 0x2f6feb, 0x9455c9, 0x1489a0, 0x1b2027,
+    0x2e3440, 0xb02a1f, 0x3f7d20, 0x9a6b09, 0x1f5fc4, 0x7a3fa8, 0x0e6b78, 0x53575d, 0x5b6673,
+    0x902219, 0x34671a, 0x7e5807, 0x194ea1, 0x64348a, 0x0b5862, 0x1b2027,
   ],
 };
 

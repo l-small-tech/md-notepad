@@ -33,7 +33,7 @@ do not rewrite them.
 | `geometry.ts` | terminal | grid math: pixel size + cell metrics → `{cols, rows}` (never 0×0) |
 | `color.ts` | terminal | color math for theming: parse/format hex, mix, adjust, `ensureContrast` (WCAG) |
 | `terminal-shells.ts` | terminal | the shells the settings picker offers per desktop OS; `settings.terminalShell` is ONE global choice, not one per profile |
-| `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor; an optional `terminal` block in a theme merges over it |
+| `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor (AA on light surfaces, where a dark-assuming TUI's text lands); an optional `terminal` block in a theme merges over it. Also `terminalEnvHints` — the `COLORFGBG` light/dark hint a pty is spawned with |
 
 ## Contracts you must not break
 

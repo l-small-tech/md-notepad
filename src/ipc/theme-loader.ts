@@ -313,7 +313,7 @@ async function withConsoleImage(plugin: ThemePlugin, themePath: string): Promise
  * out of regeneration for good.
  */
 const AGENT_GUIDE_MARKER =
-  '<!-- md-notepad themes agent guide v1 (auto-written; delete this line to keep your own edits) -->';
+  '<!-- md-notepad themes agent guide v2 (auto-written; delete this line to keep your own edits) -->';
 
 const AGENT_GUIDE = `${AGENT_GUIDE_MARKER}
 
@@ -387,6 +387,12 @@ polished result.
   \`brightBlack\`…\`brightWhite\`. Also \`backgroundImage\` (file name of an
   image placed in THIS folder, e.g. \`"forest.png"\` — never a path or URL)
   and \`backgroundOpacity\` (0–1; below 1 the app shows through the console).
+  In a LIGHT theme these colors are inks, not paper: "bright" variants must be
+  DARKER than their plain twins, and \`white\`/\`brightWhite\` must be dark
+  enough to read on the surface (4.5:1), because a program written for a dark
+  terminal writes its ordinary text in them. \`black\` is the exception — leave
+  it dark, applications use it as a background. Getting this wrong is what
+  makes coding agents unreadable on light themes.
 - \`"css"\`: raw CSS applied while the theme is selected. Last resort.
 
 ## Workflow

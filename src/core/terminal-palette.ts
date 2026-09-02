@@ -128,6 +128,14 @@ export const DEFAULT_ANSI_DARK: readonly string[] = [
   '#e6ebf2',
 ];
 
+/**
+ * The light palette. On a light surface "bright" means DARKER, not lighter:
+ * a TUI written for a dark terminal paints its emphasis in bright colors, and
+ * a bright color on white is the classic unreadable combination. Every entry
+ * except black (a background color) clears 4.5:1 against a white surface, and
+ * `white` is deliberately a mid ink rather than a pale gray — applications use
+ * color 7 as their *text* color far more often than as a background.
+ */
 export const DEFAULT_ANSI_LIGHT: readonly string[] = [
   '#2e3440',
   '#b02a1f',
@@ -136,21 +144,34 @@ export const DEFAULT_ANSI_LIGHT: readonly string[] = [
   '#1f5fc4',
   '#7a3fa8',
   '#0e6b78',
-  '#c7cdd6',
+  '#53575d',
   '#5b6673',
-  '#d0392a',
-  '#53a12c',
-  '#bc8712',
-  '#2f6feb',
-  '#9455c9',
-  '#1489a0',
+  '#902219',
+  '#34671a',
+  '#7e5807',
+  '#194ea1',
+  '#64348a',
+  '#0b5862',
   '#1b2027',
 ];
 
-/** Contrast floor a *derived* ANSI color must clear against the background. */
-const MIN_CONTRAST = 3;
-/** …and the lower floor for brightBlack, which is a dim color on purpose. */
-const MIN_CONTRAST_DIM = 2;
+/**
+ * Contrast floor a *derived* ANSI color must clear against the background.
+ *
+ * Light surfaces get the AA body-text ratio rather than the 3:1 large-text
+ * one, because that is what these colors are on a light terminal: a TUI that
+ * assumes a dark background paints its ordinary prose in ANSI colors, and 3:1
+ * — legible for a heading — is not legible for a wall of 12px monospace. On a
+ * dark surface the same nominal ratio reads considerably heavier (light text
+ * blooms against dark), so the dark floor stays where it was and dark themes
+ * are untouched by this.
+ */
+const MIN_CONTRAST = { light: 4.5, dark: 3 } as const;
+/**
+ * …and the lower floor for brightBlack, which is a dim color on purpose:
+ * enough to read as secondary text, never enough to be mistaken for prose.
+ */
+const MIN_CONTRAST_DIM = { light: 3, dark: 2 } as const;
 
 /**
  * Derive a terminal palette from a theme's branding.
@@ -158,6 +179,14 @@ const MIN_CONTRAST_DIM = 2;
  * ANSI black is exempt from the contrast floor: applications use it as a
  * *background*, and forcing it to contrast with the surface would defeat the
  * point.
+ *
+ * On a light theme that exemption is also the one thing this cannot have both
+ * ways. Colors 7/15 are inverted to dark inks so that a dark-assuming TUI's
+ * text stays readable on our light surface — which is the overwhelmingly
+ * common case, and the same choice GitHub's light terminal theme makes — but
+ * it means the rarer "white text on an ANSI-black fill" comes out dark-on-dark.
+ * The alternative (a light "white", the Solarized Light ordering) trades a
+ * rare bug for a constant one: unreadable body text. Text wins.
  */
 export function deriveTerminalColors(branding: Branding, mode: ThemeMode): TerminalColors {
   const dark = mode === 'dark';
@@ -175,7 +204,6 @@ export function deriveTerminalColors(branding: Branding, mode: ThemeMode): Termi
   const muted = get('fgMuted');
   const accent = get('accent');
   const danger = get('danger');
-  const border = get('border');
   /** How much a "bright" variant moves: lighter on dark themes, darker on light. */
   const brighten = dark ? 0.2 : -0.18;
 
@@ -183,7 +211,14 @@ export function deriveTerminalColors(branding: Branding, mode: ThemeMode): Termi
   ansi[0] = dark ? mix(background, foreground, 0.25) : mix(foreground, background, 0.1);
   ansi[1] = danger;
   ansi[4] = accent;
-  ansi[7] = dark ? mix(foreground, background, 0.25) : mix(border, foreground, 0.2);
+  // White is the ink, softened a quarter of the way toward the paper — in BOTH
+  // modes, because "color 7" means the same thing in both: the default text
+  // color, one step down from brightWhite. Deriving it from `border` (as this
+  // did) made it a pale line color on light themes: it landed below the
+  // contrast floor every time, got blackened into mud by it, and still came
+  // out LIGHTER than brightBlack — so a TUI's ordinary text (7) was harder to
+  // read than its dim text (8), which is exactly backwards.
+  ansi[7] = mix(foreground, background, 0.25);
   ansi[8] = muted;
   ansi[9] = adjust(danger, brighten);
   ansi[12] = adjust(accent, brighten);
@@ -192,11 +227,12 @@ export function deriveTerminalColors(branding: Branding, mode: ThemeMode): Termi
     ansi[index + 8] = adjust(ansi[index]!, brighten);
   }
 
+  const key = dark ? 'dark' : 'light';
   const floored = ansi.map((rgb, index) => {
     if (index === 0) {
       return rgb;
     }
-    return ensureContrast(rgb, background, index === 8 ? MIN_CONTRAST_DIM : MIN_CONTRAST);
+    return ensureContrast(rgb, background, (index === 8 ? MIN_CONTRAST_DIM : MIN_CONTRAST)[key]);
   });
 
   return {
@@ -207,6 +243,41 @@ export function deriveTerminalColors(branding: Branding, mode: ThemeMode): Termi
     selection: formatColor(get('selection')),
     selectionText: null,
     ansi: floored.map(formatColor),
+  };
+}
+
+/**
+ * Environment a pty is spawned with so a TUI can tell light from dark BEFORE
+ * it paints anything.
+ *
+ * `COLORFGBG` is the rxvt convention every "is this terminal light?" helper
+ * has read for thirty years (Vim's `background` detection, chalk, termenv,
+ * Rich): two palette *indices*, `fg;bg`. `0;15` is black-on-white → a light
+ * surface; `15;0` is white-on-black → a dark one. It is a static hint, so it
+ * is only ever a starting guess — an application that also queries OSC 11 or
+ * DSR 996 gets the live answer from `src/term/screen.ts` — but it is the ONLY
+ * signal available to a TUI that decides its theme before its first draw, and
+ * to one that never queries at all.
+ *
+ * `GROK_APPEARANCE` is the one vendor-specific hint worth setting: the Grok
+ * CLI (one of the agents the AI TUI tab launches) resolves its light/dark look
+ * from the *OS* appearance first and only then falls back to OSC 11, so on a
+ * dark desktop it would paint a dark TUI onto our light console no matter what
+ * the terminal answers. The variable is its documented per-invocation override,
+ * it is read by nothing else, and it costs one entry in the environment. Its
+ * `LC_GROK_APPEARANCE` twin is deliberately NOT set — that one exists to ride
+ * along an SSH connection, and this app's theme has no business following the
+ * user onto a remote host.
+ *
+ * TypeScript decides this rather than `pty.rs`, because the theme is a
+ * frontend concept; Rust keeps owning `TERM`/`COLORTERM`, which describe the
+ * emulator and never change. Spread a profile's own `env` AFTER this so a
+ * user who sets either variable themselves still wins.
+ */
+export function terminalEnvHints(dark: boolean): Record<string, string> {
+  return {
+    COLORFGBG: dark ? '15;0' : '0;15',
+    GROK_APPEARANCE: dark ? 'dark' : 'light',
   };
 }
 

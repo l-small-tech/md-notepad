@@ -205,12 +205,17 @@ export class Terminal {
     };
   }
 
-  /** Seed OSC 10/11/12 defaults from the theme (also what queries report). */
+  /**
+   * Seed OSC 10/11/12 defaults from the theme (also what queries report, and
+   * what a mode-2031 subscriber is notified about when light/dark flips).
+   */
   setDefaultColors(colors: { foreground?: number; background?: number; cursor?: number }): void {
-    if (colors.foreground !== undefined) this.screen.foregroundColor = colors.foreground;
-    if (colors.background !== undefined) this.screen.backgroundColor = colors.background;
-    if (colors.cursor !== undefined) this.screen.cursorColor = colors.cursor;
-    this.screen.markAllDirty();
+    this.screen.setDefaultColors(colors);
+  }
+
+  /** True when the seeded background is a dark one (DSR 996's answer). */
+  get backgroundIsDark(): boolean {
+    return this.screen.backgroundIsDark;
   }
 
   get marks(): readonly ShellMark[] {
