@@ -1059,6 +1059,47 @@ describe('renameExplorerEntry (explorer context menu)', () => {
     expect(tab.filePath).toBe('/ws/archive/doc.md');
   });
 
+  test('a case-only rename is a real rename, not a no-op', async () => {
+    const fs = makeFakeFs({ '/ws/notes.md': 'body' });
+    makeController(fs);
+
+    await session.renameExplorerEntry('/ws/notes.md', 'Notes', false);
+
+    // pathKey() lowercases, so the old "nothing changed" guard swallowed this
+    // one; and on a case-insensitive FS the stat of the target reports EXISTS
+    // because it IS this file, so that guard has to be skipped too.
+    expect(fs.ops).toContain('rename:/ws/notes.md->/ws/Notes.md');
+    expect(fs.files.get('/ws/Notes.md')).toBe('body');
+  });
+
+  test('a case-only FOLDER rename goes through and retargets tabs beneath it', async () => {
+    const fs = makeFakeFs({ '/ws/sub/doc.md': 'text' });
+    fs.dirs.add('/ws/sub');
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/sub/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.renameExplorerEntry('/ws/sub', 'Sub', true);
+
+    expect(fs.dirs.has('/ws/Sub')).toBe(true);
+    expect(fs.files.get('/ws/Sub/doc.md')).toBe('text');
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!.filePath).toBe(
+      '/ws/Sub/doc.md',
+    );
+  });
+
+  test('a case-only rename of an OPEN file tab renames the file and retargets the tab', async () => {
+    const fs = makeFakeFs({ '/ws/doc.md': 'text' });
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.renameExplorerEntry('/ws/doc.md', 'Doc', false);
+
+    expect(fs.files.get('/ws/Doc.md')).toBe('text');
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!.filePath).toBe('/ws/Doc.md');
+  });
+
   test('an open file renamed with a typed extension keeps a single .md', async () => {
     const fs = makeFakeFs({ '/ws/doc.md': 'text' });
     const controller = makeController(fs);
@@ -1202,6 +1243,95 @@ describe('moveExplorerEntryInto (explorer row drag)', () => {
     const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!;
     expect(tab.filePath).toBe('/ws/sub/doc.md');
     expect(fs.files.get('/ws/sub/doc.md')).toBe('text');
+  });
+
+  test('a file moves into ANOTHER workspace (destination outside its own root)', async () => {
+    const fs = makeFakeFs({ '/ws-a/doc.md': 'text' });
+    fs.dirs.add('/ws-b');
+    fs.dirs.add('/ws-b/inbox');
+    const controller = makeController(fs);
+    await controller.openPaths(['/ws-a/doc.md']);
+    const tabId = tabs.tabsStore.getState().activeTabId;
+
+    await session.moveExplorerEntryInto('/ws-a/doc.md', '/ws-b/inbox');
+
+    expect(fs.files.has('/ws-a/doc.md')).toBe(false);
+    expect(fs.files.get('/ws-b/inbox/doc.md')).toBe('text');
+    expect(tabs.tabsStore.getState().tabs.find((t) => t.id === tabId)!.filePath).toBe(
+      '/ws-b/inbox/doc.md',
+    );
+  });
+
+  /**
+   * A NOTE tab's identity is "a file directly in the notes dir whose name
+   * follows the tab title". Drag that file into another workspace and it stops
+   * being a note — otherwise the flusher owns a file it no longer knows where
+   * to keep.
+   */
+  describe('a note tab whose file leaves the notes dir', () => {
+    async function openNoteAndMoveTo(dest: string) {
+      const fs = makeFakeFs({ '/notes/buy-milk.md': '# Buy milk' });
+      fs.dirs.add(dest);
+      const controller = makeController(fs);
+      await controller.restore();
+      await controller.flushNow();
+      const note = tabs.tabsStore.getState().tabs.find((t) => t.notePath === '/notes/buy-milk.md')!;
+
+      await session.moveExplorerEntryInto('/notes/buy-milk.md', dest);
+
+      return { fs, controller, id: note.id };
+    }
+
+    test('becomes a plain file tab pointing at the new location', async () => {
+      const { fs, id } = await openNoteAndMoveTo('/ws');
+
+      expect(fs.files.has('/notes/buy-milk.md')).toBe(false);
+      expect(fs.files.get('/ws/buy-milk.md')).toBe('# Buy milk');
+      const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.kind).toBe('file');
+      expect(tab.notePath).toBe(null);
+      expect(tab.filePath).toBe('/ws/buy-milk.md');
+      expect(tab.dirty).toBe(false);
+    });
+
+    test('a subfolder of the notes dir counts as leaving it', async () => {
+      // planFlush only ever puts note files at the notes dir ROOT, so a note
+      // in `/notes/sub` would be dragged back out on the next title change.
+      const { id } = await openNoteAndMoveTo('/notes/sub');
+      const tab = tabs.tabsStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.kind).toBe('file');
+      expect(tab.filePath).toBe('/notes/sub/buy-milk.md');
+    });
+
+    test('the next flush neither recreates the note nor deletes the moved file', async () => {
+      const { fs, controller } = await openNoteAndMoveTo('/ws');
+      fs.ops.length = 0;
+
+      await controller.flushNow();
+
+      expect(fs.files.get('/ws/buy-milk.md')).toBe('# Buy milk');
+      expect([...fs.files.keys()].filter((p) => p.startsWith('/notes/'))).toEqual([]);
+      expect(fs.ops.some((op) => op.startsWith('delete:/ws/'))).toBe(false);
+    });
+
+    test('renaming the tab afterwards no longer drags the file back to the notes dir', async () => {
+      const { fs, controller, id } = await openNoteAndMoveTo('/ws');
+
+      tabs.tabsStore.getState().renameTab(id, 'Groceries');
+      await controller.flushNow();
+
+      expect(fs.files.has('/ws/buy-milk.md')).toBe(true);
+      expect(fs.files.has('/notes/groceries.md')).toBe(false);
+    });
+
+    test('closing the tab afterwards does not delete the moved file', async () => {
+      const { fs, controller, id } = await openNoteAndMoveTo('/ws');
+
+      tabs.tabsStore.getState().closeTab(id);
+      await controller.flushNow();
+
+      expect(fs.files.get('/ws/buy-milk.md')).toBe('# Buy milk');
+    });
   });
 });
 

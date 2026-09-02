@@ -226,7 +226,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
               void onNewFile(dir);
             }}
           >
-            File
+            Markdown File
           </button>
         )}
         {!readOnly && (

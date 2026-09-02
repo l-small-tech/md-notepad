@@ -43,13 +43,19 @@ Settings → Behavior; otherwise tabs stay wherever you drag them.
 
 Right-click gets you everywhere:
 
-- **Right-click a workspace or folder** → **New file** or **New folder**.
-  A new file opens immediately with its name ready to type.
+- **Right-click a workspace or folder** → **New** → **Markdown File** or
+  **Folder** (the same page also makes a vector drawing, a terminal, or an AI
+  session in that folder). A new file opens immediately with its name ready to
+  type.
 - **Right-click a file** → **Rename**, **Reveal in explorer** (shows the
   file in your system's file manager), or **Delete** (delete asks first —
-  there is no undo).
-- **Drag a file onto a folder** (or a workspace heading) to move it there.
+  there is no undo). Renaming to the same word with different capitals
+  (`notes` → `Notes`) works too.
+- **Drag a file onto a folder** (or a workspace heading) to move it there —
+  including a folder in a *different* workspace, even one on another drive.
   The app asks before moving; you can turn that question off in Settings.
+  Note tabs that leave the Notes folder become ordinary file tabs (they keep
+  their file; only the "the tab title names the file" behavior stops).
 
 ## Getting files in from elsewhere
 

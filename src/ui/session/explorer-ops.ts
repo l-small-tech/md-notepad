@@ -144,7 +144,9 @@ export function createExplorerOps(
     }
     const from = commentsPathFor(oldNotePath);
     const to = commentsPathFor(newNotePath);
-    if (pathKey(from) === pathKey(to)) {
+    // Raw compare, not pathKey: a case-only rename of the note must carry the
+    // sidecar's spelling along with it.
+    if (from === to) {
       return;
     }
     try {
@@ -154,6 +156,23 @@ export function createExplorerOps(
     } catch {
       // Best effort — see the doc comment.
     }
+  }
+
+  /**
+   * The on-disk mtime baseline to hand a tab whose file just moved to `path`,
+   * falling back to the tab's previous one when the stat fails (harmless — the
+   * next save re-stats anyway).
+   */
+  async function mtimeOf(path: string, tab: { savedMtimeMs: number | null }): Promise<number> {
+    try {
+      const stat = await ctx.ipc.statPath(path);
+      if (stat.mtimeMs !== null) {
+        return stat.mtimeMs;
+      }
+    } catch {
+      // Keep the prior baseline.
+    }
+    return tab.savedMtimeMs ?? ctx.now();
   }
 
   async function renameEntry(path: string, newName: string, isDir: boolean): Promise<void> {
@@ -180,11 +199,20 @@ export function createExplorerOps(
       return;
     }
     const newPath = joinPath(dirName(path), `${safeBase}${ext}`);
-    if (pathKey(newPath) === pathKey(path)) {
-      return; // no change (or case-only on a case-insensitive FS)
+    // Compare the BASENAMES, not pathKey: the directory is unchanged by
+    // construction, and pathKey lowercases — a case-only rename ("notes" →
+    // "Notes") is a real rename the user asked for, not a no-op. Comparing
+    // raw paths wouldn't do either: joinPath uses "/" while the listing hands
+    // us Windows "\" separators.
+    if (baseName(newPath) === baseName(path)) {
+      return; // nothing changed
     }
+    // On a case-insensitive filesystem the case-only target "exists" because
+    // it IS this entry, so the collision guard has to skip it (rename_path
+    // makes the same distinction on the Rust side).
+    const caseOnly = pathKey(newPath) === pathKey(path);
     try {
-      if ((await ctx.ipc.statPath(newPath)).exists) {
+      if (!caseOnly && (await ctx.ipc.statPath(newPath)).exists) {
         uiStore.getState().showNotice(`"${baseName(newPath)}" already exists.`);
         return;
       }
@@ -232,21 +260,46 @@ export function createExplorerOps(
 
   /**
    * Drag-drop move: relocate a single file/image from the explorer into
-   * `destDir`, keeping its basename. Confirms first (VSCode-style) unless the
-   * user turned that prompt off in settings. No-ops when it's already there;
-   * refuses a name collision. A tab that owns the file is retargeted so the
-   * flusher and restore stay consistent — file/image tabs via retargetFilePath,
-   * note tabs via applyFlushResult (same remap changeNotesDir uses).
+   * `destDir`, keeping its basename. `destDir` is ANY writable folder or
+   * workspace root — a move across workspaces (even one on another drive; the
+   * backend falls back to copy+delete there) is the same operation as a move
+   * into a sibling folder. Confirms first (VSCode-style) unless the user turned
+   * that prompt off in settings. No-ops when it's already there; refuses a name
+   * collision.
+   *
+   * A tab that owns the file is retargeted so the flusher and restore stay
+   * consistent:
+   * - file/image/import tabs — `retargetFilePath`;
+   * - a NOTE tab still landing directly in the notes dir — `applyFlushResult`
+   *   (the same remap changeNotesDir uses), since it is still a note;
+   * - a NOTE tab moved ANYWHERE ELSE — it stops being a note
+   *   (`adoptMovedNoteAsFile`). A note file's name follows the tab title and
+   *   lives in the notes dir by definition, so leaving it a note would let the
+   *   next title change drag the file back there, and closing the tab would
+   *   delete it out of its new workspace.
    */
   async function moveEntry(sourcePath: string, destDir: string): Promise<void> {
     if (ctx.refuseReadOnly(sourcePath) || ctx.refuseReadOnly(destDir)) {
       return;
     }
-    if (pathKey(dirName(sourcePath)) === pathKey(destDir)) {
+    // A note tab's file is written LAZILY (and renamed to follow the title) by
+    // the flusher: drain it first, so the bytes being moved are current and no
+    // in-flight rename can race the move. The drain may itself have renamed the
+    // file, so re-read the path from the tab afterwards.
+    let source = sourcePath;
+    const noteOwner = ctx.tabOwning(pathKey(sourcePath));
+    if (noteOwner?.kind === 'note') {
+      await ctx.flusher.flushNow();
+      const flushed = tabsStore.getState().tabs.find((t) => t.id === noteOwner.id);
+      if (flushed?.notePath) {
+        source = flushed.notePath;
+      }
+    }
+    if (pathKey(dirName(source)) === pathKey(destDir)) {
       return; // already in this folder
     }
-    const newPath = joinPath(destDir, baseName(sourcePath));
-    if (pathKey(newPath) === pathKey(sourcePath)) {
+    const newPath = joinPath(destDir, baseName(source));
+    if (pathKey(newPath) === pathKey(source)) {
       return;
     }
     try {
@@ -260,38 +313,40 @@ export function createExplorerOps(
     }
     if (settingsStore.getState().settings.confirmFileMove) {
       const ok = await ctx.confirm(
-        `Move "${baseName(sourcePath)}" to "${baseName(destDir)}"?`,
+        `Move "${baseName(source)}" to "${baseName(destDir)}"?`,
         'Move file',
       );
       if (!ok) {
         return;
       }
     }
-    const owner = ctx.tabOwning(pathKey(sourcePath));
+    const owner = ctx.tabOwning(pathKey(source));
     try {
-      await ctx.ipc.renamePath(sourcePath, newPath);
+      await ctx.ipc.renamePath(source, newPath);
     } catch (error) {
-      uiStore.getState().showNotice(`Could not move "${baseName(sourcePath)}".`);
+      uiStore.getState().showNotice(`Could not move "${baseName(source)}".`);
       ctx.deps.onError?.(error);
       return;
     }
-    await moveCommentsSidecar(sourcePath, newPath);
+    await moveCommentsSidecar(source, newPath);
     if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
-      let mtimeMs = owner.savedMtimeMs ?? ctx.now();
-      try {
-        const after = await ctx.ipc.statPath(newPath);
-        mtimeMs = after.mtimeMs ?? mtimeMs;
-      } catch {
-        // Keep the prior baseline; the next save re-stats anyway.
-      }
-      tabsStore.getState().retargetFilePath(owner.id, { filePath: newPath, mtimeMs });
+      tabsStore
+        .getState()
+        .retargetFilePath(owner.id, { filePath: newPath, mtimeMs: await mtimeOf(newPath, owner) });
     } else if (owner && owner.kind === 'note') {
-      tabsStore.getState().applyFlushResult({
-        assignedNotePaths: {},
-        renamedPaths: { [sourcePath]: newPath },
-        consumedClosedNotePaths: [],
-        consumedObsoleteBufferTabIds: [],
-      });
+      if (pathKey(dirName(newPath)) === pathKey(ctx.notesDir)) {
+        tabsStore.getState().applyFlushResult({
+          assignedNotePaths: {},
+          renamedPaths: { [source]: newPath },
+          consumedClosedNotePaths: [],
+          consumedObsoleteBufferTabIds: [],
+        });
+      } else {
+        tabsStore.getState().adoptMovedNoteAsFile(owner.id, {
+          filePath: newPath,
+          mtimeMs: await mtimeOf(newPath, owner),
+        });
+      }
     }
     uiStore.getState().refreshExplorer();
   }

@@ -8,7 +8,7 @@ import { useRef } from 'react';
 import { isImagePath } from '../../../core/images';
 import { appendImagesToMd, moveExplorerEntryInto } from '../../session';
 import { uiStore } from '../../stores/ui';
-import { clampExplorerWidth, DRAG_THRESHOLD_PX } from './helpers';
+import { clampExplorerWidth, dropDirAt, dropFileAt, DRAG_THRESHOLD_PX } from './helpers';
 
 /**
  * Drawer width in px — module scope, not React state: dragging fires on every
@@ -61,8 +61,7 @@ export function useFileDrag() {
     let dragging = false;
 
     function targetDirAt(x: number, y: number): string | null {
-      const el = document.elementFromPoint(x, y)?.closest('[data-drop-dir]');
-      return el?.getAttribute('data-drop-dir') ?? null;
+      return dropDirAt(document.elementFromPoint(x, y));
     }
     // An md file row under the pointer, but only relevant when dragging an
     // image — that combination embeds the image instead of moving the file.
@@ -70,8 +69,7 @@ export function useFileDrag() {
       if (!isImagePath(sourcePath)) {
         return null;
       }
-      const el = document.elementFromPoint(x, y)?.closest('[data-drop-file]');
-      return el?.getAttribute('data-drop-file') ?? null;
+      return dropFileAt(document.elementFromPoint(x, y));
     }
     function cleanup(): void {
       window.removeEventListener('pointermove', onMove);
@@ -107,7 +105,8 @@ export function useFileDrag() {
         dragConsumedClick.current = false;
       }, 0);
       // Dropping an image onto an md file embeds it (with confirmation);
-      // anything else is an in-workspace move into the hovered folder.
+      // anything else moves the file into the hovered folder — which may
+      // belong to a different workspace, the controller doesn't care.
       const mdFile = targetMdFileAt(e.clientX, e.clientY);
       if (mdFile) {
         void appendImagesToMd(mdFile, [sourcePath]);
