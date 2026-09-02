@@ -95,10 +95,15 @@
    themes like committed ink), which also makes it match the file's own
    `svg.wb-board{background:var(--wb-bg,…)}` surface rule — and an OPAQUE
    overlay sitting on the board hides every committed stroke the instant the
-   preview clears ("draws, then vanishes on release"). Out-specify that rule
-   (0,2,0 beats its 0,1,1): the overlay is always transparent. */
+   preview clears ("draws, then vanishes on release").
+
+   That surface rule lives in a stylesheet the app does not own: the file's
+   palette block, adopted into the document with the board. Its selector has
+   changed before (`:not(.wb-fixed)` lifted it to 0,2,1 and re-opened the bug
+   after a plain 0,2,0 override had closed it), so specificity is not a stable
+   contract here — `!important` is. The overlay is always transparent. */
 .wb-canvas > .wb-live {
-  background: none;
+  background: none !important;
 }
 
 /* ---------------------------- selection chrome ---------------------------- */

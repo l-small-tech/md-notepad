@@ -342,6 +342,15 @@ three on a dark theme to confirm nothing regressed.
       hand-edit one, open another terminal → it is NOT rewritten until the
       app restarts (once per process), and IS rewritten after a restart.
 
+## Drawing (SVG whiteboard)
+
+- [ ] New vector drawing (blank board), then draw a pen stroke AND a rect with
+      the mouse. Each stays on the board after the button is released — the
+      overlay that shows the in-progress shape must be transparent even though
+      the board's own palette stylesheet paints `svg.wb-board` surfaces.
+      Repeat after toggling the ◐ colour-mode button (fixed colours) and in a
+      dark theme.
+
 ## Mobile (Android)
 
 - [ ] Tap the editor text → the soft keyboard opens and the caret lands where

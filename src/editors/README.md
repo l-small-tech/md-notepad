@@ -225,4 +225,7 @@ build instead of self-healing the session away.
 Adapters are thin DOM glue by design — logic that can be tested (guard
 wiring decisions, selection clamping, hint predicate) must live in pure
 functions beside them and get Vitest coverage. The adapters themselves are
-exercised by the QA checklists (M1/M5).
+exercised by the QA checklists (M1/M5). One exception is pinned in
+`__tests__/whiteboard-overlay.test.ts`: the draw overlay's `background: none
+!important` — a cascade contract against the FILE's adopted palette stylesheet
+that has regressed twice ("stroke draws, then vanishes on release").
