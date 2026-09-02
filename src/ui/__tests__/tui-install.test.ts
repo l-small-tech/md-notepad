@@ -22,6 +22,7 @@ vi.mock('../platform', async (importOriginal) => ({
 
 import { DEFAULT_SETTINGS } from '../../core/settings';
 import { ipc } from '../../ipc/commands';
+import { defaultShellStore, resetDefaultShell } from '../stores/default-shell';
 import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
 import { terminalsStore } from '../stores/terminals';
@@ -45,6 +46,7 @@ function newestPane() {
 beforeEach(() => {
   settingsStore.getState().replace({ ...DEFAULT_SETTINGS });
   os.mockReturnValue('linux');
+  resetDefaultShell();
   defaultShell = vi.spyOn(ipc, 'defaultShell').mockResolvedValue('bash');
   findPrograms = vi
     .spyOn(ipc, 'findPrograms')
@@ -93,19 +95,26 @@ describe('installAgent', () => {
       },
     });
 
+    const resolve = vi.spyOn(defaultShellStore.getState(), 'resolve');
     await installAgent('gemini');
 
-    expect(defaultShell).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    resolve.mockRestore();
     expect(newestPane().initialInput).toMatch(
       /^winget install -e --id OpenJS\.NodeJS\.LTS; if \(\$\?\)/,
     );
   });
 
-  test('an automatic shell asks the backend which one it is', async () => {
+  test('an automatic shell asks the shared default-shell cache which one it is', async () => {
     os.mockReturnValue('windows');
-    defaultShell.mockResolvedValue('C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+    // The same cache the Settings dialog and terminal panes consult, so the
+    // install line is spelled for the shell they will actually spawn.
+    defaultShellStore.setState({ program: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' });
+    const resolve = vi.spyOn(defaultShellStore.getState(), 'resolve');
     await installAgent('claude');
-    expect(defaultShell).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    resolve.mockRestore();
+    expect(defaultShell).not.toHaveBeenCalled();
     // pwsh 7: the native installer, no winget on this machine.
     expect(newestPane().initialInput).toBe('irm https://claude.ai/install.ps1 | iex');
   });

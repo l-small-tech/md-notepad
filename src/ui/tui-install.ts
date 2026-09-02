@@ -13,9 +13,9 @@
 import { resolveTerminalProfile, terminalProgram } from '../core/settings';
 import { installCommandFor, installShellFor } from '../core/tui-install';
 import { SHELL_PROFILE_ID, type AiTuiAgentId } from '../core/types';
-import { ipc } from '../ipc/commands';
 import { getDefaultWorkspacePath } from './session';
 import { desktopOs, isAndroid } from './platform';
+import { defaultShellStore } from './stores/default-shell';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
 import { installContextOf, tuiAvailabilityStore } from './stores/tui-availability';
@@ -44,11 +44,8 @@ async function shellProgram(profileId: string): Promise<string | null> {
   if (explicit) {
     return explicit;
   }
-  try {
-    return await ipc.defaultShell();
-  } catch {
-    return null;
-  }
+  // The same cached answer the Settings dialog and terminal panes use.
+  return defaultShellStore.getState().resolve();
 }
 
 /** Run `onClose` once the tab with this id is gone from the tab strip. */

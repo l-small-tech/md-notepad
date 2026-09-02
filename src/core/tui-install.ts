@@ -22,7 +22,7 @@
  * Bash) spell the same steps three ways.
  */
 
-import type { DesktopOs } from './terminal-shells';
+import { shellKind, type DesktopOs } from './terminal-shells';
 import type { AiTuiAgentId } from './types';
 
 /**
@@ -72,9 +72,9 @@ export function installShellFor(
   if (os !== 'windows') {
     return 'posix';
   }
-  const base = (shellProgram ?? 'pwsh').replaceAll('\\', '/').split('/').pop()!.toLowerCase();
-  const name = base.endsWith('.exe') ? base.slice(0, -4) : base;
-  switch (name) {
+  // One basename parser for the whole app: the same `shellKind` the pane uses
+  // to choose its shell integration decides the install dialect.
+  switch (shellKind(shellProgram ?? 'pwsh')) {
     case 'pwsh':
       return 'pwsh';
     case 'powershell':
