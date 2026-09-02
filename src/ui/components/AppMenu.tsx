@@ -270,7 +270,7 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
     <>
       <AppMenuItem
         glyph="📝"
-        label="Markdown note"
+        label="Markdown File"
         onPick={() => runNewTabChoice('note')}
         onClose={onClose}
       />

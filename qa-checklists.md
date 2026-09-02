@@ -83,6 +83,16 @@ sibling `session/` folder).
       restore-after-kill shows the error notice, not a crash.
 - [ ] Dirty file tab + close (Ctrl+W) → save/discard/cancel prompt; all
       three paths behave.
+- [ ] Explorer drag ACROSS workspaces: drag a file from one workspace onto a
+      folder row (and onto the header) of another → confirm → the file lands
+      there and its tab follows. Repeat with the two workspaces on DIFFERENT
+      drives (C: → D:) — the move still works.
+- [ ] Drag a NOTE tab's file out of the Notes workspace → the tab becomes a
+      plain file tab (renaming the tab no longer renames the file); wait 5s,
+      then close the tab → the moved file is still there.
+- [ ] Rename a file and a folder to the SAME name with different capitals
+      (`notes` → `Notes`) → the sidebar shows the new spelling, no "already
+      exists" notice, and an open tab from that folder still saves.
 
 ## M4 — Preview
 

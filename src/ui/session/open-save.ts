@@ -263,11 +263,18 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
       return;
     }
     const newPath = joinPath(dirName(oldPath), `${safeBase}${ext}`);
-    if (pathKey(newPath) === pathKey(oldPath)) {
-      return; // no change (or case-only on a case-insensitive FS)
+    // Basenames, not pathKey: the directory is unchanged by construction, and
+    // pathKey lowercases — a case-only rename ("Notes.md") is a real rename.
+    // (Raw paths can't be compared either: joinPath uses "/" while an open
+    // tab's path may carry Windows "\" separators.)
+    if (baseName(newPath) === baseName(oldPath)) {
+      return; // nothing changed
     }
+    // A case-only target "exists" on Windows/macOS because it IS this file —
+    // the collision guard must skip it (rename_path draws the same line).
+    const caseOnly = pathKey(newPath) === pathKey(oldPath);
     try {
-      const existing = await ctx.ipc.statPath(newPath);
+      const existing = caseOnly ? { exists: false } : await ctx.ipc.statPath(newPath);
       if (existing.exists) {
         uiStore.getState().showNotice(`A file named "${safeBase}${ext}" already exists.`);
         return;

@@ -91,6 +91,12 @@ model change / tab op ──▶ flusher.request()
 - Consequence: a lost/corrupt manifest costs tab order, modes and cursors —
   never note content. This property is load-bearing; don't move note
   content into the manifest or buffers.
+- A note tab's file lives at the notes dir ROOT — `planFlush` never writes
+  one anywhere else, and its NAME follows the tab title. So a note file that
+  leaves that directory (dragged into another workspace, or into a
+  subfolder) can no longer be a note: the ui side converts the tab to a file
+  tab (`tabsStore.adoptMovedNoteAsFile`). Anything that relocates a note file
+  owes the same conversion, or the next title change will drag the file back.
 
 ## Gotchas
 

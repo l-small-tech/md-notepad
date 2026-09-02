@@ -76,6 +76,33 @@ export function toggleTreeAll(
 /** Pointer travel (px, Manhattan) before a press on a file row becomes a drag. */
 export const DRAG_THRESHOLD_PX = 5;
 
+/**
+ * Resolve the element under the pointer to the directory a drop there lands in:
+ * the nearest ancestor carrying `data-drop-dir`. Folder rows advertise
+ * themselves, file rows advertise their CONTAINING dir, and the whole
+ * `.workspace-section` advertises the workspace root — so every point in the
+ * drawer that can take a file resolves to something, and a read-only workspace
+ * (which renders no attribute anywhere) resolves to null and refuses drops.
+ *
+ * Deliberately blind to which workspace the DRAGGED file came from: moving a
+ * file into another workspace is the same operation as moving it into a
+ * sibling folder, and `moveExplorerEntryInto` handles both.
+ *
+ * Used by the internal pointer drag (`useFileDrag`); `main.tsx` hit-tests the
+ * same attributes for OS drags — keep the two in step.
+ */
+export function dropDirAt(el: Element | null | undefined): string | null {
+  return el?.closest('[data-drop-dir]')?.getAttribute('data-drop-dir') ?? null;
+}
+
+/**
+ * The same lookup for `data-drop-file`: the md rows that take an IMAGE drop and
+ * embed it at the end of that file instead of moving anything.
+ */
+export function dropFileAt(el: Element | null | undefined): string | null {
+  return el?.closest('[data-drop-file]')?.getAttribute('data-drop-file') ?? null;
+}
+
 export const MIN_EXPLORER_WIDTH = 160;
 export const MAX_EXPLORER_WIDTH = 480;
 

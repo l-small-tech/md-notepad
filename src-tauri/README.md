@@ -42,7 +42,7 @@ session concepts in Rust, stop and move it to `src/core`.
 | Rust `FsError` | wire `code` | TS meaning |
 | --- | --- | --- |
 | `NotFound(path)` | `NOT_FOUND` | subject missing; often expected (stat, restore) |
-| `Exists(path)` | `EXISTS` | rename refused to clobber; caller resolves collisions |
+| `Exists(path)` | `EXISTS` | rename refused to clobber a DIFFERENT entry; caller resolves collisions |
 | `InvalidPath(msg)` | `INVALID_PATH` | caller bug — surface loudly in dev |
 | `InvalidData(msg)` | `INVALID_DATA` | malformed payload (e.g. bad base64) — caller bug |
 | `Io(err)` | `IO` | everything else; message is for logs only |
@@ -88,6 +88,18 @@ on Unix and `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` on Windows — plain
 `std::fs::rename` fails on Windows when the target exists. The cargo tests
 pin all of this; they run on the 3-OS CI matrix because this is exactly the
 code that behaves differently per OS.
+
+`rename_path` carries the other two per-OS traps:
+
+- A **case-only rename** (`notes` → `Notes`) hits a destination that already
+  "exists" on Windows/macOS because it IS the source. `is_same_entry`
+  (device+inode on Unix, canonical path on Windows) separates that from a real
+  collision; the same-entry case renames directly, falling back to a two-step
+  rename through a `.…rename<n>.tmp` sibling when a filesystem refuses it.
+- A **move across filesystems** (a workspace on another drive) has no rename
+  primitive: `EXDEV` / `ERROR_NOT_SAME_DEVICE` falls back to the same atomic
+  copy `copy_path` uses, then removes the source. Files only — no recursive
+  directory copy.
 
 ## Build notes
 

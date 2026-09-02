@@ -243,21 +243,27 @@ pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if to.exists() {
         return Err(FsError::Exists(to));
     }
+    copy_file_atomic(&from, &to)
+}
+
+/// Copy the file at `from` onto `to` through a temp file in the DESTINATION's
+/// own directory, then atomically rename into place — same invariant as
+/// `atomic_write_bytes`, so a crash mid-copy can't leave a half-written file at
+/// `to`. Shared by `copy_path` and `rename_path`'s cross-filesystem fallback;
+/// neither existence check lives here (each caller owns its own contract).
+fn copy_file_atomic(from: &Path, to: &Path) -> FsResult<()> {
     let dir = to
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| FsError::InvalidPath(format!("{} has no parent directory", to.display())))?;
     fs::create_dir_all(dir)?;
-    // Copy into a temp file in the destination's own directory, then atomically
-    // rename into place — same invariant as `atomic_write_bytes`, so a crash
-    // mid-copy can't leave a half-written file at `to`.
-    let mut tmp = temp_beside(&to, dir)?;
+    let mut tmp = temp_beside(to, dir)?;
     {
-        let mut src = fs::File::open(&from).map_err(|e| not_found_or_io(e, &from))?;
+        let mut src = fs::File::open(from).map_err(|e| not_found_or_io(e, from))?;
         std::io::copy(&mut src, tmp.as_file_mut())?;
     }
     tmp.as_file().sync_all()?;
-    tmp.persist(&to).map_err(|e| FsError::Io(e.error))?;
+    tmp.persist(to).map_err(|e| FsError::Io(e.error))?;
     Ok(())
 }
 
@@ -482,20 +488,137 @@ pub async fn read_file_base64(path: PathBuf) -> FsResult<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// Rename/move a file. Fails with EXISTS if the destination is taken —
-/// slug collision resolution is frontend logic (src/core/session), so this
-/// command must never clobber. (There is an inherent check-then-rename race;
-/// acceptable for a notes dir owned by this app.)
+/// Rename/move a file or folder. Fails with EXISTS if the destination is taken
+/// by a DIFFERENT entry — slug collision resolution is frontend logic
+/// (src/core/session), so this command must never clobber. (There is an
+/// inherent check-then-rename race; acceptable for a notes dir owned by this
+/// app.)
+///
+/// Two cases the plain `exists → EXISTS` + `fs::rename` pair gets wrong:
+///
+/// - **Case-only rename** (`notes` → `Notes`). On Windows and macOS the
+///   destination "exists" because it IS the source, so the guard above would
+///   refuse a perfectly legal rename. `is_same_entry` tells the two apart, and
+///   a same-entry rename is performed (with a two-step fallback through a
+///   temporary sibling for filesystems that refuse the direct one).
+/// - **Move across filesystems** (dragging a file into a workspace on another
+///   drive, or onto a mounted/synced volume). `fs::rename` has no cross-device
+///   primitive and fails with `EXDEV` / `ERROR_NOT_SAME_DEVICE`; for a file we
+///   fall back to copy-then-remove. A DIRECTORY across devices would need a
+///   recursive copy and is left to fail — nothing in the app moves folders
+///   between workspaces.
 #[tauri::command]
 pub async fn rename_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if !from.exists() {
         return Err(FsError::NotFound(from));
     }
     if to.exists() {
-        return Err(FsError::Exists(to));
+        if !is_same_entry(&from, &to) {
+            return Err(FsError::Exists(to));
+        }
+        return rename_same_entry(&from, &to);
     }
-    fs::rename(&from, &to)?;
-    Ok(())
+    match fs::rename(&from, &to) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device(&e) && from.is_file() => {
+            copy_file_atomic(&from, &to)?;
+            // Only now is the move real. If the source can't be dropped, undo
+            // the copy: a half-done move that silently duplicates the file
+            // would be worse than the failure the caller already reports.
+            if let Err(e) = fs::remove_file(&from) {
+                let _ = fs::remove_file(&to);
+                return Err(e.into());
+            }
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Do `from` and `to` name the same file/folder on disk? True for a case-only
+/// difference on a case-insensitive filesystem — and for the `a/./b` style
+/// spellings the frontend's mixed `/`+`\` joins can produce. Identity, not
+/// string comparison: device+inode on Unix (macOS `realpath` does NOT correct
+/// the case, so canonicalizing would miss exactly the case we care about),
+/// canonical path on Windows (whose canonicalize resolves to the on-disk
+/// spelling). Both follow symlinks, so a symlink AT `to` pointing at `from`
+/// counts as the same entry — an acceptable edge for a rename the user just
+/// asked for. When identity can't be established the answer is `false`, and the
+/// caller keeps its no-clobber refusal.
+fn is_same_entry(from: &Path, to: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(from), fs::metadata(to)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (fs::canonicalize(from), fs::canonicalize(to)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// Rename `from` onto a `to` that IS `from` — a case-only change on a
+/// case-insensitive filesystem, or a no-op respelling. A direct `fs::rename`
+/// handles this on Windows and macOS; when a filesystem refuses it, go through
+/// a unique temporary sibling and restore the original name if the second leg
+/// fails, so a failure never loses the file.
+fn rename_same_entry(from: &Path, to: &Path) -> FsResult<()> {
+    if from == to {
+        return Ok(()); // literally the same spelling: nothing to do
+    }
+    if fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    let via = temp_sibling_name(to)?;
+    fs::rename(from, &via)?;
+    match fs::rename(&via, to) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::rename(&via, from); // put it back under its old name
+            Err(e.into())
+        }
+    }
+}
+
+/// A free scratch path beside `path` for the two-step case-only rename. Same
+/// dot-prefixed `.tmp` shape as `temp_beside` (see its doc for why), but a bare
+/// path — the entry being moved may be a directory, which `tempfile` can't
+/// stand in for.
+fn temp_sibling_name(path: &Path) -> FsResult<PathBuf> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| {
+            FsError::InvalidPath(format!("{} has no parent directory", path.display()))
+        })?;
+    let prefix = temp_prefix(path);
+    for n in 0..1000 {
+        let candidate = dir.join(format!("{prefix}rename{n}.tmp"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(FsError::InvalidPath(format!(
+        "no free temporary name beside {}",
+        path.display()
+    )))
+}
+
+/// Did this rename fail because source and destination live on different
+/// filesystems? `ErrorKind::CrossesDevices` is still unstable, so match the raw
+/// OS codes: `EXDEV` (18) on Unix, `ERROR_NOT_SAME_DEVICE` (17) on Windows.
+fn is_cross_device(e: &std::io::Error) -> bool {
+    #[cfg(windows)]
+    const CODE: i32 = 17;
+    #[cfg(not(windows))]
+    const CODE: i32 = 18;
+    e.raw_os_error() == Some(CODE)
 }
 
 /// Delete a file, or a folder and everything inside it (explorer "Delete
@@ -884,6 +1007,96 @@ mod tests {
         block_on(rename_path(a.clone(), b.clone())).unwrap();
         assert!(!a.exists());
         assert_eq!(fs::read_to_string(&b).unwrap(), "a");
+    }
+
+    /// Names directly inside `dir`, for asserting the on-disk SPELLING of an
+    /// entry (which `Path::exists` can't see on a case-insensitive filesystem).
+    fn entry_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Does this filesystem fold `a` and `A` together? Windows and macOS do,
+    /// Linux CI does not. The rename must work either way; the probe only
+    /// decides what may be asserted about the OLD spelling afterwards.
+    fn case_insensitive(dir: &Path) -> bool {
+        let probe = dir.join("case-probe");
+        fs::write(&probe, "x").unwrap();
+        let folded = dir.join("CASE-PROBE").exists();
+        fs::remove_file(&probe).unwrap();
+        folded
+    }
+
+    #[test]
+    fn rename_changes_only_letter_case() {
+        let dir = tmpdir();
+        let folded = case_insensitive(dir.path());
+        let lower = dir.path().join("notes.md");
+        let upper = dir.path().join("Notes.md");
+        fs::write(&lower, "body").unwrap();
+
+        // On a case-insensitive FS `upper` already "exists" here — it IS
+        // `lower` — which is exactly what used to be refused as EXISTS.
+        block_on(rename_path(lower.clone(), upper.clone())).unwrap();
+
+        assert_eq!(fs::read_to_string(&upper).unwrap(), "body");
+        let names = entry_names(dir.path());
+        assert_eq!(names, vec!["Notes.md".to_string()], "{names:?}");
+        if !folded {
+            assert!(!lower.exists());
+        }
+    }
+
+    #[test]
+    fn rename_changes_only_letter_case_of_a_folder() {
+        let dir = tmpdir();
+        let folded = case_insensitive(dir.path());
+        let lower = dir.path().join("notes");
+        let upper = dir.path().join("Notes");
+        fs::create_dir(&lower).unwrap();
+        fs::write(lower.join("inside.md"), "kept").unwrap();
+
+        block_on(rename_path(lower.clone(), upper.clone())).unwrap();
+
+        // The contents came along, and no scratch sibling from the two-step
+        // fallback was left behind.
+        assert_eq!(fs::read_to_string(upper.join("inside.md")).unwrap(), "kept");
+        let names = entry_names(dir.path());
+        assert_eq!(names, vec!["Notes".to_string()], "{names:?}");
+        if !folded {
+            assert!(!lower.exists());
+        }
+    }
+
+    #[test]
+    fn rename_to_the_very_same_path_is_a_no_op() {
+        let dir = tmpdir();
+        let target = dir.path().join("note.md");
+        fs::write(&target, "kept").unwrap();
+        block_on(rename_path(target.clone(), target.clone())).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "kept");
+    }
+
+    #[test]
+    fn rename_still_refuses_a_different_existing_file_that_differs_only_in_case() {
+        // Only meaningful where `notes.md` and `Notes.md` can coexist; on a
+        // case-insensitive FS the second write would just overwrite the first.
+        let dir = tmpdir();
+        if case_insensitive(dir.path()) {
+            return;
+        }
+        let a = dir.path().join("notes.md");
+        let b = dir.path().join("Notes.md");
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        let err = block_on(rename_path(a.clone(), b.clone())).unwrap_err();
+        assert_eq!(err.code(), "EXISTS");
+        assert_eq!(fs::read_to_string(&a).unwrap(), "a");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "b");
     }
 
     #[test]

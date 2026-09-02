@@ -384,6 +384,51 @@ describe('saveToPath (M3)', () => {
   });
 });
 
+describe('adoptMovedNoteAsFile (explorer drag out of the notes dir)', () => {
+  /** A note tab that a prior flush has already given a note file. */
+  function noteTabWithFile(): string {
+    const id = tabAt(0).id;
+    tabAt(0).model.pushText('# Grocery list', 'cm6');
+    tabAt(0).model.markPersisted('session');
+    state().applyFlushResult({
+      assignedNotePaths: { [id]: '/notes/grocery-list.md' },
+      renamedPaths: {},
+      consumedClosedNotePaths: [],
+      consumedObsoleteBufferTabIds: [],
+    });
+    return id;
+  }
+
+  test('converts the note tab to a clean file tab at the new path', () => {
+    const id = noteTabWithFile();
+
+    state().adoptMovedNoteAsFile(id, { filePath: '/ws/grocery-list.md', mtimeMs: 7 });
+
+    const tab = tabAt(0);
+    expect(tab.kind).toBe('file');
+    expect(tab.filePath).toBe('/ws/grocery-list.md');
+    expect(tab.notePath).toBeNull();
+    expect(tab.savedMtimeMs).toBe(7);
+    expect(tab.dirty).toBe(false);
+    expect(tab.model.isDirty('file')).toBe(false);
+  });
+
+  test('queues NO note-file deletion — the file moved, it was not superseded', () => {
+    // The difference from Save As: a tombstone here could delete a NEW note
+    // that later takes the freed name in the notes dir.
+    const id = noteTabWithFile();
+    state().adoptMovedNoteAsFile(id, { filePath: '/ws/grocery-list.md', mtimeMs: 7 });
+    expect(state().closedNotePaths).toEqual([]);
+  });
+
+  test('is a no-op on anything that is not a note tab', () => {
+    const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
+    state().adoptMovedNoteAsFile(id, { filePath: '/ws/a.md', mtimeMs: 2 });
+    const tab = state().tabs.find((t) => t.id === id)!;
+    expect(tab.filePath).toBe('/docs/a.md');
+  });
+});
+
 describe('preview tabs', () => {
   test('opens an italic preview tab, active', () => {
     const id = state().openFileTab({

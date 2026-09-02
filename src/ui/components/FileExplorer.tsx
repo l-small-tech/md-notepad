@@ -28,10 +28,11 @@
  *   Dropping image(s) onto an md file row (`data-drop-file`) instead embeds
  *   them into that file (`appendImagesToMd`, which confirms first).
  *
- * Moving files WITHIN the workspace: drag a file/image row onto a folder row
- * or workspace header to MOVE it there via `moveExplorerEntryInto` (the
- * controller confirms first, VSCode-style, unless the user suppressed that in
- * settings). Dragging an IMAGE row onto an md file row embeds it into that file
+ * Moving files: drag a file/image row onto ANY writable folder row or
+ * workspace header — its own workspace or another one — to MOVE it there via
+ * `moveExplorerEntryInto` (the controller confirms first, VSCode-style, unless
+ * the user suppressed that in settings; read-only workspaces render no
+ * `data-drop-dir` and so accept nothing). Dragging an IMAGE row onto an md file row embeds it into that file
  * instead of moving it (`appendImagesToMd`). Implemented with raw pointer
  * events, NOT HTML5 drag-and-drop:
  * Tauri's OS drag-drop interception (which the Explorer-to-app drop feature

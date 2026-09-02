@@ -242,6 +242,19 @@ export interface TabsState {
    * state are untouched (the rename moved the bytes, it didn't save them).
    */
   retargetFilePath: (id: string, input: { filePath: string; mtimeMs: number }) => void;
+  /**
+   * The explorer MOVED a note tab's file out of the notes dir (into another
+   * workspace, or into a subfolder). A note's identity is "a file directly in
+   * the notes dir whose name follows the tab title", so the tab has to
+   * graduate to a plain file tab at `filePath` — otherwise the flusher would
+   * rename the file back into the notes dir on the next title change, and
+   * closing the tab would delete it.
+   *
+   * Like {@link saveToPath} minus the note-file tombstone: the file was MOVED,
+   * not superseded, so queuing its old path for deletion would be wrong (and
+   * could delete a brand-new note that later takes the freed name).
+   */
+  adoptMovedNoteAsFile: (id: string, input: { filePath: string; mtimeMs: number }) => void;
   /** M3 — external-change detection: show/hide the per-tab ConflictBanner. */
   setConflict: (id: string, conflict: boolean) => void;
   /**
@@ -902,6 +915,35 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         obsoleteBufferTabIds: s.obsoleteBufferTabIds.includes(id)
           ? s.obsoleteBufferTabIds
           : [...s.obsoleteBufferTabIds, id],
+      });
+      requestFlush();
+    },
+
+    adoptMovedNoteAsFile(id, { filePath, mtimeMs }) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === id);
+      if (!tab || tab.kind !== 'note') {
+        return;
+      }
+      // The caller drained the flusher before moving, so the bytes at
+      // `filePath` ARE the model text: both channels are persisted and the
+      // tab is clean. No closedNotePaths entry — see the action's doc.
+      tab.model.markPersisted('file');
+      tab.model.markPersisted('session');
+      set({
+        tabs: s.tabs.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                kind: 'file',
+                notePath: null,
+                filePath,
+                savedMtimeMs: mtimeMs,
+                dirty: false,
+                conflict: false,
+              }
+            : t,
+        ),
       });
       requestFlush();
     },
