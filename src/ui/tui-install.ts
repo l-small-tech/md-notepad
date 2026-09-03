@@ -6,8 +6,9 @@
  * answers any prompt the installer puts up (a UAC dialog, a license, a
  * `sudo` password), and is left standing in a working shell afterwards. The
  * command itself is pure policy in core/tui-install.ts; this file only picks
- * the shell it will run in, opens the tab, and re-checks PATH once that tab
- * is closed so the agent's row stops being dimmed.
+ * the shell it will run in, opens the tab, and watches PATH while that tab
+ * is open so the agent's row flips from "Installing…" to installed by
+ * itself — the user need not recognise what a finished install looks like.
  */
 
 import { resolveTerminalProfile, terminalProgram } from '../core/settings';
@@ -82,8 +83,45 @@ export async function installAgent(agent: AiTuiAgentId): Promise<string | null> 
     initialInput: command,
   });
   if (tabId) {
-    // The row un-dims by itself once the user closes the install tab.
-    whenTabCloses(tabId, () => void tuiAvailabilityStore.getState().refresh());
+    watchInstall(agent, tabId);
   }
   return tabId;
+}
+
+/** How often PATH is re-scanned while an install tab is open. */
+export const INSTALL_POLL_MS = 2000;
+
+/**
+ * Mark `agent` as installing and re-scan PATH every `INSTALL_POLL_MS` until
+ * it is found (the row shows ✓) or the tab is closed (the row goes back to
+ * offering Install). One last scan runs on close, as before.
+ */
+export function watchInstall(agent: AiTuiAgentId, tabId: string): void {
+  const store = tuiAvailabilityStore;
+  store.getState().setInstalling(agent, true);
+  let done = false;
+  const finish = () => {
+    if (done) {
+      return;
+    }
+    done = true;
+    clearInterval(timer);
+    unsubscribeTab();
+    unsubscribeStore();
+    store.getState().setInstalling(agent, false);
+  };
+  const timer = setInterval(() => {
+    if (!store.getState().checking) {
+      void store.getState().refresh();
+    }
+  }, INSTALL_POLL_MS);
+  const unsubscribeStore = store.subscribe((state) => {
+    if (state.agents[agent].status === 'installed') {
+      finish();
+    }
+  });
+  const unsubscribeTab = whenTabCloses(tabId, () => {
+    finish();
+    void store.getState().refresh();
+  });
 }

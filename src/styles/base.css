@@ -164,3 +164,8 @@ html[data-cursor='underscore'] .cm-cursor {
 ::selection {
   background: var(--selection);
 }
+
+/* Runs of periods in the raw editor never ligate (editors/plain-dots.ts). */
+.cm-plain-dots {
+  font-variant-ligatures: none;
+}

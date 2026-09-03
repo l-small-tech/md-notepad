@@ -85,6 +85,7 @@ describe('agentRowModel', () => {
   test('unknown shows nothing and offers nothing', () => {
     expect(agentRowModel(UNKNOWN_AVAILABILITY, true)).toEqual({
       dimmed: false,
+      installing: false,
       hint: null,
       title: null,
       install: false,
@@ -94,6 +95,7 @@ describe('agentRowModel', () => {
   test('installed shows a check mark with the path, undimmed, no Install', () => {
     expect(agentRowModel({ status: 'installed', path: 'C:\\bin\\claude.exe' }, true)).toEqual({
       dimmed: false,
+      installing: false,
       hint: '✓ C:\\bin\\claude.exe',
       title: 'C:\\bin\\claude.exe',
       install: false,
@@ -103,6 +105,7 @@ describe('agentRowModel', () => {
   test('missing dims the row; Install only when a route exists', () => {
     expect(agentRowModel({ status: 'missing', path: null }, true)).toEqual({
       dimmed: true,
+      installing: false,
       hint: 'not found on PATH',
       title: null,
       install: true,
@@ -111,6 +114,31 @@ describe('agentRowModel', () => {
     expect(noRoute.dimmed).toBe(true);
     expect(noRoute.install).toBe(false);
     expect(noRoute.hint).toMatch(/Node\.js/);
+  });
+
+  test('installing replaces the Install button with a pending hint until found', () => {
+    const pending = agentRowModel({ status: 'missing', path: null }, true, true);
+    expect(pending.installing).toBe(true);
+    expect(pending.install).toBe(false);
+    expect(pending.hint).toMatch(/^Installing/);
+    // Found on PATH wins over the (still open) install tab.
+    const found = agentRowModel({ status: 'installed', path: '/usr/bin/claude' }, true, true);
+    expect(found.installing).toBe(false);
+    expect(found.hint).toBe('✓ /usr/bin/claude');
+  });
+});
+
+describe('setInstalling', () => {
+  test('adds and removes an agent once, never duplicating it', () => {
+    const { setInstalling } = tuiAvailabilityStore.getState();
+    setInstalling('claude', true);
+    setInstalling('claude', true);
+    expect(tuiAvailabilityStore.getState().installing).toEqual(['claude']);
+    setInstalling('gemini', true);
+    setInstalling('claude', false);
+    expect(tuiAvailabilityStore.getState().installing).toEqual(['gemini']);
+    setInstalling('gemini', false);
+    expect(tuiAvailabilityStore.getState().installing).toEqual([]);
   });
 });
 

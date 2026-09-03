@@ -45,6 +45,9 @@ interface TuiAvailabilityState {
   tools: Record<InstallTool, TuiAvailability>;
   /** A scan is in flight (the Re-check button says so). */
   checking: boolean;
+  /** Agents whose install tab is open and not yet found on PATH (the row says "Installing…"). */
+  installing: readonly AiTuiAgentId[];
+  setInstalling: (agent: AiTuiAgentId, on: boolean) => void;
   /** Re-scan PATH for every known program. Resolves when the store is updated. */
   refresh: () => Promise<void>;
 }
@@ -108,6 +111,8 @@ export function installContextOf(tools: Record<InstallTool, TuiAvailability>): I
 export interface AgentRowModel {
   /** Draw the name muted: the agent is not on PATH. */
   dimmed: boolean;
+  /** An install tab is open for it: show a pending indicator instead of the Install button. */
+  installing: boolean;
   /** Short status beside the name, or null while nothing is known. */
   hint: string | null;
   /** Tooltip for the hint (the full path, which the hint may truncate). */
@@ -116,13 +121,29 @@ export interface AgentRowModel {
   install: boolean;
 }
 
-export function agentRowModel(availability: TuiAvailability, installable: boolean): AgentRowModel {
+export function agentRowModel(
+  availability: TuiAvailability,
+  installable: boolean,
+  installing = false,
+): AgentRowModel {
+  // Found on PATH is the truth even while the install tab is still open —
+  // the install finished; the tab is just the shell it left behind.
+  if (installing && availability.status !== 'installed') {
+    return {
+      dimmed: true,
+      installing: true,
+      hint: 'Installing… (watching the terminal tab)',
+      title: 'This row updates by itself once the command is found on PATH',
+      install: false,
+    };
+  }
   switch (availability.status) {
     case 'unknown':
-      return { dimmed: false, hint: null, title: null, install: false };
+      return { dimmed: false, installing: false, hint: null, title: null, install: false };
     case 'installed':
       return {
         dimmed: false,
+        installing: false,
         hint: `✓ ${availability.path ?? ''}`.trimEnd(),
         title: availability.path,
         install: false,
@@ -130,6 +151,7 @@ export function agentRowModel(availability: TuiAvailability, installable: boolea
     case 'missing':
       return {
         dimmed: true,
+        installing: false,
         hint: installable ? 'not found on PATH' : 'not found on PATH — install Node.js first',
         title: null,
         install: installable,
@@ -140,11 +162,20 @@ export function agentRowModel(availability: TuiAvailability, installable: boolea
 /** Newest refresh wins: an older scan's answer arriving late is discarded. */
 let refreshSeq = 0;
 
-export const tuiAvailabilityStore = createStore<TuiAvailabilityState>()((set) => ({
+export const tuiAvailabilityStore = createStore<TuiAvailabilityState>()((set, get) => ({
   agents: allUnknown(AI_TUI_AGENT_IDS),
   custom: UNKNOWN_AVAILABILITY,
   tools: allUnknown(INSTALL_TOOLS),
   checking: false,
+  installing: [],
+
+  setInstalling(agent, on) {
+    const current = get().installing;
+    if (on === current.includes(agent)) {
+      return;
+    }
+    set({ installing: on ? [...current, agent] : current.filter((a) => a !== agent) });
+  },
 
   async refresh() {
     // No pty, no terminal section, nothing to check (see `terminalsAvailable`

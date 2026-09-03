@@ -27,7 +27,7 @@ import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
 import { terminalsStore } from '../stores/terminals';
 import { tuiAvailabilityStore } from '../stores/tui-availability';
-import { installAgent, whenTabCloses } from '../tui-install';
+import { INSTALL_POLL_MS, installAgent, whenTabCloses } from '../tui-install';
 
 let defaultShell: MockInstance<typeof ipc.defaultShell>;
 let findPrograms: MockInstance<typeof ipc.findPrograms>;
@@ -147,6 +147,41 @@ describe('installAgent', () => {
     tabsStore.getState().closeTab(other);
     await Promise.resolve();
     expect(findPrograms).toHaveBeenCalledTimes(1);
+  });
+
+  test('the row is "installing" while the tab is open and clears when the tab closes', async () => {
+    const tabId = (await installAgent('gemini'))!;
+    expect(tuiAvailabilityStore.getState().installing).toEqual(['gemini']);
+    tabsStore.getState().closeTab(tabId);
+    await Promise.resolve();
+    expect(tuiAvailabilityStore.getState().installing).toEqual([]);
+  });
+
+  test('PATH is polled while the tab is open; finding the agent ends the install', async () => {
+    vi.useFakeTimers();
+    try {
+      const tabId = (await installAgent('gemini'))!;
+      await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS);
+      expect(findPrograms).toHaveBeenCalledTimes(1);
+      expect(tuiAvailabilityStore.getState().installing).toEqual(['gemini']);
+
+      findPrograms.mockImplementation(async (names) =>
+        Object.fromEntries(names.map((n) => [n, n === 'gemini' ? '/usr/bin/gemini' : null])),
+      );
+      await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS);
+      expect(findPrograms).toHaveBeenCalledTimes(2);
+      expect(tuiAvailabilityStore.getState().agents.gemini.status).toBe('installed');
+      expect(tuiAvailabilityStore.getState().installing).toEqual([]);
+
+      // Done: no more polling, and closing the tab no longer scans.
+      await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS * 3);
+      expect(findPrograms).toHaveBeenCalledTimes(2);
+      tabsStore.getState().closeTab(tabId);
+      await Promise.resolve();
+      expect(findPrograms).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
