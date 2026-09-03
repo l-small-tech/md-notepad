@@ -19,6 +19,7 @@ import { TerminalTab } from './components/TerminalTab';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ExportPreviewDialog } from './components/ExportPreviewDialog';
+import { BoardColorMenu } from './components/BoardColorMenu';
 import { DiagramViewer } from './components/DiagramViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
@@ -105,6 +106,7 @@ export function App() {
       <SettingsDialog />
       <ExportPreviewDialog />
       <DiagramViewer />
+      <BoardColorMenu />
       <CommandPalette />
       <ExternalLinkPrompt />
       <SearchPanel />

@@ -1307,6 +1307,27 @@ body.tab-drag-live * {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
+/* A menu opened at the pointer rather than under a row (the board colour
+   menu over a preview image): fixed to the viewport, left/top set inline. */
+.context-menu.is-floating {
+  position: fixed;
+  top: auto;
+  left: auto;
+  min-width: 180px;
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+.context-menu-heading {
+  padding: 3px 8px 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
 .context-menu-item {
   display: block;
   width: 100%;

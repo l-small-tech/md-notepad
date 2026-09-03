@@ -14,8 +14,12 @@
 
 import { memo, useEffect, useRef } from 'react';
 import { docFamilyFor } from '../../core/doc-family';
+import { localImageToInline } from '../../core/images';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
+import { dirName } from '../../core/session/plan-flush';
 import type { EditorMode } from '../../core/types';
+import { svgImageSources } from '../../core/whiteboard/color-mode';
+import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
@@ -28,6 +32,11 @@ import {
   savePastedImageForTab,
   takePendingReveal,
 } from '../session';
+import {
+  boardColorMenuStore,
+  registerImageRefresher,
+  unregisterImageRefresher,
+} from '../stores/board-color-menu';
 import { diagramViewerStore } from '../stores/diagram-viewer';
 import { externalLinkStore } from '../stores/external-link';
 import { settingsStore } from '../stores/settings';
@@ -68,6 +77,30 @@ const MAX_SPLIT_RATIO = 0.8;
 
 function clampSplitRatio(ratio: number): number {
   return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, ratio));
+}
+
+/**
+ * A board image in this tab's document was right-clicked (preview pane or
+ * rich editor): open the colour-mode menu, handing it every board the
+ * document references so "all boards in this document" can act on them.
+ */
+function openBoardColorMenu(
+  tabId: string,
+  info: { path: string; mode: BoardColorMode; x: number; y: number },
+): void {
+  const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+  const docPath = tab ? (tab.filePath ?? tab.notePath) : null;
+  const dir = docPath ? dirName(docPath) : null;
+  const docPaths = new Set<string>([info.path]);
+  if (tab) {
+    for (const raw of svgImageSources(tab.model.getText())) {
+      const abs = localImageToInline(dir, raw);
+      if (abs) {
+        docPaths.add(abs);
+      }
+    }
+  }
+  boardColorMenuStore.getState().openFor({ ...info, docPaths: [...docPaths] });
 }
 
 function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
@@ -187,14 +220,19 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             // module loads on the first switch to rich mode, never at startup.
             wysiwyg: async () => {
               const { createMilkdownAdapter } = await import('../../editors/milkdown');
-              return createMilkdownAdapter({
+              const adapter = createMilkdownAdapter({
                 onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
                 saveImage: (data) => savePastedImageForTab(tabId, data),
                 getDocPath: () => {
                   const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
                   return t ? (t.filePath ?? t.notePath) : null;
                 },
+                onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
               });
+              // The colour-mode toggle rewrites board files; the live image
+              // nodes reload theirs. Unregistered with the mode-sync below.
+              registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
+              return adapter;
             },
           };
 
@@ -270,6 +308,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       unsubscribeSettings();
       unregisterSourceAdapter(tabId);
       unregisterWhiteboardAdapter(tabId);
+      unregisterImageRefresher(`${tabId}:rich`);
       void sync.dispose();
     };
     // tab.id only — see I7. Adding reactive deps would re-mount the editor.
@@ -306,8 +345,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       // An http(s) link is confirmed before it leaves the app — the pane never
       // opens one itself (the same prompt the app-wide link guard raises).
       onOpenExternal: (url) => externalLinkStore.getState().request(url),
+      // A right-clicked board opens the theme/true colours menu.
+      onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
     });
     registerPreviewGoBack(tabId, () => pane.goBack());
+    registerImageRefresher(`${tabId}:preview`, (paths) => pane.refreshImages(paths));
     registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));
     const unsubscribeDark = subscribeDark((dark) => pane.setDark(dark));
     // A theme change that KEEPS the light/dark boolean (one light theme to
@@ -342,6 +384,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       unsubscribePath();
       unregisterPreviewGoBack(tabId);
       unregisterPreviewReveal(tabId);
+      unregisterImageRefresher(`${tabId}:preview`);
       previewNavStore.getState().clear(tabId);
       pane.dispose();
       if (mode === 'split') {

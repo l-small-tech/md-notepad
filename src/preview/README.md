@@ -78,6 +78,12 @@ preview (toggling belongs to wysiwyg mode).
   theme. Cache keys carry a theme fingerprint; `refreshTheme()` (called by
   EditorHost on a same-darkness theme switch) re-renders so open previews
   recolor.
+- A board image is tagged (`data-wb-path` / `data-wb-mode`, read via
+  `core/whiteboard/color-mode.ts`) so a right-click on it reports
+  `onBoardContextMenu({ path, mode, x, y })` — the host opens the "theme
+  colours / true colours" menu outside the pane (`ui/components/BoardColorMenu`),
+  which rewrites the `.svg`'s `colorMode` and then calls `refreshImages(paths)`
+  on every live view so the new bytes show. Foreign SVGs never fire it.
 
 ## Link policy
 

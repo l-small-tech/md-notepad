@@ -21,6 +21,7 @@ what a whiteboard *is* lives here.
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
 | `theme-inject.ts` | bake resolved theme vars into a board's root tag (for `<img>` contexts) |
+| `color-mode.ts` | read a saved board's `colorMode` off its root tag; flip it by re-serializing (the preview/rich right-click toggle) |
 | `scan/` | the photo→SVG pipeline (see below) |
 
 `tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws

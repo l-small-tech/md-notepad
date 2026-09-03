@@ -12,6 +12,8 @@ import { isExternalHref } from '../core/external-links';
 import { imageMimeType, isImagePath, localImageToInline } from '../core/images';
 import { isLocalLinkTarget } from '../core/link-mentions';
 import { dirName, toAbsolutePath } from '../core/session/plan-flush';
+import { boardColorModeOf } from '../core/whiteboard/color-mode';
+import type { BoardColorMode } from '../core/whiteboard/scene';
 import {
   boardThemeFingerprint,
   injectBoardThemeVars,
@@ -61,6 +63,22 @@ export interface PreviewPaneOptions {
    * say anything. Omit and external links are inert.
    */
   onOpenExternal?: (url: string) => void;
+  /**
+   * A whiteboard image (a `.svg` with the dual colour representation, see
+   * `core/whiteboard/color-mode.ts`) was right-clicked. Receives the board's
+   * absolute path, the mode it currently renders in, and the pointer position
+   * — the host opens its "theme colours / true colours" menu OUTSIDE the pane
+   * (same outward shape as `onOpenDiagram`). Foreign SVGs and other images
+   * never fire this. Omit and board right-clicks stay inert.
+   */
+  onBoardContextMenu?: (info: BoardContextMenuInfo) => void;
+}
+
+export interface BoardContextMenuInfo {
+  path: string;
+  mode: BoardColorMode;
+  x: number;
+  y: number;
 }
 
 /** One followed link in the in-pane navigation history: its path + cached text. */
@@ -95,6 +113,12 @@ export interface PreviewPane {
    * out of range or the last render hasn't landed in the DOM yet.
    */
   scrollToHeading(index: number): void;
+  /**
+   * The files at these absolute paths changed on disk (the colour-mode toggle
+   * just rewrote a board). Their cached data URLs are dropped and the pane
+   * re-renders so the new bytes show; paths not on screen cost nothing.
+   */
+  refreshImages(paths: readonly string[]): void;
   dispose(): void;
 }
 
@@ -139,6 +163,9 @@ export function attachPreviewPane(
   // Absolute image path → data URL, cached for the pane's lifetime so typing
   // (which re-renders on every keystroke) re-reads each image at most once.
   const imageCache = new Map<string, string>();
+  // Absolute svg path → its colour mode (null = not a board), filled alongside
+  // the data URL so a cache hit can still tag the element for right-click.
+  const boardModeCache = new Map<string, BoardColorMode | null>();
 
   function clearTimer(): void {
     if (timer !== null) {
@@ -194,6 +221,7 @@ export function attachPreviewPane(
             const { text } = await ipc.readTextFile(abs);
             const themed = isThemableBoardSvg(text) ? injectBoardThemeVars(text, themeVars) : text;
             dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(themed)}`;
+            boardModeCache.set(abs, boardColorModeOf(text));
           } else {
             dataUrl = `data:${imageMimeType(abs)};base64,${await ipc.readFileBase64(abs)}`;
           }
@@ -206,6 +234,12 @@ export function attachPreviewPane(
         }
       }
       img.setAttribute('src', dataUrl);
+      // Tag boards so the right-click handler can answer synchronously.
+      const mode = svg ? boardModeCache.get(abs) : undefined;
+      if (mode) {
+        img.dataset.wbPath = abs;
+        img.dataset.wbMode = mode;
+      }
     }
   }
 
@@ -318,6 +352,17 @@ export function attachPreviewPane(
     }
   }
 
+  function onContextMenu(event: MouseEvent): void {
+    const img = (event.target as HTMLElement).closest('img');
+    const path = img?.dataset.wbPath;
+    const mode = img?.dataset.wbMode;
+    if (!path || (mode !== 'themed' && mode !== 'fixed') || !options.onBoardContextMenu) {
+      return;
+    }
+    event.preventDefault();
+    options.onBoardContextMenu({ path, mode, x: event.clientX, y: event.clientY });
+  }
+
   // Model edits re-render only at home — while browsing a followed link, an
   // edit to the underlying tab must not yank the reader off the page.
   function onModelChange(): void {
@@ -327,6 +372,7 @@ export function attachPreviewPane(
   }
 
   host.addEventListener('click', onClick);
+  host.addEventListener('contextmenu', onContextMenu);
   const unsubscribe = model.subscribe(onModelChange);
   void render(); // first paint, no need to wait out the typing debounce
 
@@ -378,11 +424,33 @@ export function attachPreviewPane(
       const heading = host.querySelectorAll('h1,h2,h3,h4,h5,h6')[index];
       heading?.scrollIntoView({ block: 'center', behavior: 'auto' });
     },
+    refreshImages(paths) {
+      if (disposed || paths.length === 0) {
+        return;
+      }
+      let hit = false;
+      for (const abs of paths) {
+        for (const key of [...imageCache.keys()]) {
+          if (key === abs || key.startsWith(`${abs}|`)) {
+            imageCache.delete(key);
+            hit = true;
+          }
+        }
+        if (boardModeCache.delete(abs)) {
+          hit = true;
+        }
+      }
+      if (hit) {
+        clearTimer();
+        void render();
+      }
+    },
     dispose() {
       disposed = true;
       clearTimer();
       unsubscribe();
       host.removeEventListener('click', onClick);
+      host.removeEventListener('contextmenu', onContextMenu);
     },
   };
 }

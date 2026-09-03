@@ -136,6 +136,19 @@ milkdown's ctx once loaded — cheap for note-sized docs). If true and the
 tab hasn't shown it before, ask the UI (callback option on the adapter) to
 show the one-time status-bar hint.
 
+### Local images and board colour mode
+
+`createImageNodeView` owns the `image` node's DOM: local refs are read off
+disk and inlined as data URLs (adapter-lifetime cache keyed by path, plus
+the theme fingerprint for a whiteboard `.svg`, which gets the app palette
+baked in — `core/whiteboard/theme-inject.ts`). A board is tagged
+(`data-wb-path` / `data-wb-mode`, `core/whiteboard/color-mode.ts`) and its
+right-click reports `onBoardContextMenu({ path, mode, x, y })` instead of the
+native menu; other images keep the webview menu (they sit in contenteditable).
+The host's menu rewrites the file's `colorMode`, then calls the adapter's
+`refreshImages(paths)` (a `MilkdownAdapter` extra beyond the mode-sync
+contract) which drops those cache entries and re-applies every live node.
+
 ### Known limitations to verify at M5 (QA has a section)
 
 GFM round-trip: tables, task lists, strikethrough, autolinks survive; check

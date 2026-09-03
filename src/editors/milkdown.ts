@@ -30,6 +30,8 @@ import type { DocModel } from '../core/doc-model';
 import { imageMimeType, localImageToInline } from '../core/images';
 import { createWritebackGuard, type EditorAdapter, type WritebackGuard } from '../core/mode-sync';
 import { dirName } from '../core/session/plan-flush';
+import { boardColorModeOf } from '../core/whiteboard/color-mode';
+import type { BoardColorMode } from '../core/whiteboard/scene';
 import {
   boardThemeFingerprint,
   injectBoardThemeVars,
@@ -88,6 +90,37 @@ export interface MilkdownOptions {
    * its path AFTER it first opens, and a rename can move it later.
    */
   getDocPath?: () => string | null;
+  /**
+   * A whiteboard image (a `.svg` carrying the dual colour representation, see
+   * `core/whiteboard/color-mode.ts`) was right-clicked. The host opens its
+   * "theme colours / true colours" menu; the editor only reports the board's
+   * absolute path, the mode it renders in now, and the pointer position. Other
+   * images keep the webview's native menu. Omit and board right-clicks are
+   * native too.
+   */
+  onBoardContextMenu?: (info: { path: string; mode: BoardColorMode; x: number; y: number }) => void;
+}
+
+/** The rich adapter's extras beyond the mode-sync contract. */
+export interface MilkdownAdapter extends EditorAdapter {
+  /**
+   * The files at these absolute paths changed on disk (the colour-mode toggle
+   * rewrote a board): drop their cached data URLs and reload every live image
+   * node that shows one. Paths not in the document cost nothing.
+   */
+  refreshImages(paths: readonly string[]): void;
+}
+
+/** Everything an image node view needs from its adapter, shared by all of them. */
+interface ImageViewContext {
+  /** Adapter-lifetime abs-path(+theme fingerprint) → data-URL map. */
+  cache: Map<string, string>;
+  /** abs svg path → colour mode (null = not a board), filled with the cache. */
+  boardModes: Map<string, BoardColorMode | null>;
+  /** Live views' re-apply hooks, for `refreshImages`. */
+  live: Map<HTMLImageElement, () => void>;
+  getDocPath: () => string | null;
+  onBoardContextMenu: MilkdownOptions['onBoardContextMenu'];
 }
 
 /**
@@ -101,14 +134,36 @@ export interface MilkdownOptions {
  * `cache` is the adapter-lifetime abs-path → data-URL map (one disk read per
  * image); `getDocPath` supplies the directory relative refs resolve against.
  */
-function createImageNodeView(
-  node: ProseNode,
-  cache: Map<string, string>,
-  getDocPath: () => string | null,
-): NodeView {
+function createImageNodeView(node: ProseNode, ctx: ImageViewContext): NodeView {
+  const { cache, boardModes, getDocPath } = ctx;
   const img = document.createElement('img');
+  let current = node;
+
+  /** Tag a board for the right-click handler; clear the tag for anything else. */
+  function tagBoard(abs: string | null): void {
+    const mode = abs ? boardModes.get(abs) : undefined;
+    if (mode) {
+      img.dataset.wbPath = abs!;
+      img.dataset.wbMode = mode;
+    } else {
+      delete img.dataset.wbPath;
+      delete img.dataset.wbMode;
+    }
+  }
+
+  img.addEventListener('contextmenu', (event) => {
+    const path = img.dataset.wbPath;
+    const mode = img.dataset.wbMode;
+    if (!path || (mode !== 'themed' && mode !== 'fixed') || !ctx.onBoardContextMenu) {
+      return; // not a board — the native menu stays (contenteditable exemption)
+    }
+    event.preventDefault();
+    ctx.onBoardContextMenu({ path, mode, x: event.clientX, y: event.clientY });
+  });
 
   function apply(n: ProseNode): void {
+    current = n;
+    tagBoard(null);
     const alt = (n.attrs.alt as string) ?? '';
     const title = (n.attrs.title as string) ?? '';
     const raw = (n.attrs.src as string) ?? '';
@@ -138,12 +193,14 @@ function createImageNodeView(
     const cached = cache.get(key);
     if (cached !== undefined) {
       img.setAttribute('src', cached);
+      tagBoard(abs);
       return;
     }
     // Blank until the bytes arrive, to avoid a broken-image flash on the path.
     img.removeAttribute('src');
     const load = themeVars
       ? ipc.readTextFile(abs).then(({ text }) => {
+          boardModes.set(abs, boardColorModeOf(text));
           const themed = isThemableBoardSvg(text) ? injectBoardThemeVars(text, themeVars) : text;
           return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(themed)}`;
         })
@@ -153,6 +210,7 @@ function createImageNodeView(
         cache.set(key, dataUrl);
         if (img.dataset.mdSrc === raw) {
           img.setAttribute('src', dataUrl);
+          tagBoard(abs);
         }
       })
       .catch(() => {
@@ -165,6 +223,7 @@ function createImageNodeView(
   }
 
   apply(node);
+  ctx.live.set(img, () => apply(current));
   return {
     dom: img,
     update(updated: ProseNode): boolean {
@@ -173,6 +232,9 @@ function createImageNodeView(
       }
       apply(updated);
       return true;
+    },
+    destroy() {
+      ctx.live.delete(img);
     },
   };
 }
@@ -194,7 +256,7 @@ function insertImageNode(view: EditorView, alt: string, src: string): void {
   }
 }
 
-export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdapter {
+export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAdapter {
   let crepe: Crepe | null = null;
   let view: EditorView | null = null;
   let guard: WritebackGuard | null = null;
@@ -207,6 +269,8 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
    * subscription synchronously — the doc-model.ts echo-suppression pattern).
    */
   let pushingSelf = false;
+  /** The image node views' shared state; rebuilt per attach. */
+  let imageViews: ImageViewContext | null = null;
 
   /** Current editor markdown. Empty before create / after destroy. */
   function serialize(): string {
@@ -266,8 +330,14 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
     // dispatchTransaction (it spreads editorViewOptionsCtx into the view), so
     // we own it — which means we must apply the new state ourselves, exactly
     // as ProseMirror's default dispatch would, then report to the guard.
-    const imageCache = new Map<string, string>();
-    const getDocPath = options.getDocPath ?? (() => null);
+    imageViews = {
+      cache: new Map(),
+      boardModes: new Map(),
+      live: new Map(),
+      getDocPath: options.getDocPath ?? (() => null),
+      onBoardContextMenu: options.onBoardContextMenu,
+    };
+    const views = imageViews;
 
     crepe.editor.config((ctx) => {
       // Serialize bullet lists with `-`, matching what the raw editor's
@@ -283,7 +353,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
       // claims `image`, so ours is the only one.
       const imageEntry: [string, NodeViewConstructor] = [
         'image',
-        (imgNode) => createImageNodeView(imgNode, imageCache, getDocPath),
+        (imgNode) => createImageNodeView(imgNode, views),
       ];
       ctx.update(nodeViewCtx, (views) => [
         ...views.filter(([name]) => name !== 'image'),
@@ -371,11 +441,35 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): EditorAdap
     // The host element is owned by mode-sync/EditorHost, which clears it.
     void crepe?.destroy();
     crepe = null;
+    imageViews = null;
   }
 
   return {
     attach,
     detach,
+    refreshImages(paths) {
+      const views = imageViews;
+      if (!views || paths.length === 0) {
+        return;
+      }
+      let hit = false;
+      for (const abs of paths) {
+        for (const key of [...views.cache.keys()]) {
+          if (key === abs || key.startsWith(`${abs}|`)) {
+            views.cache.delete(key);
+            hit = true;
+          }
+        }
+        if (views.boardModes.delete(abs)) {
+          hit = true;
+        }
+      }
+      if (hit) {
+        for (const reapply of views.live.values()) {
+          reapply();
+        }
+      }
+    },
     focus() {
       view?.focus();
     },
