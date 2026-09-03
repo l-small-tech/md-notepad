@@ -157,6 +157,30 @@ function UpdatesRow({ autoUpdateCheck }: { autoUpdateCheck: boolean }) {
   );
 }
 
+export type SettingsTabId = 'appearance' | 'editor' | 'files' | 'terminal' | 'ai' | 'updates';
+
+/**
+ * The dialog's sections. Terminal and AI TUI need a pty, so they are absent
+ * on Android — the same predicate that hides the terminal section today.
+ */
+export function settingsTabs(terminals: boolean): readonly { id: SettingsTabId; label: string }[] {
+  return [
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'editor', label: 'Editor' },
+    { id: 'files', label: 'Files' },
+    ...(terminals
+      ? [
+          { id: 'terminal' as const, label: 'Terminal' },
+          { id: 'ai' as const, label: 'AI TUI' },
+        ]
+      : []),
+    { id: 'updates', label: 'Updates' },
+  ];
+}
+
+/** The tab shown last time; reopening the dialog lands there. */
+let lastTab: SettingsTabId = 'appearance';
+
 export function SettingsDialog() {
   const open = useUiStore((s) => s.settingsOpen);
   const settings = useSettingsStore((s) => s.settings);
@@ -165,6 +189,10 @@ export function SettingsDialog() {
   // Android runs a single webview, so the choice isn't offered there.
   const themeWindowOnly = useWindowTheme((s) => s.override !== null);
   const perWindowTheme = !isAndroid();
+  const [tab, setTab] = useState<SettingsTabId>(lastTab);
+  useEffect(() => {
+    lastTab = tab;
+  }, [tab]);
 
   if (!open) {
     return null;
@@ -190,6 +218,7 @@ export function SettingsDialog() {
       : null;
 
   const close = () => uiStore.getState().closeSettings();
+  const tabs = settingsTabs(terminalsAvailable());
 
   return (
     <div
@@ -217,288 +246,327 @@ export function SettingsDialog() {
           </button>
         </header>
 
-        <div className="settings-body">
-          <label className="settings-row">
-            <span className="settings-label">Theme</span>
-            <select
-              className="settings-control"
-              value={themeValue}
-              onChange={(e) => selectTheme(e.target.value, themeWindowOnly)}
+        <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`settings-tab${tab === t.id ? ' settings-tab-active' : ''}`}
+              onClick={() => setTab(t.id)}
             >
-              {/* System, then the labeled Light / Dark / Custom sections. */}
-              {themeGroups.map((group, gi) => {
-                const options = group.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ));
-                return group.label === null ? (
-                  <Fragment key={gi}>{options}</Fragment>
-                ) : (
-                  <optgroup key={gi} label={group.label}>
-                    {options}
-                  </optgroup>
-                );
-              })}
-              {/* A saved theme whose file is missing still shows as the current
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-body" role="tabpanel">
+          {tab === 'appearance' && (
+            <>
+              <label className="settings-row">
+                <span className="settings-label">Theme</span>
+                <select
+                  className="settings-control"
+                  value={themeValue}
+                  onChange={(e) => selectTheme(e.target.value, themeWindowOnly)}
+                >
+                  {/* System, then the labeled Light / Dark / Custom sections. */}
+                  {themeGroups.map((group, gi) => {
+                    const options = group.options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ));
+                    return group.label === null ? (
+                      <Fragment key={gi}>{options}</Fragment>
+                    ) : (
+                      <optgroup key={gi} label={group.label}>
+                        {options}
+                      </optgroup>
+                    );
+                  })}
+                  {/* A saved theme whose file is missing still shows as the current
                   value (falls back to the default palette visually). */}
-              {pluginMissing && (
-                <option value={settings.colorScheme}>{settings.colorScheme} (missing)</option>
+                  {pluginMissing && (
+                    <option value={settings.colorScheme}>{settings.colorScheme} (missing)</option>
+                  )}
+                  {legacyForcedMode && (
+                    <option value={legacyForcedMode}>
+                      {legacyForcedMode === 'light' ? 'Light' : 'Dark'}
+                    </option>
+                  )}
+                </select>
+              </label>
+
+              {perWindowTheme && (
+                <label className="settings-row settings-row-inline">
+                  <input
+                    type="checkbox"
+                    checked={themeWindowOnly}
+                    onChange={(e) =>
+                      e.target.checked ? pinThemeToWindow() : unpinThemeFromWindow()
+                    }
+                  />
+                  <span className="settings-label">
+                    This window only (otherwise the theme applies to every window)
+                  </span>
+                </label>
               )}
-              {legacyForcedMode && (
-                <option value={legacyForcedMode}>
-                  {legacyForcedMode === 'light' ? 'Light' : 'Dark'}
-                </option>
-              )}
-            </select>
-          </label>
 
-          {perWindowTheme && (
-            <label className="settings-row settings-row-inline">
-              <input
-                type="checkbox"
-                checked={themeWindowOnly}
-                onChange={(e) => (e.target.checked ? pinThemeToWindow() : unpinThemeFromWindow())}
-              />
-              <span className="settings-label">
-                This window only (otherwise the theme applies to every window)
-              </span>
-            </label>
-          )}
+              <div className="settings-row settings-row-hint">
+                <span className="settings-label" />
+                <span className="settings-hint">
+                  Add, create, or reload your own themes in ☰ Menu → Themes.
+                </span>
+              </div>
 
-          <div className="settings-row settings-row-hint">
-            <span className="settings-label" />
-            <span className="settings-hint">
-              Add, create, or reload your own themes in ☰ Menu → Themes.
-            </span>
-          </div>
+              <label className="settings-row">
+                <span className="settings-label">Font size</span>
+                <input
+                  className="settings-control settings-number"
+                  type="number"
+                  min={MIN_FONT_SIZE}
+                  max={MAX_FONT_SIZE}
+                  value={settings.fontSize}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    if (Number.isFinite(next)) {
+                      update({
+                        fontSize: Math.min(
+                          MAX_FONT_SIZE,
+                          Math.max(MIN_FONT_SIZE, Math.round(next)),
+                        ),
+                      });
+                    }
+                  }}
+                />
+              </label>
 
-          <label className="settings-row">
-            <span className="settings-label">Default mode (new tabs)</span>
-            <select
-              className="settings-control"
-              value={settings.defaultMode}
-              onChange={(e) => update({ defaultMode: e.target.value as EditorMode })}
-            >
-              {MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <label className="settings-row">
+                <span className="settings-label">Editor font</span>
+                <select
+                  className="settings-control"
+                  value={settings.editorFont}
+                  onChange={(e) => update({ editorFont: e.target.value as EditorFontId })}
+                >
+                  {EDITOR_FONTS.map((f) => (
+                    <option key={f.id} value={f.id} style={{ fontFamily: f.stack }}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="settings-row">
-            <span className="settings-label">Font size</span>
-            <input
-              className="settings-control settings-number"
-              type="number"
-              min={MIN_FONT_SIZE}
-              max={MAX_FONT_SIZE}
-              value={settings.fontSize}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (Number.isFinite(next)) {
-                  update({
-                    fontSize: Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(next))),
-                  });
-                }
-              }}
-            />
-          </label>
+              <label className="settings-row">
+                <span className="settings-label">Interface font (tabs, sidebar)</span>
+                <select
+                  className="settings-control"
+                  value={settings.uiFont}
+                  onChange={(e) => update({ uiFont: e.target.value as UiFontId })}
+                >
+                  {UI_FONTS.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="settings-row">
-            <span className="settings-label">Editor font</span>
-            <select
-              className="settings-control"
-              value={settings.editorFont}
-              onChange={(e) => update({ editorFont: e.target.value as EditorFontId })}
-            >
-              {EDITOR_FONTS.map((f) => (
-                <option key={f.id} value={f.id} style={{ fontFamily: f.stack }}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="settings-row">
-            <span className="settings-label">Interface font (tabs, sidebar)</span>
-            <select
-              className="settings-control"
-              value={settings.uiFont}
-              onChange={(e) => update({ uiFont: e.target.value as UiFontId })}
-            >
-              {UI_FONTS.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="settings-row">
-            <span className="settings-label">Read mode margins</span>
-            <select
-              className="settings-control"
-              value={settings.readerMargins}
-              onChange={(e) =>
-                update({ readerMargins: e.target.value as Settings['readerMargins'] })
-              }
-            >
-              {READER_MARGINS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="settings-row">
-            <span className="settings-label">Cursor style</span>
-            <select
-              className="settings-control"
-              value={settings.cursorStyle}
-              onChange={(e) => update({ cursorStyle: e.target.value as Settings['cursorStyle'] })}
-            >
-              {CURSOR_STYLE_OPTIONS.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.wordWrap}
-              onChange={(e) => update({ wordWrap: e.target.checked })}
-            />
-            <span className="settings-label">Word wrap</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.lineNumbers}
-              onChange={(e) => update({ lineNumbers: e.target.checked })}
-            />
-            <span className="settings-label">Line numbers</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.smoothScrolling}
-              onChange={(e) => update({ smoothScrolling: e.target.checked })}
-            />
-            <span className="settings-label">Smooth scrolling (editor, preview and terminal)</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.ligatures}
-              onChange={(e) => update({ ligatures: e.target.checked })}
-            />
-            <span className="settings-label">Font ligatures (→ as one glyph)</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.liveSave}
-              onChange={(e) => update({ liveSave: e.target.checked })}
-            />
-            <span className="settings-label">Live save (opened files save automatically)</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.confirmFileMove}
-              onChange={(e) => update({ confirmFileMove: e.target.checked })}
-            />
-            <span className="settings-label">Confirm before moving files between folders</span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.groupTabsByWorkspace}
-              onChange={(e) => update({ groupTabsByWorkspace: e.target.checked })}
-            />
-            <span className="settings-label">
-              Arrange tabs by workspace (keep each workspace's tabs together)
-            </span>
-          </label>
-
-          <label className="settings-row settings-row-inline">
-            <input
-              type="checkbox"
-              checked={settings.previewTabs}
-              onChange={(e) => update({ previewTabs: e.target.checked })}
-            />
-            <span className="settings-label">
-              Preview tabs (single-click opens in a reused, italic tab)
-            </span>
-          </label>
-
-          <label className="settings-row">
-            <span className="settings-label">Pasted / dropped images</span>
-            <select
-              className="settings-control"
-              value={settings.imagePasteLocation}
-              onChange={(e) =>
-                update({ imagePasteLocation: e.target.value as Settings['imagePasteLocation'] })
-              }
-            >
-              {IMAGE_LOCATIONS.map((l) => (
-                <option key={l.value} value={l.value}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {settings.imagePasteLocation !== 'sameFolder' && (
-            <label className="settings-row">
-              <span className="settings-label">Image folder name</span>
-              <input
-                className="settings-control"
-                type="text"
-                value={settings.imageFolderName}
-                spellCheck={false}
-                placeholder="images"
-                // Persist the raw text; normalizeSettings trims and defaults a
-                // blank name on the next load, so an in-progress empty field is fine.
-                onChange={(e) => update({ imageFolderName: e.target.value })}
-                onBlur={(e) => {
-                  if (e.target.value.trim().length === 0) {
-                    update({ imageFolderName: 'images' });
+              <label className="settings-row">
+                <span className="settings-label">Read mode margins</span>
+                <select
+                  className="settings-control"
+                  value={settings.readerMargins}
+                  onChange={(e) =>
+                    update({ readerMargins: e.target.value as Settings['readerMargins'] })
                   }
-                }}
-              />
-            </label>
+                >
+                  {READER_MARGINS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.ligatures}
+                  onChange={(e) => update({ ligatures: e.target.checked })}
+                />
+                <span className="settings-label">Font ligatures (→ as one glyph)</span>
+              </label>
+            </>
           )}
 
-          <div className="settings-row settings-row-notes">
-            <span className="settings-label">Notes folder</span>
-            <div className="settings-notes-value">
-              <span className="settings-path" title={settings.notesDir ?? undefined}>
-                {settings.notesDir ?? 'Default (app data folder)'}
-              </span>
-              {/* No folder picker on Android — the notes folder is fixed there. */}
-              {currentProvider().capabilities.canPickDir && (
-                <button className="settings-button" onClick={() => requestChangeNotesDir()}>
-                  Change…
-                </button>
+          {tab === 'editor' && (
+            <>
+              <label className="settings-row">
+                <span className="settings-label">Default mode (new tabs)</span>
+                <select
+                  className="settings-control"
+                  value={settings.defaultMode}
+                  onChange={(e) => update({ defaultMode: e.target.value as EditorMode })}
+                >
+                  {MODES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="settings-row">
+                <span className="settings-label">Cursor style</span>
+                <select
+                  className="settings-control"
+                  value={settings.cursorStyle}
+                  onChange={(e) =>
+                    update({ cursorStyle: e.target.value as Settings['cursorStyle'] })
+                  }
+                >
+                  {CURSOR_STYLE_OPTIONS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.wordWrap}
+                  onChange={(e) => update({ wordWrap: e.target.checked })}
+                />
+                <span className="settings-label">Word wrap</span>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.lineNumbers}
+                  onChange={(e) => update({ lineNumbers: e.target.checked })}
+                />
+                <span className="settings-label">Line numbers</span>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.smoothScrolling}
+                  onChange={(e) => update({ smoothScrolling: e.target.checked })}
+                />
+                <span className="settings-label">
+                  Smooth scrolling (editor, preview and terminal)
+                </span>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.groupTabsByWorkspace}
+                  onChange={(e) => update({ groupTabsByWorkspace: e.target.checked })}
+                />
+                <span className="settings-label">
+                  Arrange tabs by workspace (keep each workspace's tabs together)
+                </span>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.previewTabs}
+                  onChange={(e) => update({ previewTabs: e.target.checked })}
+                />
+                <span className="settings-label">
+                  Preview tabs (single-click opens in a reused, italic tab)
+                </span>
+              </label>
+            </>
+          )}
+
+          {tab === 'files' && (
+            <>
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.liveSave}
+                  onChange={(e) => update({ liveSave: e.target.checked })}
+                />
+                <span className="settings-label">Live save (opened files save automatically)</span>
+              </label>
+
+              <label className="settings-row settings-row-inline">
+                <input
+                  type="checkbox"
+                  checked={settings.confirmFileMove}
+                  onChange={(e) => update({ confirmFileMove: e.target.checked })}
+                />
+                <span className="settings-label">Confirm before moving files between folders</span>
+              </label>
+
+              <label className="settings-row">
+                <span className="settings-label">Pasted / dropped images</span>
+                <select
+                  className="settings-control"
+                  value={settings.imagePasteLocation}
+                  onChange={(e) =>
+                    update({ imagePasteLocation: e.target.value as Settings['imagePasteLocation'] })
+                  }
+                >
+                  {IMAGE_LOCATIONS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {settings.imagePasteLocation !== 'sameFolder' && (
+                <label className="settings-row">
+                  <span className="settings-label">Image folder name</span>
+                  <input
+                    className="settings-control"
+                    type="text"
+                    value={settings.imageFolderName}
+                    spellCheck={false}
+                    placeholder="images"
+                    // Persist the raw text; normalizeSettings trims and defaults a
+                    // blank name on the next load, so an in-progress empty field is fine.
+                    onChange={(e) => update({ imageFolderName: e.target.value })}
+                    onBlur={(e) => {
+                      if (e.target.value.trim().length === 0) {
+                        update({ imageFolderName: 'images' });
+                      }
+                    }}
+                  />
+                </label>
               )}
-            </div>
-          </div>
-          <TerminalSection settings={settings} />
-          <UpdatesRow autoUpdateCheck={settings.autoUpdateCheck} />
+
+              <div className="settings-row settings-row-notes">
+                <span className="settings-label">Notes folder</span>
+                <div className="settings-notes-value">
+                  <span className="settings-path" title={settings.notesDir ?? undefined}>
+                    {settings.notesDir ?? 'Default (app data folder)'}
+                  </span>
+                  {/* No folder picker on Android — the notes folder is fixed there. */}
+                  {currentProvider().capabilities.canPickDir && (
+                    <button className="settings-button" onClick={() => requestChangeNotesDir()}>
+                      Change…
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === 'terminal' && <TerminalSection settings={settings} />}
+
+          {tab === 'ai' && <AiTuiRows settings={settings} />}
+
+          {tab === 'updates' && <UpdatesRow autoUpdateCheck={settings.autoUpdateCheck} />}
         </div>
 
         <footer className="settings-footer">
@@ -604,6 +672,7 @@ function AiTuiRows({ settings }: { settings: Settings }) {
   const custom = useTuiAvailability((s) => s.custom);
   const tools = useTuiAvailability((s) => s.tools);
   const checking = useTuiAvailability((s) => s.checking);
+  const installing = useTuiAvailability((s) => s.installing);
   const refresh = () => void tuiAvailabilityStore.getState().refresh();
   // Opening the dialog is a natural moment to look again: the user may have
   // just installed something in a terminal tab.
@@ -618,7 +687,11 @@ function AiTuiRows({ settings }: { settings: Settings }) {
       <span className="settings-label">AI TUI</span>
       <div className="settings-agent-list" role="radiogroup" aria-label="AI TUI agent">
         {AI_TUI_AGENT_IDS.map((id: AiTuiAgentId) => {
-          const row = agentRowModel(agents[id], installCommandFor(id, os, ctx) !== null);
+          const row = agentRowModel(
+            agents[id],
+            installCommandFor(id, os, ctx) !== null,
+            installing.includes(id),
+          );
           const inputId = `ai-tui-agent-${id}`;
           return (
             <div
@@ -636,7 +709,11 @@ function AiTuiRows({ settings }: { settings: Settings }) {
                 {AI_TUI_AGENTS[id].name}
                 {id === DEFAULT_SETTINGS.aiTuiAgent ? ' (default)' : ''}
               </label>
-              <span className="settings-agent-hint" title={row.title ?? undefined}>
+              <span
+                className={`settings-agent-hint${row.installing ? ' settings-agent-hint-pending' : ''}`}
+                title={row.title ?? undefined}
+              >
+                {row.installing && <span className="settings-spinner" aria-hidden="true" />}
                 {row.hint}
               </span>
               {row.install && (
@@ -684,8 +761,6 @@ function TerminalSection({ settings }: { settings: Settings }) {
   }
   return (
     <>
-      <h3 className="settings-heading">Terminal</h3>
-
       <ShellRow shell={settings.terminalShell} />
 
       <label className="settings-row">
@@ -724,8 +799,6 @@ function TerminalSection({ settings }: { settings: Settings }) {
         <code>terminalProfiles</code>. A profile with no <code>program</code> of its own runs the
         shell chosen above.
       </p>
-
-      <AiTuiRows settings={settings} />
 
       {settings.aiTuiAgent === 'custom' && (
         <label className="settings-row">

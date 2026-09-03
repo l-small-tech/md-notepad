@@ -25,6 +25,7 @@ import { search, searchKeymap } from '@codemirror/search';
 import { highlightStyle, listMarkStyling } from './markdown-highlight';
 import { xmlHighlightStyle, xmlLanguage } from './xml-highlight';
 import { reindentLists } from './list-indent';
+import { plainDotsExtension } from './plain-dots';
 import type { DocModel } from '../core/doc-model';
 import type { EditorAdapter } from '../core/mode-sync';
 import type { CursorPos } from '../core/types';
@@ -613,6 +614,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         search({ top: true }),
         imagePasteHandler,
         copyEnrichHandler,
+        plainDotsExtension,
         themeCompartment.of([
           baseTheme,
           syntaxHighlighting(isXml ? xmlHighlightStyle : highlightStyle),

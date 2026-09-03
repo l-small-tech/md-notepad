@@ -173,7 +173,7 @@ Themes menu's AI-theme row starts the agent in the themes folder.
 
 ### Which shell a terminal runs, and in which typeface
 
-One global choice each, both in the Settings dialog's Terminal section — the
+One global choice each, both in the Settings dialog's Terminal tab — the
 app stays a notepad with a terminal in it, not a terminal emulator with
 per-profile launch configs.
 
@@ -201,11 +201,14 @@ The Settings dialog's AI TUI picker is a radio list (`AiTuiRows`) fed by
 `stores/tui-availability.ts`: one `ipc.findPrograms` scan answers for every
 agent's command, the custom command's program and the install tools
 (`core/tui-install.ts`'s `INSTALL_TOOLS`). `refresh()` runs fire-and-forget
-after React mounts (main.tsx), when the picker mounts, on **Re-check**, and
-when an install tab closes; the newest scan wins over a late answer; Android
-is a no-op. The row model (`agentRowModel`) is pure: unknown → nothing,
-installed → ✓ + path, missing → dimmed name + **Install** if
-`installCommandFor` has a route.
+after React mounts (main.tsx), when the picker mounts, on **Re-check**, every
+`INSTALL_POLL_MS` while an install tab is open, and when that tab closes; the
+newest scan wins over a late answer; Android is a no-op. The row model
+(`agentRowModel`) is pure: unknown → nothing, installed → ✓ + path, missing →
+dimmed name + **Install** if `installCommandFor` has a route, and an agent in
+the store's `installing` list → a spinner + "Installing…" in place of the
+button (found-on-PATH wins over that, so a finished install shows ✓ even while
+its tab is still open).
 
 **Install** (`ui/tui-install.ts`) opens an ordinary shell tab in the default
 workspace and hands the command to it as `initialInput`: a transient field on
@@ -216,6 +219,18 @@ appended), or 4s after spawn if the shell stays silent — then clears via
 it, so a restored terminal never re-runs an install. The dialect (POSIX /
 pwsh / Windows PowerShell / cmd) follows the shell that profile will spawn:
 its own program, else `settings.terminalShell`, else `ipc.defaultShell()`.
+`watchInstall` then marks the agent installing and polls PATH until the agent
+is found or the tab closes — whichever first — so the user never has to
+read the installer's output to know whether it worked.
+
+### The Settings dialog's tabs
+
+`SettingsDialog` is one dialog with a tab strip (`settingsTabs`): Appearance
+(theme, fonts, margins, ligatures), Editor (default mode, cursor, wrap, line
+numbers, scrolling, tab behaviour), Files (live save, moves, images, notes
+folder), Terminal, AI TUI, and Updates. Terminal and AI TUI exist only where
+`terminalsAvailable()` — never on Android. The last tab shown is remembered
+for the session so reopening the dialog lands where the user left it.
 
 ### Where a terminal IS, and the color it wears
 

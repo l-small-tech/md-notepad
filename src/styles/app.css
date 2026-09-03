@@ -2446,6 +2446,28 @@ body.explorer-dragging * {
   font-size: 12px;
 }
 
+.settings-agent-hint-pending {
+  color: var(--accent);
+}
+
+.settings-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: settings-spin 0.8s linear infinite;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .settings-agent-actions {
   display: flex;
   justify-content: flex-end;
@@ -3304,4 +3326,43 @@ body.explorer-dragging * {
 
 .external-link-prompt-open {
   border-color: var(--accent, var(--border));
+}
+
+/* ---- Settings tabs ------------------------------------------------------
+   One strip under the header; the body shows a single section at a time. A
+   fixed minimum height keeps the dialog from jumping between short and tall
+   sections. */
+
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.settings-tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 10px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-tab:hover {
+  color: var(--fg);
+}
+
+.settings-tab-active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.settings-dialog .settings-body {
+  min-height: 280px;
 }
