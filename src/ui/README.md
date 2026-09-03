@@ -526,6 +526,18 @@ belt-and-braces; a new surface needs no guard of its own unless it has a menu.
   and wysiwyg all read it, so `mod+=/-/0` and the dialog just update the setting
   — no per-editor plumbing. Word wrap is the one setting that needs an editor
   hook (CM6's `setWordWrap`), applied without re-mounting (I7).
+- **Updates** (`ui/update.ts`) are INFORMATIONAL until clicked — nothing ever
+  downloads on its own. Two surfaces offer the install: the status-bar
+  `UpdateChip` and Settings' **Update now** button, both calling the same
+  `downloadAndInstall` (flush → install → relaunch). The automatic check is
+  `settings.autoUpdateCheck` (default on): `startAutoUpdateChecks` runs one
+  3s after boot in the MAIN window only (never on Android, never in dev) and
+  then re-asks hourly, so a window left open across a Sunday still becomes
+  due. Whether a check is due at all is the pure `core/update-schedule.ts`
+  decision over `settings.lastUpdateCheck` — at most once a week, on/after
+  Sunday. That stamp is written only when the endpoint was actually REACHED,
+  so an offline Sunday retries rather than skipping the week; a manual check
+  stamps it too.
 - Notes-dir change: the flow lives on the session controller
   (`changeNotesDir`) — folder picker → optional move of existing notes (pure
   set from `core/notes-move.ts`) → repoint the live `notesDir` so the next

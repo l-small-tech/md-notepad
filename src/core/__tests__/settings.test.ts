@@ -53,6 +53,8 @@ describe('normalizeSettings', () => {
       cursorStyle: 'underscore',
       confirmFileMove: false,
       liveSave: true,
+      autoUpdateCheck: false,
+      lastUpdateCheck: 1756000000000,
       previewTabs: false,
       groupTabsByWorkspace: false,
       workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
@@ -81,6 +83,8 @@ describe('normalizeSettings', () => {
       cursorStyle: 'underscore',
       confirmFileMove: false,
       liveSave: true,
+      autoUpdateCheck: false,
+      lastUpdateCheck: 1756000000000,
       previewTabs: false,
       groupTabsByWorkspace: false,
       workspaces: [{ name: 'Work', path: 'D:/work-notes', color: 'teal' }],
@@ -146,6 +150,8 @@ describe('normalizeSettings', () => {
       cursorStyle: 'beam',
       confirmFileMove: 'sure',
       liveSave: 'always',
+      autoUpdateCheck: 'weekly',
+      lastUpdateCheck: 'never',
       previewTabs: 'maybe',
       workspaces: 'not-a-list',
       defaultWorkspaceColor: 'mauve',
@@ -155,6 +161,16 @@ describe('normalizeSettings', () => {
       scanSmoothing: 'extreme',
     });
     expect(settings).toEqual(DEFAULT_SETTINGS);
+  });
+
+  test('update-check prefs: on by default, NaN/Infinity stamps degrade to never-checked', () => {
+    expect(DEFAULT_SETTINGS.autoUpdateCheck).toBe(true);
+    expect(DEFAULT_SETTINGS.lastUpdateCheck).toBeNull();
+    expect(normalizeSettings({ lastUpdateCheck: Number.NaN }).lastUpdateCheck).toBeNull();
+    expect(
+      normalizeSettings({ lastUpdateCheck: Number.POSITIVE_INFINITY }).lastUpdateCheck,
+    ).toBeNull();
+    expect(normalizeSettings({ lastUpdateCheck: 0 }).lastUpdateCheck).toBe(0);
   });
 
   test('scan prefs round-trip and reject unknown values', () => {

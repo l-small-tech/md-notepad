@@ -357,6 +357,20 @@ export interface Settings {
    */
   liveSave: boolean;
   /**
+   * Automatic update checks: once a week, on/after Sunday (the policy lives in
+   * `core/update-schedule.ts`). Informational only — an available update
+   * surfaces as the status-bar chip and a Settings button; nothing installs
+   * without a click. Default on. Desktop-only in effect (Android updates come
+   * from the store).
+   */
+  autoUpdateCheck: boolean;
+  /**
+   * Epoch ms of the last update check, automatic OR manual; null if none has
+   * run. Not a dialog field — it rides along on the persisted settings so the
+   * weekly schedule survives a restart.
+   */
+  lastUpdateCheck: number | null;
+  /**
    * Preview tabs (VSCode-style): single-clicking a file in the explorer opens
    * it in a shared, italic "preview" tab; selecting another file reuses that
    * tab instead of piling up new ones. The preview becomes a permanent tab as

@@ -2355,6 +2355,23 @@ body.explorer-dragging * {
   background: var(--bg-alt);
 }
 
+.settings-button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+/* The one call-to-action in the dialog: "Update now", shown only while an
+   update is actually waiting. Same accent language as the status-bar chip. */
+.settings-button-primary {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-button-primary:disabled {
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+
 /* ---- AI TUI agent rows ---------------------------------------------------
    A radio list in place of a select, because each agent carries status: the
    ones not found on PATH are muted and get an Install button; the ones found

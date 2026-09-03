@@ -17,6 +17,7 @@ do not rewrite them.
 | `error-text.ts` | reference | `errorDetail` / `withErrorDetail`: the one-line reason behind a failed file operation, for the notice the UI shows (cloud drives fail in ways a bare "Could not rename" hides) |
 | `tab-status.ts` | terminal | agent status glyph in a terminal's OSC title (`✳ `, `◐ `) → activity + the remaining label, for the TabBar badge |
 | `settings.ts` | reference | defaults + `normalizeSettings` |
+| `update-schedule.ts` | reference | when an AUTOMATIC update check is due: at most once a week and never before Sunday midnight, local time. Clock injected, so the policy is testable without waiting a week |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
 | `window-drop.ts` | M8 | `pickDropWindow`: which window a tab drag released over (containment + focus-recency for overlap), for the cross-window tab drop |
 | `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw) |

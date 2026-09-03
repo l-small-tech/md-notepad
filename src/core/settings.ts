@@ -211,6 +211,8 @@ export const DEFAULT_SETTINGS: Settings = {
   cursorStyle: 'bar',
   confirmFileMove: true,
   liveSave: false,
+  autoUpdateCheck: true,
+  lastUpdateCheck: null,
   previewTabs: true,
   groupTabsByWorkspace: false,
   workspaces: [],
@@ -531,6 +533,13 @@ export function normalizeSettings(raw: unknown): Settings {
       : d.cursorStyle,
     confirmFileMove: typeof r.confirmFileMove === 'boolean' ? r.confirmFileMove : d.confirmFileMove,
     liveSave: typeof r.liveSave === 'boolean' ? r.liveSave : d.liveSave,
+    autoUpdateCheck: typeof r.autoUpdateCheck === 'boolean' ? r.autoUpdateCheck : d.autoUpdateCheck,
+    // A garbage stamp degrades to "never checked", which just means the next
+    // launch checks once and writes a real one.
+    lastUpdateCheck:
+      typeof r.lastUpdateCheck === 'number' && Number.isFinite(r.lastUpdateCheck)
+        ? r.lastUpdateCheck
+        : d.lastUpdateCheck,
     previewTabs: typeof r.previewTabs === 'boolean' ? r.previewTabs : d.previewTabs,
     groupTabsByWorkspace:
       typeof r.groupTabsByWorkspace === 'boolean' ? r.groupTabsByWorkspace : d.groupTabsByWorkspace,

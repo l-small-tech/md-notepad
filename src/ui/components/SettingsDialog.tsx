@@ -58,7 +58,7 @@ import {
 import { uiStore, useUiStore } from '../stores/ui';
 import { useWindowTheme } from '../stores/window-theme';
 import { installAgent } from '../tui-install';
-import { checkForUpdate, useUpdateStore } from '../update';
+import { checkForUpdate, downloadAndInstall, useUpdateStore } from '../update';
 
 const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
@@ -103,26 +103,57 @@ function update(partial: Partial<Settings>): void {
 }
 
 /**
- * Manual update check (this app has no
- * menu bar, so Settings is its home). Outcome lands in the status bar: either
- * the update chip appears or a "up to date" notice shows.
+ * Manual update check plus the automatic-check toggle (this app has no menu
+ * bar, so Settings is its home). A check's outcome lands in the status bar —
+ * an "up to date" notice, or the update chip — and when an update IS waiting,
+ * an **Update now** button appears right beside the check button so the chip
+ * isn't the only way to take it. Installing is always a click, never automatic.
  */
-function UpdatesRow() {
+function UpdatesRow({ autoUpdateCheck }: { autoUpdateCheck: boolean }) {
   const phase = useUpdateStore((s) => s.phase);
+  const version = useUpdateStore((s) => s.version);
+  const busy = phase === 'checking' || phase === 'downloading';
+  const ready = phase === 'available' || phase === 'downloading';
   return (
-    <div className="settings-row settings-row-notes">
-      <span className="settings-label">Updates</span>
-      <div className="settings-notes-value">
-        <span className="settings-path">MD Notepad v{__APP_VERSION__}</span>
-        <button
-          className="settings-button"
-          disabled={phase === 'checking' || phase === 'downloading'}
-          onClick={() => void checkForUpdate({ manual: true })}
-        >
-          {phase === 'checking' ? 'Checking…' : 'Check for updates'}
-        </button>
+    <>
+      <div className="settings-row settings-row-notes">
+        <span className="settings-label">Updates</span>
+        <div className="settings-notes-value">
+          <span className="settings-path">
+            {ready
+              ? `v${version} available (you have v${__APP_VERSION__})`
+              : `MD Notepad v${__APP_VERSION__}`}
+          </span>
+          {ready && (
+            <button
+              className="settings-button settings-button-primary"
+              disabled={phase === 'downloading'}
+              title="Download, install, and restart"
+              onClick={() => void downloadAndInstall()}
+            >
+              {phase === 'downloading' ? 'Updating…' : 'Update now'}
+            </button>
+          )}
+          <button
+            className="settings-button"
+            disabled={busy}
+            onClick={() => void checkForUpdate({ manual: true })}
+          >
+            {phase === 'checking' ? 'Checking…' : 'Check for updates'}
+          </button>
+        </div>
       </div>
-    </div>
+      <label className="settings-row settings-row-inline">
+        <input
+          type="checkbox"
+          checked={autoUpdateCheck}
+          onChange={(e) => update({ autoUpdateCheck: e.target.checked })}
+        />
+        <span className="settings-label">
+          Check for updates automatically (weekly, on Sunday — never installs on its own)
+        </span>
+      </label>
+    </>
   );
 }
 
@@ -467,7 +498,7 @@ export function SettingsDialog() {
             </div>
           </div>
           <TerminalSection settings={settings} />
-          <UpdatesRow />
+          <UpdatesRow autoUpdateCheck={settings.autoUpdateCheck} />
         </div>
 
         <footer className="settings-footer">

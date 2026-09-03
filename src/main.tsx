@@ -85,7 +85,7 @@ import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
 import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
-import { checkForUpdate, setBeforeRestart } from './ui/update';
+import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
 
 const MARKDOWN_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
@@ -1040,6 +1040,7 @@ async function boot(): Promise<void> {
     .catch(() => {});
 
   // Update check (M7): deferred so it can never delay first paint or restore;
+  // gated by the weekly schedule (`autoUpdateCheck`, see core/update-schedule);
   // failures are silent inside checkForUpdate. The pre-restart hook flushes
   // every window's session so installing an update costs zero typed text.
   setBeforeRestart(async () => {
@@ -1052,7 +1053,7 @@ async function boot(): Promise<void> {
   // Also skip in a dev run: it points at the release's endpoint (different
   // identifier) and a "restart to update" prompt makes no sense for `cargo run`.
   if (IS_MAIN_WINDOW && !isAndroid() && !import.meta.env.DEV) {
-    setTimeout(() => void checkForUpdate({ manual: false }), 3000);
+    setTimeout(() => startAutoUpdateChecks(), 3000);
   }
 
   /**
