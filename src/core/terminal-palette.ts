@@ -260,7 +260,7 @@ export function deriveTerminalColors(branding: Branding, mode: ThemeMode): Termi
  * to one that never queries at all.
  *
  * `GROK_APPEARANCE` is the one vendor-specific hint worth setting: the Grok
- * CLI (one of the agents the AI TUI tab launches) resolves its light/dark look
+ * CLI (one of the harnesses) resolves its light/dark look
  * from the *OS* appearance first and only then falls back to OSC 11, so on a
  * dark desktop it would paint a dark TUI onto our light console no matter what
  * the terminal answers. The variable is its documented per-invocation override,

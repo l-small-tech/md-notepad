@@ -150,17 +150,25 @@ sibling `session/` folder).
       preview, wysiwyg).
 - [ ] Font size mod+= / mod+- / mod+0 affects all three modes and persists.
 - [ ] Word wrap toggle affects raw/split immediately.
-- [ ] Settings → AI TUI (desktop): six agent rows + Custom…, radio semantics
-      (one selected; the new-tab AI row's label follows). Agents on PATH show
-      ✓ + path; agents not on PATH are dimmed with an **Install** button; a
+- [ ] Settings → Harness (desktop): six harness rows + Custom…, radio semantics
+      (one selected; the new-tab Harness row's label follows). Harnesses on PATH
+      show ✓ + path; ones not on PATH are dimmed with an **Install** button; a
       fresh launch shows neither for an instant, then fills in (no start-up
       delay). Re-check flips a row after installing/uninstalling by hand.
-- [ ] AI TUI → Install on a missing agent: a new terminal tab opens in the
+- [ ] Automatic default (never-configured profile, `harness` absent from
+      settings.json): with Claude on PATH the row says Claude; with Claude gone
+      and codex present it says ChatGPT; with neither, the first other harness
+      found. The pick is written to settings.json once and then never moves on
+      its own — installing a second harness does not change it.
+- [ ] No harness installed at all: the new-tab menu's **Harness** row is
+      labelled "Harness" and opens Settings on the Harness tab (not a terminal).
+      Install one from there → the row launches it.
+- [ ] Harness → Install on a missing harness: a new terminal tab opens in the
       default workspace, the shell prompt appears, then the official install
       command is typed and runs (correct dialect for PowerShell / cmd / bash).
       Closing that tab re-checks and un-dims the row without a restart —
       including when the installer added a new PATH directory (Windows).
-- [ ] AI TUI / AI theme tabs render 2px larger than the editor font; Ctrl+= /
+- [ ] Harness / AI theme tabs render 2px larger than the editor font; Ctrl+= /
       Ctrl+- in the pane still zooms from there; a plain shell tab is unchanged.
 - [ ] Perf spot-check: cold start (release build) feels ≈1s; typing in a
       1MB doc has no visible lag; idle RAM (Task Manager, all processes
@@ -281,7 +289,7 @@ three on a dark theme to confirm nothing regressed.
       7 (white) and 15 (bright white). Nothing is a pale ghost.
 - [ ] `ls --color`, `git log --oneline --decorate`, `git diff` on a light
       theme: added/removed lines, branch names and hashes are all readable.
-- [ ] AI TUI tab with **Claude Code** on a light theme: with `/theme` set to
+- [ ] Harness tab with **Claude Code** on a light theme: with `/theme` set to
       `auto` it comes up light. `/theme` → `light-ansi` follows this theme's
       own palette. Check the input box, the "thinking" spinner, and dim
       helper text ("esc to interrupt") — dim must be *fainter* than body
@@ -321,7 +329,7 @@ three on a dark theme to confirm nothing regressed.
       every workspace stays where it is.
 - [ ] Right-click a plain-shell pane → below Clear scrollback: **Change
       directory…**, **List files**, **Open <agent>**, each with a tooltip
-      naming the exact command. Right-click an AI TUI tab (or a shell running
+      naming the exact command. Right-click a harness tab (or a shell running
       `vim` / `less`) → those three items are absent.
 - [ ] **List files** types `ls` (PowerShell) / `dir` (cmd) / `ls -l` (POSIX)
       and it runs — even with bracketed paste on (PSReadLine, zsh, bash 5.1+).
@@ -331,7 +339,7 @@ three on a dark theme to confirm nothing regressed.
       another drive → an ABSOLUTE `cd`. A folder with spaces → quoted for the
       shell (`cd 'C:\My Notes'`, cmd: `cd /d "C:\My Notes"`). Cancel → nothing
       typed. The tab recolors after the `cd`.
-- [ ] **Open <agent>** types the configured AI TUI command (Settings → AI TUI;
+- [ ] **Open <agent>** types the configured harness command (Settings → Harness;
       a custom command with spaces/args is quoted correctly) and the agent
       starts. With an EMPTY custom command the item is absent.
 - [ ] A terminal profile in `settings.json` that names its own `program`

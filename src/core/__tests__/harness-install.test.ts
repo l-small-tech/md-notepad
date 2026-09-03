@@ -1,5 +1,5 @@
 /**
- * The install-command policy: which route each agent gets per OS and tool
+ * The install-command policy: which route each harness gets per OS and tool
  * set, how a missing npm is bridged, and how the line is spelled for the
  * shell that runs it. These pin the documented commands verbatim — a change
  * here should come with a re-read of the tool's install page.
@@ -12,8 +12,8 @@ import {
   installContextFrom,
   installShellFor,
   type InstallContext,
-} from '../tui-install';
-import { AI_TUI_AGENT_IDS } from '../types';
+} from '../harness-install';
+import { HARNESS_IDS } from '../types';
 
 const NOTHING: InstallContext = { hasNpm: false };
 const NPM: InstallContext = { hasNpm: true };
@@ -101,11 +101,11 @@ describe('installCommandFor — macOS/Linux', () => {
     expect(installCommandFor('gemini', 'mac', NOTHING)).toMatch(/^curl -o- .*nvm.* && \. "\$HOME/);
   });
 
-  test('every agent has a route on every unix OS whatever is installed', () => {
-    for (const agent of AI_TUI_AGENT_IDS) {
+  test('every harness has a route on every unix OS whatever is installed', () => {
+    for (const harness of HARNESS_IDS) {
       for (const os of ['mac', 'linux'] as const) {
         for (const ctx of [NOTHING, NPM, BREW]) {
-          expect(installCommandFor(agent, os, ctx)).not.toBeNull();
+          expect(installCommandFor(harness, os, ctx)).not.toBeNull();
         }
       }
     }
@@ -201,9 +201,9 @@ describe('installCommandFor — Windows', () => {
   });
 
   test('wrapped PowerShell lines never carry quotes or dollars (cmd/bash-safe)', () => {
-    for (const agent of AI_TUI_AGENT_IDS) {
+    for (const harness of HARNESS_IDS) {
       for (const shell of ['cmd', 'posix'] as const) {
-        const line = installCommandFor(agent, 'windows', WINGET, shell) ?? '';
+        const line = installCommandFor(harness, 'windows', WINGET, shell) ?? '';
         for (const m of line.matchAll(/-Command "([^"]*)"/g)) {
           expect(m[1]).not.toMatch(/["$]/);
         }

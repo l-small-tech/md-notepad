@@ -87,7 +87,7 @@ flowchart LR
   as many ways as you like, with a palette derived from whichever theme
   you're using. Written from scratch: no xterm.js, no web dependency. `+`
   makes another one of whatever you're looking at; alt-click it to choose.
-  An **AI** row launches your coding agent's TUI directly, and the tab
+  A **Harness** row launches your coding agent directly, and the tab
   wears a status badge so you can see it thinking from another tab.
 - 🎨 **Fifteen built-in themes** — light and dark greens, a
   maximum-contrast pair (Beacon / Vantablack), a color-vision-friendly

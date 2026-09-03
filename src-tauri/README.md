@@ -31,8 +31,8 @@ session concepts in Rust, stop and move it to `src/core`.
   `PATHEXT`) — used by the pty spawn and by `commands/programs.rs`.
 - `src/commands/programs.rs` — `find_programs(names)` (**desktop only**):
   each name → its resolved path or null, so the Settings dialog can dim the
-  AI TUI agents that are not installed and offer to install them. Policy-free:
-  which names to ask about lives in `src/ui/stores/tui-availability.ts`.
+  harnesses that are not installed and offer to install them. Policy-free:
+  which names to ask about lives in `src/ui/stores/harness-availability.ts`.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and

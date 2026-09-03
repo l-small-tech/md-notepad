@@ -51,7 +51,7 @@ import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
-import { tuiAvailabilityStore } from './ui/stores/tui-availability';
+import { harnessAvailabilityStore } from './ui/stores/harness-availability';
 import {
   appendImagesToMd,
   createSessionController,
@@ -773,10 +773,11 @@ async function boot(): Promise<void> {
   installContextMenuGuard();
   createRoot(document.getElementById('root')!).render(<App />);
 
-  // Which AI TUI agents are on PATH, for the Settings dialog's agent rows.
+  // Which harnesses are on PATH — for the Settings dialog's rows, and for the
+  // automatic harness choice a fresh install has not made yet.
   // Fire-and-forget AFTER the mount: one async IPC call whose answer nobody
   // is waiting for, so it costs the first paint nothing. A no-op on Android.
-  void tuiAvailabilityStore.getState().refresh();
+  void harnessAvailabilityStore.getState().refresh();
 
   // First-launch CLI args sit in managed state until the frontend drains
   // them; only the main window exists at that point (see src-tauri/src/lib.rs).

@@ -19,16 +19,17 @@ import type {
   UiFontId,
 } from '../../core/types';
 import {
-  AI_TUI_AGENTS,
+  HARNESSES,
   DEFAULT_SETTINGS,
+  resolvedHarness,
   MAX_FONT_SIZE,
   MIN_FONT_SIZE,
   TERMINAL_SCROLLBACK_RANGE,
   TERMINAL_SCROLL_LINES_RANGE,
 } from '../../core/settings';
-import { installCommandFor } from '../../core/tui-install';
+import { installCommandFor } from '../../core/harness-install';
 import { EDITOR_FONTS, UI_FONTS } from '../../core/fonts';
-import { AI_TUI_AGENT_IDS, type AiTuiAgentId } from '../../core/types';
+import { HARNESS_IDS, type HarnessChoice, type HarnessId } from '../../core/types';
 import {
   AUTO_SHELL,
   autoShellLabel,
@@ -50,14 +51,14 @@ import {
 } from '../stores/theme-registry';
 import { DEFAULT_COLOR_SCHEME } from '../../core/types';
 import {
-  agentRowModel,
+  harnessRowModel,
   installContextOf,
-  tuiAvailabilityStore,
-  useTuiAvailability,
-} from '../stores/tui-availability';
-import { uiStore, useUiStore } from '../stores/ui';
+  harnessAvailabilityStore,
+  useHarnessAvailability,
+} from '../stores/harness-availability';
+import { uiStore, useUiStore, type SettingsTabId } from '../stores/ui';
 import { useWindowTheme } from '../stores/window-theme';
-import { installAgent } from '../tui-install';
+import { installHarness } from '../harness-install';
 import { checkForUpdate, downloadAndInstall, useUpdateStore } from '../update';
 
 const MODES: { value: EditorMode; label: string }[] = [
@@ -157,10 +158,8 @@ function UpdatesRow({ autoUpdateCheck }: { autoUpdateCheck: boolean }) {
   );
 }
 
-export type SettingsTabId = 'appearance' | 'editor' | 'files' | 'terminal' | 'ai' | 'updates';
-
 /**
- * The dialog's sections. Terminal and AI TUI need a pty, so they are absent
+ * The dialog's sections. Terminal and Harness need a pty, so they are absent
  * on Android — the same predicate that hides the terminal section today.
  */
 export function settingsTabs(terminals: boolean): readonly { id: SettingsTabId; label: string }[] {
@@ -171,7 +170,7 @@ export function settingsTabs(terminals: boolean): readonly { id: SettingsTabId; 
     ...(terminals
       ? [
           { id: 'terminal' as const, label: 'Terminal' },
-          { id: 'ai' as const, label: 'AI TUI' },
+          { id: 'harness' as const, label: 'Harness' },
         ]
       : []),
     { id: 'updates', label: 'Updates' },
@@ -181,22 +180,34 @@ export function settingsTabs(terminals: boolean): readonly { id: SettingsTabId; 
 /** The tab shown last time; reopening the dialog lands there. */
 let lastTab: SettingsTabId = 'appearance';
 
+/**
+ * Mounted only while the dialog is open, so the body's state starts fresh on
+ * every open: the section it lands on is decided once, in `SettingsBody`'s
+ * initial state, rather than synced by an effect.
+ */
 export function SettingsDialog() {
   const open = useUiStore((s) => s.settingsOpen);
+  // A caller can name the section to land on — the new-tab menu's Harness row
+  // does when nothing is installed. Otherwise the dialog reopens where it was
+  // last left; switching tabs by hand still wins from there.
+  const requestedTab = useUiStore((s) => s.settingsTab);
+  if (!open) {
+    return null;
+  }
+  return <SettingsBody initialTab={requestedTab ?? lastTab} />;
+}
+
+function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
   const settings = useSettingsStore((s) => s.settings);
   const plugins = useThemeRegistry((s) => s.plugins);
   // A theme pinned to this window (☰ Menu → Themes right-click, or the box below);
   // Android runs a single webview, so the choice isn't offered there.
   const themeWindowOnly = useWindowTheme((s) => s.override !== null);
   const perWindowTheme = !isAndroid();
-  const [tab, setTab] = useState<SettingsTabId>(lastTab);
+  const [tab, setTab] = useState<SettingsTabId>(initialTab);
   useEffect(() => {
     lastTab = tab;
   }, [tab]);
-
-  if (!open) {
-    return null;
-  }
 
   const pluginOptions = themePluginOptions(plugins);
   const themeGroups = themePickerGroups(plugins);
@@ -564,7 +575,7 @@ export function SettingsDialog() {
 
           {tab === 'terminal' && <TerminalSection settings={settings} />}
 
-          {tab === 'ai' && <AiTuiRows settings={settings} />}
+          {tab === 'harness' && <HarnessRows settings={settings} />}
 
           {tab === 'updates' && <UpdatesRow autoUpdateCheck={settings.autoUpdateCheck} />}
         </div>
@@ -660,39 +671,44 @@ function ShellRow({ shell }: { shell: string }) {
 }
 
 /**
- * The AI TUI agent picker: one radio row per agent plus "Custom…". Each row
- * carries what `tui-availability` knows — a muted name and an **Install**
+ * The harness picker: one radio row per harness plus "Custom…". Each row
+ * carries what `harness-availability` knows — a muted name and an **Install**
  * button when the command is not on PATH, the resolved path when it is,
  * nothing while unknown. Every decision (what to show, whether an install
  * route exists) is made in the store and core; this only lays it out.
+ *
+ * A never-configured install sits on 'auto' until a scan finds a harness, so
+ * the radios follow `resolvedHarness` — what would actually launch — rather
+ * than the raw setting; picking a row writes that concrete choice.
  */
-function AiTuiRows({ settings }: { settings: Settings }) {
+function HarnessRows({ settings }: { settings: Settings }) {
   const os = desktopOs();
-  const agents = useTuiAvailability((s) => s.agents);
-  const custom = useTuiAvailability((s) => s.custom);
-  const tools = useTuiAvailability((s) => s.tools);
-  const checking = useTuiAvailability((s) => s.checking);
-  const installing = useTuiAvailability((s) => s.installing);
-  const refresh = () => void tuiAvailabilityStore.getState().refresh();
+  const harnesses = useHarnessAvailability((s) => s.harnesses);
+  const custom = useHarnessAvailability((s) => s.custom);
+  const tools = useHarnessAvailability((s) => s.tools);
+  const checking = useHarnessAvailability((s) => s.checking);
+  const installing = useHarnessAvailability((s) => s.installing);
+  const refresh = () => void harnessAvailabilityStore.getState().refresh();
   // Opening the dialog is a natural moment to look again: the user may have
   // just installed something in a terminal tab.
   useEffect(refresh, []);
 
   const ctx = installContextOf(tools);
-  const selectAgent = (id: Settings['aiTuiAgent']) => update({ aiTuiAgent: id });
-  const customModel = agentRowModel(custom, false);
+  const selected = resolvedHarness(settings);
+  const select = (id: HarnessChoice) => update({ harness: id });
+  const customModel = harnessRowModel(custom, false);
 
   return (
     <div className="settings-row settings-row-notes">
-      <span className="settings-label">AI TUI</span>
-      <div className="settings-agent-list" role="radiogroup" aria-label="AI TUI agent">
-        {AI_TUI_AGENT_IDS.map((id: AiTuiAgentId) => {
-          const row = agentRowModel(
-            agents[id],
+      <span className="settings-label">Harness</span>
+      <div className="settings-agent-list" role="radiogroup" aria-label="Harness">
+        {HARNESS_IDS.map((id: HarnessId) => {
+          const row = harnessRowModel(
+            harnesses[id],
             installCommandFor(id, os, ctx) !== null,
             installing.includes(id),
           );
-          const inputId = `ai-tui-agent-${id}`;
+          const inputId = `harness-${id}`;
           return (
             <div
               key={id}
@@ -701,13 +717,13 @@ function AiTuiRows({ settings }: { settings: Settings }) {
               <input
                 id={inputId}
                 type="radio"
-                name="ai-tui-agent"
-                checked={settings.aiTuiAgent === id}
-                onChange={() => selectAgent(id)}
+                name="harness"
+                checked={selected === id}
+                onChange={() => select(id)}
               />
               <label className="settings-agent-name" htmlFor={inputId}>
-                {AI_TUI_AGENTS[id].name}
-                {id === DEFAULT_SETTINGS.aiTuiAgent ? ' (default)' : ''}
+                {HARNESSES[id].name}
+                {id === HARNESS_IDS[0] ? ' (default)' : ''}
               </label>
               <span
                 className={`settings-agent-hint${row.installing ? ' settings-agent-hint-pending' : ''}`}
@@ -719,8 +735,8 @@ function AiTuiRows({ settings }: { settings: Settings }) {
               {row.install && (
                 <button
                   className="settings-button"
-                  title={`Open a terminal and run the ${AI_TUI_AGENTS[id].name} install command`}
-                  onClick={() => void installAgent(id)}
+                  title={`Open a terminal and run the ${HARNESSES[id].name} install command`}
+                  onClick={() => void installHarness(id)}
                 >
                   Install
                 </button>
@@ -732,13 +748,13 @@ function AiTuiRows({ settings }: { settings: Settings }) {
           className={`settings-agent-row${customModel.dimmed ? ' settings-agent-row-missing' : ''}`}
         >
           <input
-            id="ai-tui-agent-custom"
+            id="harness-custom"
             type="radio"
-            name="ai-tui-agent"
-            checked={settings.aiTuiAgent === 'custom'}
-            onChange={() => selectAgent('custom')}
+            name="harness"
+            checked={selected === 'custom'}
+            onChange={() => select('custom')}
           />
-          <label className="settings-agent-name" htmlFor="ai-tui-agent-custom">
+          <label className="settings-agent-name" htmlFor="harness-custom">
             Custom…
           </label>
           <span className="settings-agent-hint" title={customModel.title ?? undefined}>
@@ -746,11 +762,31 @@ function AiTuiRows({ settings }: { settings: Settings }) {
           </span>
         </div>
       </div>
+      {selected === 'custom' && (
+        <input
+          className="settings-control settings-agent-command"
+          type="text"
+          spellCheck={false}
+          aria-label="Custom harness command"
+          placeholder="aider --model sonnet"
+          value={settings.harnessCustomCommand}
+          onChange={(e) => update({ harnessCustomCommand: e.target.value })}
+          // The custom program's own found/missing hint follows what was typed.
+          onBlur={() => void harnessAvailabilityStore.getState().refresh()}
+        />
+      )}
       <div className="settings-agent-actions">
         <button className="settings-button" disabled={checking} onClick={refresh}>
           {checking ? 'Checking…' : 'Re-check'}
         </button>
       </div>
+      <p className="settings-hint">
+        The harness the new-tab menu&apos;s Harness row launches. Ones not found on{' '}
+        <code>PATH</code> are dimmed; <b>Install</b> opens a terminal and types the official install
+        command, so you see exactly what runs. Close that tab (or press <b>Re-check</b>) when it
+        finishes. Until you pick one, the row launches the first harness found — Claude, then
+        ChatGPT, then the rest.
+      </p>
     </div>
   );
 }
@@ -798,28 +834,6 @@ function TerminalSection({ settings }: { settings: Settings }) {
         Profiles (arguments, folder, environment) are edited in <code>settings.json</code> under{' '}
         <code>terminalProfiles</code>. A profile with no <code>program</code> of its own runs the
         shell chosen above.
-      </p>
-
-      {settings.aiTuiAgent === 'custom' && (
-        <label className="settings-row">
-          <span className="settings-label">AI command</span>
-          <input
-            className="settings-control"
-            type="text"
-            spellCheck={false}
-            placeholder="aider --model sonnet"
-            value={settings.aiTuiCustomCommand}
-            onChange={(e) => update({ aiTuiCustomCommand: e.target.value })}
-            // The custom program's own found/missing hint follows what was typed.
-            onBlur={() => void tuiAvailabilityStore.getState().refresh()}
-          />
-        </label>
-      )}
-
-      <p className="settings-hint">
-        The agent the new-tab menu&apos;s AI row launches. Agents not found on <code>PATH</code> are
-        dimmed; <b>Install</b> opens a terminal and types the official install command, so you see
-        exactly what runs. Close that tab (or press <b>Re-check</b>) when it finishes.
       </p>
 
       <label className="settings-row">

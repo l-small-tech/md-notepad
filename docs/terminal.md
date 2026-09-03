@@ -76,10 +76,10 @@ command out.
   `cd /d "C:\My Notes"` in cmd).
 - **List files** — types `ls` (PowerShell), `dir` (cmd) or `ls -l` (bash,
   zsh, fish).
-- **Open Claude** (or whichever agent **Settings → AI TUI** names) — types the
+- **Open Claude** (or whichever harness **Settings → Harness** names) — types the
   agent's command line so it starts in the current folder.
 
 The helpers appear only when there is a prompt to type at: on a plain shell,
 and not while a full-screen program (an agent, `vim`, `less`) has taken over
-the pane. On an AI TUI tab you get the usual Copy / Paste / Split menu without
+the pane. On a harness tab you get the usual Copy / Paste / Split menu without
 them.

@@ -107,12 +107,34 @@ Android, which has no terminal.
   `fontSizeDelta` (pixels added to the editor's font size — `2` means "two
   larger than my notes", and it keeps following Ctrl+= / Ctrl+-). If both are
   present, `fontSize` wins.
-- **AI TUI** — the coding agent the new-tab menu's **AI** row launches:
-  **Claude** (Claude Code, the default), **ChatGPT** (the `codex` CLI),
-  **Gemini**, **Grok**, **Copilot** (GitHub Copilot CLI), **opencode**, or
-  **Custom…** with your own command line (`aider --model sonnet`). The app
-  checks which of these are actually installed — at start-up, whenever this
-  dialog opens, and on **Re-check** — and shows each one's status:
+- **Cursor style**, **Blinking cursor**, **Scrollback**, **Lines per
+  scroll**, **Bell** (never a sound — the cursor changes shape, the pane
+  flashes, or nothing), **Copy on select**, **Confirm multi-line paste**,
+  **Confirm closing a running shell**, **Keep the pane open after the shell
+  exits**, **Alt sends Escape**, **Backspace sends DEL**, and **Let programs
+  set the clipboard (OSC 52)** — the usual terminal-emulator knobs, each
+  explained on its row.
+
+## Harness (desktop only)
+
+A **harness** is a terminal coding agent — the thing the new-tab menu's
+**Harness** row opens in a terminal tab.
+
+- **Harness** — which one that row launches: **Claude** (Claude Code),
+  **ChatGPT** (the `codex` CLI), **Gemini**, **Grok**, **Copilot** (GitHub
+  Copilot CLI), **opencode**, or **Custom…** with your own command line
+  (`aider --model sonnet`).
+
+  Until you choose, the app picks for you: Claude if it's installed, else
+  ChatGPT, else whichever of the others it finds first. It makes that choice
+  once — the first time it sees a harness on your machine — and then leaves
+  it alone, so you can change it here and it stays changed. With none
+  installed, the **Harness** row in the new-tab menu opens this page instead
+  of a terminal, so you can install one.
+
+  The app checks which harnesses are actually installed — at start-up,
+  whenever this dialog opens, and on **Re-check** — and shows each one's
+  status:
   - Found: a check mark and where the command lives.
   - Not found: the name is dimmed (you can still pick it) with an **Install**
     button beside it. Install opens a terminal tab and types the tool's
@@ -123,17 +145,10 @@ Android, which has no terminal.
     command, answer any prompt yourself, and keep the shell afterwards. Close
     that tab (or press **Re-check**) and the row updates.
 
-  The AI tab renders a touch larger than your notes — two pixels over the
-  editor's font size — since an agent's output is mostly read, not typed.
-  It still follows Ctrl+= / Ctrl+-. (The **AI theme** button in
-  ☰ Menu → Themes opens the same agent, in your themes folder.)
-- **Cursor style**, **Blinking cursor**, **Scrollback**, **Lines per
-  scroll**, **Bell** (never a sound — the cursor changes shape, the pane
-  flashes, or nothing), **Copy on select**, **Confirm multi-line paste**,
-  **Confirm closing a running shell**, **Keep the pane open after the shell
-  exits**, **Alt sends Escape**, **Backspace sends DEL**, and **Let programs
-  set the clipboard (OSC 52)** — the usual terminal-emulator knobs, each
-  explained on its row.
+A harness tab renders a touch larger than your notes — two pixels over the
+editor's font size — since an agent's output is mostly read, not typed. It
+still follows Ctrl+= / Ctrl+-. (The **AI theme** button in ☰ Menu → Themes
+opens the same harness, in your themes folder.)
 
 ## Notes folder
 

@@ -10,8 +10,9 @@
 
 import {
   AI_THEME_PROFILE_ID,
-  AI_TUI_AGENT_IDS,
-  AI_TUI_PROFILE_ID,
+  HARNESS_IDS,
+  HARNESS_PROFILE_ID,
+  LEGACY_HARNESS_PROFILE_ID,
   CURSOR_STYLES,
   DEFAULT_COLOR_SCHEME,
   EDITOR_FONT_IDS,
@@ -33,8 +34,9 @@ import {
   type ScanSmoothing,
 } from './whiteboard/scan/types';
 import type {
-  AiTuiAgentId,
   CursorStyle,
+  HarnessChoice,
+  HarnessId,
   EditorFontId,
   Settings,
   TerminalBell,
@@ -59,13 +61,13 @@ export const DEFAULT_TERMINAL_PROFILES: readonly TerminalProfile[] = [
 ];
 
 /**
- * What each AI TUI agent launches. ChatGPT's terminal agent ships as the
- * `codex` CLI — the label is the product the user picked, the program is what
- * `PATH` actually knows. Kept as a fixed table (not user profiles): the "AI
- * TUI" row is a switch between agents, and anything more bespoke is a custom
+ * What each harness launches. ChatGPT's terminal agent ships as the `codex`
+ * CLI — the label is the product the user picked, the program is what `PATH`
+ * actually knows. Kept as a fixed table (not user profiles): the "Harness"
+ * row is a switch between harnesses, and anything more bespoke is a custom
  * profile in `terminalProfiles`.
  */
-export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string }> = {
+export const HARNESSES: Record<HarnessId, { name: string; program: string }> = {
   claude: { name: 'Claude', program: 'claude' },
   chatgpt: { name: 'ChatGPT', program: 'codex' },
   gemini: { name: 'Gemini', program: 'gemini' },
@@ -80,7 +82,7 @@ export const AI_TUI_AGENTS: Record<AiTuiAgentId, { name: string; program: string
  * read — streamed prose, diffs, status lines — so it earns a touch more size
  * than the note beside it, while still following mod+=/-/0 with the editor.
  */
-export const AI_TUI_FONT_SIZE_DELTA = 2;
+export const HARNESS_FONT_SIZE_DELTA = 2;
 
 /** Bounds for a profile's `fontSizeDelta`; the same span the pane zoom allows. */
 export const FONT_SIZE_DELTA_RANGE = { min: -8, max: 24 } as const;
@@ -95,7 +97,7 @@ export function profileFontSize(profile: TerminalProfile, editorSize: number): n
 }
 
 /**
- * Split the 'custom' AI TUI command line into program + args. Whitespace
+ * Split the 'custom' Harness command line into program + args. Whitespace
  * separates tokens; single or double quotes group a value containing spaces
  * (`aider --model "gpt 5"`). No escapes — this is a launch line, not a shell:
  * anything fancier belongs in a real `terminalProfiles` entry.
@@ -115,13 +117,36 @@ export function parseCommandLine(line: string): { program: string | undefined; a
  * name, or for 'custom' the command's program name ("aider" from
  * `/usr/bin/aider --pro`), falling back to "Custom AI" while unconfigured.
  */
-export function aiTuiAgentName(settings: Settings): string {
-  if (settings.aiTuiAgent !== 'custom') {
-    return AI_TUI_AGENTS[settings.aiTuiAgent].name;
+export function harnessName(settings: Settings): string {
+  const choice = resolvedHarness(settings);
+  if (choice !== 'custom') {
+    return HARNESSES[choice].name;
   }
-  const program = parseCommandLine(settings.aiTuiCustomCommand).program;
+  const program = parseCommandLine(settings.harnessCustomCommand).program;
   const base = program?.replaceAll('\\', '/').split('/').pop();
   return base || 'Custom AI';
+}
+
+/**
+ * The harness a still-'auto' setting stands for until a PATH scan has spoken:
+ * the head of `HARNESS_IDS`. Everything downstream — the launch profile, the
+ * new-tab row's label, the Install button — wants a concrete choice, and
+ * Claude is the one `pickDefaultHarness` names when everything is installed.
+ */
+export function resolvedHarness(settings: Settings): HarnessId | 'custom' {
+  return settings.harness === 'auto' ? HARNESS_IDS[0] : settings.harness;
+}
+
+/**
+ * The harness an 'auto' setting resolves to: the first of `HARNESS_IDS`
+ * (Claude, then ChatGPT, then the rest as listed) that is actually installed,
+ * or null when none is. Null leaves the setting on 'auto', so the choice is
+ * made the moment the user installs their first harness — and until then the
+ * new-tab row sends them to Settings to install one rather than spawning a
+ * command that is not there.
+ */
+export function pickDefaultHarness(isInstalled: (id: HarnessId) => boolean): HarnessId | null {
+  return HARNESS_IDS.find(isInstalled) ?? null;
 }
 
 /**
@@ -143,7 +168,7 @@ const AI_THEME_PROMPT =
  * model too small to follow the guide; the user can always `/model` up
  * mid-session.
  */
-function aiThemeArgs(agent: AiTuiAgentId | 'custom'): string[] {
+function aiThemeArgs(agent: HarnessId | 'custom'): string[] {
   switch (agent) {
     case 'claude':
       return ['--model', 'sonnet', '--effort', 'low', AI_THEME_PROMPT];
@@ -226,8 +251,8 @@ export const DEFAULT_SETTINGS: Settings = {
 
   terminalProfiles: DEFAULT_TERMINAL_PROFILES.map((profile) => ({ ...profile })),
   defaultTerminalProfile: SHELL_PROFILE_ID,
-  aiTuiAgent: 'claude',
-  aiTuiCustomCommand: '',
+  harness: 'auto',
+  harnessCustomCommand: '',
   terminalShell: AUTO_SHELL,
   terminalFont: 'fira-code',
   terminalScrollback: 10_000,
@@ -475,6 +500,23 @@ function normalizeBell(raw: unknown, schemaVersion: number): TerminalBell {
   return bell;
 }
 
+/**
+ * A persisted harness choice: a known id, 'custom', or 'auto' (what a
+ * never-configured install carries until a PATH scan names one). Anything
+ * else — including an id this build no longer ships — degrades to the
+ * default, so the row still launches something.
+ */
+function normalizeHarness(raw: unknown, fallback: HarnessChoice): HarnessChoice {
+  return raw === 'custom' || raw === 'auto' || (HARNESS_IDS as readonly unknown[]).includes(raw)
+    ? (raw as HarnessChoice)
+    : fallback;
+}
+
+/** The 'custom' harness command line, trimmed; anything but a string degrades. */
+function normalizeCustomCommand(raw: unknown, fallback: string): string {
+  return typeof raw === 'string' ? raw.trim() : fallback;
+}
+
 /** Per-field validation; every invalid field falls back to its default. */
 export function normalizeSettings(raw: unknown): Settings {
   const r = isRecord(raw) ? raw : {};
@@ -623,12 +665,14 @@ export function normalizeSettings(raw: unknown): Settings {
     // whitelist — so this only trims. A bad name surfaces as a spawn error in
     // the pane, which is more useful than silently running something else.
     terminalShell: normalizeShell(r.terminalShell),
-    aiTuiAgent:
-      r.aiTuiAgent === 'custom' || (AI_TUI_AGENT_IDS as readonly unknown[]).includes(r.aiTuiAgent)
-        ? (r.aiTuiAgent as Settings['aiTuiAgent'])
-        : d.aiTuiAgent,
-    aiTuiCustomCommand:
-      typeof r.aiTuiCustomCommand === 'string' ? r.aiTuiCustomCommand.trim() : d.aiTuiCustomCommand,
+    // `aiTuiAgent`/`aiTuiCustomCommand` are what these two were called before
+    // the feature was renamed Harness; a file written by an older build still
+    // carries them, and an agent the user actually picked is worth keeping.
+    harness: normalizeHarness(r.harness ?? r.aiTuiAgent, d.harness),
+    harnessCustomCommand: normalizeCustomCommand(
+      r.harnessCustomCommand ?? r.aiTuiCustomCommand,
+      d.harnessCustomCommand,
+    ),
     terminalFont: (TERMINAL_FONT_IDS as readonly unknown[]).includes(r.terminalFont)
       ? (r.terminalFont as TerminalFontId)
       : d.terminalFont,
@@ -636,45 +680,48 @@ export function normalizeSettings(raw: unknown): Settings {
 }
 
 /**
- * The synthesized AI TUI profiles, one per agent. Cached so
+ * The synthesized Harness profiles, one per agent. Cached so
  * `resolveTerminalProfile` keeps its same-object-every-call contract —
  * `TerminalPane` re-applies settings whenever the profile identity changes.
  */
 // Keyed by agent id — for 'custom', with the command line folded in, so an
 // edited command yields a NEW profile identity (TerminalPane re-applies).
-const AI_TUI_PROFILES = new Map<string, TerminalProfile>();
+const HARNESS_PROFILES = new Map<string, TerminalProfile>();
 const AI_THEME_PROFILES = new Map<string, TerminalProfile>();
 
 /**
  * The profile with this id, or the default one, or the first that exists.
- * `AI_TUI_PROFILE_ID` is virtual: unless the user shadowed it with a real
- * profile of that id, it resolves to the configured agent's command.
+ * `HARNESS_PROFILE_ID` is virtual: unless the user shadowed it with a real
+ * profile of that id, it resolves to the configured harness's command. The
+ * pre-rename id (`LEGACY_HARNESS_PROFILE_ID`) means the same thing, so a
+ * terminal snapshot written by an older build restores its harness pane.
  */
 export function resolveTerminalProfile(settings: Settings, id?: string): TerminalProfile {
   const byId = id ? settings.terminalProfiles.find((p) => p.id === id) : undefined;
   if (byId) {
     return byId;
   }
-  if (id === AI_TUI_PROFILE_ID || id === AI_THEME_PROFILE_ID) {
-    const agentId = settings.aiTuiAgent;
-    const cache = id === AI_TUI_PROFILE_ID ? AI_TUI_PROFILES : AI_THEME_PROFILES;
-    const key = agentId === 'custom' ? `custom ${settings.aiTuiCustomCommand}` : agentId;
+  const harnessProfile = id === HARNESS_PROFILE_ID || id === LEGACY_HARNESS_PROFILE_ID;
+  if (harnessProfile || id === AI_THEME_PROFILE_ID) {
+    const agentId = resolvedHarness(settings);
+    const cache = harnessProfile ? HARNESS_PROFILES : AI_THEME_PROFILES;
+    const key = agentId === 'custom' ? `custom ${settings.harnessCustomCommand}` : agentId;
     let profile = cache.get(key);
     if (!profile) {
-      const custom = agentId === 'custom' ? parseCommandLine(settings.aiTuiCustomCommand) : null;
-      const name = custom ? aiTuiAgentName(settings) : AI_TUI_AGENTS[agentId as AiTuiAgentId].name;
-      const program = custom ? custom.program : AI_TUI_AGENTS[agentId as AiTuiAgentId].program;
+      const custom = agentId === 'custom' ? parseCommandLine(settings.harnessCustomCommand) : null;
+      const name = custom ? harnessName(settings) : HARNESSES[agentId as HarnessId].name;
+      const program = custom ? custom.program : HARNESSES[agentId as HarnessId].program;
       const baseArgs = custom ? custom.args : [];
       profile = {
         id,
-        name: id === AI_TUI_PROFILE_ID ? name : 'AI theme',
+        name: harnessProfile ? name : 'AI theme',
         // An empty custom command leaves program undefined → the plain shell,
         // which surfaces the misconfiguration without crashing the spawn.
         ...(program !== undefined ? { program } : {}),
-        args: id === AI_TUI_PROFILE_ID ? baseArgs : [...baseArgs, ...aiThemeArgs(agentId)],
+        args: harnessProfile ? baseArgs : [...baseArgs, ...aiThemeArgs(agentId)],
         env: {},
-        // Slightly larger cells than the editor (see AI_TUI_FONT_SIZE_DELTA).
-        fontSizeDelta: AI_TUI_FONT_SIZE_DELTA,
+        // Slightly larger cells than the editor (see HARNESS_FONT_SIZE_DELTA).
+        fontSizeDelta: HARNESS_FONT_SIZE_DELTA,
       };
       cache.set(key, profile);
     }

@@ -20,7 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { isDarkColor } from '../../core/color';
 import {
-  aiTuiAgentName,
+  harnessName,
   profileFontSize,
   resolveTerminalProfile,
   terminalProgram,
@@ -29,7 +29,7 @@ import { cdCommand, cdTarget, listCommand, quoteCommand } from '../../core/shell
 import { pathFromFileUrl, withShellIntegration } from '../../core/shell-integration';
 import { terminalEnvHints } from '../../core/terminal-palette';
 import { shellKind, type ShellKind } from '../../core/terminal-shells';
-import { AI_TUI_PROFILE_ID, type Settings, type TerminalProfile } from '../../core/types';
+import { HARNESS_PROFILE_ID, type Settings, type TerminalProfile } from '../../core/types';
 import { getClipboard } from '../../ipc/clipboard';
 import { pickDirectory } from '../../ipc/dialog';
 import { getPtyProvider, type PtyHandle } from '../../ipc/pty';
@@ -729,14 +729,14 @@ function PaneMenu({
     });
   }
 
-  // The agent the "Open <agent>" helper starts: the configured AI TUI's
+  // The agent the "Open <agent>" helper starts: the configured harness's
   // command line, quoted for this shell. Hidden while unconfigured (a custom
-  // agent with an empty command has no program).
-  const agentProfile = resolveTerminalProfile(settings, AI_TUI_PROFILE_ID);
+  // harness with an empty command has no program).
+  const agentProfile = resolveTerminalProfile(settings, HARNESS_PROFILE_ID);
   const agent =
     shell && agentProfile.program
       ? {
-          name: aiTuiAgentName(settings),
+          name: harnessName(settings),
           command: quoteCommand(shell, agentProfile.program, agentProfile.args),
         }
       : null;

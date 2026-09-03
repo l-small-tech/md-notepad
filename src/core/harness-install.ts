@@ -1,5 +1,5 @@
 /**
- * How to install each AI TUI agent: the command line the Settings dialog's
+ * How to install each harness: the command line the Settings dialog's
  * **Install** button types into a fresh shell tab.
  *
  * Pure policy, no execution — the shell the user sees is what runs it, so the
@@ -23,7 +23,7 @@
  */
 
 import { shellKind, type DesktopOs } from './terminal-shells';
-import type { AiTuiAgentId } from './types';
+import type { HarnessId } from './types';
 
 /**
  * The shell dialect the install line is written in. `pwsh` (PowerShell 7)
@@ -34,7 +34,7 @@ export type InstallShell = 'posix' | 'pwsh' | 'powershell' | 'cmd';
 
 /**
  * Which package managers are on `PATH`, from the same `find_programs` scan
- * that finds the agents (`INSTALL_TOOLS` names the programs to ask for).
+ * that finds the harnesses (`INSTALL_TOOLS` names the programs to ask for).
  */
 export interface InstallContext {
   hasNpm: boolean;
@@ -43,7 +43,7 @@ export interface InstallContext {
   hasScoop?: boolean;
 }
 
-/** Programs whose presence shapes an install line — detect these alongside the agents. */
+/** Programs whose presence shapes an install line — detect these alongside the harnesses. */
 export const INSTALL_TOOLS = ['npm', 'brew', 'winget', 'scoop'] as const;
 export type InstallTool = (typeof INSTALL_TOOLS)[number];
 
@@ -128,7 +128,7 @@ function viaPowershell(ps: string): WinStep {
  * alternative, fnm, only works once a `fnm env` line is added to the
  * PowerShell profile — which on a stock Windows install never runs at all
  * (execution policy `Restricted`), so a fresh terminal would still have no
- * `node`, and the agent installed under it would look missing forever.
+ * `node`, and the harness installed under it would look missing forever.
  * The MSI puts `node` and npm's global bin dir on the persistent PATH; the
  * second step folds that into the CURRENT session so `npm` resolves right
  * away. `npm -g` itself needs no elevation (`%APPDATA%\npm` is user-owned).
@@ -191,7 +191,7 @@ function posixNpm(pkg: string, os: DesktopOs, ctx: InstallContext): string[] {
 }
 
 /**
- * Windows routes, per agent. Sources:
+ * Windows routes, per harness. Sources:
  * - Claude Code: https://code.claude.com/docs/en/setup — winget
  *   `Anthropic.ClaudeCode`, else the native installer (`irm … install.ps1 |
  *   iex`; cmd gets the documented `install.cmd` form). Both are user-space.
@@ -209,8 +209,8 @@ function posixNpm(pkg: string, os: DesktopOs, ctx: InstallContext): string[] {
  *   installer (`irm https://x.ai/cli/install.ps1 | iex`); nothing on npm,
  *   brew or winget is official.
  */
-function windowsSteps(agent: AiTuiAgentId, ctx: InstallContext): WinStep[] | null {
-  switch (agent) {
+function windowsSteps(harness: HarnessId, ctx: InstallContext): WinStep[] | null {
+  switch (harness) {
     case 'claude':
       return ctx.hasWinget
         ? [same('winget install -e --id Anthropic.ClaudeCode')]
@@ -237,7 +237,7 @@ function windowsSteps(agent: AiTuiAgentId, ctx: InstallContext): WinStep[] | nul
 }
 
 /**
- * macOS and Linux routes, per agent. Sources as in `windowsSteps`, plus:
+ * macOS and Linux routes, per harness. Sources as in `windowsSteps`, plus:
  * - Claude Code: brew cask `claude-code` on a Mac with Homebrew, else the
  *   native `install.sh`. The apt/dnf repositories exist but need a signing
  *   key and a sources entry installed with `sudo` first — the user-space
@@ -252,9 +252,9 @@ function windowsSteps(agent: AiTuiAgentId, ctx: InstallContext): WinStep[] | nul
  *   script, which lands in `~/.opencode/bin` or `~/bin`.
  * - Grok: `x.ai/cli/install.sh`.
  */
-function posixSteps(agent: AiTuiAgentId, os: DesktopOs, ctx: InstallContext): string[] {
+function posixSteps(harness: HarnessId, os: DesktopOs, ctx: InstallContext): string[] {
   const brew = os === 'mac' && ctx.hasBrew === true;
-  switch (agent) {
+  switch (harness) {
     case 'claude':
       return brew
         ? ['brew install --cask claude-code']
@@ -291,21 +291,21 @@ function joinSteps(steps: string[], shell: InstallShell): string {
 }
 
 /**
- * The full command line that installs `agent` on this machine, or null when
+ * The full command line that installs `harness` on this machine, or null when
  * no documented route exists with what is installed (on Windows: npm-only
  * tools when neither npm nor winget is present). `shell` defaults to the
  * OS's usual one, which is enough to decide whether a route exists at all.
  */
 export function installCommandFor(
-  agent: AiTuiAgentId,
+  harness: HarnessId,
   os: DesktopOs,
   ctx: InstallContext,
   shell: InstallShell = defaultInstallShell(os),
 ): string | null {
   if (os !== 'windows') {
-    return joinSteps(posixSteps(agent, os, ctx), 'posix');
+    return joinSteps(posixSteps(harness, os, ctx), 'posix');
   }
-  const steps = windowsSteps(agent, ctx);
+  const steps = windowsSteps(harness, ctx);
   if (!steps) {
     return null;
   }

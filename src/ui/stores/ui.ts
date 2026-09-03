@@ -20,6 +20,13 @@ export interface CursorReadout {
   col: number;
 }
 
+/**
+ * A section of the settings dialog. Lives here rather than beside the dialog
+ * so a caller can ask for a section (`openSettings('harness')`) without the
+ * store importing the component.
+ */
+export type SettingsTabId = 'appearance' | 'editor' | 'files' | 'terminal' | 'harness' | 'updates';
+
 /** Full-screen view stage — see `fullscreenView` below. */
 export type FullscreenStage = 'normal' | 'window' | 'screen';
 
@@ -34,6 +41,12 @@ export interface UiState {
   cursor: CursorReadout | null;
   /** The settings dialog (Ctrl+,) is open (M6). Transient, never persisted. */
   settingsOpen: boolean;
+  /**
+   * Which section the dialog should open on, when the caller cares — the
+   * Harness row opens it on Harness so an uninstalled harness is one click
+   * from its Install button. Null means "wherever it was left".
+   */
+  settingsTab: SettingsTabId | null;
   /** The command palette (Ctrl+K) is open. Transient, never persisted. */
   paletteOpen: boolean;
   /**
@@ -82,7 +95,7 @@ export interface UiState {
   clearNotice: () => void;
   /** Adapter → UI. Ignored unless `tabId` is the active tab. */
   reportCursor: (tabId: string, cursor: CursorReadout) => void;
-  openSettings: () => void;
+  openSettings: (tab?: SettingsTabId) => void;
   closeSettings: () => void;
   openPalette: () => void;
   closePalette: () => void;
@@ -115,6 +128,7 @@ export const uiStore = createStore<UiState>()((set) => ({
   notice: null,
   cursor: null,
   settingsOpen: false,
+  settingsTab: null,
   paletteOpen: false,
   newTabMenuOpen: false,
   explorerOpen: false,
@@ -151,12 +165,14 @@ export const uiStore = createStore<UiState>()((set) => ({
     set({ cursor });
   },
 
-  openSettings() {
-    set({ settingsOpen: true });
+  openSettings(tab) {
+    set({ settingsOpen: true, settingsTab: tab ?? null });
   },
 
   closeSettings() {
-    set({ settingsOpen: false });
+    // Clear the requested section too: the next open asks for its own, and a
+    // stale one would otherwise look unchanged and be ignored.
+    set({ settingsOpen: false, settingsTab: null });
   },
 
   openPalette() {

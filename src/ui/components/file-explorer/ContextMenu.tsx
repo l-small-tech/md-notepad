@@ -11,12 +11,13 @@
 
 import { useState, type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { aiTuiAgentName } from '../../../core/settings';
+import { harnessName } from '../../../core/settings';
 import { isMarkdownPath } from '../../../core/text-files';
-import { AI_TUI_PROFILE_ID, WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
+import { HARNESS_PROFILE_ID, WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import { openTerminal } from '../../terminal-open';
 import { useSettingsStore } from '../../stores/settings';
+import { harnessInstalled, useHarnessAvailability } from '../../stores/harness-availability';
 import {
   deleteExplorerEntry,
   deleteExplorerFolder,
@@ -47,7 +48,7 @@ interface FileMenuProps extends CommonProps {
 
 /**
  * The right-click menu for a directory: a "New" drill-in page (file, folder,
- * drawing, plus terminal / AI TUI sessions started in THIS dir on desktop);
+ * drawing, plus terminal / Harness sessions started in THIS dir on desktop);
  * "Set active" at workspace level (a plain header click no longer selects);
  * "Rename" + "Delete folder" for subfolders (`renameTarget` given); the
  * workspace color swatches only at workspace level (`wsColor` given = a
@@ -75,7 +76,8 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   const { onClose, onRename } = props;
   /** Which page of the directory menu is showing (see the New/Import rows below). */
   const [page, setPage] = useState<'root' | 'new' | 'import'>('root');
-  const aiName = useSettingsStore((s) => aiTuiAgentName(s.settings));
+  const aiName = useSettingsStore((s) => harnessName(s.settings));
+  const harnessReady = useHarnessAvailability(harnessInstalled);
 
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
@@ -256,19 +258,28 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         )}
         {/* Sessions start HERE — the dir that was right-clicked — not in the
             active workspace: an explicit cwd wins over workspaceCwd() in
-            openTerminal. The AI row wears the configured agent's name, same
-            as the new-tab picker. */}
+            openTerminal. The harness row wears the configured harness's name,
+            same as the new-tab picker — and, with none installed, opens the
+            Harness settings instead of spawning a missing command. */}
         {canTerminal && (
           <button
             className="context-menu-item"
             role="menuitem"
-            title="AI TUI — switch the agent in Settings"
+            title={
+              harnessReady
+                ? 'Harness — switch the harness in Settings'
+                : 'No harness installed — open Settings to install one'
+            }
             onClick={() => {
               onClose();
-              openTerminal(AI_TUI_PROFILE_ID, dir);
+              if (harnessReady) {
+                openTerminal(HARNESS_PROFILE_ID, dir);
+              } else {
+                uiStore.getState().openSettings('harness');
+              }
             }}
           >
-            {aiName} session
+            {harnessReady ? `${aiName} session` : 'Harness session'}
           </button>
         )}
         {canTerminal && (

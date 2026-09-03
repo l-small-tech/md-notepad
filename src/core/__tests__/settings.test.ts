@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
-  AI_TUI_AGENTS,
-  AI_TUI_FONT_SIZE_DELTA,
-  aiTuiAgentName,
+  HARNESSES,
+  HARNESS_FONT_SIZE_DELTA,
+  harnessName,
   DEFAULT_SETTINGS,
   FONT_SIZE_DELTA_RANGE,
   SETTINGS_SCHEMA,
@@ -12,11 +12,18 @@ import {
   normalizeSettings,
   normalizeTerminalProfile,
   parseCommandLine,
+  pickDefaultHarness,
   pickUnusedColor,
   profileFontSize,
   resolveTerminalProfile,
+  resolvedHarness,
 } from '../settings';
-import { AI_THEME_PROFILE_ID, AI_TUI_AGENT_IDS, AI_TUI_PROFILE_ID } from '../types';
+import {
+  AI_THEME_PROFILE_ID,
+  HARNESS_IDS,
+  HARNESS_PROFILE_ID,
+  LEGACY_HARNESS_PROFILE_ID,
+} from '../types';
 import {
   CURSOR_STYLES,
   EDITOR_FONT_IDS,
@@ -36,7 +43,7 @@ describe('normalizeSettings', () => {
   test('valid fields pass through', () => {
     const settings = normalizeSettings({
       notesDir: 'D:/notes',
-      aiTuiAgent: 'chatgpt',
+      harness: 'chatgpt',
       // Light/Dark is a meaningful override only on the built-in default palette;
       // a plugin scheme is exercised by the merged-model test below.
       theme: 'dark',
@@ -67,8 +74,8 @@ describe('normalizeSettings', () => {
     });
     expect(settings).toEqual({
       notesDir: 'D:/notes',
-      aiTuiAgent: 'chatgpt',
-      aiTuiCustomCommand: '',
+      harness: 'chatgpt',
+      harnessCustomCommand: '',
       theme: 'dark',
       colorScheme: 'default',
       fontSize: 16,
@@ -429,40 +436,62 @@ describe('terminal profiles: font size', () => {
   });
 });
 
-describe('the AI TUI virtual profile', () => {
-  test('the agent setting defaults to claude and rejects unknown values', () => {
-    expect(DEFAULT_SETTINGS.aiTuiAgent).toBe('claude');
-    // Every known id round-trips, including the two later additions.
-    expect(AI_TUI_AGENT_IDS).toEqual([
-      'claude',
-      'chatgpt',
-      'gemini',
-      'grok',
-      'copilot',
-      'opencode',
-    ]);
-    for (const id of AI_TUI_AGENT_IDS) {
-      expect(normalizeSettings({ aiTuiAgent: id }).aiTuiAgent).toBe(id);
+describe('the Harness virtual profile', () => {
+  test("the harness setting defaults to 'auto' and rejects unknown values", () => {
+    expect(DEFAULT_SETTINGS.harness).toBe('auto');
+    // Preference order, and every known id round-trips.
+    expect(HARNESS_IDS).toEqual(['claude', 'chatgpt', 'gemini', 'grok', 'copilot', 'opencode']);
+    for (const id of HARNESS_IDS) {
+      expect(normalizeSettings({ harness: id }).harness).toBe(id);
     }
-    expect(normalizeSettings({ aiTuiAgent: 'skynet' }).aiTuiAgent).toBe('claude');
+    expect(normalizeSettings({ harness: 'custom' }).harness).toBe('custom');
+    expect(normalizeSettings({ harness: 'auto' }).harness).toBe('auto');
+    expect(normalizeSettings({ harness: 'skynet' }).harness).toBe('auto');
     // Case matters: ids are what the table is keyed by.
-    expect(normalizeSettings({ aiTuiAgent: 'Copilot' }).aiTuiAgent).toBe('claude');
+    expect(normalizeSettings({ harness: 'Copilot' }).harness).toBe('auto');
   });
 
-  test('every agent has a command; Copilot and opencode launch by their own names', () => {
-    for (const id of AI_TUI_AGENT_IDS) {
-      expect(AI_TUI_AGENTS[id].program.length).toBeGreaterThan(0);
-      expect(AI_TUI_AGENTS[id].name.length).toBeGreaterThan(0);
+  test('the pre-rename aiTui* keys are read when the harness ones are absent', () => {
+    expect(normalizeSettings({ aiTuiAgent: 'gemini' }).harness).toBe('gemini');
+    expect(
+      normalizeSettings({ aiTuiAgent: 'custom', aiTuiCustomCommand: ' aider ' }),
+    ).toMatchObject({ harness: 'custom', harnessCustomCommand: 'aider' });
+    // The new keys win where both are written.
+    expect(normalizeSettings({ harness: 'grok', aiTuiAgent: 'gemini' }).harness).toBe('grok');
+  });
+
+  test("'auto' resolves to Claude until a scan settles it; pickDefaultHarness ranks by order", () => {
+    expect(resolvedHarness(DEFAULT_SETTINGS)).toBe('claude');
+    expect(resolvedHarness({ ...DEFAULT_SETTINGS, harness: 'grok' })).toBe('grok');
+    expect(resolveTerminalProfile(DEFAULT_SETTINGS, HARNESS_PROFILE_ID).program).toBe('claude');
+
+    expect(pickDefaultHarness(() => true)).toBe('claude');
+    expect(pickDefaultHarness((id) => id !== 'claude')).toBe('chatgpt');
+    expect(pickDefaultHarness((id) => id === 'opencode' || id === 'gemini')).toBe('gemini');
+    expect(pickDefaultHarness(() => false)).toBeNull();
+  });
+
+  test('a snapshot naming the pre-rename profile id still restores the harness', () => {
+    const legacy = resolveTerminalProfile(DEFAULT_SETTINGS, LEGACY_HARNESS_PROFILE_ID);
+    expect(legacy.program).toBe('claude');
+    expect(legacy.name).toBe('Claude');
+    expect(legacy.fontSizeDelta).toBe(HARNESS_FONT_SIZE_DELTA);
+  });
+
+  test('every harness has a command; Copilot and opencode launch by their own names', () => {
+    for (const id of HARNESS_IDS) {
+      expect(HARNESSES[id].program.length).toBeGreaterThan(0);
+      expect(HARNESSES[id].name.length).toBeGreaterThan(0);
     }
-    expect(AI_TUI_AGENTS.copilot).toEqual({ name: 'Copilot', program: 'copilot' });
-    expect(AI_TUI_AGENTS.opencode).toEqual({ name: 'opencode', program: 'opencode' });
+    expect(HARNESSES.copilot).toEqual({ name: 'Copilot', program: 'copilot' });
+    expect(HARNESSES.opencode).toEqual({ name: 'opencode', program: 'opencode' });
   });
 
   test('ai-theme for Copilot pins a cheap model and passes no prompt; opencode uses --prompt', () => {
     // Copilot CLI cannot open its TUI with a prompt (`-p` is headless), so
     // the args carry only the model pin.
     const copilot = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'copilot' },
+      { ...DEFAULT_SETTINGS, harness: 'copilot' },
       AI_THEME_PROFILE_ID,
     );
     expect(copilot.program).toBe('copilot');
@@ -470,7 +499,7 @@ describe('the AI TUI virtual profile', () => {
     expect(copilot.args.some((a) => /AGENTS\.md/.test(a))).toBe(false);
 
     const opencode = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'opencode' },
+      { ...DEFAULT_SETTINGS, harness: 'opencode' },
       AI_THEME_PROFILE_ID,
     );
     expect(opencode.program).toBe('opencode');
@@ -480,45 +509,45 @@ describe('the AI TUI virtual profile', () => {
   });
 
   test('the virtual AI profiles render slightly larger than the editor', () => {
-    for (const id of [AI_TUI_PROFILE_ID, AI_THEME_PROFILE_ID]) {
+    for (const id of [HARNESS_PROFILE_ID, AI_THEME_PROFILE_ID]) {
       const profile = resolveTerminalProfile(DEFAULT_SETTINGS, id);
       expect(profile.fontSize).toBeUndefined();
-      expect(profile.fontSizeDelta).toBe(AI_TUI_FONT_SIZE_DELTA);
-      expect(profileFontSize(profile, 14)).toBe(14 + AI_TUI_FONT_SIZE_DELTA);
+      expect(profile.fontSizeDelta).toBe(HARNESS_FONT_SIZE_DELTA);
+      expect(profileFontSize(profile, 14)).toBe(14 + HARNESS_FONT_SIZE_DELTA);
     }
     // A real profile shadowing the id keeps its own (absent) delta.
-    const shadow = { id: AI_TUI_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
+    const shadow = { id: HARNESS_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
     const s = {
       ...DEFAULT_SETTINGS,
       terminalProfiles: [...DEFAULT_SETTINGS.terminalProfiles, shadow],
     };
-    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID).fontSizeDelta).toBeUndefined();
+    expect(resolveTerminalProfile(s, HARNESS_PROFILE_ID).fontSizeDelta).toBeUndefined();
   });
 
-  test('ai-tui resolves to the configured agent command', () => {
-    const claude = resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID);
+  test('harness profile resolves to the configured agent command', () => {
+    const claude = resolveTerminalProfile(DEFAULT_SETTINGS, HARNESS_PROFILE_ID);
     expect(claude).toMatchObject({ name: 'Claude', program: 'claude' });
     const chatgpt = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' },
-      AI_TUI_PROFILE_ID,
+      { ...DEFAULT_SETTINGS, harness: 'chatgpt' },
+      HARNESS_PROFILE_ID,
     );
     expect(chatgpt).toMatchObject({
-      name: AI_TUI_AGENTS.chatgpt.name,
-      program: AI_TUI_AGENTS.chatgpt.program,
+      name: HARNESSES.chatgpt.name,
+      program: HARNESSES.chatgpt.program,
     });
     for (const id of ['gemini', 'grok'] as const) {
       expect(
-        resolveTerminalProfile({ ...DEFAULT_SETTINGS, aiTuiAgent: id }, AI_TUI_PROFILE_ID),
+        resolveTerminalProfile({ ...DEFAULT_SETTINGS, harness: id }, HARNESS_PROFILE_ID),
       ).toMatchObject({
-        name: AI_TUI_AGENTS[id].name,
-        program: AI_TUI_AGENTS[id].program,
+        name: HARNESSES[id].name,
+        program: HARNESSES[id].program,
       });
     }
   });
 
   test('resolution is identity-stable per agent (TerminalPane contract)', () => {
-    expect(resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID)).toBe(
-      resolveTerminalProfile(DEFAULT_SETTINGS, AI_TUI_PROFILE_ID),
+    expect(resolveTerminalProfile(DEFAULT_SETTINGS, HARNESS_PROFILE_ID)).toBe(
+      resolveTerminalProfile(DEFAULT_SETTINGS, HARNESS_PROFILE_ID),
     );
   });
 
@@ -529,7 +558,7 @@ describe('the AI TUI virtual profile', () => {
     expect(claude.args.slice(0, 4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
     expect(claude.args[4]).toMatch(/AGENTS\.md/);
     const chatgpt = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' },
+      { ...DEFAULT_SETTINGS, harness: 'chatgpt' },
       AI_THEME_PROFILE_ID,
     );
     expect(chatgpt.program).toBe('codex');
@@ -541,14 +570,14 @@ describe('the AI TUI virtual profile', () => {
     ]);
     expect(chatgpt.args[4]).toMatch(/AGENTS\.md/);
     const gemini = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'gemini' },
+      { ...DEFAULT_SETTINGS, harness: 'gemini' },
       AI_THEME_PROFILE_ID,
     );
     expect(gemini.program).toBe('gemini');
     expect(gemini.args.slice(0, 3)).toEqual(['-m', 'gemini-2.5-flash', '-i']);
     expect(gemini.args[3]).toMatch(/AGENTS\.md/);
     const grok = resolveTerminalProfile(
-      { ...DEFAULT_SETTINGS, aiTuiAgent: 'grok' },
+      { ...DEFAULT_SETTINGS, harness: 'grok' },
       AI_THEME_PROFILE_ID,
     );
     expect(grok.program).toBe('grok');
@@ -556,42 +585,42 @@ describe('the AI TUI virtual profile', () => {
     expect(grok.args[2]).toMatch(/AGENTS\.md/);
   });
 
-  test('a real profile with the ai-tui id shadows the virtual one', () => {
-    const shadow = { id: AI_TUI_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
+  test('a real profile with the harness id shadows the virtual one', () => {
+    const shadow = { id: HARNESS_PROFILE_ID, name: 'Mine', program: 'aider', args: [], env: {} };
     const s = {
       ...DEFAULT_SETTINGS,
       terminalProfiles: [...DEFAULT_SETTINGS.terminalProfiles, shadow],
     };
-    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID)).toBe(shadow);
+    expect(resolveTerminalProfile(s, HARNESS_PROFILE_ID)).toBe(shadow);
   });
 
   test("'custom' is accepted by normalize and the command line trims/defaults", () => {
-    expect(normalizeSettings({ aiTuiAgent: 'custom' }).aiTuiAgent).toBe('custom');
-    expect(normalizeSettings({ aiTuiCustomCommand: '  aider --pro  ' }).aiTuiCustomCommand).toBe(
-      'aider --pro',
-    );
-    expect(normalizeSettings({ aiTuiCustomCommand: 42 }).aiTuiCustomCommand).toBe('');
+    expect(normalizeSettings({ harness: 'custom' }).harness).toBe('custom');
+    expect(
+      normalizeSettings({ harnessCustomCommand: '  aider --pro  ' }).harnessCustomCommand,
+    ).toBe('aider --pro');
+    expect(normalizeSettings({ harnessCustomCommand: 42 }).harnessCustomCommand).toBe('');
   });
 
-  test('custom ai-tui resolves to the parsed command, identity-stable per command', () => {
+  test('custom harness resolves to the parsed command, identity-stable per command', () => {
     const s = {
       ...DEFAULT_SETTINGS,
-      aiTuiAgent: 'custom' as const,
-      aiTuiCustomCommand: 'aider --model "gpt 5"',
+      harness: 'custom' as const,
+      harnessCustomCommand: 'aider --model "gpt 5"',
     };
-    const profile = resolveTerminalProfile(s, AI_TUI_PROFILE_ID);
+    const profile = resolveTerminalProfile(s, HARNESS_PROFILE_ID);
     expect(profile).toMatchObject({ name: 'aider', program: 'aider', args: ['--model', 'gpt 5'] });
-    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID)).toBe(profile);
+    expect(resolveTerminalProfile(s, HARNESS_PROFILE_ID)).toBe(profile);
     // An edited command is a NEW profile identity (TerminalPane re-applies).
-    const edited = { ...s, aiTuiCustomCommand: 'aider' };
-    expect(resolveTerminalProfile(edited, AI_TUI_PROFILE_ID)).not.toBe(profile);
+    const edited = { ...s, harnessCustomCommand: 'aider' };
+    expect(resolveTerminalProfile(edited, HARNESS_PROFILE_ID)).not.toBe(profile);
   });
 
   test('custom ai-theme appends the opening prompt after the custom args', () => {
     const s = {
       ...DEFAULT_SETTINGS,
-      aiTuiAgent: 'custom' as const,
-      aiTuiCustomCommand: 'aider --pro',
+      harness: 'custom' as const,
+      harnessCustomCommand: 'aider --pro',
     };
     const profile = resolveTerminalProfile(s, AI_THEME_PROFILE_ID);
     expect(profile.program).toBe('aider');
@@ -600,8 +629,8 @@ describe('the AI TUI virtual profile', () => {
   });
 
   test('an empty custom command resolves to no program (falls back to the shell)', () => {
-    const s = { ...DEFAULT_SETTINGS, aiTuiAgent: 'custom' as const, aiTuiCustomCommand: '' };
-    expect(resolveTerminalProfile(s, AI_TUI_PROFILE_ID).program).toBeUndefined();
+    const s = { ...DEFAULT_SETTINGS, harness: 'custom' as const, harnessCustomCommand: '' };
+    expect(resolveTerminalProfile(s, HARNESS_PROFILE_ID).program).toBeUndefined();
   });
 });
 
@@ -621,21 +650,21 @@ describe('parseCommandLine', () => {
   });
 });
 
-describe('aiTuiAgentName', () => {
+describe('harnessName', () => {
   test('known agents use their product name', () => {
-    expect(aiTuiAgentName(DEFAULT_SETTINGS)).toBe('Claude');
-    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'chatgpt' })).toBe('ChatGPT');
-    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'gemini' })).toBe('Gemini');
-    expect(aiTuiAgentName({ ...DEFAULT_SETTINGS, aiTuiAgent: 'grok' })).toBe('Grok');
+    expect(harnessName(DEFAULT_SETTINGS)).toBe('Claude');
+    expect(harnessName({ ...DEFAULT_SETTINGS, harness: 'chatgpt' })).toBe('ChatGPT');
+    expect(harnessName({ ...DEFAULT_SETTINGS, harness: 'gemini' })).toBe('Gemini');
+    expect(harnessName({ ...DEFAULT_SETTINGS, harness: 'grok' })).toBe('Grok');
   });
 
   test("custom uses the command's program basename, or a placeholder", () => {
-    const custom = { ...DEFAULT_SETTINGS, aiTuiAgent: 'custom' as const };
-    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: '/usr/bin/aider --pro' })).toBe('aider');
-    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: 'C:\\tools\\agent.exe' })).toBe(
+    const custom = { ...DEFAULT_SETTINGS, harness: 'custom' as const };
+    expect(harnessName({ ...custom, harnessCustomCommand: '/usr/bin/aider --pro' })).toBe('aider');
+    expect(harnessName({ ...custom, harnessCustomCommand: 'C:\\tools\\agent.exe' })).toBe(
       'agent.exe',
     );
-    expect(aiTuiAgentName({ ...custom, aiTuiCustomCommand: '' })).toBe('Custom AI');
+    expect(harnessName({ ...custom, harnessCustomCommand: '' })).toBe('Custom AI');
   });
 });
 

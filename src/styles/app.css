@@ -2402,8 +2402,8 @@ body.explorer-dragging * {
   border-color: var(--border);
 }
 
-/* ---- AI TUI agent rows ---------------------------------------------------
-   A radio list in place of a select, because each agent carries status: the
+/* ---- Harness rows --------------------------------------------------------
+   A radio list in place of a select, because each harness carries status: the
    ones not found on PATH are muted and get an Install button; the ones found
    show where. */
 
@@ -2472,6 +2472,12 @@ body.explorer-dragging * {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* The 'custom' choice's command line, under the row it belongs to. */
+.settings-agent-command {
+  width: 100%;
+  margin-top: 4px;
 }
 
 /* ---- Export preview dialog ----------------------------------------------

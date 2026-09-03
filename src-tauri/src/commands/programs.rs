@@ -1,14 +1,14 @@
 //! "Is this installed?" for the frontend: where a list of program names
 //! resolve on `PATH`, or that they do not.
 //!
-//! The Settings dialog asks this for every AI TUI agent it lists (and for the
-//! package managers an install would need), so it can dim the agents the user
+//! The Settings dialog asks this for every harness it lists (and for the
+//! package managers an install would need), so it can dim the ones the user
 //! cannot launch and offer an **Install** button beside them. Desktop-only,
 //! like the pty the answer is for — Android has no `PATH` worth scanning and
 //! never shows those rows.
 //!
 //! No policy lives here: which names to ask about and what a `None` means are
-//! the frontend's (src/ui/stores/tui-availability.ts). The scan itself is
+//! the frontend's (src/ui/stores/harness-availability.ts). The scan itself is
 //! `crate::shell::find_program`, shared with the default-shell probe.
 
 use std::collections::HashMap;

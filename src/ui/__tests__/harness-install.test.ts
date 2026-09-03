@@ -26,8 +26,8 @@ import { defaultShellStore, resetDefaultShell } from '../stores/default-shell';
 import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
 import { terminalsStore } from '../stores/terminals';
-import { tuiAvailabilityStore } from '../stores/tui-availability';
-import { INSTALL_POLL_MS, installAgent, whenTabCloses } from '../tui-install';
+import { harnessAvailabilityStore } from '../stores/harness-availability';
+import { INSTALL_POLL_MS, installHarness, whenTabCloses } from '../harness-install';
 
 let defaultShell: MockInstance<typeof ipc.defaultShell>;
 let findPrograms: MockInstance<typeof ipc.findPrograms>;
@@ -51,7 +51,7 @@ beforeEach(() => {
   findPrograms = vi
     .spyOn(ipc, 'findPrograms')
     .mockImplementation(async (names) => Object.fromEntries(names.map((n) => [n, null])));
-  tuiAvailabilityStore.setState({
+  harnessAvailabilityStore.setState({
     tools: {
       npm: { status: 'installed', path: '/usr/bin/npm' },
       brew: { status: 'missing', path: null },
@@ -69,10 +69,10 @@ afterEach(() => {
   }
 });
 
-describe('installAgent', () => {
+describe('installHarness', () => {
   test('opens one shell tab in the default workspace and types the command', async () => {
     const before = terminalTabs().length;
-    const tabId = await installAgent('gemini');
+    const tabId = await installHarness('gemini');
 
     expect(tabId).not.toBeNull();
     expect(terminalTabs()).toHaveLength(before + 1);
@@ -86,7 +86,7 @@ describe('installAgent', () => {
   test('the configured shell decides the dialect (Windows PowerShell 5.1 here)', async () => {
     os.mockReturnValue('windows');
     settingsStore.getState().update({ terminalShell: 'powershell.exe' });
-    tuiAvailabilityStore.setState({
+    harnessAvailabilityStore.setState({
       tools: {
         npm: { status: 'missing', path: null },
         brew: { status: 'missing', path: null },
@@ -96,7 +96,7 @@ describe('installAgent', () => {
     });
 
     const resolve = vi.spyOn(defaultShellStore.getState(), 'resolve');
-    await installAgent('gemini');
+    await installHarness('gemini');
 
     expect(resolve).not.toHaveBeenCalled();
     resolve.mockRestore();
@@ -111,7 +111,7 @@ describe('installAgent', () => {
     // install line is spelled for the shell they will actually spawn.
     defaultShellStore.setState({ program: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' });
     const resolve = vi.spyOn(defaultShellStore.getState(), 'resolve');
-    await installAgent('claude');
+    await installHarness('claude');
     expect(resolve).toHaveBeenCalledTimes(1);
     resolve.mockRestore();
     expect(defaultShell).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe('installAgent', () => {
 
   test('no route (Windows, npm-only tool, neither npm nor winget) opens nothing', async () => {
     os.mockReturnValue('windows');
-    tuiAvailabilityStore.setState({
+    harnessAvailabilityStore.setState({
       tools: {
         npm: { status: 'missing', path: null },
         brew: { status: 'missing', path: null },
@@ -130,12 +130,12 @@ describe('installAgent', () => {
       },
     });
     const before = terminalTabs().length;
-    expect(await installAgent('copilot')).toBeNull();
+    expect(await installHarness('copilot')).toBeNull();
     expect(terminalTabs()).toHaveLength(before);
   });
 
   test('closing the install tab re-checks availability', async () => {
-    const tabId = (await installAgent('gemini'))!;
+    const tabId = (await installHarness('gemini'))!;
     expect(findPrograms).not.toHaveBeenCalled();
 
     tabsStore.getState().closeTab(tabId);
@@ -150,28 +150,28 @@ describe('installAgent', () => {
   });
 
   test('the row is "installing" while the tab is open and clears when the tab closes', async () => {
-    const tabId = (await installAgent('gemini'))!;
-    expect(tuiAvailabilityStore.getState().installing).toEqual(['gemini']);
+    const tabId = (await installHarness('gemini'))!;
+    expect(harnessAvailabilityStore.getState().installing).toEqual(['gemini']);
     tabsStore.getState().closeTab(tabId);
     await Promise.resolve();
-    expect(tuiAvailabilityStore.getState().installing).toEqual([]);
+    expect(harnessAvailabilityStore.getState().installing).toEqual([]);
   });
 
-  test('PATH is polled while the tab is open; finding the agent ends the install', async () => {
+  test('PATH is polled while the tab is open; finding the harness ends the install', async () => {
     vi.useFakeTimers();
     try {
-      const tabId = (await installAgent('gemini'))!;
+      const tabId = (await installHarness('gemini'))!;
       await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS);
       expect(findPrograms).toHaveBeenCalledTimes(1);
-      expect(tuiAvailabilityStore.getState().installing).toEqual(['gemini']);
+      expect(harnessAvailabilityStore.getState().installing).toEqual(['gemini']);
 
       findPrograms.mockImplementation(async (names) =>
         Object.fromEntries(names.map((n) => [n, n === 'gemini' ? '/usr/bin/gemini' : null])),
       );
       await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS);
       expect(findPrograms).toHaveBeenCalledTimes(2);
-      expect(tuiAvailabilityStore.getState().agents.gemini.status).toBe('installed');
-      expect(tuiAvailabilityStore.getState().installing).toEqual([]);
+      expect(harnessAvailabilityStore.getState().harnesses.gemini.status).toBe('installed');
+      expect(harnessAvailabilityStore.getState().installing).toEqual([]);
 
       // Done: no more polling, and closing the tab no longer scans.
       await vi.advanceTimersByTimeAsync(INSTALL_POLL_MS * 3);

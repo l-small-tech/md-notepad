@@ -56,7 +56,7 @@ export function unpinThemeFromWindow(): void {
 }
 
 /**
- * "AI theme" — open the configured AI TUI agent in the themes folder, primed
+ * "AI theme" — open the configured harness in the themes folder, primed
  * to edit themes. The folder's AGENTS.md guide is (re)written first so even a
  * small model has the file format and the reload step in front of it; the
  * launch prompt (core/settings.ts) makes the agent read it and then ask the

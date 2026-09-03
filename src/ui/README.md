@@ -167,7 +167,7 @@ not inherit from the tab in front. A profile's own `cwd` still wins
 (`TerminalPane`), and splitting a pane still inherits that pane's cwd.
 
 Callers that know better pass an explicit cwd, which beats all of the above:
-the explorer context menu's "New" page offers a terminal and an AI TUI session
+the explorer context menu's "New" page offers a terminal and a harness session
 started in the right-clicked directory (NOT the active workspace), and the
 Themes menu's AI-theme row starts the agent in the themes folder.
 
@@ -191,26 +191,37 @@ per-profile launch configs.
   FAMILY is separate: the size still follows `--editor-font-size`, so mod+=/-/0
   keeps driving terminal cells. A profile may still shift that size:
   `fontSize` (absolute) or `fontSizeDelta` (relative to the editor) —
-  `core/settings.ts`'s `profileFontSize` resolves them; the virtual AI TUI /
+  `core/settings.ts`'s `profileFontSize` resolves them; the virtual harness /
   AI theme profiles carry `fontSizeDelta: 2` so an agent's output reads a
   touch larger than the note beside it.
 
-### Which AI agents are installed, and installing one
+### Which harnesses are installed, and installing one
 
-The Settings dialog's AI TUI picker is a radio list (`AiTuiRows`) fed by
-`stores/tui-availability.ts`: one `ipc.findPrograms` scan answers for every
-agent's command, the custom command's program and the install tools
-(`core/tui-install.ts`'s `INSTALL_TOOLS`). `refresh()` runs fire-and-forget
+A **harness** is a terminal coding agent — Claude, ChatGPT (`codex`), Gemini,
+Grok, Copilot, opencode, or a custom command line. The Settings dialog's
+Harness picker is a radio list (`HarnessRows`) fed by
+`stores/harness-availability.ts`: one `ipc.findPrograms` scan answers for every
+harness's command, the custom command's program and the install tools
+(`core/harness-install.ts`'s `INSTALL_TOOLS`). `refresh()` runs fire-and-forget
 after React mounts (main.tsx), when the picker mounts, on **Re-check**, every
 `INSTALL_POLL_MS` while an install tab is open, and when that tab closes; the
 newest scan wins over a late answer; Android is a no-op. The row model
-(`agentRowModel`) is pure: unknown → nothing, installed → ✓ + path, missing →
-dimmed name + **Install** if `installCommandFor` has a route, and an agent in
+(`harnessRowModel`) is pure: unknown → nothing, installed → ✓ + path, missing →
+dimmed name + **Install** if `installCommandFor` has a route, and a harness in
 the store's `installing` list → a spinner + "Installing…" in place of the
 button (found-on-PATH wins over that, so a finished install shows ✓ even while
 its tab is still open).
 
-**Install** (`ui/tui-install.ts`) opens an ordinary shell tab in the default
+`settings.harness` starts at `'auto'`: a fresh install has chosen nothing, so
+the first scan that finds a harness writes it in (`adoptDefaultHarness` →
+`core/settings.ts`'s `pickDefaultHarness`), preferring Claude, then ChatGPT,
+then the rest of `HARNESS_IDS`. The pick is persisted rather than re-derived,
+so the new-tab row's name never changes under the user; with nothing installed
+the setting stays `'auto'` and `harnessInstalled` is false, which is what makes
+the new-tab menu's Harness row open Settings → Harness (`openSettings('harness')`)
+instead of spawning a command that is not there.
+
+**Install** (`ui/harness-install.ts`) opens an ordinary shell tab in the default
 workspace and hands the command to it as `initialInput`: a transient field on
 `TerminalPaneState` / `openTerminalTab` that `TerminalPane` writes to the pty
 ONCE — after the shell's first output and a short quiet period (`\r`
@@ -219,7 +230,7 @@ appended), or 4s after spawn if the shell stays silent — then clears via
 it, so a restored terminal never re-runs an install. The dialect (POSIX /
 pwsh / Windows PowerShell / cmd) follows the shell that profile will spawn:
 its own program, else `settings.terminalShell`, else `ipc.defaultShell()`.
-`watchInstall` then marks the agent installing and polls PATH until the agent
+`watchInstall` then marks the harness installing and polls PATH until it
 is found or the tab closes — whichever first — so the user never has to
 read the installer's output to know whether it worked.
 
@@ -228,9 +239,10 @@ read the installer's output to know whether it worked.
 `SettingsDialog` is one dialog with a tab strip (`settingsTabs`): Appearance
 (theme, fonts, margins, ligatures), Editor (default mode, cursor, wrap, line
 numbers, scrolling, tab behaviour), Files (live save, moves, images, notes
-folder), Terminal, AI TUI, and Updates. Terminal and AI TUI exist only where
+folder), Terminal, Harness, and Updates. Terminal and Harness exist only where
 `terminalsAvailable()` — never on Android. The last tab shown is remembered
-for the session so reopening the dialog lands where the user left it.
+for the session so reopening the dialog lands where the user left it, unless
+the caller named one (`uiStore.openSettings(tab)`, cleared on close).
 
 ### Where a terminal IS, and the color it wears
 
@@ -241,7 +253,7 @@ Automatic) is spawned with shell integration: `core/shell-integration.ts`
 decides the extra args/env per `shellKind`, `ui/shell-integration.ts` writes
 the bash/zsh scripts under `<appDataDir>/shell-integration` once per process,
 and `TerminalPane` folds them in (`withShellIntegration`) — profile args first,
-profile env on top. A profile with its own program (the AI TUI, ssh) is spawned
+profile env on top. A profile with its own program (the harness, ssh) is spawned
 exactly as written; that is also the opt-out.
 
 The tab strip colors a terminal by its FOCUSED pane's cwd. The terminals store
@@ -258,7 +270,7 @@ workspace has no cue.
 On a plain shell that is NOT on the alternate screen (`Terminal.altScreen` —
 an agent TUI or vim owns the pane then), `PaneMenu` adds **Change directory…**
 (OS folder picker via `ipc/dialog.ts`, then `cdTarget` + `cdCommand`), **List
-files** and **Open <agent>** (`quoteCommand` of the AI TUI profile). Each
+files** and **Open <agent>** (`quoteCommand` of the harness profile). Each
 types a command plus `\r` through the pane's action runner
 (`PaneAction` `terminal-send` — raw keystrokes, not a paste, so bracketed
 paste cannot swallow the Enter) and carries a `title` tooltip naming the exact

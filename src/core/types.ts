@@ -261,39 +261,45 @@ export interface TerminalProfile {
 export const SHELL_PROFILE_ID = 'shell';
 
 /**
- * The agents the "AI TUI" new-tab row can launch; which one is active lives
- * in `settings.aiTuiAgent`. The id → command table is `AI_TUI_AGENTS`
- * (core/settings.ts).
+ * The harnesses (terminal coding agents) the "Harness" new-tab row can launch;
+ * which one is active lives in `settings.harness`. The id → command table is
+ * `HARNESSES` (core/settings.ts). Order is the preference order the automatic
+ * choice walks (`pickDefaultHarness`): Claude first, then ChatGPT, then the
+ * rest as listed.
  */
-export const AI_TUI_AGENT_IDS = [
-  'claude',
-  'chatgpt',
-  'gemini',
-  'grok',
-  'copilot',
-  'opencode',
-] as const;
-export type AiTuiAgentId = (typeof AI_TUI_AGENT_IDS)[number];
+export const HARNESS_IDS = ['claude', 'chatgpt', 'gemini', 'grok', 'copilot', 'opencode'] as const;
+export type HarnessId = (typeof HARNESS_IDS)[number];
 
 /**
- * What `settings.aiTuiAgent` may hold: a known agent, or 'custom' — the
- * user-entered command line in `settings.aiTuiCustomCommand`.
+ * What `settings.harness` may hold: a known harness, 'custom' — the
+ * user-entered command line in `settings.harnessCustomCommand` — or 'auto',
+ * the state a never-configured install starts in. 'auto' resolves against
+ * what is actually on PATH (`pickDefaultHarness`) and is replaced by the
+ * chosen id the first time a scan finds one, so the pick is made once and
+ * stays put.
  */
-export type AiTuiChoice = AiTuiAgentId | 'custom';
+export type HarnessChoice = HarnessId | 'custom' | 'auto';
 
 /**
- * The VIRTUAL profile id the "AI TUI" row opens. It is never stored in
+ * The VIRTUAL profile id the "Harness" row opens. It is never stored in
  * `terminalProfiles` — `resolveTerminalProfile` synthesizes it from
- * `settings.aiTuiAgent` on demand, so a persisted terminal snapshot naming it
+ * `settings.harness` on demand, so a persisted terminal snapshot naming it
  * respawns whatever agent is configured at restore time.
  */
-export const AI_TUI_PROFILE_ID = 'ai-tui';
+export const HARNESS_PROFILE_ID = 'harness';
+
+/**
+ * What `HARNESS_PROFILE_ID` was called before the row was renamed to Harness.
+ * Persisted terminal snapshots written by older versions still name it, so
+ * `resolveTerminalProfile` accepts it as an alias forever.
+ */
+export const LEGACY_HARNESS_PROFILE_ID = 'ai-tui';
 
 /**
  * The virtual profile the Themes menu's "AI theme" row opens: the configured
- * AI TUI agent, started in the THEMES folder with an opening prompt that has
+ * harness, started in the THEMES folder with an opening prompt that has
  * it read the folder's AGENTS.md guide and ask what to change. Synthesized by
- * `resolveTerminalProfile` like `AI_TUI_PROFILE_ID`.
+ * `resolveTerminalProfile` like `HARNESS_PROFILE_ID`.
  */
 export const AI_THEME_PROFILE_ID = 'ai-theme';
 
@@ -425,14 +431,18 @@ export interface Settings {
   terminalProfiles: TerminalProfile[];
   /** Id of the profile a plain "New terminal" uses. */
   defaultTerminalProfile: string;
-  /** Which agent the "AI TUI" new-tab row launches. Default 'claude'. */
-  aiTuiAgent: AiTuiChoice;
   /**
-   * The command line the 'custom' AI TUI choice runs — a program (resolved
-   * against `PATH`, or an absolute path) optionally followed by arguments;
-   * quotes group values with spaces. Unread unless `aiTuiAgent` is 'custom'.
+   * Which harness the "Harness" new-tab row launches. Default 'auto': the
+   * first of `HARNESS_IDS` actually installed, resolved once a PATH scan has
+   * run (`ui/stores/harness-availability.ts`).
    */
-  aiTuiCustomCommand: string;
+  harness: HarnessChoice;
+  /**
+   * The command line the 'custom' Harness choice runs — a program (resolved
+   * against `PATH`, or an absolute path) optionally followed by arguments;
+   * quotes group values with spaces. Unread unless `harness` is 'custom'.
+   */
+  harnessCustomCommand: string;
   /**
    * The shell every terminal runs — one choice for the whole app, not one per
    * profile (see `core/terminal-shells.ts`). A program name resolved against

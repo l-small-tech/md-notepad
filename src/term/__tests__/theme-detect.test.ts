@@ -1,7 +1,7 @@
 /**
  * How an application asks "am I on a light terminal or a dark one?".
  *
- * Every AI TUI worth naming does this one of three ways, and the answers below
+ * Every harness worth naming does this one of three ways, and the answers below
  * are what make them theme themselves correctly instead of painting a dark UI
  * onto a light console:
  *

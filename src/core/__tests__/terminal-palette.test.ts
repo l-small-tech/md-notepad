@@ -81,7 +81,7 @@ describe('deriveTerminalColors', () => {
     }
   });
 
-  // The light floors are the whole point of this file for AI TUIs: an agent
+  // The light floors are the whole point of this file for harnesses: an agent
   // that assumes a dark terminal paints its prose in ANSI colors, and on a
   // light surface those are what the user has to read.
   describe('light mode clears the AA body-text floor', () => {

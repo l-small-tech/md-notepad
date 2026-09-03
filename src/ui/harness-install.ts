@@ -1,25 +1,25 @@
 /**
  * The Settings dialog's **Install** button: open a plain shell tab and type
- * the agent's install command into it.
+ * the harness's install command into it.
  *
  * Deliberately not a hidden subprocess. The user sees the exact command,
  * answers any prompt the installer puts up (a UAC dialog, a license, a
  * `sudo` password), and is left standing in a working shell afterwards. The
- * command itself is pure policy in core/tui-install.ts; this file only picks
+ * command itself is pure policy in core/harness-install.ts; this file only picks
  * the shell it will run in, opens the tab, and watches PATH while that tab
- * is open so the agent's row flips from "Installing…" to installed by
+ * is open so the harness's row flips from "Installing…" to installed by
  * itself — the user need not recognise what a finished install looks like.
  */
 
 import { resolveTerminalProfile, terminalProgram } from '../core/settings';
-import { installCommandFor, installShellFor } from '../core/tui-install';
-import { SHELL_PROFILE_ID, type AiTuiAgentId } from '../core/types';
+import { installCommandFor, installShellFor } from '../core/harness-install';
+import { SHELL_PROFILE_ID, type HarnessId } from '../core/types';
 import { getDefaultWorkspacePath } from './session';
 import { desktopOs, isAndroid } from './platform';
 import { defaultShellStore } from './stores/default-shell';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
-import { installContextOf, tuiAvailabilityStore } from './stores/tui-availability';
+import { installContextOf, harnessAvailabilityStore } from './stores/harness-availability';
 import { openTerminal } from './terminal-open';
 
 /**
@@ -61,19 +61,19 @@ export function whenTabCloses(tabId: string, onClose: () => void): () => void {
 }
 
 /**
- * Open a shell tab running the install command for `agent`. Returns the tab
+ * Open a shell tab running the install command for `harness`. Returns the tab
  * id, or null when there is no route (the button is not shown then) or no
  * terminal can exist (Android).
  */
-export async function installAgent(agent: AiTuiAgentId): Promise<string | null> {
+export async function installHarness(harness: HarnessId): Promise<string | null> {
   if (isAndroid()) {
     return null;
   }
   const os = desktopOs();
   const profileId = shellProfileId();
   const shell = installShellFor(await shellProgram(profileId), os);
-  const ctx = installContextOf(tuiAvailabilityStore.getState().tools);
-  const command = installCommandFor(agent, os, ctx, shell);
+  const ctx = installContextOf(harnessAvailabilityStore.getState().tools);
+  const command = installCommandFor(harness, os, ctx, shell);
   if (!command) {
     return null;
   }
@@ -83,7 +83,7 @@ export async function installAgent(agent: AiTuiAgentId): Promise<string | null> 
     initialInput: command,
   });
   if (tabId) {
-    watchInstall(agent, tabId);
+    watchInstall(harness, tabId);
   }
   return tabId;
 }
@@ -92,13 +92,13 @@ export async function installAgent(agent: AiTuiAgentId): Promise<string | null> 
 export const INSTALL_POLL_MS = 2000;
 
 /**
- * Mark `agent` as installing and re-scan PATH every `INSTALL_POLL_MS` until
+ * Mark `harness` as installing and re-scan PATH every `INSTALL_POLL_MS` until
  * it is found (the row shows ✓) or the tab is closed (the row goes back to
  * offering Install). One last scan runs on close, as before.
  */
-export function watchInstall(agent: AiTuiAgentId, tabId: string): void {
-  const store = tuiAvailabilityStore;
-  store.getState().setInstalling(agent, true);
+export function watchInstall(harness: HarnessId, tabId: string): void {
+  const store = harnessAvailabilityStore;
+  store.getState().setInstalling(harness, true);
   let done = false;
   const finish = () => {
     if (done) {
@@ -108,7 +108,7 @@ export function watchInstall(agent: AiTuiAgentId, tabId: string): void {
     clearInterval(timer);
     unsubscribeTab();
     unsubscribeStore();
-    store.getState().setInstalling(agent, false);
+    store.getState().setInstalling(harness, false);
   };
   const timer = setInterval(() => {
     if (!store.getState().checking) {
@@ -116,7 +116,7 @@ export function watchInstall(agent: AiTuiAgentId, tabId: string): void {
     }
   }, INSTALL_POLL_MS);
   const unsubscribeStore = store.subscribe((state) => {
-    if (state.agents[agent].status === 'installed') {
+    if (state.harnesses[harness].status === 'installed') {
       finish();
     }
   });

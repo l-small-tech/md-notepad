@@ -20,8 +20,9 @@ import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
 import { openTerminal } from '../terminal-open';
-import { aiTuiAgentName } from '../../core/settings';
-import { AI_TUI_PROFILE_ID } from '../../core/types';
+import { harnessName } from '../../core/settings';
+import { HARNESS_PROFILE_ID } from '../../core/types';
+import { harnessInstalled, useHarnessAvailability } from '../stores/harness-availability';
 import { useSettingsStore } from '../stores/settings';
 import { searchStore } from '../stores/search';
 import { uiStore, useUiStore } from '../stores/ui';
@@ -230,7 +231,7 @@ function ShellGlyph() {
 }
 
 /**
- * The AI TUI row's glyph: a six-spoke asterisk, the same mark the agents
+ * The Harness row's glyph: a six-spoke asterisk, the same mark the harnesses
  * themselves print as their status glyph (✳), drawn so it matches the
  * ShellGlyph's stroke weight.
  */
@@ -252,7 +253,7 @@ function AiGlyph() {
 }
 
 /**
- * The "what kind of tab" rows — note, the AI TUI, the terminal profile(s),
+ * The "what kind of tab" rows — note, the harness, the terminal profile(s),
  * drawing.
  *
  * Shared because the choice is offered from two places: the "+" button's
@@ -264,7 +265,8 @@ function AiGlyph() {
  */
 export function NewTabRows({ onClose }: { onClose: () => void }) {
   const profiles = useSettingsStore((s) => s.settings.terminalProfiles);
-  const aiName = useSettingsStore((s) => aiTuiAgentName(s.settings));
+  const harnessLabel = useSettingsStore((s) => harnessName(s.settings));
+  const installed = useHarnessAvailability(harnessInstalled);
 
   return (
     <>
@@ -274,15 +276,25 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
         onPick={() => runNewTabChoice('note')}
         onClose={onClose}
       />
-      {/* The AI TUI: a terminal running the configured agent, above the plain
-          shell because reaching for the agent is the more common pick. The row
-          wears the agent's name — which agent it is lives in Settings. */}
+      {/* The harness: a terminal running the configured coding agent, above
+          the plain shell because reaching for it is the more common pick. The
+          row wears the harness's name — which one it is lives in Settings.
+          With none installed there is nothing to launch, so the row opens the
+          Harness settings, where every harness has an Install button. */}
       {terminalsAvailable() && (
         <AppMenuItem
           glyph={<AiGlyph />}
-          label={aiName}
-          title="AI TUI — switch the agent in Settings"
-          onPick={() => openTerminal(AI_TUI_PROFILE_ID)}
+          label={installed ? harnessLabel : 'Harness'}
+          title={
+            installed
+              ? 'Harness — switch the harness in Settings'
+              : 'No harness installed — open Settings to install one'
+          }
+          onPick={() =>
+            installed
+              ? openTerminal(HARNESS_PROFILE_ID)
+              : uiStore.getState().openSettings('harness')
+          }
           onClose={onClose}
         />
       )}
