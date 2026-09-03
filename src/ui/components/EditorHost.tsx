@@ -21,6 +21,7 @@ import type { EditorMode } from '../../core/types';
 import { svgImageSources } from '../../core/whiteboard/color-mode';
 import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
+import type { MilkdownAdapter } from '../../editors/milkdown';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
@@ -111,6 +112,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   // changes (word wrap) can reconfigure it without re-mounting (I7). Font size
   // needs no hook here — it rides the `--editor-font-size` CSS variable.
   const sourceAdapterRef = useRef<Cm6Adapter | null>(null);
+  /** The rich adapter once created (lazy chunk) — for theme-driven image refreshes. */
+  const richAdapterRef = useRef<MilkdownAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
   const conflict = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.conflict ?? false);
   const diffEntry = useDiffView((s) => s.byTab[tabId] ?? null);
@@ -232,6 +235,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               // The colour-mode toggle rewrites board files; the live image
               // nodes reload theirs. Unregistered with the mode-sync below.
               registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
+              richAdapterRef.current = adapter;
               return adapter;
             },
           };
@@ -302,10 +306,20 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         lastLineNumbers = s.settings.lineNumbers;
         sourceAdapterRef.current?.setLineNumbers(lastLineNumbers);
       }
+      // Rich-mode boards bake the theme palette into their data URLs (like
+      // the preview pane) — a palette change must re-bake them.
+      if (s.settings.colorScheme !== lastScheme) {
+        lastScheme = s.settings.colorScheme;
+        richAdapterRef.current?.refreshTheme();
+      }
     });
+    let lastScheme = settingsStore.getState().settings.colorScheme;
+    const unsubscribeRichDark = subscribeDark(() => richAdapterRef.current?.refreshTheme());
 
     return () => {
       unsubscribeSettings();
+      unsubscribeRichDark();
+      richAdapterRef.current = null;
       unregisterSourceAdapter(tabId);
       unregisterWhiteboardAdapter(tabId);
       unregisterImageRefresher(`${tabId}:rich`);

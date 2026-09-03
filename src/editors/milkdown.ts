@@ -52,9 +52,16 @@ import '../styles/wysiwyg.css';
  */
 const PROGRAMMATIC_META = 'md-notepad-programmatic';
 
-/** The app theme's resolved `--wb-*` palette, read off `<html>` — the same
- *  source the draw adapter and the preview pane use (no ui import; I9). */
-function readBoardThemeVars(): Map<string, string> {
+/**
+ * The app theme's resolved `--wb-*` palette, read off `<html>` — the same
+ * source the draw adapter and the preview pane use (no ui import; I9) — with
+ * `--wb-bg` replaced by the colour of the surface the image actually sits on.
+ * The palette's default background is the WRITING surface (`--editor-bg`),
+ * but the rich editor paints on the chrome colour (`--bg`), so a board keyed
+ * to the palette default would show as a pale rectangle on it; the board
+ * should vanish into whatever is behind it.
+ */
+function readBoardThemeVars(surface: Element | null): Map<string, string> {
   const resolved = getComputedStyle(document.documentElement);
   const vars = new Map<string, string>();
   for (const name of WB_THEME_VAR_NAMES) {
@@ -63,7 +70,22 @@ function readBoardThemeVars(): Map<string, string> {
       vars.set(name, value);
     }
   }
+  const bg = surfaceBackground(surface);
+  if (bg) {
+    vars.set('--wb-bg', bg);
+  }
   return vars;
+}
+
+/** The first non-transparent computed background colour at or above `el`. */
+function surfaceBackground(el: Element | null): string | null {
+  for (let node = el; node; node = node.parentElement) {
+    const color = getComputedStyle(node).backgroundColor;
+    if (color && color !== 'transparent' && !/^rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\)$/.test(color)) {
+      return color;
+    }
+  }
+  return null;
 }
 
 export interface MilkdownOptions {
@@ -109,6 +131,12 @@ export interface MilkdownAdapter extends EditorAdapter {
    * node that shows one. Paths not in the document cost nothing.
    */
   refreshImages(paths: readonly string[]): void;
+  /**
+   * The app theme changed: re-apply every live image node so boards re-bake
+   * the new `--wb-*` palette (cache keys carry the theme fingerprint, so this
+   * is a re-read only when the resolved values actually moved).
+   */
+  refreshTheme(): void;
 }
 
 /** Everything an image node view needs from its adapter, shared by all of them. */
@@ -117,8 +145,10 @@ interface ImageViewContext {
   cache: Map<string, string>;
   /** abs svg path → colour mode (null = not a board), filled with the cache. */
   boardModes: Map<string, BoardColorMode | null>;
-  /** Live views' re-apply hooks, for `refreshImages`. */
+  /** Live views' re-apply hooks, for `refreshImages` / `refreshTheme`. */
   live: Map<HTMLImageElement, () => void>;
+  /** The attach host — the surface whose background boards blend into. */
+  host: HTMLElement;
   getDocPath: () => string | null;
   onBoardContextMenu: MilkdownOptions['onBoardContextMenu'];
 }
@@ -188,7 +218,13 @@ function createImageNodeView(node: ProseNode, ctx: ImageViewContext): NodeView {
     // it (see core/whiteboard/theme-inject.ts). The cache key carries the theme
     // fingerprint so a theme change misses instead of pinning stale colours.
     const svg = abs.toLowerCase().endsWith('.svg');
-    const themeVars = svg ? readBoardThemeVars() : null;
+    // The surface: the image itself once mounted, else the editor root (the
+    // `.milkdown` element Crepe paints — its host may be transparent).
+    const themeVars = svg
+      ? readBoardThemeVars(
+          img.isConnected ? img : (ctx.host.querySelector('.milkdown') ?? ctx.host),
+        )
+      : null;
     const key = themeVars ? `${abs}|${boardThemeFingerprint(themeVars)}` : abs;
     const cached = cache.get(key);
     if (cached !== undefined) {
@@ -224,6 +260,14 @@ function createImageNodeView(node: ProseNode, ctx: ImageViewContext): NodeView {
 
   apply(node);
   ctx.live.set(img, () => apply(current));
+  // The first apply ran before the node was mounted, so the surface colour
+  // came from the editor root; once in the DOM, re-read it from the image's
+  // own ancestry (a cache hit when nothing differs).
+  requestAnimationFrame(() => {
+    if (img.isConnected && ctx.live.has(img)) {
+      apply(current);
+    }
+  });
   return {
     dom: img,
     update(updated: ProseNode): boolean {
@@ -334,6 +378,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
       cache: new Map(),
       boardModes: new Map(),
       live: new Map(),
+      host,
       getDocPath: options.getDocPath ?? (() => null),
       onBoardContextMenu: options.onBoardContextMenu,
     };
@@ -447,6 +492,15 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
   return {
     attach,
     detach,
+    refreshTheme() {
+      // Next frame: the caller reacts to the store tick that swaps the theme
+      // stylesheet, and the vars must be READ after the new CSS applies.
+      requestAnimationFrame(() => {
+        for (const reapply of imageViews?.live.values() ?? []) {
+          reapply();
+        }
+      });
+    },
     refreshImages(paths) {
       const views = imageViews;
       if (!views || paths.length === 0) {

@@ -127,7 +127,7 @@ export interface PreviewPane {
  * source the draw adapter themes the live board from (base.css derives these
  * from the current theme's brand trio, so I9 stays intact: no ui import).
  */
-export function readBoardThemeVars(): BoardThemeVars {
+export function readBoardThemeVars(surface: Element | null = null): BoardThemeVars {
   const resolved = getComputedStyle(document.documentElement);
   const vars = new Map<string, string>();
   for (const name of WB_THEME_VAR_NAMES) {
@@ -136,7 +136,25 @@ export function readBoardThemeVars(): BoardThemeVars {
       vars.set(name, value);
     }
   }
+  // A board should vanish into the surface it sits on, which is not always
+  // the palette's default (`--editor-bg`): swap `--wb-bg` for the nearest
+  // painted ancestor's colour when a surface is given.
+  const bg = surfaceBackground(surface);
+  if (bg) {
+    vars.set('--wb-bg', bg);
+  }
   return vars;
+}
+
+/** The first non-transparent computed background colour at or above `el`. */
+function surfaceBackground(el: Element | null): string | null {
+  for (let node = el; node; node = node.parentElement) {
+    const color = getComputedStyle(node).backgroundColor;
+    if (color && color !== 'transparent' && !/^rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\)$/.test(color)) {
+      return color;
+    }
+  }
+  return null;
 }
 
 export function attachPreviewPane(
@@ -204,7 +222,7 @@ export function attachPreviewPane(
     if (!dir) {
       return;
     }
-    const themeVars = readBoardThemeVars();
+    const themeVars = readBoardThemeVars(host);
     const fingerprint = boardThemeFingerprint(themeVars);
     for (const img of [...host.querySelectorAll('img')]) {
       const raw = img.getAttribute('src') ?? '';
