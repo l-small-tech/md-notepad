@@ -213,3 +213,45 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* A failed capture explains itself IN the sheet, under the mic: a status-bar
+   notice would sit behind the dimmed backdrop and go unseen. */
+.vc-error {
+  align-self: stretch;
+  border: 1px solid var(--danger);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+  color: var(--fg);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.vc-error-title {
+  font-weight: 700;
+  color: var(--danger);
+  margin-bottom: 6px;
+}
+.vc-error-steps {
+  margin: 0 0 10px;
+  padding-left: 1.3em;
+}
+.vc-error-steps li + li {
+  margin-top: 3px;
+}
+.vc-error-action {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.vc-error-note {
+  margin-top: 10px;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.vc-error-code {
+  margin-top: 8px;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+}

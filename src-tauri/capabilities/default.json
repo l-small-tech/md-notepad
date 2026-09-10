@@ -28,6 +28,15 @@
     "dialog:default",
     "store:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "ms-settings:privacy-speech" },
+        { "url": "ms-settings:privacy-microphone" },
+        { "url": "ms-settings:speech" },
+        { "url": "ms-settings:sound" }
+      ]
+    },
     "log:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text"

@@ -32,6 +32,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   commentsPathFor,
   lineQuote,
@@ -41,6 +42,7 @@ import {
   serializeCommentsFile,
   type VoiceComment,
 } from '../core/comments';
+import { captureErrorFor, type CaptureError, type DictationEngine } from '../core/dictation-errors';
 import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
@@ -71,6 +73,11 @@ export interface VoiceCommentsState {
   line: number | null;
   /** That line's text at the time it was chosen. */
   quote: string;
+  /**
+   * Why the last capture failed, shown IN the sheet under the microphone with
+   * steps to fix it (see core/dictation-errors). Cleared by the next tap.
+   */
+  error: CaptureError | null;
 }
 
 const initial: VoiceCommentsState = {
@@ -83,6 +90,7 @@ const initial: VoiceCommentsState = {
   focusId: null,
   line: null,
   quote: '',
+  error: null,
 };
 
 export const voiceStore = createStore<VoiceCommentsState>()(() => initial);
@@ -91,9 +99,6 @@ export const useVoiceStore = <T>(selector: (s: VoiceCommentsState) => T): T =>
   useStore(voiceStore, selector);
 
 /* ---- helpers ----------------------------------------------------------- */
-
-/** The speech-to-text engine that captures voice notes here, or null when none. */
-export type DictationEngine = 'android' | 'windows';
 
 /**
  * Which engine this platform dictates with. Android: the on-device
@@ -228,6 +233,7 @@ export async function openNoteAtLine(tabId: string, line: number): Promise<void>
     focusId: null,
     line,
     quote: lineQuote(docTextFor(tabId), line),
+    error: null,
   });
 }
 
@@ -254,13 +260,14 @@ export async function openAllComments(tabId: string): Promise<void> {
     focusId: null,
     line: null,
     quote: '',
+    error: null,
   });
 }
 
 /** From the ready phase, show the note list instead (nothing captured). */
 export function showNotes(): void {
   if (voiceStore.getState().phase === 'ready') {
-    voiceStore.setState({ phase: 'viewing', line: null, quote: '' });
+    voiceStore.setState({ phase: 'viewing', line: null, quote: '', error: null });
   }
 }
 
@@ -290,67 +297,8 @@ function startCapture(): void {
     return;
   }
   captureId = newCommentId(new Set(comments.map((c) => c.id)));
-  voiceStore.setState({ phase: 'capturing' });
+  voiceStore.setState({ phase: 'capturing', error: null });
   void captureDictation();
-}
-
-/**
- * Turn a bridge reject into a message that says what to do. Shared codes:
- * "PERMISSION_DENIED", "STT_BUSY", "STT_UNAVAILABLE". Android adds
- * "STT_ERROR:<code>" with `android.speech.SpeechRecognizer.ERROR_*` codes;
- * Windows (src-tauri commands/dictation.rs) adds the named STT_* codes below.
- */
-function sttErrorMessage(raw: string): string {
-  const windows = dictationEngine() === 'windows';
-  if (raw.includes('PERMISSION_DENIED')) {
-    return windows
-      ? 'Microphone access is off. Turn on "Let desktop apps access your microphone" in Windows Settings, Privacy & security, Microphone.'
-      : 'Microphone permission is required for voice notes.';
-  }
-  if (raw.includes('STT_BUSY')) {
-    return 'Still finishing the last recording — try again in a moment.';
-  }
-  if (raw.includes('STT_UNAVAILABLE')) {
-    return windows
-      ? 'Windows speech recognition is unavailable on this PC.'
-      : 'On-device speech recognition is unavailable on this device.';
-  }
-  if (raw.includes('STT_PRIVACY')) {
-    return 'Windows dictation needs "Online speech recognition" turned on in Windows Settings, Privacy & security, Speech.';
-  }
-  if (raw.includes('STT_NO_MIC')) {
-    return 'No microphone was found. Connect one and try again.';
-  }
-  if (raw.includes('STT_NETWORK')) {
-    return 'Windows dictation lost its network connection. Check your connection and try again.';
-  }
-  if (raw.includes('STT_LANGUAGE')) {
-    return 'Windows dictation does not support your speech language. Check Windows Settings, Time & language, Speech.';
-  }
-  if (raw.includes('STT_AUDIO_QUALITY')) {
-    return 'The audio was too noisy or quiet to transcribe. Try again closer to the microphone.';
-  }
-  if (raw.includes('STT_NO_MATCH')) {
-    return "Didn't catch that — try again and speak clearly.";
-  }
-  const m = /STT_ERROR:(-?\d+)/.exec(raw);
-  switch (m ? Number(m[1]) : null) {
-    case 6: // SPEECH_TIMEOUT
-    case 7: // NO_MATCH
-      return "Didn't catch that — try again and speak clearly.";
-    case 1: // NETWORK_TIMEOUT
-    case 2: // NETWORK
-      return 'Network error during recognition. Check your connection or install offline voice typing.';
-    case 8: // RECOGNIZER_BUSY
-      return 'The recognizer is busy — try again in a moment.';
-    case 9: // INSUFFICIENT_PERMISSIONS
-      return 'Microphone permission is required for voice notes.';
-    case 12: // LANGUAGE_UNAVAILABLE
-    case 13: // LANGUAGE_NOT_SUPPORTED
-      return 'No speech model for this language. Install offline voice typing, or connect to the network.';
-    default:
-      return 'Speech recognition failed. Try again.';
-  }
 }
 
 /** Permission → availability → dictation, through the platform's `stt*` bridge. */
@@ -361,17 +309,17 @@ async function captureDictation(): Promise<void> {
   try {
     granted = (await ipc.sttPermission()) || (await ipc.sttRequestPermission());
   } catch {
-    failCapture('Could not request microphone permission.');
+    failCapture('PERMISSION_BRIDGE_FAILED');
     return;
   }
   if (!granted) {
-    failCapture('Microphone permission denied.');
+    failCapture('PERMISSION_DENIED');
     return;
   }
   // Stage 2 — availability (best-effort; a flaky check shouldn't block a try).
   try {
     if (!(await ipc.sttAvailable())) {
-      failCapture(sttErrorMessage('STT_UNAVAILABLE'));
+      failCapture('STT_UNAVAILABLE');
       return;
     }
   } catch {
@@ -386,7 +334,7 @@ async function captureDictation(): Promise<void> {
     await finishCapture(text.trim());
   } catch (e) {
     if (voiceStore.getState().phase === 'capturing') {
-      failCapture(sttErrorMessage(e instanceof Error ? e.message : String(e)));
+      failCapture(e instanceof Error ? e.message : String(e));
     }
   }
 }
@@ -417,13 +365,28 @@ async function finishCapture(transcript: string): Promise<void> {
   await saveNow();
 }
 
-/** A capture failed: report it and drop back to the ready phase for the same line. */
-function failCapture(message: string): void {
+/**
+ * A capture failed: drop back to the ready phase for the same line and show
+ * the reason IN the sheet, with steps to fix it. (A status-bar notice was
+ * invisible here — the sheet's backdrop dims the status bar.)
+ */
+function failCapture(raw: string): void {
   captureId = null;
-  uiStore.getState().showNotice(message);
   if (voiceStore.getState().phase === 'capturing') {
-    voiceStore.setState({ phase: 'ready' });
+    voiceStore.setState({
+      phase: 'ready',
+      error: captureErrorFor(raw, dictationEngine() ?? 'windows'),
+    });
   }
+}
+
+/** The error box's "Open … settings" button: jump to the Windows Settings page. */
+export function openCaptureSettings(uri: string): void {
+  void openUrl(uri).catch(() => {
+    uiStore
+      .getState()
+      .showNotice('Could not open Windows Settings. Open it from the Start menu instead.');
+  });
 }
 
 /** Stop the live capture (the second mic tap); the final result still resolves `sttStart`. */
@@ -471,5 +434,6 @@ function initialTail() {
     focusId: null,
     line: null,
     quote: '',
+    error: null,
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }

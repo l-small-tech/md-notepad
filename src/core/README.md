@@ -16,6 +16,7 @@ do not rewrite them.
 | `live-edit.ts` | reference | Live Edit policy: `isLiveEditTab` (per-tab override, else the file's workspace `liveEdit` flag; never notes/images/terminals), `extraLiveWatchDirs` (folders of overridden files outside every workspace root, for the watcher), `LIVE_EDIT_POLL_MS` (the re-read timer that backs up a cloud volume's unreliable change events), `formatClockTime` for the status chip |
 | `mode-sync.ts` | reference | mode-switch state machine + WYSIWYG write-back guard (I2) |
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
+| `dictation-errors.ts` | feature | voice-note dictation failures → what the sheet shows under the mic: title, numbered fix steps, optional note, and on Windows the `ms-settings:` page that fixes it (`captureErrorFor(code, engine)`). Every URI in `SETTINGS_URIS` must be allow-listed for `opener:allow-open-url` in `src-tauri/capabilities/default.json`; a test enforces it |
 | `error-text.ts` | reference | `errorDetail` / `withErrorDetail`: the one-line reason behind a failed file operation, for the notice the UI shows (cloud drives fail in ways a bare "Could not rename" hides) |
 | `tab-status.ts` | terminal | agent status glyph in a terminal's OSC title (`✳ `, `◐ `) → activity + the remaining label, for the TabBar badge |
 | `settings.ts` | reference | defaults + `normalizeSettings` |

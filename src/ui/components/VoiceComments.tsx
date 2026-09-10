@@ -10,6 +10,7 @@
 import {
   closePanel,
   deleteComment,
+  openCaptureSettings,
   showNotes,
   toggleMic,
   updateTranscript,
@@ -105,7 +106,12 @@ export function VoiceComments() {
 /** The two-tap microphone: idle in `ready`, pulsing in `capturing`. */
 function CaptureView({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
-  const label = capturing ? 'Listening… tap again to finish' : 'Tap to start';
+  const error = capturing ? null : state.error;
+  const label = capturing
+    ? 'Listening… tap again to finish'
+    : error
+      ? 'Tap to try again'
+      : 'Tap to start';
   return (
     <div className="vc-capturing">
       {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
@@ -130,6 +136,26 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
         </svg>
       </button>
       <div className="vc-capture-label">{label}</div>
+      {error && (
+        <div className="vc-error" role="alert">
+          <div className="vc-error-title">{error.title}</div>
+          <ol className="vc-error-steps">
+            {error.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          {error.settings && (
+            <button
+              className="vc-btn vc-error-action"
+              onClick={() => openCaptureSettings(error.settings!.uri)}
+            >
+              {error.settings.label}
+            </button>
+          )}
+          {error.note && <div className="vc-error-note">{error.note}</div>}
+          <div className="vc-error-code">Error code: {error.code}</div>
+        </div>
+      )}
     </div>
   );
 }
