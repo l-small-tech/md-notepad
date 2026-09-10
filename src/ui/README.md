@@ -372,6 +372,15 @@ the pill (no controller, no manifest), every window enumeration skips
 - **Session restore covers windows**: at boot, main lists
   `session-*.json` (a dedicated Rust command) and re-spawns each window;
   the window-state plugin restores per-label geometry.
+- **A second launch never teleports the user across virtual desktops**
+  (Windows 11): the single-instance handoff in `src-tauri/src/lib.rs`
+  focuses an existing window only if that window is on the desktop the user
+  is looking at right now; otherwise it builds a fresh `w-<millis>` window,
+  which Windows places on the active desktop. Files a REUSED window gets
+  over the `open-files` event; a NEW window has no listener yet when it is
+  built, so they ride its `?open=` URL param (a JSON array of paths) the way
+  a tear-off's tab rides `?adopt=`. Release builds only — debug skips
+  single-instance entirely so a dev build can coexist with an installed one.
 - **Closing a torn-off window closes its tabs** — no handoff. Note files
   keep their latest text (a note outlives its tab as a real file in the
   notes workspace); unsaved file-buffer edits die with the window, like a

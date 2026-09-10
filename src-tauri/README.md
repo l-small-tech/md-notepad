@@ -10,7 +10,14 @@ session concepts in Rust, stop and move it to `src/core`.
 - `src/lib.rs` — builder: plugin registration (single-instance FIRST),
   managed `StartupFiles` state, `drain_startup_files` command, `open-files`
   event for second-instance argv. Read its doc comments — the
-  "why not emit from setup" note matters.
+  "why not emit from setup" note matters. `handle_second_instance` reuses a
+  live window only when the user can SEE it (`vdesk`), else builds a new
+  `w-<millis>` one carrying the argv files in its `?open=` URL param.
+- `src/vdesk.rs` — **Windows only**: `IVirtualDesktopManager`, the one
+  documented virtual-desktop interface (never reach for the undocumented
+  `…Internal` one — its vtable shifts between OS builds). Answers "is this
+  window on the desktop the user is looking at?"; `None` (any COM failure)
+  means "assume yes", degrading to the old always-focus behaviour.
 - `src/commands/fs.rs` — the entire custom IPC surface (reference
   implementation, tested): `read_text_file`, `atomic_write_text`,
   `list_notes`, `list_dir`, `list_session_manifests`, `read_file_base64`,
