@@ -236,8 +236,11 @@ export function createFlushRestore(ctx: SessionCtx) {
     for (const pt of persisted) {
       if (pt.kind === 'terminal') {
         // Nothing to read: a terminal tab is pane metadata only, and the
-        // shells respawn when the panes mount. Android has no pty, so a
-        // manifest written on a desktop simply loses its terminal tabs there.
+        // shells respawn when the panes mount — unless the descriptor came
+        // from a live window handing the tab over, in which case it names the
+        // ptys still running and the panes attach to those instead. Android
+        // has no pty, so a manifest written on a desktop simply loses its
+        // terminal tabs there.
         if (!isAndroid()) {
           restored.push(persistedToInit(pt, ''));
         }

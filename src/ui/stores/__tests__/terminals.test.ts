@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { paneIds } from '../../../core/panes';
-import { activePaneCwd, activePaneOf, resetTerminalIds, terminalsStore } from '../terminals';
+import {
+  activePaneCwd,
+  activePaneOf,
+  consumePaneRelease,
+  resetTerminalIds,
+  terminalsStore,
+} from '../terminals';
 
 function reset(): void {
   resetTerminalIds();
@@ -210,6 +216,88 @@ describe('snapshot / restore', () => {
 
   test('a tab with no session snapshots as null', () => {
     expect(store().snapshot('nope')).toBeNull();
+  });
+});
+
+describe('handover to another window', () => {
+  /** Pane ids are renamed on adoption, so find the receiving pane by its tab. */
+  const panesOf = (tabId: string) => Object.values(store().panes).filter((p) => p.tabId === tabId);
+
+  test('a handover snapshot names each live pty; the persisted one never does', () => {
+    store().openSession('t1', { profileId: 'shell' });
+    store().splitActivePane('t1', 'row');
+    const [first, second] = paneIds(store().sessions.t1!.tree);
+    store().setPanePty(first!, 3);
+    store().setPanePty(second!, 4);
+
+    expect(
+      store()
+        .snapshot('t1', { handover: true })!
+        .panes.map((p) => p.ptyId),
+    ).toEqual([3, 4]);
+    // The manifest on disk must not carry ids: they are per-process, so after
+    // a restart one would name somebody else's shell.
+    expect(
+      store()
+        .snapshot('t1')!
+        .panes.every((p) => p.ptyId === undefined),
+    ).toBe(true);
+  });
+
+  test('a pane with no pty yet is handed over without one', () => {
+    store().openSession('t1', { profileId: 'shell' });
+
+    expect(store().snapshot('t1', { handover: true })!.panes[0]!.ptyId).toBeUndefined();
+  });
+
+  test('adopting a handover snapshot tells each pane which pty to attach to', () => {
+    store().openSession('t1', { profileId: 'shell', cwd: '/work' });
+    store().setPanePty(paneIds(store().sessions.t1!.tree)[0]!, 9);
+    const handover = store().snapshot('t1', { handover: true })!;
+    store().releaseSession('t1');
+
+    store().openSession('t2', { profileId: 'shell', snapshot: handover });
+
+    const adopted = panesOf('t2');
+    expect(adopted).toHaveLength(1);
+    expect(adopted[0]).toMatchObject({ adoptPtyId: 9, cwd: '/work' });
+    // …and only once: a remount after the attach starts a shell like any other.
+    store().clearAdoptPtyId(adopted[0]!.id);
+    expect(store().panes[adopted[0]!.id]!.adoptPtyId).toBeNull();
+  });
+
+  test('a restored (non-handover) snapshot adopts nothing — it respawns', () => {
+    store().openSession('t1', { profileId: 'shell' });
+    store().setPanePty(paneIds(store().sessions.t1!.tree)[0]!, 9);
+    const persisted = store().snapshot('t1')!;
+    clearState();
+
+    store().openSession('t2', { profileId: 'shell', snapshot: persisted });
+
+    expect(panesOf('t2')[0]!.adoptPtyId).toBeNull();
+  });
+
+  test('releasing a session drops its panes but marks them for handover', () => {
+    store().openSession('t1', { profileId: 'shell' });
+    store().splitActivePane('t1', 'row');
+    const ids = paneIds(store().sessions.t1!.tree);
+
+    store().releaseSession('t1');
+
+    expect(store().sessions.t1).toBeUndefined();
+    expect(panesOf('t1')).toEqual([]);
+    // Each pane's element asks once, on unmount: detach, don't kill.
+    expect(ids.map((id) => consumePaneRelease(id))).toEqual([true, true]);
+    expect(ids.map((id) => consumePaneRelease(id))).toEqual([false, false]);
+  });
+
+  test('a session that was closed, not released, kills its shells', () => {
+    store().openSession('t1', { profileId: 'shell' });
+    const pane = store().sessions.t1!.activePaneId;
+
+    store().closeSession('t1');
+
+    expect(consumePaneRelease(pane)).toBe(false);
   });
 });
 

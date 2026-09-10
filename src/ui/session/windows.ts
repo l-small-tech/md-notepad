@@ -101,8 +101,14 @@ export function createWindows(
 
   /** Serializable manifest entry for `tab`, exactly as a flush would write it.
    *  Only meaningful AFTER a flushNow(): the note file / session buffer it
-   *  references must already exist on disk. */
-  function persistedDescriptor(tab: TabEntry): PersistedTab {
+   *  references must already exist on disk.
+   *
+   *  `handover` marks a descriptor that travels to a LIVE window (a tab
+   *  dragged out or dropped onto another window): a terminal then names the
+   *  ptys it is leaving running, so the receiver attaches to the same shells.
+   *  Without it the descriptor is manifest-safe — it may be written to disk,
+   *  where a pty id from this run of the app would be a lie. */
+  function persistedDescriptor(tab: TabEntry, opts?: { handover?: boolean }): PersistedTab {
     return {
       id: tab.id,
       kind: tab.kind,
@@ -114,10 +120,13 @@ export function createWindows(
       hasBuffer: tab.kind === 'file' && tab.model.isDirty('file'),
       cursor: cursorByTab.get(tab.id) ?? null,
       ...(tab.liveEdit !== null ? { liveEdit: tab.liveEdit } : {}),
-      // A terminal's ptys cannot cross webviews; the layout goes over instead
-      // and the receiving window respawns the same shells in the same
-      // directories. Read BEFORE detachTab, which releases the session.
-      ...(tab.kind === 'terminal' ? { terminal: terminalsStore.getState().snapshot(tab.id) } : {}),
+      // A terminal's layout goes over with the pty id of every live pane, so
+      // the receiving window attaches to the SAME shells rather than
+      // respawning them (see `pty_attach`). Read BEFORE detachTab, which
+      // releases the session.
+      ...(tab.kind === 'terminal'
+        ? { terminal: terminalsStore.getState().snapshot(tab.id, opts) }
+        : {}),
     };
   }
 
@@ -182,7 +191,7 @@ export function createWindows(
     if (!tab) {
       return null;
     }
-    const descriptor = persistedDescriptor(tab);
+    const descriptor = persistedDescriptor(tab, { handover: true });
     tabsStore.getState().detachTab(id);
     await ctx.flusher.flushNow();
     try {
@@ -214,7 +223,7 @@ export function createWindows(
     if (!tab) {
       return;
     }
-    const descriptor = persistedDescriptor(tab);
+    const descriptor = persistedDescriptor(tab, { handover: true });
     tabsStore.getState().detachTab(id);
     await ctx.flusher.flushNow();
     const acked = await send(targetLabel, [descriptor]).catch(() => false);
@@ -316,18 +325,23 @@ export function createWindows(
    */
   async function exportTabsForHandoff(): Promise<PersistedTab[]> {
     await ctx.flusher.flushNow();
-    return tabsStore
-      .getState()
-      .tabs.filter(
-        (t) =>
-          !(
-            t.kind === 'note' &&
-            t.notePath === null &&
-            t.customTitle === null &&
-            t.model.getText().length === 0
-          ),
-      )
-      .map(persistedDescriptor);
+    return (
+      tabsStore
+        .getState()
+        .tabs.filter(
+          (t) =>
+            !(
+              t.kind === 'note' &&
+              t.notePath === null &&
+              t.customTitle === null &&
+              t.model.getText().length === 0
+            ),
+        )
+        // Not a pty handover: this window is closing, which kills its shells
+        // whatever the manifest says, and these descriptors may be written to
+        // main's session.json (`bequeathTabsToMain`) where a pty id would rot.
+        .map((tab) => persistedDescriptor(tab))
+    );
   }
 
   /**

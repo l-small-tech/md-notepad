@@ -604,12 +604,12 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         return;
       }
       // No closedNotePaths / obsoleteBufferTabIds entries: the tab's files are
-      // being handed to another window, not discarded. A terminal tab is the
-      // exception in kind rather than in principle: its ptys cannot move
-      // between webviews, so the layout is released here and the receiving
-      // window respawns the same shells in the same directories.
+      // being handed to another window, not discarded. A terminal tab lets go
+      // of its panes the same way — released, not closed, so the shells keep
+      // running and the receiving window attaches to the very same ptys
+      // instead of starting fresh ones.
       if (s.tabs[idx]!.kind === 'terminal') {
-        terminalsStore.getState().closeSession(id);
+        terminalsStore.getState().releaseSession(id);
       }
       liveEditStore.getState().forget(id);
       const remaining = s.tabs.filter((t) => t.id !== id);
