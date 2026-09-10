@@ -107,7 +107,7 @@ Then the ten interface colors:
 | Key          | What it colors |
 | ------------ | -------------- |
 | `bg`         | The main app background (toolbar, tabs, sidebar). |
-| `editorBg`   | The writing surface — usually a hair different from `bg`. |
+| `editorBg`   | The diff, terminal, and whiteboard surface — usually a hair brighter than `bg`. Text views paint on `bg`. |
 | `bgAlt`      | Secondary panels and subtle raised areas. |
 | `bgHover`    | The highlight when you hover over a button or list row. |
 | `fg`         | The main text color. |
@@ -308,7 +308,7 @@ themes folder.
 > - `primary`, `secondary`, `tertiary` — the theme's three identity colors
 >   (`primary` is usually the same as `accent`)
 > - `bg` — main app background
-> - `editorBg` — the writing surface (a hair off `bg`)
+> - `editorBg` — the diff/terminal/whiteboard surface (a hair off `bg`)
 > - `bgAlt` — secondary panels
 > - `bgHover` — hover highlight
 > - `fg` — main text

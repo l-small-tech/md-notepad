@@ -125,9 +125,9 @@ export interface Cm6Adapter extends EditorAdapter {
 const baseTheme = EditorView.theme({
   '&': {
     color: 'var(--fg)',
-    // Slightly distinct from the chrome (ribbon / active tab) so the writing
-    // surface reads as its own recessed panel — falls back to --bg pre-JS.
-    backgroundColor: 'var(--editor-bg, var(--bg))',
+    // The same paper as the rich editor (wysiwyg.css) so Raw and Rich match
+    // in every theme — see .editor-stack in app.css.
+    backgroundColor: 'var(--bg)',
     height: '100%',
   },
   // The voice-comment gutter (voice-gutter.ts) reserves a full-height column
@@ -135,7 +135,7 @@ const baseTheme = EditorView.theme({
   // default light-grey background + right border, which otherwise read as a
   // white band between the file explorer and the text (in dark mode especially).
   '.cm-gutters': {
-    backgroundColor: 'var(--editor-bg, var(--bg))',
+    backgroundColor: 'var(--bg)',
     color: 'var(--fg-muted)',
     border: 'none',
   },

@@ -1761,8 +1761,10 @@ body.explorer-dragging * {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  /* The writing surface, subtly recessed from the ribbon/active tab above. */
-  background: var(--editor-bg);
+  /* The writing surface. Every text view — Rich, Raw, Read, Split — paints
+     on the chrome colour (--bg) so switching modes never changes the paper;
+     --editor-bg is reserved for the diff view, terminal, and whiteboard. */
+  background: var(--bg);
 }
 
 .editor-host {

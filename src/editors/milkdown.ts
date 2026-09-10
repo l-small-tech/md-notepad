@@ -56,7 +56,7 @@ const PROGRAMMATIC_META = 'md-notepad-programmatic';
  * The app theme's resolved `--wb-*` palette, read off `<html>` — the same
  * source the draw adapter and the preview pane use (no ui import; I9) — with
  * `--wb-bg` replaced by the colour of the surface the image actually sits on.
- * The palette's default background is the WRITING surface (`--editor-bg`),
+ * The palette's default background is the whiteboard surface (`--editor-bg`),
  * but the rich editor paints on the chrome colour (`--bg`), so a board keyed
  * to the palette default would show as a pale rectangle on it; the board
  * should vanish into whatever is behind it.

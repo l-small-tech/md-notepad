@@ -30,8 +30,9 @@
      plugin (UFV PANTONE 349 forest green #00703c on pale green-grey paper), with
      a green-charcoal ink softer than the plugin's pure black for everyday use. */
   --bg: #eaf1e4; /* app chrome: pale green-grey */
-  /* The writing surface — a hair off the chrome (--bg) so the editor reads as
-     its own recessed panel below the ribbon/active tab. */
+  /* A brighter surface, a hair off the chrome (--bg), used by the diff view,
+     the terminal, and the whiteboard. The text views (Rich/Raw/Read/Split)
+     paint on --bg itself so every mode shares one paper colour. */
   --editor-bg: #fbfdf8; /* near-white, faint green warmth */
   --bg-alt: #e0ebd8;
   --bg-hover: #d3e3c9;
