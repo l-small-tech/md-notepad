@@ -132,19 +132,33 @@ export function createExplorerOps(
    * title-drives-the-filename flush machinery (note tabs). Renaming a folder
    * retargets every open tab whose file lives under it.
    */
+  /** A note's voice-notes sidecar path, per the location setting (see core/comments). */
+  function sidecarFor(notePath: string): string {
+    const { voiceNotesLocation, voiceNotesFolderName } = settingsStore.getState().settings;
+    return commentsPathFor(notePath, {
+      location: voiceNotesLocation,
+      folderName: sanitizeFileBaseName(voiceNotesFolderName) || 'Voice Notes',
+      workspaceRoot: ctx.workspaceRootFor(notePath),
+    });
+  }
+
   /**
    * Best-effort: follow a note file's `.comments.md` sidecar when the note file
-   * is renamed/moved, so its voice comments stay attached. A stranded sidecar is
-   * harmless (it re-associates by name if the note is renamed back) and never
-   * loses transcripts, so any failure is swallowed. Desktop audio clips are not
+   * is renamed/moved, so its voice notes stay attached — beside the note or in
+   * the workspace's shared folder, whichever the setting says. The sidecar's
+   * `file:` references are relative to where it sits, so after a move they go
+   * stale until the next note is added (the sidecar rewrites them then); the
+   * quote and line still identify each note. A stranded sidecar is harmless
+   * (it re-associates by name if the note is renamed back) and never loses
+   * transcripts, so any failure is swallowed. Desktop audio clips are not
    * relocated on a cross-directory move yet (a documented follow-up).
    */
   async function moveCommentsSidecar(oldNotePath: string, newNotePath: string): Promise<void> {
     if (isCommentsPath(oldNotePath) || extName(oldNotePath).toLowerCase() !== '.md') {
       return;
     }
-    const from = commentsPathFor(oldNotePath);
-    const to = commentsPathFor(newNotePath);
+    const from = sidecarFor(oldNotePath);
+    const to = sidecarFor(newNotePath);
     // Raw compare, not pathKey: a case-only rename of the note must carry the
     // sidecar's spelling along with it.
     if (from === to) {

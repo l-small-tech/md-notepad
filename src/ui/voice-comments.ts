@@ -14,14 +14,19 @@
  *      reports the source line; the panel opens in the `ready` phase, showing
  *      the line's text and a big microphone.
  *   3. Tap the mic to start, tap again to finish. The transcript is appended
- *      to `<name>.comments.md` with the file name, line, quote and UTC time.
- *      The document itself is never modified.
+ *      to `<name>.comments.md` with a reference to the file, the line, its
+ *      quote and the UTC time. The document itself is never modified.
+ *
+ * Where the sidecar lives is the `voiceNotesLocation` setting: the workspace's
+ * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
+ * resolves it through the session's workspace lookup.
  *
  * Two capture paths converge on the same persistence:
  *  - Android: on-device `SpeechRecognizer` via the `ipc.stt*` bridges — returns
  *    a transcript directly.
  *  - Desktop: `MediaRecorder` in the webview — saves a `.webm` clip beside the
- *    note and leaves the transcript blank for the user to type (there is no
+ *    SIDECAR (so the `audio:` name resolves from the comments file wherever it
+ *    lives) and leaves the transcript blank for the user to type (there is no
  *    reliable on-device STT in the desktop webviews).
  */
 
@@ -31,14 +36,18 @@ import {
   commentsPathFor,
   lineQuote,
   newCommentId,
+  noteRefFor,
   parseCommentsFile,
   serializeCommentsFile,
   type VoiceComment,
 } from '../core/comments';
 import { baseName, dirName, joinPath } from '../core/session/plan-flush';
+import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
 import { isAndroid } from './platform';
+import { workspaceRootFor } from './session/facade';
+import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
 import { uiStore } from './stores/ui';
 
@@ -99,10 +108,21 @@ function docTextFor(tabId: string): string {
   return tab ? tab.model.getText() : '';
 }
 
+/** The sidecar path for a note, per the voice-notes location setting. */
+export function sidecarFor(notePath: string): string {
+  const { voiceNotesLocation, voiceNotesFolderName } = settingsStore.getState().settings;
+  return commentsPathFor(notePath, {
+    location: voiceNotesLocation,
+    // Sanitize so a hand-edited setting can't escape the folder or add separators.
+    folderName: sanitizeFileBaseName(voiceNotesFolderName) || 'Voice Notes',
+    workspaceRoot: workspaceRootFor(notePath),
+  });
+}
+
 /** Read + parse a note's comments file; [] when it doesn't exist yet. */
 async function loadComments(notePath: string): Promise<VoiceComment[]> {
   try {
-    const { text } = await currentProvider().readTextFile(commentsPathFor(notePath));
+    const { text } = await currentProvider().readTextFile(sidecarFor(notePath));
     return parseCommentsFile(text);
   } catch (e) {
     if (e instanceof IpcError && e.code === 'NOT_FOUND') {
@@ -133,7 +153,7 @@ async function flushSave(): Promise<void> {
   try {
     await currentProvider().atomicWriteText(
       commentsPath,
-      serializeCommentsFile(comments, baseName(notePath)),
+      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath)),
     );
   } catch {
     uiStore.getState().showNotice('Could not save voice notes.');
@@ -218,7 +238,7 @@ export async function openNoteAtLine(tabId: string, line: number): Promise<void>
     phase: 'ready',
     tabId,
     notePath,
-    commentsPath: commentsPathFor(notePath),
+    commentsPath: sidecarFor(notePath),
     comments,
     focusId: null,
     line,
@@ -245,7 +265,7 @@ export async function openAllComments(tabId: string): Promise<void> {
     phase: 'viewing',
     tabId,
     notePath,
-    commentsPath: commentsPathFor(notePath),
+    commentsPath: sidecarFor(notePath),
     comments,
     focusId: null,
     line: null,
@@ -392,8 +412,8 @@ async function captureDesktop(): Promise<void> {
 }
 
 async function finishCaptureDesktop(blob: Blob): Promise<void> {
-  const { notePath } = voiceStore.getState();
-  if (!notePath || !captureId) {
+  const { notePath, commentsPath } = voiceStore.getState();
+  if (!notePath || !commentsPath || !captureId) {
     return;
   }
   const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
@@ -401,7 +421,7 @@ async function finishCaptureDesktop(blob: Blob): Promise<void> {
   try {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     await currentProvider().writeFileBase64(
-      joinPath(dirName(notePath), audioName),
+      joinPath(dirName(commentsPath), audioName),
       bytesToBase64(bytes),
     );
   } catch {
@@ -413,15 +433,15 @@ async function finishCaptureDesktop(blob: Blob): Promise<void> {
 
 /** Commit the in-flight capture: append + save the note. The document is untouched. */
 async function finishCapture(transcript: string, audio: string | null): Promise<void> {
-  const { notePath, comments, line, quote } = voiceStore.getState();
-  if (!notePath || !captureId || line === null) {
+  const { notePath, commentsPath, comments, line, quote } = voiceStore.getState();
+  if (!notePath || !commentsPath || !captureId || line === null) {
     return;
   }
   const id = captureId;
   captureId = null;
   const comment: VoiceComment = {
     id,
-    file: baseName(notePath),
+    file: noteRefFor(commentsPath, notePath),
     line,
     quote,
     time: new Date().toISOString(),
@@ -470,11 +490,11 @@ export function updateTranscript(id: string, transcript: string): void {
 
 /** Delete a note: its audio clip (if any) and its entry. */
 export async function deleteComment(id: string): Promise<void> {
-  const { comments, notePath } = voiceStore.getState();
+  const { comments, commentsPath } = voiceStore.getState();
   const removed = comments.find((c) => c.id === id);
-  if (removed?.audio && notePath) {
+  if (removed?.audio && commentsPath) {
     try {
-      await currentProvider().deletePath(joinPath(dirName(notePath), removed.audio));
+      await currentProvider().deletePath(joinPath(dirName(commentsPath), removed.audio));
     } catch {
       // Best effort — a leftover clip is harmless.
     }
@@ -503,9 +523,9 @@ export function closePanel(): void {
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
-/** Resolve a note's audio clip to a playable data: URL. */
-export async function audioDataUrl(notePath: string, audio: string): Promise<string> {
-  const b64 = await currentProvider().readFileBase64(joinPath(dirName(notePath), audio));
+/** Resolve a note's audio clip (named beside the sidecar) to a playable URL. */
+export async function audioDataUrl(commentsPath: string, audio: string): Promise<string> {
+  const b64 = await currentProvider().readFileBase64(joinPath(dirName(commentsPath), audio));
   const type = audio.endsWith('.ogg') ? 'audio/ogg' : 'audio/webm';
   const bytes = base64ToBytes(b64);
   const blob = new Blob([bytes.buffer as ArrayBuffer], { type });

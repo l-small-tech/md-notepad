@@ -99,6 +99,11 @@ const IMAGE_LOCATIONS: { value: Settings['imagePasteLocation']; label: string }[
   { value: 'workspaceRoot', label: 'Shared folder at workspace root' },
 ];
 
+const VOICE_NOTE_LOCATIONS: { value: Settings['voiceNotesLocation']; label: string }[] = [
+  { value: 'workspaceFolder', label: 'Shared folder at workspace root' },
+  { value: 'nextToFile', label: 'Next to the file' },
+];
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
@@ -550,6 +555,42 @@ function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
                     onBlur={(e) => {
                       if (e.target.value.trim().length === 0) {
                         update({ imageFolderName: 'images' });
+                      }
+                    }}
+                  />
+                </label>
+              )}
+
+              <label className="settings-row">
+                <span className="settings-label">Voice notes</span>
+                <select
+                  className="settings-control"
+                  value={settings.voiceNotesLocation}
+                  onChange={(e) =>
+                    update({ voiceNotesLocation: e.target.value as Settings['voiceNotesLocation'] })
+                  }
+                >
+                  {VOICE_NOTE_LOCATIONS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {settings.voiceNotesLocation === 'workspaceFolder' && (
+                <label className="settings-row">
+                  <span className="settings-label">Voice notes folder name</span>
+                  <input
+                    className="settings-control"
+                    type="text"
+                    value={settings.voiceNotesFolderName}
+                    spellCheck={false}
+                    placeholder="Voice Notes"
+                    onChange={(e) => update({ voiceNotesFolderName: e.target.value })}
+                    onBlur={(e) => {
+                      if (e.target.value.trim().length === 0) {
+                        update({ voiceNotesFolderName: 'Voice Notes' });
                       }
                     }}
                   />

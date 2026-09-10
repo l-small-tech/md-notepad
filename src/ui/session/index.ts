@@ -42,6 +42,7 @@ import {
   setAppendImagesDispatch,
   setBuildExportPreviewHtmlDispatch,
   setChangeNotesDirDispatch,
+  setWorkspaceRootForDispatch,
   setCloseAllTabsDispatch,
   setCreateNewFileDispatch,
   setCreateNewFolderDispatch,
@@ -331,13 +332,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setKeepMineDispatch((id) => void openSave.keepMine(id));
   setViewDiffDispatch((id) => void openSave.viewDiff(id));
   setChangeNotesDirDispatch(() => void workspaces.changeNotesDir());
+  setWorkspaceRootForDispatch((path) => ctx.workspaceRootFor(path));
   setListNotesDispatch(async (dir?: string) => {
     const entries = await ipc.listDir(dir ?? ctx.notesDir);
     return (
       entries
-        // Hide voice-comment sidecar files (`*.comments.md`) from the explorer —
-        // they're managed alongside their note, not opened directly.
-        .filter((e) => e.isDir || !isCommentsPath(e.path))
+        // Voice-note sidecars (`*.comments.md`) kept BESIDE their note are
+        // hidden from the explorer — they're managed from the note. In the
+        // shared-folder mode they are the point of the folder (a person or an
+        // agent opens them), so they stay visible.
+        .filter(
+          (e) =>
+            e.isDir ||
+            settingsStore.getState().settings.voiceNotesLocation !== 'nextToFile' ||
+            !isCommentsPath(e.path),
+        )
         .map((e) => ({
           path: e.path,
           name: baseName(e.path),

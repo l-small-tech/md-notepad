@@ -26,13 +26,13 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-/** Lazily resolve a note's audio clip to a playable object URL. */
-function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
+/** Lazily resolve a note's audio clip (beside the sidecar) to a playable object URL. */
+function AudioClip({ commentsPath, audio }: { commentsPath: string; audio: string }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let revoked: string | null = null;
     let cancelled = false;
-    void audioDataUrl(notePath, audio)
+    void audioDataUrl(commentsPath, audio)
       .then((u) => {
         if (cancelled) {
           URL.revokeObjectURL(u);
@@ -48,7 +48,7 @@ function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
         URL.revokeObjectURL(revoked);
       }
     };
-  }, [notePath, audio]);
+  }, [commentsPath, audio]);
   if (!url) {
     return null;
   }
@@ -57,11 +57,11 @@ function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
 
 function CommentCard({
   comment,
-  notePath,
+  commentsPath,
   focused,
 }: {
   comment: VoiceComment;
-  notePath: string;
+  commentsPath: string;
   focused: boolean;
 }) {
   return (
@@ -86,7 +86,7 @@ function CommentCard({
         placeholder="Transcript…"
         onChange={(e) => updateTranscript(comment.id, e.target.value)}
       />
-      {comment.audio && <AudioClip notePath={notePath} audio={comment.audio} />}
+      {comment.audio && <AudioClip commentsPath={commentsPath} audio={comment.audio} />}
     </div>
   );
 }
@@ -180,7 +180,7 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
 }
 
 function ViewingBody({ state }: { state: VoiceCommentsState }) {
-  const notePath = state.notePath ?? '';
+  const commentsPath = state.commentsPath ?? '';
   if (state.comments.length === 0) {
     return (
       <div className="vc-body">
@@ -197,7 +197,12 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
   return (
     <div className="vc-body">
       {ordered.map((c) => (
-        <CommentCard key={c.id} comment={c} notePath={notePath} focused={c.id === state.focusId} />
+        <CommentCard
+          key={c.id}
+          comment={c}
+          commentsPath={commentsPath}
+          focused={c.id === state.focusId}
+        />
       ))}
     </div>
   );

@@ -68,6 +68,8 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'blue',
       imagePasteLocation: 'workspaceRoot',
       imageFolderName: 'assets',
+      voiceNotesLocation: 'nextToFile',
+      voiceNotesFolderName: 'Review Notes',
       scanPreset: 'balanced',
       scanSmoothing: 'precise',
       schemaVersion: SETTINGS_SCHEMA,
@@ -98,6 +100,8 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'blue',
       imagePasteLocation: 'workspaceRoot',
       imageFolderName: 'assets',
+      voiceNotesLocation: 'nextToFile',
+      voiceNotesFolderName: 'Review Notes',
       explorerCollapsedWorkspaces: [],
       explorerExpandedDirs: [],
       scanPreset: 'balanced',
@@ -164,6 +168,8 @@ describe('normalizeSettings', () => {
       defaultWorkspaceColor: 'mauve',
       imagePasteLocation: 'wherever',
       imageFolderName: 42,
+      voiceNotesLocation: 'somewhere',
+      voiceNotesFolderName: '   ',
       scanPreset: 'ultra',
       scanSmoothing: 'extreme',
     });
@@ -260,6 +266,17 @@ describe('normalizeSettings', () => {
   test('image folder name trims, and blank/non-string falls back to default', () => {
     expect(normalizeSettings({ imageFolderName: '  assets  ' }).imageFolderName).toBe('assets');
     expect(normalizeSettings({ imageFolderName: '   ' }).imageFolderName).toBe('images');
+  });
+
+  test('voice notes default to a shared "Voice Notes" workspace folder', () => {
+    expect(DEFAULT_SETTINGS.voiceNotesLocation).toBe('workspaceFolder');
+    expect(DEFAULT_SETTINGS.voiceNotesFolderName).toBe('Voice Notes');
+    expect(normalizeSettings({ voiceNotesFolderName: '  Notes  ' }).voiceNotesFolderName).toBe(
+      'Notes',
+    );
+    expect(normalizeSettings({ voiceNotesLocation: 'nextToFile' }).voiceNotesLocation).toBe(
+      'nextToFile',
+    );
     expect(normalizeSettings({ imageFolderName: 5 }).imageFolderName).toBe('images');
   });
 

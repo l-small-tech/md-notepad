@@ -4,6 +4,7 @@ import {
   isCommentsPath,
   lineQuote,
   newCommentId,
+  noteRefFor,
   parseCommentsFile,
   serializeCommentsFile,
   type VoiceComment,
@@ -26,6 +27,70 @@ describe('commentsPathFor', () => {
 
   test('handles Windows separators', () => {
     expect(commentsPathFor('C:\\notes\\foo.md')).toBe('C:\\notes/foo.comments.md');
+  });
+
+  test("'nextToFile' is the same as no options", () => {
+    expect(
+      commentsPathFor('/ws/docs/foo.md', {
+        location: 'nextToFile',
+        folderName: 'Voice Notes',
+        workspaceRoot: '/ws',
+      }),
+    ).toBe('/ws/docs/foo.comments.md');
+  });
+
+  describe("'workspaceFolder'", () => {
+    const opts = {
+      location: 'workspaceFolder',
+      folderName: 'Voice Notes',
+      workspaceRoot: '/ws',
+    } as const;
+
+    test('a note at the workspace root lands directly in the folder', () => {
+      expect(commentsPathFor('/ws/foo.md', opts)).toBe('/ws/Voice Notes/foo.comments.md');
+    });
+
+    test("mirrors the note's sub-path so same-named notes never collide", () => {
+      expect(commentsPathFor('/ws/docs/a/foo.md', opts)).toBe(
+        '/ws/Voice Notes/docs/a/foo.comments.md',
+      );
+      expect(commentsPathFor('/ws/docs/b/foo.md', opts)).toBe(
+        '/ws/Voice Notes/docs/b/foo.comments.md',
+      );
+    });
+
+    test('a note outside the root, or on another drive, lands directly in the folder', () => {
+      expect(commentsPathFor('/elsewhere/foo.md', opts)).toBe('/ws/Voice Notes/foo.comments.md');
+      expect(commentsPathFor('D:/x/foo.md', { ...opts, workspaceRoot: 'C:/ws' })).toBe(
+        'C:/ws/Voice Notes/foo.comments.md',
+      );
+    });
+
+    test('works over saf:// identifiers', () => {
+      expect(
+        commentsPathFor('saf://TOKEN%2Fabc/sub/foo.md', {
+          ...opts,
+          workspaceRoot: 'saf://TOKEN%2Fabc',
+        }),
+      ).toBe('saf://TOKEN%2Fabc/Voice Notes/sub/foo.comments.md');
+    });
+  });
+});
+
+describe('noteRefFor', () => {
+  test('a sibling sidecar refers to the bare file name', () => {
+    expect(noteRefFor('/ws/docs/foo.comments.md', '/ws/docs/foo.md')).toBe('foo.md');
+  });
+
+  test('a shared-folder sidecar refers up and across to the note', () => {
+    expect(noteRefFor('/ws/Voice Notes/docs/a/foo.comments.md', '/ws/docs/a/foo.md')).toBe(
+      '../../../docs/a/foo.md',
+    );
+    expect(noteRefFor('/ws/Voice Notes/foo.comments.md', '/ws/foo.md')).toBe('../foo.md');
+  });
+
+  test('falls back to the file name across roots', () => {
+    expect(noteRefFor('C:/ws/Voice Notes/foo.comments.md', 'D:/x/foo.md')).toBe('foo.md');
   });
 });
 
@@ -69,22 +134,22 @@ describe('serialize (v2 format)', () => {
       [
         {
           id: 'c3f9a',
-          file: NOTE,
+          file: '../meeting-notes.md',
           line: 42,
           quote: 'Pricing goes live Friday',
           time: '2026-09-10T21:32:07.000Z',
           transcript: 'Ship the pricing change before the demo.',
         },
       ],
-      NOTE,
+      '../meeting-notes.md',
     );
     expect(text).toBe(
       [
         '<!-- md-notepad voice comments v2 -->',
-        '# Voice notes for [meeting-notes.md](./meeting-notes.md)',
+        '# Voice notes for [meeting-notes.md](../meeting-notes.md)',
         '',
         '## ^c3f9a',
-        '- file: meeting-notes.md',
+        '- file: ../meeting-notes.md',
         '- line: 42',
         '- time: 2026-09-10T21:32:07.000Z',
         '',
@@ -107,8 +172,8 @@ describe('serialize (v2 format)', () => {
   });
 
   test('percent-encodes spaces in the title link but not the label', () => {
-    const text = serializeCommentsFile([], 'my notes.md');
-    expect(text).toContain('# Voice notes for [my notes.md](./my%20notes.md)');
+    const text = serializeCommentsFile([], '../my notes.md');
+    expect(text).toContain('# Voice notes for [my notes.md](../my%20notes.md)');
   });
 });
 

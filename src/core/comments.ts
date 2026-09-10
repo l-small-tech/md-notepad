@@ -23,10 +23,10 @@
  * File format (v2):
  *
  *     <!-- md-notepad voice comments v2 -->
- *     # Voice notes for [meeting-notes.md](./meeting-notes.md)
+ *     # Voice notes for [meeting-notes.md](../meeting-notes.md)
  *
  *     ## ^c3f9a
- *     - file: meeting-notes.md
+ *     - file: ../meeting-notes.md
  *     - line: 42
  *     - time: 2026-09-10T21:32:07.000Z
  *
@@ -34,12 +34,19 @@
  *
  *     Ship the pricing change before the demo.
  *
+ * `file:` (and the title link) is the parent's path RELATIVE TO THE SIDECAR, so
+ * it is both an obvious reference and a link that resolves — `meeting-notes.md`
+ * when the sidecar sits beside the document, `../meeting-notes.md` (or deeper)
+ * from a shared workspace "Voice Notes" folder. Where the sidecar lives is a
+ * setting; `commentsPathFor` resolves it.
+ *
  * v1 files (which had no file/line/quote fields — the parent carried an
  * invisible `<!-- ^cXXXX -->` anchor instead) still parse; the missing fields
  * come back empty. Nothing writes v1 any more.
  */
 
-import { baseName, dirName, extName, joinPath } from './session/plan-flush';
+import { baseName, dirName, extName, joinPath, relativePath } from './session/plan-flush';
+import type { VoiceNotesLocation } from './types';
 
 /** A single voice note as stored in `<name>.comments.md`. */
 export interface VoiceComment {
@@ -63,18 +70,55 @@ export interface VoiceComment {
 const HEADER_V2 = '<!-- md-notepad voice comments v2 -->';
 const HEADER_VERSION_RE = /^<!--\s*md-notepad voice comments v(\d+)\s*-->\s*$/;
 
+/** Where a document's sidecar goes — the user's setting plus the workspace it's in. */
+export interface CommentsPathOptions {
+  location: VoiceNotesLocation;
+  /** The shared folder's name (already sanitized), for 'workspaceFolder'. */
+  folderName: string;
+  /** Root of the workspace the document belongs to (its own directory if none). */
+  workspaceRoot: string;
+}
+
 /**
- * Sibling comments-file path for a note: `foo.md` → `foo.comments.md`, in the
- * same directory / same provider namespace (so a `saf://…` note yields a
- * `saf://…` comments path). A `.markdown` note also collapses to `.comments.md`.
+ * The comments-file path for a note: `foo.md` → `foo.comments.md` (a
+ * `.markdown` note also collapses to `.comments.md`), always in the same
+ * provider namespace (a `saf://…` note yields a `saf://…` path).
+ *
+ * With no options, or 'nextToFile', the sidecar sits beside the note. With
+ * 'workspaceFolder' it goes under `<workspaceRoot>/<folderName>/`, mirroring
+ * the note's sub-path within the workspace (`ws/docs/a/foo.md` →
+ * `ws/Voice Notes/docs/a/foo.comments.md`) so same-named notes in different
+ * folders never share a sidecar. A note that isn't under the given root (or on
+ * another drive) lands directly in the folder.
  */
-export function commentsPathFor(notePath: string): string {
+export function commentsPathFor(notePath: string, opts?: CommentsPathOptions): string {
   const ext = extName(notePath); // '.md' | '.markdown' | ''
   const base = baseName(notePath);
   const stem = ext ? base.slice(0, base.length - ext.length) : base;
   const file = `${stem}.comments.md`;
-  const dir = dirName(notePath);
-  return dir ? joinPath(dir, file) : file;
+  const noteDir = dirName(notePath);
+  if (!opts || opts.location === 'nextToFile') {
+    return noteDir ? joinPath(noteDir, file) : file;
+  }
+  const folder = joinPath(opts.workspaceRoot, opts.folderName);
+  const rel = noteDir ? relativePath(opts.workspaceRoot, noteDir) : null;
+  // '.' = the root itself; './sub/dir' = inside it; '../…' or null = outside.
+  const inside = rel !== null && rel.startsWith('./') ? rel.slice(2) : '';
+  return inside ? joinPath(joinPath(folder, inside), file) : joinPath(folder, file);
+}
+
+/**
+ * How a sidecar refers to its parent: the parent's path relative to the
+ * sidecar's directory, forward-slashed, without a leading `./` — `foo.md` for a
+ * sibling, `../docs/foo.md` from a shared folder. Falls back to the bare file
+ * name when no relative path exists (different roots).
+ */
+export function noteRefFor(commentsPath: string, notePath: string): string {
+  const rel = relativePath(dirName(commentsPath), notePath);
+  if (rel === null || rel === '.') {
+    return baseName(notePath);
+  }
+  return rel.startsWith('./') ? rel.slice(2) : rel;
 }
 
 /** True for a comments-file name/path (`*.comments.md`), used to hide them. */
@@ -211,13 +255,13 @@ export function parseCommentsFile(text: string): VoiceComment[] {
 }
 
 /**
- * Serialize notes to the canonical v2 `<name>.comments.md` text. `noteFile` is
- * the parent's file name (no directory) — it titles the file and fills in the
- * `file:` field of any legacy entry that has none.
+ * Serialize notes to the canonical v2 `<name>.comments.md` text. `noteRef` is
+ * the parent's path relative to the sidecar (see `noteRefFor`) — it titles the
+ * file and fills in the `file:` field of any legacy entry that has none.
  */
-export function serializeCommentsFile(comments: VoiceComment[], noteFile: string): string {
+export function serializeCommentsFile(comments: VoiceComment[], noteRef: string): string {
   const blocks = comments.map((c) => {
-    const file = c.file || noteFile;
+    const file = c.file || noteRef;
     const meta = [`- file: ${file}`];
     if (c.line !== null) {
       meta.push(`- line: ${c.line}`);
@@ -231,6 +275,6 @@ export function serializeCommentsFile(comments: VoiceComment[], noteFile: string
     const body = c.transcript.trim();
     return `## ^${c.id}\n${meta.join('\n')}\n\n${quoteBlock}${body}\n`;
   });
-  const title = `# Voice notes for [${noteFile}](./${encodeURI(noteFile)})`;
+  const title = `# Voice notes for [${baseName(noteRef)}](${encodeURI(noteRef)})`;
   return `${HEADER_V2}\n${title}\n\n${blocks.join('\n')}`;
 }

@@ -103,6 +103,16 @@ export type CursorStyle = (typeof CURSOR_STYLES)[number];
 export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
 
 /**
+ * Where a document's voice-notes sidecar (`<name>.comments.md`) is kept:
+ * - 'workspaceFolder' — one shared folder (named by `voiceNotesFolderName`) at
+ *                       the root of the workspace the document belongs to; the
+ *                       document's sub-path is mirrored inside it so two files
+ *                       with the same name in different folders never collide.
+ * - 'nextToFile'      — right beside the document.
+ */
+export type VoiceNotesLocation = 'workspaceFolder' | 'nextToFile';
+
+/**
  * Editor color scheme — the palette family id, chosen independently of light/dark
  * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
  * working). A scheme supplies BOTH a light and a dark palette by overriding the
@@ -427,6 +437,10 @@ export interface Settings {
    * (ignored by 'sameFolder'). Default 'images'.
    */
   imageFolderName: string;
+  /** Where voice-notes sidecars are kept. Default 'workspaceFolder'. */
+  voiceNotesLocation: VoiceNotesLocation;
+  /** Folder name used by the 'workspaceFolder' mode. Default 'Voice Notes'. */
+  voiceNotesFolderName: string;
   /**
    * Explorer tree shape, persisted so the drawer reopens (and the app relaunches)
    * looking exactly as it was left. Not user-facing settings — no dialog field —
