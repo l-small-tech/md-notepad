@@ -113,6 +113,7 @@ export function createWindows(
       savedMtimeMs: tab.savedMtimeMs,
       hasBuffer: tab.kind === 'file' && tab.model.isDirty('file'),
       cursor: cursorByTab.get(tab.id) ?? null,
+      ...(tab.liveEdit !== null ? { liveEdit: tab.liveEdit } : {}),
       // A terminal's ptys cannot cross webviews; the layout goes over instead
       // and the receiving window respawns the same shells in the same
       // directories. Read BEFORE detachTab, which releases the session.

@@ -57,6 +57,13 @@ export interface DocModel {
   subscribe(listener: (change: DocChange) => void): () => void;
   /** Snapshot current text as "persisted" for the given target. */
   markPersisted(kind: PersistKind): void;
+  /**
+   * Record `text` — not the current text — as what the target holds. For a
+   * Live Edit merge: the file now contains the other side's text while the
+   * editor holds the merged result, so the tab is dirty by exactly that
+   * difference.
+   */
+  markPersistedAs(kind: PersistKind, text: string): void;
   /** The last snapshot taken for the target — what we believe is on disk.
    *  The conflict check compares this against a fresh read, so an mtime-only
    *  change (touch, sync rewrite) never raises the banner. */
@@ -101,6 +108,10 @@ export function createDocModel(initialText: string): DocModel {
 
     markPersisted(kind) {
       persisted[kind] = text;
+    },
+
+    markPersistedAs(kind, snapshot) {
+      persisted[kind] = snapshot;
     },
 
     getPersisted(kind) {

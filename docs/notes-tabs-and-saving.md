@@ -38,6 +38,32 @@ Prefer files to save themselves too? Turn on **Live save** in Settings — or
 press and hold the toolbar's save button and pick **Auto save** — and open
 files are written automatically as you type, like notes.
 
+### Live edit: working on one file together
+
+Keep a folder in Google Drive or OneDrive that several people share? Add it
+to the sidebar as a workspace, right-click its heading and turn on
+**Live edit (shared folder)**. Every file you open from that folder then:
+
+- saves itself as you type (whatever the Live save setting says), and
+- watches the file on disk, so when someone else's save arrives it is
+  **merged into your editor** rather than reported as a conflict — their new
+  lines glow briefly in the accent colour, a **Live** chip in the status bar
+  pulses, and your caret stays where it was.
+
+Edits to different lines simply combine. If you and someone else changed the
+very same lines, nothing is thrown away: your version is kept and theirs is
+placed right after it, the status bar says so, and you tidy up the duplicate.
+Both computers end up with the same text.
+
+To make a single file live without flagging its whole folder — or to switch
+it off for one file inside a live folder — press and hold the save button and
+pick **Live edit (shared file)**. The choice sticks to that tab.
+
+A few honest limits: changes travel at the speed of your sync client, so
+expect a few seconds' delay; a file is only watched while it is open; and if
+both of you save inside the same second the sync client may still leave one
+of its own "conflicted copy" files in the folder.
+
 ### The save button
 
 The toolbar's floppy-disk button saves the current document, and its icon also

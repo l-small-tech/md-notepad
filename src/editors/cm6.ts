@@ -16,8 +16,9 @@
  * M6 will drive (font size and word wrap), and to keep the recipe's shape.
  */
 
-import { EditorView, keymap, lineNumbers } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { Decoration, EditorView, keymap, lineNumbers, type DecorationSet } from '@codemirror/view';
+import { EditorState, Compartment, StateEffect, StateField } from '@codemirror/state';
+import { diffToChanges } from '../core/diff';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
@@ -120,7 +121,56 @@ export interface Cm6Adapter extends EditorAdapter {
   anchorLineAt(offset?: number): number;
   /** Remove the anchor token for `id` (and one leading space), if present. */
   removeAnchor(id: string): void;
+  /**
+   * Live Edit: briefly highlight the lines covering these document ranges —
+   * text that just arrived from another person's save. The highlight maps
+   * through subsequent edits and fades on its own.
+   */
+  flashRanges(ranges: { from: number; to: number }[]): void;
 }
+
+/* ---- Live Edit merge highlight ------------------------------------------ */
+
+type FlashRange = { from: number; to: number };
+
+const addFlash = StateEffect.define<FlashRange[]>({
+  map: (ranges, change) =>
+    ranges.map((r) => ({ from: change.mapPos(r.from), to: change.mapPos(r.to) })),
+});
+const clearFlash = StateEffect.define<null>();
+const flashLine = Decoration.line({ class: 'cm-live-merged' });
+
+/** Line decorations for merged-in text; cleared wholesale by `clearFlash`. */
+const flashField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes);
+    for (const effect of tr.effects) {
+      if (effect.is(clearFlash)) {
+        next = Decoration.none;
+      } else if (effect.is(addFlash)) {
+        const doc = tr.state.doc;
+        const marks = [];
+        for (const r of effect.value) {
+          const from = Math.max(0, Math.min(r.from, doc.length));
+          const to = Math.max(from, Math.min(r.to, doc.length));
+          const first = doc.lineAt(from).number;
+          const last = doc.lineAt(to).number;
+          for (let n = first; n <= last; n += 1) {
+            marks.push(flashLine.range(doc.line(n).from));
+          }
+        }
+        next = next.update({ add: marks, sort: true });
+      }
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/** How long the merged-line highlight stays before it is dropped (the CSS
+ *  fade is a little shorter, so the removal is invisible). */
+const FLASH_MS = 2600;
 
 const baseTheme = EditorView.theme({
   '&': {
@@ -502,6 +552,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   // we are pushing INTO the editor from the model.
   let pushingSelf = false;
   let applyingExternal = false;
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
 
   function reportSelection() {
     if (!view || !options.onSelection) {
@@ -615,6 +666,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         imagePasteHandler,
         copyEnrichHandler,
         plainDotsExtension,
+        flashField,
         themeCompartment.of([
           baseTheme,
           syntaxHighlighting(isXml ? xmlHighlightStyle : highlightStyle),
@@ -644,20 +696,22 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
 
     view = new EditorView({ state, parent: host });
 
-    // Model → editor: apply external changes (not our own echo) as one
-    // transaction so scroll/cursor survive; never recreate the view.
+    // Model → editor: apply external changes (not our own echo) as ONE
+    // transaction of minimal line-level edits (core/diff.ts), so the caret,
+    // selection and scroll map through — a Live Edit merge landing three
+    // paragraphs up must not move the line you are typing on. Never
+    // recreate the view.
     unsubscribe = model.subscribe((change) => {
       if (pushingSelf || !view) {
         return;
       }
-      if (change.text === view.state.doc.toString()) {
+      const current = view.state.doc.toString();
+      if (change.text === current) {
         return;
       }
       applyingExternal = true;
       try {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: change.text },
-        });
+        view.dispatch({ changes: diffToChanges(current, change.text) });
       } finally {
         applyingExternal = false;
       }
@@ -671,6 +725,10 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     // write-back to flush here — the detach contract is trivially met.
     unsubscribe?.();
     unsubscribe = null;
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer);
+      flashTimer = null;
+    }
     view?.destroy();
     view = null;
   }
@@ -767,6 +825,19 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
           ? anchor.from - 1
           : anchor.from;
       view.dispatch({ changes: { from, to: anchor.to } });
+    },
+    flashRanges(ranges) {
+      if (!view || ranges.length === 0) {
+        return;
+      }
+      view.dispatch({ effects: addFlash.of(ranges) });
+      if (flashTimer !== null) {
+        clearTimeout(flashTimer);
+      }
+      flashTimer = setTimeout(() => {
+        flashTimer = null;
+        view?.dispatch({ effects: clearFlash.of(null) });
+      }, FLASH_MS);
     },
   };
 }

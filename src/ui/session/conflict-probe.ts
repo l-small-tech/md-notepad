@@ -21,6 +21,7 @@
 
 import { tabsStore, type TabEntry } from '../stores/tabs';
 import type { SessionCtx } from './context';
+import { isTabLive, mergeDiskChange } from './live-merge';
 
 /** The disk path a tab's document lives at, or null when it has none. */
 export function tabDocPath(tab: TabEntry): string | null {
@@ -66,6 +67,18 @@ export async function probeTabConflict(ctx: SessionCtx, id: string): Promise<boo
       const persisted = tab.model.getPersisted(tab.kind === 'file' ? 'file' : 'session');
       changed = text !== persisted && text !== tab.model.getText();
       baseline = mtimeMs;
+      // Live Edit (shared folder): a change from disk is MERGED into the
+      // editor rather than flagged. Disk matching the editor exactly (the
+      // other side wrote what we already hold) just makes the tab clean.
+      if (tab.kind === 'file' && isTabLive(tab)) {
+        if (changed && mergeDiskChange(ctx, tab, text, mtimeMs)) {
+          return false;
+        }
+        if (!changed && text !== persisted) {
+          tabsStore.getState().markSaved(id, mtimeMs);
+          return false;
+        }
+      }
     } catch {
       // Unreadable (e.g. rewritten as non-UTF-8) counts as changed.
     }

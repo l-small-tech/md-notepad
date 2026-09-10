@@ -27,6 +27,7 @@ import { uiStore } from '../stores/ui';
 import { isAndroid } from '../platform';
 import { probeTabConflict } from './conflict-probe';
 import type { SessionCtx } from './context';
+import { isTabLive } from './live-merge';
 import { cursorByTab, pathKey, persistedToInit } from './facade';
 
 export function createFlushRestore(ctx: SessionCtx) {
@@ -58,11 +59,18 @@ export function createFlushRestore(ctx: SessionCtx) {
     // THIS flush). Conflicted tabs are skipped — the banner must be resolved
     // first — and a save that fails or newly detects an on-disk change falls
     // back to the buffer path below, keeping the edits crash-safe either way.
-    if (settingsStore.getState().settings.liveSave) {
-      for (const t of tabsStore.getState().tabs) {
-        if (t.kind === 'file' && t.filePath && !t.conflict && t.model.isDirty('file')) {
-          await saveFileTab(t.id);
-        }
+    // Live Edit tabs (a shared cloud folder) save the same way whatever the
+    // global setting says — the other side can only see what is on disk.
+    const liveSave = settingsStore.getState().settings.liveSave;
+    for (const t of tabsStore.getState().tabs) {
+      if (
+        t.kind === 'file' &&
+        t.filePath &&
+        !t.conflict &&
+        t.model.isDirty('file') &&
+        (liveSave || isTabLive(t))
+      ) {
+        await saveFileTab(t.id);
       }
     }
 
@@ -131,6 +139,7 @@ export function createFlushRestore(ctx: SessionCtx) {
         sessionDirty: t.model.isDirty('session') && !(t.kind === 'note' && t.conflict),
         fileDirty: t.model.isDirty('file'),
         savedMtimeMs: t.savedMtimeMs,
+        liveEdit: t.liveEdit,
         cursor: cursorByTab.get(t.id) ?? null,
         // Terminal tabs contribute no text and no buffer — only their layout.
         terminal: t.kind === 'terminal' ? terminalsStore.getState().snapshot(t.id) : null,

@@ -10,8 +10,8 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `App` | M1 | layout shell: TabBar / EditorHost / StatusBar stack |
 | `TabBar` | M1 | tabs + new-tab button; middle-click close; F2/double-click inline rename; dirty dot for file tabs (M3); drag-out tear-off + "Move to new window" (M8); workspace color cues (a tab wears its workspace's accent; `groupTabsByWorkspace` optionally keeps each workspace's tabs contiguous — rules in core/tab-workspaces.ts, resolution in ui/workspace-cues.ts); phone widths (≤640px) show only the active tab full-width + a count-pill switcher |
 | `EditorHost` | M1 | THE critical component — see below |
-| `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors) |
-| `ConflictBanner` | M3 | per-tab "File changed on disk — View diff / Reload / Keep mine" |
+| `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors); the **Live** chip (`LiveChip`) while the active tab is in Live Edit mode — its dot pulses once per merge (keyed on `liveEditStore`'s per-tab merge count) and the tooltip carries the last merge time. Deliberately not a button: the toggle is in the Save menu |
+| `ConflictBanner` | M3 | per-tab "File changed on disk — View diff / Reload / Keep mine". Never shown for a Live Edit tab: `session/conflict-probe.ts` merges instead (see "Live Edit" below) |
 | `DiffView` | reference | read-only side-by-side diff of two texts (core/diff.ts does the comparing); shown inline in EditorHost while a conflict's "View diff" is open, reusable for the future git integration |
 | `ExternalLinkPrompt` | reference | the confirm bar for a clicked `http(s)` link (non-modal, bottom centre) — see "Link policy" below |
 | `SettingsDialog` | M6 | plain form over the settings store |
@@ -397,6 +397,59 @@ the pill (no controller, no manifest), every window enumeration skips
   above). Android is single-window; there only in-strip reorder exists
   (`CAN_TEAR_OFF`). The context-menu items ("Move to new window", "Move to
   window …") work everywhere.
+
+## Live Edit (shared cloud folders)
+
+The mode for a Drive/OneDrive folder several people edit at once: Auto save
+plus a merge of whatever the other person saves, while the file is open.
+Policy is `core/live-edit.ts`, the merge is `core/merge.ts`; the ui side is
+one seam and three surfaces.
+
+**Where a tab becomes live.** `WorkspaceEntry.liveEdit` (the explorer's
+workspace menu → "Live edit (shared folder)", `session.setWorkspaceLiveEdit`)
+covers every file under that root; `TabState.liveEdit` (the Save menu's
+"Live edit (shared file)", `tabsStore.setLiveEdit`) overrides it either way
+for one tab and rides the manifest. `session/live-merge.ts#isTabLive` is the
+one resolver the session uses. Notes are never live: a note's file belongs to
+the flusher, and the default notes dir has no `WorkspaceEntry` to flag.
+
+**The seam is the conflict probe.** `session/conflict-probe.ts` already
+answers "did this file change behind our back?" for the banner, the focus
+check, the `fs-changed` listener and `saveFileTab`'s pre-write guard. For a
+live tab a real change goes to `mergeDiskChange` instead of `setConflict`:
+
+```
+base   = model.getPersisted('file')   ← what we last wrote / loaded
+mine   = model.getText()              ← the editor now
+theirs = fresh read from disk         ← their save
+merged = mergeThreeWay(base, mine, theirs)
+model.pushText(merged, 'programmatic')            → CM6 applies a minimal diff, caret survives
+tabsStore.adoptMergedText(id, { diskText: theirs, mtimeMs })
+                                                  → 'file' baseline := theirs; dirty iff merged ≠ theirs
+liveEditStore.recordMerge(...)                    → chip pulses; overlap → status-bar notice
+adapter.flashRanges(theirLines)                   → fading accent wash on their lines
+```
+
+The next flush then live-saves the merged text (the flusher saves a live
+tab whatever `settings.liveSave` says), and the other machine's probe finds
+"disk ≠ my baseline, but I typed nothing since" and simply adopts it — the
+keep-both rule in `merge.ts` is what makes that converge rather than
+ping-pong. `saveFileTab` needs no special case: its mtime pre-check runs the
+same probe, so a save that races an external write merges first and then
+writes the union. Disk catching up to exactly the editor's text just marks
+the tab saved. If a merge cannot be applied (an editor refused the push) the
+probe falls back to the banner, so nothing is ever silently lost.
+
+**Watching.** `fs-changed` already covers workspace roots; `main.tsx` adds
+`extraLiveWatchDirs` (folders of overridden files outside every root) and
+re-arms on tab-store changes too. Merges also run on window focus via
+`checkAllFileConflicts`, so a file in an unwatched place is at worst one
+focus behind. Latency is Rust's 800 ms debounce + 300 ms here, dwarfed by
+the sync client itself.
+
+**Modes.** Raw/Split get the minimal-diff patch and the highlight. WYSIWYG
+re-renders from the merged markdown (no highlight, the caret may move) — an
+accepted trade-off, not a bug to fix by pausing merges.
 
 ## Keyboard shortcuts (single registry)
 

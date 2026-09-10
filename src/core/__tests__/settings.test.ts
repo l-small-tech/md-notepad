@@ -208,6 +208,21 @@ describe('normalizeSettings', () => {
     ]);
   });
 
+  test('workspaces keep a true liveEdit flag and drop anything else', () => {
+    const settings = normalizeSettings({
+      workspaces: [
+        { name: 'Team', path: 'D:/drive/team', liveEdit: true },
+        { name: 'Off', path: 'D:/off', liveEdit: false },
+        { name: 'Junk', path: 'D:/junk', liveEdit: 'yes' },
+      ],
+    });
+    expect(settings.workspaces).toEqual([
+      { name: 'Team', path: 'D:/drive/team', color: null, liveEdit: true },
+      { name: 'Off', path: 'D:/off', color: null },
+      { name: 'Junk', path: 'D:/junk', color: null },
+    ]);
+  });
+
   test('pickUnusedColor prefers the first unused palette color', () => {
     expect(pickUnusedColor([])).toBe(WORKSPACE_COLORS[0]);
     expect(pickUnusedColor(['red', null])).toBe('orange');

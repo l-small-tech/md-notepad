@@ -47,6 +47,7 @@ import { orderTabsByWorkspace } from '../../core/tab-workspaces';
 import { workspaceCueFor } from '../workspace-cues';
 import { settingsStore } from './settings';
 import { activePaneCwd, terminalsStore } from './terminals';
+import { liveEditStore } from './live-edit';
 import { requestFlush } from './flush-signal';
 import { isMobile } from '../platform';
 
@@ -108,6 +109,8 @@ export interface RestoredTabInit {
   customTitle: string | null;
   mode: EditorMode;
   savedMtimeMs: number | null;
+  /** kind='file': Live Edit override (default null = follow the workspace). */
+  liveEdit?: boolean | null;
   text: string;
   /**
    * kind='file' restored from its session buffer (unsaved edits survived a
@@ -294,6 +297,15 @@ export interface TabsState {
    * The manifest picks the new value up on the next natural flush.
    */
   adoptBaseline: (id: string, mtimeMs: number) => void;
+  /** Live Edit: set (true/false) or clear (null) a file tab's per-tab override. */
+  setLiveEdit: (id: string, liveEdit: boolean | null) => void;
+  /**
+   * Live Edit: a change from disk was just merged into the model. `diskText`
+   * is what the file holds NOW — it becomes the 'file' baseline (so the tab
+   * is dirty exactly when the merged text still differs from disk, and the
+   * next live save writes it) — and `mtimeMs` its mtime. Clears any conflict.
+   */
+  adoptMergedText: (id: string, input: { diskText: string; mtimeMs: number }) => void;
 }
 
 /**
@@ -372,6 +384,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
             init?.mode ?? settingsStore.getState().settings.defaultMode,
           ),
       savedMtimeMs: init?.savedMtimeMs ?? null,
+      liveEdit: init?.liveEdit ?? null,
       model,
       modeSync: null,
       title: customTitle ?? deriveTitle(text),
@@ -551,6 +564,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (closing.kind === 'terminal') {
         terminalsStore.getState().closeSession(id);
       }
+      liveEditStore.getState().forget(id);
 
       const remaining = s.tabs.filter((t) => t.id !== id);
       // Notepad behavior: closing the last tab leaves one fresh Untitled.
@@ -597,6 +611,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (s.tabs[idx]!.kind === 'terminal') {
         terminalsStore.getState().closeSession(id);
       }
+      liveEditStore.getState().forget(id);
       const remaining = s.tabs.filter((t) => t.id !== id);
       if (remaining.length === 0) {
         const fresh = makeTab();
@@ -1043,6 +1058,32 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           t.id === id ? { ...t, savedMtimeMs: mtimeMs, conflict: false } : t,
         ),
       });
+    },
+
+    setLiveEdit(id, liveEdit) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === id);
+      if (!tab || tab.kind !== 'file' || tab.liveEdit === liveEdit) {
+        return;
+      }
+      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, liveEdit } : t)) });
+      requestFlush();
+    },
+
+    adoptMergedText(id, { diskText, mtimeMs }) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === id);
+      if (!tab || tab.kind !== 'file') {
+        return;
+      }
+      tab.model.markPersistedAs('file', diskText);
+      const dirty = tab.model.isDirty('file');
+      set({
+        tabs: s.tabs.map((t) =>
+          t.id === id ? { ...t, savedMtimeMs: mtimeMs, dirty, conflict: false } : t,
+        ),
+      });
+      requestFlush();
     },
 
     acknowledgeConflict(id, mtimeMs) {

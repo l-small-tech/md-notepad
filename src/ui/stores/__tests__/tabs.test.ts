@@ -968,3 +968,56 @@ describe('terminal tabs', () => {
     expect(mod.tabDisplayTitle(tabAt(0))).toBe('Remote (ssh)');
   });
 });
+
+describe('Live Edit: setLiveEdit + adoptMergedText', () => {
+  test('setLiveEdit stores the override on file tabs only, and null clears it', () => {
+    const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
+    expect(state().tabs.find((t) => t.id === id)!.liveEdit).toBeNull();
+    state().setLiveEdit(id, true);
+    expect(state().tabs.find((t) => t.id === id)!.liveEdit).toBe(true);
+    state().setLiveEdit(id, null);
+    expect(state().tabs.find((t) => t.id === id)!.liveEdit).toBeNull();
+    // A note has no file to share: the override is refused.
+    state().newTab();
+    const noteId = state().activeTabId!;
+    state().setLiveEdit(noteId, true);
+    expect(state().tabs.find((t) => t.id === noteId)!.liveEdit).toBeNull();
+  });
+
+  test('adoptMergedText makes disk the baseline: dirty iff the merge added something', () => {
+    const id = state().openFileTab({ filePath: '/docs/a.md', text: 'a\n', savedMtimeMs: 1 });
+    const tab = () => state().tabs.find((t) => t.id === id)!;
+    state().setConflict(id, true);
+    // The editor holds the merged text; disk holds only their side.
+    tab().model.pushText('mine\na\ntheirs\n', 'programmatic');
+    state().adoptMergedText(id, { diskText: 'a\ntheirs\n', mtimeMs: 7 });
+    expect(tab().savedMtimeMs).toBe(7);
+    expect(tab().conflict).toBe(false);
+    expect(tab().dirty).toBe(true);
+    expect(tab().model.getPersisted('file')).toBe('a\ntheirs\n');
+    // Nothing of mine to add: clean.
+    tab().model.pushText('a\ntheirs\n', 'programmatic');
+    state().adoptMergedText(id, { diskText: 'a\ntheirs\n', mtimeMs: 8 });
+    expect(tab().dirty).toBe(false);
+  });
+
+  test('a restored file tab carries its override', () => {
+    state().restoreSession({
+      tabs: [
+        {
+          id: 'r1',
+          kind: 'file',
+          notePath: null,
+          filePath: '/docs/a.md',
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: 1,
+          liveEdit: false,
+          text: 'a',
+        },
+      ],
+      activeTabId: 'r1',
+    });
+    expect(state().tabs.find((t) => t.id === 'r1')!.liveEdit).toBe(false);
+  });
+});

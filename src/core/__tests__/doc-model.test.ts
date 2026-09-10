@@ -118,4 +118,15 @@ describe('createDocModel', () => {
     // String-snapshot dirty tracking can see through an edit-then-undo.
     expect(model.isDirty('session')).toBe(false);
   });
+
+  test('markPersistedAs records a snapshot other than the current text', () => {
+    const model = createDocModel('base');
+    model.pushText('merged', 'programmatic');
+    model.markPersistedAs('file', 'theirs');
+    expect(model.getPersisted('file')).toBe('theirs');
+    expect(model.isDirty('file')).toBe(true);
+    expect(model.getPersisted('session')).toBe('base'); // other target untouched
+    model.pushText('theirs', 'programmatic');
+    expect(model.isDirty('file')).toBe(false);
+  });
 });

@@ -88,10 +88,23 @@ export function workspaceForPath(
   path: string | null,
   roots: readonly WorkspaceRoot[],
 ): WorkspaceMatch | null {
+  const best = workspaceEntryForPath(path, roots);
+  return best === null ? null : { key: rootKey(best.path), color: best.color };
+}
+
+/**
+ * The same longest-root match, returning the matched entry itself — for
+ * callers that need more of a workspace than its color (Live Edit reads the
+ * entry's `liveEdit` flag).
+ */
+export function workspaceEntryForPath<T extends { path: string }>(
+  path: string | null,
+  roots: readonly T[],
+): T | null {
   if (!path) {
     return null;
   }
-  let best: WorkspaceRoot | null = null;
+  let best: T | null = null;
   for (const root of roots) {
     if (!isInside(path, root.path)) {
       continue;
@@ -100,7 +113,7 @@ export function workspaceForPath(
       best = root;
     }
   }
-  return best === null ? null : { key: rootKey(best.path), color: best.color };
+  return best;
 }
 
 /**

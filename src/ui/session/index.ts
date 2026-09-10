@@ -151,9 +151,11 @@ export {
   savePastedFileInto,
   savePastedImageForTab,
   setWorkspaceColor,
+  setWorkspaceLiveEdit,
   takePendingReveal,
   tearOffTab,
 } from './facade';
+export { isTabLive } from './live-merge';
 export type {
   ConfirmDialog,
   ConfirmRememberDialog,

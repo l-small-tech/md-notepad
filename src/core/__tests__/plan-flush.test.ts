@@ -22,6 +22,7 @@ function tab(partial: Partial<SessionTabView> & { id: string }): SessionTabView 
     sessionDirty: false,
     fileDirty: false,
     savedMtimeMs: null,
+    liveEdit: null,
     cursor: null,
     ...partial,
   };
@@ -403,6 +404,21 @@ describe('planFlush — terminal tabs', () => {
     );
     const parsed = parseManifest(JSON.stringify(plan.manifest));
     expect(parsed!.tabs[0]?.terminal).toEqual(snapshot);
+  });
+
+  test('a Live Edit override round-trips; null leaves no key behind', () => {
+    const plan = planFlush(
+      view({
+        tabs: [
+          tab({ id: 'on', kind: 'file', filePath: '/d/a.md', liveEdit: true }),
+          tab({ id: 'off', kind: 'file', filePath: '/d/b.md', liveEdit: false }),
+          tab({ id: 'follow', kind: 'file', filePath: '/d/c.md', liveEdit: null }),
+        ],
+      }),
+    );
+    const parsed = parseManifest(JSON.stringify(plan.manifest))!;
+    expect(parsed.tabs.map((t) => t.liveEdit)).toEqual([true, false, undefined]);
+    expect(plan.manifest.tabs[2] && 'liveEdit' in plan.manifest.tabs[2]).toBe(false);
   });
 
   test('no layout recorded = no `terminal` key (nothing to respawn)', () => {

@@ -64,7 +64,9 @@ remembered. Press Esc or click outside the panel to close it.
 - **Live save** — when on, files you've opened save themselves as you type,
   just like notes do. When off (the default), files wait for Ctrl+S. You can
   also flip it without opening Settings: press and hold the toolbar's save
-  button and pick **Auto save**.
+  button and pick **Auto save**. (A workspace marked **Live edit** in the
+  sidebar saves its files as you type regardless — see
+  [Live edit](notes-tabs-and-saving.md#live-edit-working-on-one-file-together).)
 - **Confirm before moving files between folders** — whether dragging a file
   to a new folder in the sidebar asks "are you sure?" first.
 - **Arrange tabs by workspace** — off by default, so tabs stay wherever you
