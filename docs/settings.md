@@ -90,8 +90,10 @@ remembered. Press Esc or click outside the panel to close it.
 ## Voice notes
 
 Voice notes are dictated comments about a line of a document, made in Read
-mode: turn on the toolbar's voice-notes button, press and hold a line, then
-tap the microphone to start and again to finish. The document itself is never
+mode on Android: turn on the toolbar's voice-notes button, press and hold a
+line, then tap the microphone to start and again to finish. Speech is turned
+into text on the phone; no audio is kept. (The desktop app has no voice-notes
+button, but it reads and lists the notes files like any other.) The document itself is never
 changed; each note goes into a separate `<name>.comments.md` file that names
 the document, the line, a quote of that line and the time — ready for a
 person or an AI agent to act on.

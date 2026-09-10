@@ -150,8 +150,7 @@ export function createExplorerOps(
    * stale until the next note is added (the sidecar rewrites them then); the
    * quote and line still identify each note. A stranded sidecar is harmless
    * (it re-associates by name if the note is renamed back) and never loses
-   * transcripts, so any failure is swallowed. Desktop audio clips are not
-   * relocated on a cross-directory move yet (a documented follow-up).
+   * transcripts, so any failure is swallowed.
    */
   async function moveCommentsSidecar(oldNotePath: string, newNotePath: string): Promise<void> {
     if (isCommentsPath(oldNotePath) || extName(oldNotePath).toLowerCase() !== '.md') {

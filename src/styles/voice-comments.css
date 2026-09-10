@@ -178,10 +178,6 @@
   resize: vertical;
   min-height: 48px;
 }
-.vc-audio {
-  width: 100%;
-  margin-top: 8px;
-}
 .vc-empty {
   color: var(--fg-muted);
   font-size: 0.9rem;

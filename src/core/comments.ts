@@ -60,10 +60,8 @@ export interface VoiceComment {
   quote: string;
   /** ISO-8601 UTC capture time (`new Date().toISOString()`). */
   time: string;
-  /** The dictated/typed text. May be empty for a desktop record-only note. */
+  /** The dictated (or hand-edited) text. */
   transcript: string;
-  /** Optional sibling audio file name (desktop record path); null/absent otherwise. */
-  audio?: string | null;
 }
 
 /** First line of every comments file — a version stamp and a human hint. */
@@ -150,6 +148,8 @@ export function lineQuote(docText: string, line: number): string {
 }
 
 const ENTRY_RE = /^##\s+\^(c[0-9a-z]+)\s*$/;
+// `audio` is still RECOGNIZED so an entry written by the retired desktop
+// recorder parses cleanly — its value is dropped, never surfaced or rewritten.
 const META_RE = /^-\s+(file|line|time|audio):\s*(.*)$/;
 
 /**
@@ -172,7 +172,6 @@ export function parseCommentsFile(text: string): VoiceComment[] {
     file: string;
     line: number | null;
     time: string;
-    audio: string | null;
     body: string[];
   }
   let cur: Cur | null = null;
@@ -189,7 +188,6 @@ export function parseCommentsFile(text: string): VoiceComment[] {
         line: cur.line,
         quote: quoteLines.join(' ').trim(),
         time: cur.time,
-        audio: cur.audio,
         transcript: cur.body.join('\n').trim(),
       });
     }
@@ -200,7 +198,7 @@ export function parseCommentsFile(text: string): VoiceComment[] {
     const head = ENTRY_RE.exec(line);
     if (head) {
       flush();
-      cur = { id: head[1]!, file: '', line: null, time: '', audio: null, body: [] };
+      cur = { id: head[1]!, file: '', line: null, time: '', body: [] };
       section = 'meta';
       continue;
     }
@@ -223,9 +221,7 @@ export function parseCommentsFile(text: string): VoiceComment[] {
           case 'time':
             cur.time = v;
             break;
-          case 'audio':
-            cur.audio = v ? v : null;
-            break;
+          // 'audio' (legacy): recognized so it isn't read as transcript; dropped.
         }
         continue;
       }
@@ -267,9 +263,6 @@ export function serializeCommentsFile(comments: VoiceComment[], noteRef: string)
       meta.push(`- line: ${c.line}`);
     }
     meta.push(`- time: ${c.time}`);
-    if (c.audio) {
-      meta.push(`- audio: ${c.audio}`);
-    }
     const quote = c.quote.trim();
     const quoteBlock = quote ? `> ${quote}\n\n` : '';
     const body = c.transcript.trim();

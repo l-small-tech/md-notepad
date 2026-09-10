@@ -7,9 +7,7 @@
  * notes. Mounted once at the app root; it renders nothing while closed.
  */
 
-import { useEffect, useState } from 'react';
 import {
-  audioDataUrl,
   closePanel,
   deleteComment,
   showNotes,
@@ -26,44 +24,7 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-/** Lazily resolve a note's audio clip (beside the sidecar) to a playable object URL. */
-function AudioClip({ commentsPath, audio }: { commentsPath: string; audio: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let revoked: string | null = null;
-    let cancelled = false;
-    void audioDataUrl(commentsPath, audio)
-      .then((u) => {
-        if (cancelled) {
-          URL.revokeObjectURL(u);
-          return;
-        }
-        revoked = u;
-        setUrl(u);
-      })
-      .catch(() => setUrl(null));
-    return () => {
-      cancelled = true;
-      if (revoked) {
-        URL.revokeObjectURL(revoked);
-      }
-    };
-  }, [commentsPath, audio]);
-  if (!url) {
-    return null;
-  }
-  return <audio className="vc-audio" controls src={url} />;
-}
-
-function CommentCard({
-  comment,
-  commentsPath,
-  focused,
-}: {
-  comment: VoiceComment;
-  commentsPath: string;
-  focused: boolean;
-}) {
+function CommentCard({ comment, focused }: { comment: VoiceComment; focused: boolean }) {
   return (
     <div className={`vc-card${focused ? ' vc-card-focus' : ''}`}>
       <div className="vc-card-meta">
@@ -86,7 +47,6 @@ function CommentCard({
         placeholder="Transcript…"
         onChange={(e) => updateTranscript(comment.id, e.target.value)}
       />
-      {comment.audio && <AudioClip commentsPath={commentsPath} audio={comment.audio} />}
     </div>
   );
 }
@@ -145,12 +105,7 @@ export function VoiceComments() {
 /** The two-tap microphone: idle in `ready`, pulsing in `capturing`. */
 function CaptureView({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
-  const dictating = state.captureKind === 'android';
-  const label = !capturing
-    ? 'Tap to start'
-    : dictating
-      ? 'Listening… tap again to finish'
-      : 'Recording… tap again to finish';
+  const label = capturing ? 'Listening… tap again to finish' : 'Tap to start';
   return (
     <div className="vc-capturing">
       {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
@@ -180,7 +135,6 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
 }
 
 function ViewingBody({ state }: { state: VoiceCommentsState }) {
-  const commentsPath = state.commentsPath ?? '';
   if (state.comments.length === 0) {
     return (
       <div className="vc-body">
@@ -197,12 +151,7 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
   return (
     <div className="vc-body">
       {ordered.map((c) => (
-        <CommentCard
-          key={c.id}
-          comment={c}
-          commentsPath={commentsPath}
-          focused={c.id === state.focusId}
-        />
+        <CommentCard key={c.id} comment={c} focused={c.id === state.focusId} />
       ))}
     </div>
   );

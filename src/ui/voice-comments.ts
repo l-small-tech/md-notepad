@@ -6,7 +6,7 @@
  * (`VoiceComments.tsx`, the ribbon's Read-mode button, the preview pane's hold
  * gesture) is a pure projection of it. All file I/O goes through
  * `currentProvider()` so a note in a synced (SAF) workspace gets its comments
- * file and audio clips in the same backend.
+ * file in the same backend.
  *
  * The flow, designed for reviewing a document from the couch:
  *   1. In Read mode, the ribbon's voice-notes button ARMS the feature.
@@ -21,13 +21,11 @@
  * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
  * resolves it through the session's workspace lookup.
  *
- * Two capture paths converge on the same persistence:
- *  - Android: on-device `SpeechRecognizer` via the `ipc.stt*` bridges — returns
- *    a transcript directly.
- *  - Desktop: `MediaRecorder` in the webview — saves a `.webm` clip beside the
- *    SIDECAR (so the `audio:` name resolves from the comments file wherever it
- *    lives) and leaves the transcript blank for the user to type (there is no
- *    reliable on-device STT in the desktop webviews).
+ * Capture is Android only: on-device `SpeechRecognizer` via the `ipc.stt*`
+ * bridges, which returns a transcript directly. Nothing is ever recorded to an
+ * audio file. The desktop webviews have no speech-to-text, so the ribbon does
+ * not offer the feature there (see `VoiceNotesToggle`); `startCapture` refuses
+ * on desktop as a second guard.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -41,7 +39,6 @@ import {
   serializeCommentsFile,
   type VoiceComment,
 } from '../core/comments';
-import { baseName, dirName, joinPath } from '../core/session/plan-flush';
 import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
@@ -72,8 +69,6 @@ export interface VoiceCommentsState {
   line: number | null;
   /** That line's text at the time it was chosen. */
   quote: string;
-  /** 'android' = live dictation; 'desktop' = audio recording. */
-  captureKind: 'android' | 'desktop' | null;
 }
 
 const initial: VoiceCommentsState = {
@@ -86,7 +81,6 @@ const initial: VoiceCommentsState = {
   focusId: null,
   line: null,
   quote: '',
-  captureKind: null,
 };
 
 export const voiceStore = createStore<VoiceCommentsState>()(() => initial);
@@ -169,38 +163,8 @@ async function saveNow(): Promise<void> {
   await flushSave();
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    bytes[i] = bin.charCodeAt(i);
-  }
-  return bytes;
-}
-
-/* ---- desktop MediaRecorder capture ------------------------------------- */
-
-let mediaRecorder: MediaRecorder | null = null;
-let mediaStream: MediaStream | null = null;
-let mediaChunks: Blob[] = [];
-// The id minted for the in-flight capture (shared by the audio file + entry).
+// The id minted for the in-flight capture.
 let captureId: string | null = null;
-
-function teardownMedia(): void {
-  mediaStream?.getTracks().forEach((t) => t.stop());
-  mediaStream = null;
-  mediaRecorder = null;
-  mediaChunks = [];
-}
 
 /* ---- public actions ---------------------------------------------------- */
 
@@ -243,7 +207,6 @@ export async function openNoteAtLine(tabId: string, line: number): Promise<void>
     focusId: null,
     line,
     quote: lineQuote(docTextFor(tabId), line),
-    captureKind: null,
   });
 }
 
@@ -270,7 +233,6 @@ export async function openAllComments(tabId: string): Promise<void> {
     focusId: null,
     line: null,
     quote: '',
-    captureKind: null,
   });
 }
 
@@ -294,22 +256,19 @@ export function toggleMic(): void {
   }
 }
 
-/** Mint the id, flip to `capturing`, and start the platform capture. */
+/** Mint the id, flip to `capturing`, and start on-device dictation. */
 function startCapture(): void {
   const { tabId, line, comments } = voiceStore.getState();
   if (!tabId || line === null) {
     return;
   }
-  captureId = newCommentId(new Set(comments.map((c) => c.id)));
-  voiceStore.setState({
-    phase: 'capturing',
-    captureKind: isAndroid() ? 'android' : 'desktop',
-  });
-  if (isAndroid()) {
-    void captureAndroid();
-  } else {
-    void captureDesktop();
+  if (!isAndroid()) {
+    uiStore.getState().showNotice('Voice notes need speech recognition, available on Android.');
+    return;
   }
+  captureId = newCommentId(new Set(comments.map((c) => c.id)));
+  voiceStore.setState({ phase: 'capturing' });
+  void captureAndroid();
 }
 
 /**
@@ -376,7 +335,7 @@ async function captureAndroid(): Promise<void> {
     if (voiceStore.getState().phase !== 'capturing') {
       return; // panel was closed mid-capture
     }
-    await finishCapture(text.trim(), null);
+    await finishCapture(text.trim());
   } catch (e) {
     if (voiceStore.getState().phase === 'capturing') {
       failCapture(sttErrorMessage(e instanceof Error ? e.message : String(e)));
@@ -384,55 +343,8 @@ async function captureAndroid(): Promise<void> {
   }
 }
 
-async function captureDesktop(): Promise<void> {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaStream = stream;
-    mediaChunks = [];
-    const rec = new MediaRecorder(stream);
-    mediaRecorder = rec;
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        mediaChunks.push(e.data);
-      }
-    };
-    rec.onstop = () => {
-      const blob = new Blob(mediaChunks, { type: rec.mimeType || 'audio/webm' });
-      teardownMedia();
-      if (voiceStore.getState().phase !== 'capturing') {
-        return; // cancelled
-      }
-      void finishCaptureDesktop(blob);
-    };
-    rec.start();
-  } catch {
-    teardownMedia();
-    failCapture('Could not access the microphone.');
-  }
-}
-
-async function finishCaptureDesktop(blob: Blob): Promise<void> {
-  const { notePath, commentsPath } = voiceStore.getState();
-  if (!notePath || !commentsPath || !captureId) {
-    return;
-  }
-  const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
-  const audioName = `${stem(notePath)}.${captureId}.${ext}`;
-  try {
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    await currentProvider().writeFileBase64(
-      joinPath(dirName(commentsPath), audioName),
-      bytesToBase64(bytes),
-    );
-  } catch {
-    failCapture('Could not save the audio clip.');
-    return;
-  }
-  await finishCapture('', audioName);
-}
-
 /** Commit the in-flight capture: append + save the note. The document is untouched. */
-async function finishCapture(transcript: string, audio: string | null): Promise<void> {
+async function finishCapture(transcript: string): Promise<void> {
   const { notePath, commentsPath, comments, line, quote } = voiceStore.getState();
   if (!notePath || !commentsPath || !captureId || line === null) {
     return;
@@ -446,16 +358,13 @@ async function finishCapture(transcript: string, audio: string | null): Promise<
     quote,
     time: new Date().toISOString(),
     transcript,
-    audio,
   };
-  const next = [...comments, comment];
   voiceStore.setState({
     phase: 'viewing',
-    comments: next,
+    comments: [...comments, comment],
     focusId: id,
     line: null,
     quote: '',
-    captureKind: null,
   });
   await saveNow();
 }
@@ -463,20 +372,16 @@ async function finishCapture(transcript: string, audio: string | null): Promise<
 /** A capture failed: report it and drop back to the ready phase for the same line. */
 function failCapture(message: string): void {
   captureId = null;
-  teardownMedia();
   uiStore.getState().showNotice(message);
   if (voiceStore.getState().phase === 'capturing') {
-    voiceStore.setState({ phase: 'ready', captureKind: null });
+    voiceStore.setState({ phase: 'ready' });
   }
 }
 
-/** Stop the live capture (the second mic tap). */
+/** Stop the live capture (the second mic tap); the final result still resolves `sttStart`. */
 export function stopCapture(): void {
-  const { captureKind } = voiceStore.getState();
-  if (captureKind === 'desktop') {
-    mediaRecorder?.stop(); // onstop → finishCaptureDesktop
-  } else if (captureKind === 'android') {
-    void ipc.sttStop(); // final still resolves sttStart → finishCapture
+  if (voiceStore.getState().phase === 'capturing') {
+    void ipc.sttStop();
   }
 }
 
@@ -488,17 +393,8 @@ export function updateTranscript(id: string, transcript: string): void {
   scheduleSave();
 }
 
-/** Delete a note: its audio clip (if any) and its entry. */
+/** Delete a note's entry. */
 export async function deleteComment(id: string): Promise<void> {
-  const { comments, commentsPath } = voiceStore.getState();
-  const removed = comments.find((c) => c.id === id);
-  if (removed?.audio && commentsPath) {
-    try {
-      await currentProvider().deletePath(joinPath(dirName(commentsPath), removed.audio));
-    } catch {
-      // Best effort — a leftover clip is harmless.
-    }
-  }
   voiceStore.setState((s) => ({
     comments: s.comments.filter((c) => c.id !== id),
     focusId: s.focusId === id ? null : s.focusId,
@@ -508,35 +404,13 @@ export async function deleteComment(id: string): Promise<void> {
 
 /** Close the panel; cancels an in-flight capture without committing it. The toggle stays armed. */
 export function closePanel(): void {
-  const { phase, captureKind } = voiceStore.getState();
-  if (phase === 'capturing') {
-    // Flip phase first so the capture completion guards bail out.
+  if (voiceStore.getState().phase === 'capturing') {
+    // Flip phase first so the capture completion guard bails out.
     voiceStore.setState({ phase: 'closed' });
-    if (captureKind === 'desktop') {
-      mediaRecorder?.stop();
-    } else if (captureKind === 'android') {
-      void ipc.sttStop();
-    }
+    void ipc.sttStop();
     captureId = null;
-    teardownMedia();
   }
   voiceStore.setState({ phase: 'closed', ...initialTail() });
-}
-
-/** Resolve a note's audio clip (named beside the sidecar) to a playable URL. */
-export async function audioDataUrl(commentsPath: string, audio: string): Promise<string> {
-  const b64 = await currentProvider().readFileBase64(joinPath(dirName(commentsPath), audio));
-  const type = audio.endsWith('.ogg') ? 'audio/ogg' : 'audio/webm';
-  const bytes = base64ToBytes(b64);
-  const blob = new Blob([bytes.buffer as ArrayBuffer], { type });
-  return URL.createObjectURL(blob);
-}
-
-/** Note stem (base name without extension) for naming sibling audio clips. */
-function stem(notePath: string): string {
-  const base = baseName(notePath);
-  const dot = base.lastIndexOf('.');
-  return dot > 0 ? base.slice(0, dot) : base;
 }
 
 /** The reset fields shared by close (keeps a closed panel tidy; `armed` is untouched). */
@@ -549,6 +423,5 @@ function initialTail() {
     focusId: null,
     line: null,
     quote: '',
-    captureKind: null,
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }

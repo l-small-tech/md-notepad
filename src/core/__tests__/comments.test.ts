@@ -178,7 +178,7 @@ describe('serialize (v2 format)', () => {
 });
 
 describe('parse/serialize round-trip', () => {
-  test('round-trips a multi-note file including an audio field', () => {
+  test('round-trips a multi-note file', () => {
     const comments: VoiceComment[] = [
       {
         id: 'c3f9a',
@@ -195,11 +195,29 @@ describe('parse/serialize round-trip', () => {
         quote: '',
         time: '2026-07-13T10:24:31.002Z',
         transcript: 'Follow up with design.',
-        audio: 'foo.c7b21.webm',
       },
     ];
     const text = serializeCommentsFile(comments, NOTE);
-    expect(parseCommentsFile(text)).toEqual([{ ...comments[0], audio: null }, comments[1]]);
+    expect(parseCommentsFile(text)).toEqual(comments);
+  });
+
+  test('a legacy `- audio:` line is dropped, not read as transcript, and never rewritten', () => {
+    const legacy = [
+      '<!-- md-notepad voice comments v2 -->',
+      '## ^cold1',
+      '- file: foo.md',
+      '- line: 4',
+      '- time: t',
+      '- audio: foo.cold1.webm',
+      '',
+      'typed later',
+      '',
+    ].join('\n');
+    const parsed = parseCommentsFile(legacy);
+    expect(parsed).toEqual([
+      { id: 'cold1', file: 'foo.md', line: 4, quote: '', time: 't', transcript: 'typed later' },
+    ]);
+    expect(serializeCommentsFile(parsed, 'foo.md')).not.toContain('audio');
   });
 
   test('preserves a multi-line transcript with dashes, list markers and blockquotes', () => {
@@ -211,16 +229,15 @@ describe('parse/serialize round-trip', () => {
         quote: 'Title',
         time: '2026-07-13T10:00:00.000Z',
         transcript: 'first line\n- a dashed line\n> quoted in the body\nsecond paragraph',
-        audio: null,
       },
     ];
     const parsed = parseCommentsFile(serializeCommentsFile(comments, NOTE));
     expect(parsed).toEqual(comments);
   });
 
-  test('handles an empty transcript (desktop record-only entry)', () => {
+  test('handles an empty transcript', () => {
     const comments: VoiceComment[] = [
-      { id: 'cnull', file: NOTE, line: 2, quote: 'q', time: 't', transcript: '', audio: 'a.webm' },
+      { id: 'cnull', file: NOTE, line: 2, quote: 'q', time: 't', transcript: '' },
     ];
     expect(parseCommentsFile(serializeCommentsFile(comments, NOTE))).toEqual(comments);
   });
@@ -238,7 +255,6 @@ describe('parse/serialize round-trip', () => {
         quote: '',
         time: '2026-07-13T10:00:00.000Z',
         transcript: '- audio: something\nand more text',
-        audio: null,
       },
     ];
     expect(parseCommentsFile(serializeCommentsFile(comments, NOTE))).toEqual(comments);
@@ -257,7 +273,6 @@ describe('parse/serialize round-trip', () => {
         quote: 'the line',
         time: 't',
         transcript: 'hi\nthere',
-        audio: null,
       },
     ]);
   });
@@ -282,7 +297,6 @@ describe('legacy v1 files', () => {
         line: null,
         quote: '',
         time: '2026-01-01T00:00:00.000Z',
-        audio: null,
         transcript: '> a v1 body that happens to start with a blockquote\nand continues',
       },
     ]);
@@ -297,7 +311,6 @@ describe('legacy v1 files', () => {
         line: null,
         quote: '',
         time: 't',
-        audio: null,
         transcript: 'hello world',
       },
     ]);

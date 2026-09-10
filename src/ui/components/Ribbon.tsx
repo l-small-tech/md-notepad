@@ -191,6 +191,10 @@ const SaveAutoIcon = (
  * the rendered document opens the voice-note sheet for that line (the pane's
  * hold gesture → `openNoteAtLine`). Read mode only: notes are about reviewing
  * a finished document, and the rendered view is where a line is held.
+ *
+ * Android only: dictation is Android's on-device SpeechRecognizer. The desktop
+ * webviews have no speech-to-text, and recording audio files instead is not
+ * wanted, so the button isn't offered there.
  */
 function VoiceNotesToggle() {
   const armed = useVoiceStore((s) => s.armed);
@@ -803,9 +807,12 @@ function ReaderControls() {
         ⟲
       </button>
 
-      <span className="ribbon-divider" role="separator" />
-
-      <VoiceNotesToggle />
+      {isAndroid() && (
+        <>
+          <span className="ribbon-divider" role="separator" />
+          <VoiceNotesToggle />
+        </>
+      )}
     </div>
   );
 }
