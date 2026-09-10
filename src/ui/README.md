@@ -440,12 +440,27 @@ writes the union. Disk catching up to exactly the editor's text just marks
 the tab saved. If a merge cannot be applied (an editor refused the push) the
 probe falls back to the banner, so nothing is ever silently lost.
 
+**Which base.** The sync client resolves a write race last-writer-wins, so
+a text can arrive that was built on the snapshot BEFORE our last write (our
+write never reached that machine — observed on Google Drive, 2026-09-10).
+Against our latest snapshot that reads as "they deleted my line" and the
+adopt is silent. `mergeDiskChange` therefore hands `pickMergeBase` the
+current snapshot plus `model.getPersistedHistory('file')` (the last few
+`file` snapshots, kept by DocModel) and merges against the one `theirs` is
+closest to; the older base turns the overwrite into a keep-both. The
+trade-off is documented in `merge.test.ts`: a tweak of a line we only just
+inserted is indistinguishable from a concurrent insert and also keeps both.
+
 **Watching.** `fs-changed` already covers workspace roots; `main.tsx` adds
 `extraLiveWatchDirs` (folders of overridden files outside every root) and
 re-arms on tab-store changes too. Merges also run on window focus via
-`checkAllFileConflicts`, so a file in an unwatched place is at worst one
-focus behind. Latency is Rust's 800 ms debounce + 300 ms here, dwarfed by
-the sync client itself.
+`checkAllFileConflicts`, and — because Google Drive's streaming volume
+(`G:`) does not reliably deliver directory-change events — on a
+`LIVE_EDIT_POLL_MS` timer while any live tab is open. Cloud volumes also
+lie about mtime (that volume reports FAT32: 2 s granularity), so a live tab
+never takes the mtime shortcut: the probe and `saveFileTab`'s pre-write
+check always READ the file and compare content. Small files, rare events.
+Latency is the sync client's, not ours.
 
 **Modes.** Raw/Split get the minimal-diff patch and the highlight. WYSIWYG
 re-renders from the merged markdown (no highlight, the caret may move) — an

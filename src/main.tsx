@@ -6,7 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
-import { extraLiveWatchDirs } from './core/live-edit';
+import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
@@ -854,6 +854,17 @@ async function boot(): Promise<void> {
         void controller.checkAllFileConflicts();
       }, 300);
     }).catch(() => {});
+
+    // Live Edit fallback: a cloud drive's virtual volume (Google Drive's G:)
+    // does not reliably deliver ReadDirectoryChangesW events, so while any
+    // live tab is open, probe on a timer too. One stat + one small read per
+    // live tab every few seconds; nothing at all when no tab is live.
+    setInterval(() => {
+      const { workspaces } = settingsStore.getState().settings;
+      if (tabsStore.getState().tabs.some((t) => isLiveEditTab(t, workspaces))) {
+        void controller.checkAllFileConflicts();
+      }
+    }, LIVE_EDIT_POLL_MS);
   }
 
   // Second-instance argv (user opens a .md while the app runs). Windows close

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeThreeWay } from '../merge';
+import { mergeThreeWay, pickMergeBase } from '../merge';
 
 const base = 'one\ntwo\nthree\nfour\nfive\n';
 
@@ -93,5 +93,53 @@ describe('mergeThreeWay', () => {
     const r = mergeThreeWay('', 'mine\n', 'theirs\n');
     expect(r.text).toBe('mine\ntheirs\n');
     expect(r.overlaps).toBe(1);
+  });
+});
+
+describe('pickMergeBase', () => {
+  const orig = 'title\n\n';
+  const myWrite = 'title\n\nmy new line\n';
+
+  it('falls back to the older snapshot when theirs never saw my write (lost update)', () => {
+    // Their machine wrote from `orig`; the sync client let their save win.
+    const theirs = 'title\n\ntheir new line\n';
+    expect(pickMergeBase([myWrite, orig], theirs)).toBe(orig);
+    // ...and merging against it keeps both lines instead of adopting theirs.
+    const r = mergeThreeWay(orig, myWrite, theirs);
+    expect(r.text).toBe('title\n\nmy new line\ntheir new line\n');
+    expect(r.overlaps).toBe(1);
+  });
+
+  it('keeps the newest snapshot when theirs builds on my write', () => {
+    const theirs = 'title\n\nmy new line\ntheir line after mine\n';
+    expect(pickMergeBase([myWrite, orig], theirs)).toBe(myWrite);
+  });
+
+  it('reads a tweak of a line I rewrote as sequential (newest base), not a collision', () => {
+    const before = 'title\n\nold line\n';
+    const rewritten = 'title\n\nmy new line\n';
+    const theirs = 'title\n\nmy new line, improved\n';
+    expect(pickMergeBase([rewritten, before], theirs)).toBe(rewritten);
+    expect(mergeThreeWay(rewritten, rewritten, theirs).text).toBe(theirs);
+  });
+
+  it('cannot tell a tweak of a line I just INSERTED from a concurrent insert, and keeps both', () => {
+    // Replacing my inserted line costs 2 changed lines against `myWrite` but
+    // only 1 (an insert) against `orig`, so the older base wins: a duplicate
+    // the user tidies beats a line that vanishes.
+    const theirs = 'title\n\nmy new line, improved\n';
+    expect(pickMergeBase([myWrite, orig], theirs)).toBe(orig);
+  });
+
+  it('prefers the older base on an exact tie — keeping both beats losing one', () => {
+    const base0 = 'a\nb\nc\n';
+    const mine = 'a\nX\nc\n';
+    const theirs = 'a\nY\nc\n';
+    expect(pickMergeBase([mine, base0], theirs)).toBe(base0);
+  });
+
+  it('handles a single candidate and an empty list', () => {
+    expect(pickMergeBase(['only'], 'x')).toBe('only');
+    expect(pickMergeBase([], 'x')).toBe('');
   });
 });

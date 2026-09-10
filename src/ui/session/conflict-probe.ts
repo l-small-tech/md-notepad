@@ -56,7 +56,11 @@ export async function probeTabConflict(ctx: SessionCtx, id: string): Promise<boo
   try {
     const stat = await ctx.ipc.statPath(path);
     const mtimeMoved = stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs;
-    if (!mtimeMoved) {
+    // A Live Edit tab always reads: cloud drives lie about mtime (a FAT-style
+    // 2 s granularity on Google Drive's streaming volume, server timestamps
+    // on others), and the file is small. Content is the only honest signal.
+    const live = tab.kind === 'file' && isTabLive(tab);
+    if (!mtimeMoved && !(live && stat.exists)) {
       tabsStore.getState().setConflict(id, false);
       return false;
     }
@@ -70,12 +74,16 @@ export async function probeTabConflict(ctx: SessionCtx, id: string): Promise<boo
       // Live Edit (shared folder): a change from disk is MERGED into the
       // editor rather than flagged. Disk matching the editor exactly (the
       // other side wrote what we already hold) just makes the tab clean.
-      if (tab.kind === 'file' && isTabLive(tab)) {
+      if (live) {
         if (changed && mergeDiskChange(ctx, tab, text, mtimeMs)) {
           return false;
         }
         if (!changed && text !== persisted) {
           tabsStore.getState().markSaved(id, mtimeMs);
+          return false;
+        }
+        if (!changed) {
+          tabsStore.getState().adoptBaseline(id, mtimeMs);
           return false;
         }
       }

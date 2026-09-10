@@ -251,3 +251,50 @@ describe('Live Edit — merging changes from disk', () => {
     expect(tabs2.tabsStore.getState().tabs.find((t) => t.id === id)?.liveEdit).toBe(true);
   });
 });
+
+describe('Live Edit — cloud-drive realities', () => {
+  test('a sync client that let the other save win does not lose my line: both are kept', async () => {
+    const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'title\n\n' });
+    const controller = makeController(fs);
+    const { id, tab } = await openShared(controller);
+    // I write line 3 and it saves.
+    tab().model.pushText('title\n\nmy line\n', 'cm6');
+    await controller.flushNow();
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('title\n\nmy line\n');
+    // The other machine wrote ITS line 3 from the old text; Drive picked
+    // its version (last writer wins) and delivered it here.
+    fs.external(`${SHARED}/plan.md`, 'title\n\ntheir line\n');
+    await controller.checkConflict(id);
+
+    expect(tab().model.getText()).toBe('title\n\nmy line\ntheir line\n');
+    expect(tab().conflict).toBe(false);
+    expect(ui.uiStore.getState().notice).toMatch(/both versions were kept/);
+    // ...and the union goes back out so the other side converges too.
+    await controller.flushNow();
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('title\n\nmy line\ntheir line\n');
+  });
+
+  test('a content change with an unchanged mtime (coarse FAT timestamps) is still merged', async () => {
+    const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'a\n' });
+    const controller = makeController(fs);
+    const { id, tab } = await openShared(controller);
+    fs.files.set(`${SHARED}/plan.md`, 'a\nb\n'); // mtime NOT bumped
+
+    await controller.checkConflict(id);
+
+    expect(tab().model.getText()).toBe('a\nb\n');
+    expect(tab().dirty).toBe(false);
+  });
+
+  test('a live save re-reads the file even when its mtime looks untouched', async () => {
+    const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'a\n' });
+    const controller = makeController(fs);
+    const { tab } = await openShared(controller);
+    tab().model.pushText('a\nmine\n', 'cm6');
+    fs.files.set(`${SHARED}/plan.md`, 'theirs\na\n'); // mtime NOT bumped
+
+    await controller.flushNow();
+
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('theirs\na\nmine\n');
+  });
+});

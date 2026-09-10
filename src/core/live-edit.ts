@@ -18,6 +18,9 @@ export interface LiveEditTab {
   liveEdit: boolean | null;
 }
 
+/** How often an open live tab is re-read when the file watcher is silent. */
+export const LIVE_EDIT_POLL_MS = 5000;
+
 export interface LiveEditWorkspace {
   path: string;
   liveEdit?: boolean;

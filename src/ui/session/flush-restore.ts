@@ -478,7 +478,12 @@ export function createFlushRestore(ctx: SessionCtx) {
     const filePath = tab.filePath;
     try {
       const stat = await ctx.ipc.statPath(filePath);
-      if (stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs) {
+      // A Live Edit tab probes (reads + merges) before EVERY write — see the
+      // probe for why mtime alone is not trusted on cloud drives.
+      if (
+        stat.exists &&
+        ((stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs) || isTabLive(tab))
+      ) {
         // An mtime move alone may be benign (touch, identical rewrite) — the
         // probe reads and compares content, adopting the baseline when
         // nothing really changed so the save may proceed.

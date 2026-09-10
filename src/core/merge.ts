@@ -110,6 +110,53 @@ function sameLines(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((line, i) => line === b[i]);
 }
 
+/**
+ * Which of our past snapshots did `theirs` grow from? Sync clients resolve a
+ * write race last-writer-wins, so a text can arrive that was built on the
+ * snapshot BEFORE our last write (our write never reached that machine).
+ * Merging it against our latest snapshot would read our own lines as "theirs
+ * deleted these" and drop them silently; merging against the snapshot it
+ * actually derives from keeps both. The base is the candidate whose diff to
+ * `theirs` is smallest — line count first, then word count for a finer read
+ * of "did they edit MY line or write over the original?" — and on an exact
+ * tie the OLDER one, because keeping both lines beats losing one.
+ *
+ * `candidates` is newest first: [current snapshot, ...history].
+ */
+export function pickMergeBase(candidates: readonly string[], theirs: string): string {
+  if (candidates.length <= 1) {
+    return candidates[0] ?? '';
+  }
+  const lineCost = candidates.map((c) => changedLines(diffLines(c, theirs)));
+  const best = Math.min(...lineCost);
+  const tied = candidates.filter((_, i) => lineCost[i] === best);
+  if (tied.length === 1) {
+    return tied[0]!;
+  }
+  const wordCost = tied.map((c) => changedLines(diffLines(words(c), words(theirs))));
+  const bestWords = Math.min(...wordCost);
+  // Last index among the tied = oldest.
+  return tied[wordCost.lastIndexOf(bestWords)]!;
+}
+
+function changedLines(ops: DiffOp[]): number {
+  let n = 0;
+  for (const op of ops) {
+    if (op.type !== 'equal') {
+      n += op.lines.length;
+    }
+  }
+  return n;
+}
+
+/** Whitespace-split tokens, one per line, so diffLines becomes a word diff. */
+function words(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter((w) => w.length > 0)
+    .join('\n');
+}
+
 export function mergeThreeWay(base: string, mine: string, theirs: string): MergeResult {
   if (theirs === base || theirs === mine) {
     return { text: mine, theirs: [], overlaps: 0, changed: false };

@@ -17,7 +17,7 @@
  */
 
 import { isLiveEditTab } from '../../core/live-edit';
-import { mergeThreeWay } from '../../core/merge';
+import { mergeThreeWay, pickMergeBase } from '../../core/merge';
 import { getSourceAdapter } from '../editor-registry';
 import { liveEditStore } from '../stores/live-edit';
 import { settingsStore } from '../stores/settings';
@@ -40,7 +40,10 @@ export function mergeDiskChange(
   diskText: string,
   mtimeMs: number,
 ): boolean {
-  const base = tab.model.getPersisted('file');
+  const base = pickMergeBase(
+    [tab.model.getPersisted('file'), ...tab.model.getPersistedHistory('file')],
+    diskText,
+  );
   const mine = tab.model.getText();
   const result = mergeThreeWay(base, mine, diskText);
   if (result.changed) {
