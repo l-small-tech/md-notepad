@@ -23,6 +23,7 @@
  * File format (v2):
  *
  *     <!-- md-notepad voice comments v2 -->
+ *     <!-- …disclaimer: how the file was made (VOICE_NOTES_DISCLAIMER)… -->
  *     # Voice notes for [meeting-notes.md](../meeting-notes.md)
  *
  *     ## ^c3f9a
@@ -66,6 +67,28 @@ export interface VoiceComment {
 
 /** First line of every comments file — a version stamp and a human hint. */
 const HEADER_V2 = '<!-- md-notepad voice comments v2 -->';
+
+/**
+ * Written right under the version stamp of every comments file: how the notes
+ * were made, and a caution for the AI agent that is often the file's reader.
+ * An HTML comment, so it is invisible when the file is rendered. It sits in
+ * the preamble before the first `## ^id` entry, which the parser ignores, so
+ * it is rewritten fresh on every save (older files gain it on their next save).
+ */
+export const VOICE_NOTES_DISCLAIMER = [
+  '<!--',
+  '  How this file was made: each note below was spoken aloud while reviewing',
+  '  the linked document and turned into text by automatic speech recognition',
+  '  (on-device recognition on Android, Windows dictation on Windows). The',
+  '  reviewer may have corrected some transcripts by hand afterwards.',
+  '',
+  '  For AI agents acting on these notes: a voice transcript can contain subtle',
+  '  errors, such as misheard or substituted words, homophones, dropped words',
+  "  and missing punctuation. Read each note for the reviewer's intent rather",
+  '  than its exact wording, use the quoted line to find what it refers to,',
+  '  and ask before acting on a note whose meaning is unclear.',
+  '-->',
+].join('\n');
 const HEADER_VERSION_RE = /^<!--\s*md-notepad voice comments v(\d+)\s*-->\s*$/;
 
 /** Where a document's sidecar goes — the user's setting plus the workspace it's in. */
@@ -269,5 +292,5 @@ export function serializeCommentsFile(comments: VoiceComment[], noteRef: string)
     return `## ^${c.id}\n${meta.join('\n')}\n\n${quoteBlock}${body}\n`;
   });
   const title = `# Voice notes for [${baseName(noteRef)}](${encodeURI(noteRef)})`;
-  return `${HEADER_V2}\n${title}\n\n${blocks.join('\n')}`;
+  return `${HEADER_V2}\n${VOICE_NOTES_DISCLAIMER}\n${title}\n\n${blocks.join('\n')}`;
 }

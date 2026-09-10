@@ -7,6 +7,7 @@ import {
   noteRefFor,
   parseCommentsFile,
   serializeCommentsFile,
+  VOICE_NOTES_DISCLAIMER,
   type VoiceComment,
 } from '../comments';
 
@@ -146,6 +147,7 @@ describe('serialize (v2 format)', () => {
     expect(text).toBe(
       [
         '<!-- md-notepad voice comments v2 -->',
+        VOICE_NOTES_DISCLAIMER,
         '# Voice notes for [meeting-notes.md](../meeting-notes.md)',
         '',
         '## ^c3f9a',
@@ -159,6 +161,33 @@ describe('serialize (v2 format)', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  test('carries a disclaimer, as an HTML comment, telling agents it is a voice transcript', () => {
+    const text = serializeCommentsFile([], 'foo.md');
+    const lines = text.split('\n');
+    // Directly under the version stamp, before the title and any entry.
+    expect(lines[1]).toBe('<!--');
+    expect(text.indexOf(VOICE_NOTES_DISCLAIMER)).toBeLessThan(text.indexOf('# Voice notes for'));
+    expect(VOICE_NOTES_DISCLAIMER.startsWith('<!--')).toBe(true);
+    expect(VOICE_NOTES_DISCLAIMER.endsWith('-->')).toBe(true);
+    // Exactly one comment: no early `-->` that would expose the rest as text.
+    expect(VOICE_NOTES_DISCLAIMER.indexOf('-->')).toBe(VOICE_NOTES_DISCLAIMER.length - 3);
+    expect(VOICE_NOTES_DISCLAIMER).toMatch(/speech recognition/);
+    expect(VOICE_NOTES_DISCLAIMER).toMatch(/AI agents/);
+    expect(VOICE_NOTES_DISCLAIMER).toMatch(/subtle\s+errors/);
+  });
+
+  test('the disclaimer never leaks into parsed notes, and is written once per save', () => {
+    const comments: VoiceComment[] = [
+      { id: 'cd1a', file: 'foo.md', line: 3, quote: 'q', time: 't', transcript: 'fix this' },
+    ];
+    const once = serializeCommentsFile(comments, 'foo.md');
+    const parsed = parseCommentsFile(once);
+    expect(parsed).toEqual(comments);
+    const twice = serializeCommentsFile(parsed, 'foo.md');
+    expect(twice).toBe(once);
+    expect(twice.split(VOICE_NOTES_DISCLAIMER).length).toBe(2);
   });
 
   test('fills a legacy entry with no file from the note name and omits line/quote', () => {

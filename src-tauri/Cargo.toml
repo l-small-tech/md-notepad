@@ -42,6 +42,8 @@ windows = { version = "0.61", features = [
   "Foundation_Collections",
   "Graphics_Imaging",
   "Media_Ocr",
+  # Windows dictation for voice notes (src/commands/dictation.rs).
+  "Media_SpeechRecognition",
   "Storage_Streams",
   "Win32_System_WinRT",
   # IVirtualDesktopManager (src/vdesk.rs): which virtual desktop a window is on,

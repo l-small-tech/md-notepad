@@ -90,13 +90,21 @@ remembered. Press Esc or click outside the panel to close it.
 ## Voice notes
 
 Voice notes are dictated comments about a line of a document, made in Read
-mode on Android: turn on the toolbar's voice-notes button, press and hold a
-line, then tap the microphone to start and again to finish. Speech is turned
-into text on the phone; no audio is kept. (The desktop app has no voice-notes
-button, but it reads and lists the notes files like any other.) The document itself is never
-changed; each note goes into a separate `<name>.comments.md` file that names
-the document, the line, a quote of that line and the time — ready for a
-person or an AI agent to act on.
+mode: turn on the toolbar's voice-notes button, press and hold a line, then
+tap the microphone to start and again to finish. Your speech is turned into
+text and no audio is kept. The document itself is never changed; each note
+goes into a separate `<name>.comments.md` file that names the document, the
+line, a quote of that line and the time — ready for a person or an AI agent
+to act on. Each file opens with a hidden note saying it came from a voice
+transcript and may contain small recognition errors, so an agent reading it
+knows to read for intent.
+
+- **Android** turns speech into text on the phone.
+- **Windows** uses its built-in dictation. It only works with **Online speech
+  recognition** turned on in Windows Settings > Privacy & security > Speech,
+  and while you dictate your voice is sent to Microsoft to be transcribed.
+- **macOS and Linux** have no voice-notes button yet, but they read and list
+  the notes files like any other.
 
 - **Voice notes** — where those files are kept. **Shared folder at workspace
   root** (the default) collects them in one folder at the top of the

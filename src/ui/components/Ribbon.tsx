@@ -33,7 +33,7 @@ import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
-import { toggleArmed, useVoiceStore } from '../voice-comments';
+import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
 import {
   FONT_FAMILIES,
   PALETTE,
@@ -192,9 +192,10 @@ const SaveAutoIcon = (
  * hold gesture → `openNoteAtLine`). Read mode only: notes are about reviewing
  * a finished document, and the rendered view is where a line is held.
  *
- * Android only: dictation is Android's on-device SpeechRecognizer. The desktop
- * webviews have no speech-to-text, and recording audio files instead is not
- * wanted, so the button isn't offered there.
+ * Offered only where there is a dictation engine (`dictationEngine()`):
+ * Android's on-device recognizer and Windows' built-in dictation. macOS and
+ * Linux have none yet, and recording audio files instead is not wanted, so
+ * the button isn't shown there.
  */
 function VoiceNotesToggle() {
   const armed = useVoiceStore((s) => s.armed);
@@ -807,7 +808,7 @@ function ReaderControls() {
         ⟲
       </button>
 
-      {isAndroid() && (
+      {dictationEngine() !== null && (
         <>
           <span className="ribbon-divider" role="separator" />
           <VoiceNotesToggle />

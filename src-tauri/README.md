@@ -44,6 +44,13 @@ session concepts in Rust, stop and move it to `src/core`.
   registry's user/machine `PATH` on Windows, the user-space bin dirs a
   desktop launch lacks on unix) and `find_program` (a `which` honoring
   `PATHEXT`) — used by the pty spawn and by `commands/programs.rs`.
+- `src/commands/dictation.rs` — **Windows only**: voice-note dictation via
+  `Windows.Media.SpeechRecognition`, exposing the same `stt_available`,
+  `stt_permission`, `stt_request_permission`, `stt_start`, `stt_stop`
+  commands as the Android bridge (`android.rs`), so the frontend runs one
+  capture flow. Free dictation is Microsoft's online recognizer: it needs
+  "Online speech recognition" on in Windows privacy settings (`STT_PRIVACY`
+  otherwise). No audio is written anywhere.
 - `src/commands/programs.rs` — `find_programs(names)` (**desktop only**):
   each name → its resolved path or null, so the Settings dialog can dim the
   harnesses that are not installed and offer to install them. Policy-free:

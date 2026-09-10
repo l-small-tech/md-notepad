@@ -224,12 +224,15 @@ export const ipc = {
     }),
   releaseSyncedTree: (treeUri: string) => call<void>('release_synced_tree', { treeUri }),
   /**
-   * Android only — on-device speech-to-text for voice comments. These are native
-   * bridges (SpeechRecognizer), not storage ops, so they're called directly
-   * behind an `isAndroid()` check, never through a StorageProvider. Not
-   * registered on desktop.
-   *   - sttAvailable: is on-device recognition available on this device?
-   *   - sttPermission: current RECORD_AUDIO grant (no prompt).
+   * Speech-to-text for voice notes — Android (SpeechRecognizer, on-device) and
+   * Windows (Windows.Media.SpeechRecognition dictation; src-tauri
+   * commands/dictation.rs) register the same five commands. Native bridges,
+   * not storage ops, so they're called directly behind the
+   * `dictationEngine()` check in ui/voice-comments.ts, never through a
+   * StorageProvider. Not registered on macOS/Linux.
+   *   - sttAvailable: can the platform's recognizer run on this device?
+   *   - sttPermission: current microphone grant, no prompt (always true on
+   *     Windows, which has no runtime prompt; a denial surfaces at sttStart).
    *   - sttRequestPermission: prompt if needed; resolves the resulting grant.
    *   - sttStart: begin listening; resolves the final transcript text.
    *   - sttStop: stop listening (the final transcript still resolves sttStart).

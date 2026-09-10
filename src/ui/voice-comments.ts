@@ -21,11 +21,13 @@
  * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
  * resolves it through the session's workspace lookup.
  *
- * Capture is Android only: on-device `SpeechRecognizer` via the `ipc.stt*`
- * bridges, which returns a transcript directly. Nothing is ever recorded to an
- * audio file. The desktop webviews have no speech-to-text, so the ribbon does
- * not offer the feature there (see `VoiceNotesToggle`); `startCapture` refuses
- * on desktop as a second guard.
+ * Capture is speech-to-text through the `ipc.stt*` bridges, which return a
+ * transcript directly; nothing is ever recorded to an audio file. The engine
+ * per platform is `dictationEngine()`: Android's on-device SpeechRecognizer,
+ * or Windows' built-in dictation (the desktop default). macOS/Linux have no
+ * engine yet, so the ribbon doesn't offer the feature there and
+ * `startCapture` refuses as a second guard. A future opt-in engine (a local
+ * Whisper model) plugs in at `dictationEngine()`.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -42,7 +44,7 @@ import {
 import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
-import { isAndroid } from './platform';
+import { isAndroid, isWindows } from './platform';
 import { workspaceRootFor } from './session/facade';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
@@ -89,6 +91,25 @@ export const useVoiceStore = <T>(selector: (s: VoiceCommentsState) => T): T =>
   useStore(voiceStore, selector);
 
 /* ---- helpers ----------------------------------------------------------- */
+
+/** The speech-to-text engine that captures voice notes here, or null when none. */
+export type DictationEngine = 'android' | 'windows';
+
+/**
+ * Which engine this platform dictates with. Android: the on-device
+ * SpeechRecognizer. Windows: built-in Windows dictation, the desktop default.
+ * Both sit behind the same `ipc.stt*` bridge. Null = voice notes can't be
+ * captured here (macOS/Linux today).
+ */
+export function dictationEngine(): DictationEngine | null {
+  if (isAndroid()) {
+    return 'android';
+  }
+  if (isWindows()) {
+    return 'windows';
+  }
+  return null;
+}
 
 /** The on-disk path a tab's content maps to (file tab wins over note buffer). */
 function notePathFor(tabId: string): string | null {
@@ -262,29 +283,55 @@ function startCapture(): void {
   if (!tabId || line === null) {
     return;
   }
-  if (!isAndroid()) {
-    uiStore.getState().showNotice('Voice notes need speech recognition, available on Android.');
+  if (dictationEngine() === null) {
+    uiStore
+      .getState()
+      .showNotice('Voice notes need speech recognition, available on Android and Windows.');
     return;
   }
   captureId = newCommentId(new Set(comments.map((c) => c.id)));
   voiceStore.setState({ phase: 'capturing' });
-  void captureAndroid();
+  void captureDictation();
 }
 
 /**
- * Turn an Android `SpeechRecognizer` reject ("STT_ERROR:<code>" / "PERMISSION_
- * DENIED" / "STT_BUSY" / "STT_UNAVAILABLE") into a message that says what to do.
- * The codes are `android.speech.SpeechRecognizer.ERROR_*`.
+ * Turn a bridge reject into a message that says what to do. Shared codes:
+ * "PERMISSION_DENIED", "STT_BUSY", "STT_UNAVAILABLE". Android adds
+ * "STT_ERROR:<code>" with `android.speech.SpeechRecognizer.ERROR_*` codes;
+ * Windows (src-tauri commands/dictation.rs) adds the named STT_* codes below.
  */
 function sttErrorMessage(raw: string): string {
+  const windows = dictationEngine() === 'windows';
   if (raw.includes('PERMISSION_DENIED')) {
-    return 'Microphone permission is required for voice notes.';
+    return windows
+      ? 'Microphone access is off. Turn on "Let desktop apps access your microphone" in Windows Settings, Privacy & security, Microphone.'
+      : 'Microphone permission is required for voice notes.';
   }
   if (raw.includes('STT_BUSY')) {
     return 'Still finishing the last recording — try again in a moment.';
   }
   if (raw.includes('STT_UNAVAILABLE')) {
-    return 'On-device speech recognition is unavailable on this device.';
+    return windows
+      ? 'Windows speech recognition is unavailable on this PC.'
+      : 'On-device speech recognition is unavailable on this device.';
+  }
+  if (raw.includes('STT_PRIVACY')) {
+    return 'Windows dictation needs "Online speech recognition" turned on in Windows Settings, Privacy & security, Speech.';
+  }
+  if (raw.includes('STT_NO_MIC')) {
+    return 'No microphone was found. Connect one and try again.';
+  }
+  if (raw.includes('STT_NETWORK')) {
+    return 'Windows dictation lost its network connection. Check your connection and try again.';
+  }
+  if (raw.includes('STT_LANGUAGE')) {
+    return 'Windows dictation does not support your speech language. Check Windows Settings, Time & language, Speech.';
+  }
+  if (raw.includes('STT_AUDIO_QUALITY')) {
+    return 'The audio was too noisy or quiet to transcribe. Try again closer to the microphone.';
+  }
+  if (raw.includes('STT_NO_MATCH')) {
+    return "Didn't catch that — try again and speak clearly.";
   }
   const m = /STT_ERROR:(-?\d+)/.exec(raw);
   switch (m ? Number(m[1]) : null) {
@@ -306,7 +353,8 @@ function sttErrorMessage(raw: string): string {
   }
 }
 
-async function captureAndroid(): Promise<void> {
+/** Permission → availability → dictation, through the platform's `stt*` bridge. */
+async function captureDictation(): Promise<void> {
   // Stage 1 — permission. A rejection here (vs. a clean "not granted") means the
   // permission bridge itself failed, which is worth its own message.
   let granted: boolean;
@@ -323,7 +371,7 @@ async function captureAndroid(): Promise<void> {
   // Stage 2 — availability (best-effort; a flaky check shouldn't block a try).
   try {
     if (!(await ipc.sttAvailable())) {
-      failCapture('On-device speech recognition is unavailable on this device.');
+      failCapture(sttErrorMessage('STT_UNAVAILABLE'));
       return;
     }
   } catch {

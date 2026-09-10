@@ -44,7 +44,7 @@ pub struct OcrOut {
     pub lines: Vec<OcrLineOut>,
 }
 
-fn ensure_winrt() {
+pub(crate) fn ensure_winrt() {
     // S_FALSE (already initialized) and RPC_E_CHANGED_MODE (the thread is an
     // STA) are both fine: in either case WinRT calls will proceed.
     unsafe {
