@@ -453,3 +453,75 @@ describe('attachPreviewPane', () => {
     pane.dispose();
   });
 });
+
+describe('press-and-hold line gesture (voice notes)', () => {
+  function pointer(type: string, target: Element, x = 10, y = 10, extra: PointerEventInit = {}) {
+    // jsdom has no PointerEvent constructor; a MouseEvent with the pointer
+    // fields patched on is what the handlers read.
+    const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+    Object.defineProperty(ev, 'pointerType', { value: extra.pointerType ?? 'touch' });
+    target.dispatchEvent(ev);
+  }
+
+  test('renders with data-line stamps only when onHoldLine is wired', async () => {
+    const plain = host();
+    attachPreviewPane(plain, createDocModel('# Hello'), { dark: false });
+    await vi.runAllTimersAsync();
+    expect(plain.innerHTML).toBe('<h1>Hello</h1>');
+
+    const stamped = host();
+    attachPreviewPane(stamped, createDocModel('# Hello'), { dark: false, onHoldLine: () => {} });
+    await vi.runAllTimersAsync();
+    expect(stamped.innerHTML).toBe('<h1 data-line="1">Hello</h1>');
+  });
+
+  test('a held press reports the innermost stamped source line, once armed', async () => {
+    const el = host();
+    const onHoldLine = vi.fn();
+    const pane = attachPreviewPane(el, createDocModel('# Title\n\nfirst\nsecond **bold**\n'), {
+      dark: false,
+      onHoldLine,
+    });
+    await vi.runAllTimersAsync();
+    const bold = el.querySelector('strong')!;
+
+    // Not armed: nothing fires.
+    pointer('pointerdown', bold);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(onHoldLine).not.toHaveBeenCalled();
+
+    pane.setLineHold(true);
+    expect(el.dataset.lineHold).toBe('');
+    pointer('pointerdown', bold);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(onHoldLine).toHaveBeenCalledWith(4);
+
+    // Lifting early, or drifting, cancels the hold.
+    onHoldLine.mockClear();
+    pointer('pointerdown', bold);
+    pointer('pointerup', bold);
+    await vi.advanceTimersByTimeAsync(600);
+    pointer('pointerdown', bold);
+    pointer('pointermove', bold, 40, 10);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(onHoldLine).not.toHaveBeenCalled();
+
+    pane.setLineHold(false);
+    expect('lineHold' in el.dataset).toBe(false);
+  });
+
+  test('while armed the context menu is suppressed; disarmed it is not', async () => {
+    const el = host();
+    const pane = attachPreviewPane(el, createDocModel('text'), {
+      dark: false,
+      onHoldLine: () => {},
+    });
+    await vi.runAllTimersAsync();
+    const p = el.querySelector('p')!;
+    const fire = () =>
+      !p.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(fire()).toBe(false);
+    pane.setLineHold(true);
+    expect(fire()).toBe(true);
+  });
+});

@@ -72,6 +72,15 @@ export interface PreviewPaneOptions {
    * never fire this. Omit and board right-clicks stay inert.
    */
   onBoardContextMenu?: (info: BoardContextMenuInfo) => void;
+  /**
+   * The reader pressed and held on a line of the tab's own document (touch or
+   * mouse) — the voice-note gesture. Receives the 1-based SOURCE line under the
+   * pointer, resolved from the `data-line` stamps the pipeline puts on every
+   * element (so the pane renders with `sourceLines` whenever this is set). Only
+   * fires while `setLineHold(true)` is in effect, and never on a followed link
+   * (that page isn't the tab's document, so a line number would mislead).
+   */
+  onHoldLine?: (line: number) => void;
 }
 
 export interface BoardContextMenuInfo {
@@ -119,8 +128,19 @@ export interface PreviewPane {
    * re-renders so the new bytes show; paths not on screen cost nothing.
    */
   refreshImages(paths: readonly string[]): void;
+  /**
+   * Arm/disarm the press-and-hold line gesture (`onHoldLine`). While armed the
+   * pane also suppresses the browser's own long-press behaviours — the context
+   * menu and text-selection handles on Android — which would otherwise fire on
+   * top of the gesture, and marks itself `data-line-hold` for styling.
+   */
+  setLineHold(on: boolean): void;
   dispose(): void;
 }
+
+/** Hold duration before `onHoldLine` fires, and the drift that cancels it. */
+const HOLD_MS = 500;
+const HOLD_SLOP_PX = 10;
 
 /**
  * The app theme's resolved `--wb-*` palette, read off `<html>` — the same
@@ -263,7 +283,9 @@ export function attachPreviewPane(
 
   async function render(): Promise<void> {
     const token = sequence.start();
-    const html = await renderMarkdownToHtml(currentText());
+    const html = await renderMarkdownToHtml(currentText(), {
+      sourceLines: options.onHoldLine !== undefined,
+    });
     if (disposed || !sequence.isCurrent(token)) {
       return; // a newer render (text or theme change) already superseded this one
     }
@@ -371,6 +393,12 @@ export function attachPreviewPane(
   }
 
   function onContextMenu(event: MouseEvent): void {
+    if (holdArmed) {
+      // A long-press on Android surfaces the context menu / selection handles
+      // right where the hold gesture is happening — keep the surface quiet.
+      event.preventDefault();
+      return;
+    }
     const img = (event.target as HTMLElement).closest('img');
     const path = img?.dataset.wbPath;
     const mode = img?.dataset.wbMode;
@@ -389,8 +417,82 @@ export function attachPreviewPane(
     }
   }
 
+  /* ---- press-and-hold line gesture (voice notes) ---------------------- */
+  let holdArmed = false;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  let holdX = 0;
+  let holdY = 0;
+  let holdTarget: Element | null = null;
+
+  function clearHold(): void {
+    if (holdTimer !== null) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+  }
+
+  function onPointerDown(event: PointerEvent): void {
+    if (!holdArmed || !options.onHoldLine || navStack.length > 0) {
+      return;
+    }
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    holdX = event.clientX;
+    holdY = event.clientY;
+    holdTarget = event.target instanceof Element ? event.target : null;
+    clearHold();
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      if (disposed) {
+        return;
+      }
+      const line = lineAtPoint(holdTarget, holdY);
+      if (line !== null) {
+        options.onHoldLine?.(line);
+      }
+    }, HOLD_MS);
+  }
+
+  function onPointerMove(event: PointerEvent): void {
+    if (
+      holdTimer !== null &&
+      (Math.abs(event.clientX - holdX) > HOLD_SLOP_PX ||
+        Math.abs(event.clientY - holdY) > HOLD_SLOP_PX)
+    ) {
+      clearHold();
+    }
+  }
+
+  /**
+   * The source line for a press: the innermost stamped element at the pressed
+   * target, else — for a press in the margin or in the gap between blocks — the
+   * nearest stamped block above the press (a reader holding "beside" a
+   * paragraph means that paragraph).
+   */
+  function lineAtPoint(target: Element | null, y: number): number | null {
+    const stamped = target?.closest<HTMLElement>('[data-line]');
+    if (stamped && host.contains(stamped)) {
+      return Number(stamped.dataset.line);
+    }
+    let best: HTMLElement | null = null;
+    for (const el of host.querySelectorAll<HTMLElement>(':scope > [data-line]')) {
+      if (el.getBoundingClientRect().top <= y) {
+        best = el;
+      } else {
+        break;
+      }
+    }
+    return best ? Number(best.dataset.line) : null;
+  }
+
   host.addEventListener('click', onClick);
   host.addEventListener('contextmenu', onContextMenu);
+  host.addEventListener('pointerdown', onPointerDown);
+  host.addEventListener('pointermove', onPointerMove);
+  host.addEventListener('pointerup', clearHold);
+  host.addEventListener('pointercancel', clearHold);
+  host.addEventListener('pointerleave', clearHold);
   const unsubscribe = model.subscribe(onModelChange);
   void render(); // first paint, no need to wait out the typing debounce
 
@@ -463,12 +565,27 @@ export function attachPreviewPane(
         void render();
       }
     },
+    setLineHold(on) {
+      holdArmed = on;
+      clearHold();
+      if (on) {
+        host.dataset.lineHold = '';
+      } else {
+        delete host.dataset.lineHold;
+      }
+    },
     dispose() {
       disposed = true;
       clearTimer();
+      clearHold();
       unsubscribe();
       host.removeEventListener('click', onClick);
       host.removeEventListener('contextmenu', onContextMenu);
+      host.removeEventListener('pointerdown', onPointerDown);
+      host.removeEventListener('pointermove', onPointerMove);
+      host.removeEventListener('pointerup', clearHold);
+      host.removeEventListener('pointercancel', clearHold);
+      host.removeEventListener('pointerleave', clearHold);
     },
   };
 }

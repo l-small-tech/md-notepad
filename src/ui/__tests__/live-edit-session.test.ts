@@ -209,9 +209,6 @@ describe('Live Edit — merging changes from disk', () => {
       setFontSize() {},
       format() {},
       insertLinkTo() {},
-      insertAnchorAtLine() {},
-      anchorLineAt: () => 1,
-      removeAnchor() {},
       flashRanges(ranges, kind) {
         const text = tab().model.getText();
         flashes.push({ kind, text: ranges.map((r) => text.slice(r.from, r.to)) });

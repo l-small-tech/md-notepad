@@ -1,11 +1,21 @@
 /**
- * voice-comments.ts — the controller behind the voice-comment feature.
+ * voice-comments.ts — the controller behind the voice-notes feature.
  *
  * Mirrors the tab-agnostic module-dispatch style of `session.ts`: a single
- * vanilla Zustand store holds the transient panel state, and the UI
- * (`VoiceComments.tsx`) is a pure projection of it. All file I/O goes through
+ * vanilla Zustand store holds the transient state, and the UI
+ * (`VoiceComments.tsx`, the ribbon's Read-mode button, the preview pane's hold
+ * gesture) is a pure projection of it. All file I/O goes through
  * `currentProvider()` so a note in a synced (SAF) workspace gets its comments
  * file and audio clips in the same backend.
+ *
+ * The flow, designed for reviewing a document from the couch:
+ *   1. In Read mode, the ribbon's voice-notes button ARMS the feature.
+ *   2. While armed, press-and-hold a line of the rendered document. The pane
+ *      reports the source line; the panel opens in the `ready` phase, showing
+ *      the line's text and a big microphone.
+ *   3. Tap the mic to start, tap again to finish. The transcript is appended
+ *      to `<name>.comments.md` with the file name, line, quote and UTC time.
+ *      The document itself is never modified.
  *
  * Two capture paths converge on the same persistence:
  *  - Android: on-device `SpeechRecognizer` via the `ipc.stt*` bridges — returns
@@ -13,18 +23,13 @@
  *  - Desktop: `MediaRecorder` in the webview — saves a `.webm` clip beside the
  *    note and leaves the transcript blank for the user to type (there is no
  *    reliable on-device STT in the desktop webviews).
- *
- * The gutter markers are derived from the anchor tokens already in the document
- * (see `voice-gutter.ts`), so this controller never has to "load comments to
- * render markers" — it loads the comments file lazily, only when the panel opens
- * or a new comment is added.
  */
 
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   commentsPathFor,
-  findAnchors,
+  lineQuote,
   newCommentId,
   parseCommentsFile,
   serializeCommentsFile,
@@ -33,39 +38,45 @@ import {
 import { baseName, dirName, joinPath } from '../core/session/plan-flush';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
-import { getSourceAdapter } from './editor-registry';
 import { isAndroid } from './platform';
 import { tabsStore } from './stores/tabs';
 import { uiStore } from './stores/ui';
 
-/** Panel lifecycle: closed → capturing (mic live) → viewing (transcripts). */
-type Phase = 'closed' | 'capturing' | 'viewing';
+/**
+ * Panel lifecycle: closed → ready (mic idle, line chosen) → capturing (mic
+ * live) → viewing (the note list). `viewing` is also reachable directly from
+ * `ready` ("show notes") to read what's already there.
+ */
+export type Phase = 'closed' | 'ready' | 'capturing' | 'viewing';
 
 export interface VoiceCommentsState {
+  /** The Read-mode voice-notes toggle: while true, holding a line opens the panel. */
+  armed: boolean;
   phase: Phase;
   tabId: string | null;
   notePath: string | null;
   commentsPath: string | null;
   comments: VoiceComment[];
-  /** Ids that still have an anchor in the document (for orphan flagging). */
-  anchoredIds: string[];
-  /** Comment to highlight/scroll to when viewing. */
+  /** Comment to highlight (listed first) when viewing. */
   focusId: string | null;
-  /** 1-based line being annotated/viewed. */
+  /** 1-based line being annotated (ready/capturing). */
   line: number | null;
+  /** That line's text at the time it was chosen. */
+  quote: string;
   /** 'android' = live dictation; 'desktop' = audio recording. */
   captureKind: 'android' | 'desktop' | null;
 }
 
 const initial: VoiceCommentsState = {
+  armed: false,
   phase: 'closed',
   tabId: null,
   notePath: null,
   commentsPath: null,
   comments: [],
-  anchoredIds: [],
   focusId: null,
   line: null,
+  quote: '',
   captureKind: null,
 };
 
@@ -86,11 +97,6 @@ function notePathFor(tabId: string): string | null {
 function docTextFor(tabId: string): string {
   const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
   return tab ? tab.model.getText() : '';
-}
-
-/** Ids currently anchored in the tab's document. */
-function anchoredIdsFor(tabId: string): string[] {
-  return findAnchors(docTextFor(tabId)).map((a) => a.id);
 }
 
 /** Read + parse a note's comments file; [] when it doesn't exist yet. */
@@ -120,14 +126,17 @@ function scheduleSave(): void {
 }
 
 async function flushSave(): Promise<void> {
-  const { commentsPath, comments } = voiceStore.getState();
-  if (!commentsPath) {
+  const { commentsPath, comments, notePath } = voiceStore.getState();
+  if (!commentsPath || !notePath) {
     return;
   }
   try {
-    await currentProvider().atomicWriteText(commentsPath, serializeCommentsFile(comments));
+    await currentProvider().atomicWriteText(
+      commentsPath,
+      serializeCommentsFile(comments, baseName(notePath)),
+    );
   } catch {
-    uiStore.getState().showNotice('Could not save voice comments.');
+    uiStore.getState().showNotice('Could not save voice notes.');
   }
 }
 
@@ -163,7 +172,7 @@ function base64ToBytes(b64: string): Uint8Array {
 let mediaRecorder: MediaRecorder | null = null;
 let mediaStream: MediaStream | null = null;
 let mediaChunks: Blob[] = [];
-// The id minted for the in-flight capture (shared by the audio file + anchor).
+// The id minted for the in-flight capture (shared by the audio file + entry).
 let captureId: string | null = null;
 
 function teardownMedia(): void {
@@ -175,48 +184,61 @@ function teardownMedia(): void {
 
 /* ---- public actions ---------------------------------------------------- */
 
-/** Open the panel to view the comment for `id` on `line`. */
-export async function openComment(tabId: string, id: string, line: number): Promise<void> {
+/** Flip the Read-mode voice-notes toggle. Disarming also closes the panel. */
+export function toggleArmed(): void {
+  const { armed } = voiceStore.getState();
+  if (armed) {
+    closePanel();
+  }
+  voiceStore.setState({ armed: !armed });
+}
+
+/**
+ * The hold gesture landed on `line` of the tab's document: open the panel in
+ * the `ready` phase for that line (mic idle). Loads the existing notes so the
+ * list is a tap away and the new id can be minted collision-free.
+ */
+export async function openNoteAtLine(tabId: string, line: number): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
+    uiStore.getState().showNotice('Save the note before adding voice notes.');
     return;
   }
   let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
-    uiStore.getState().showNotice('Could not read voice comments.');
+    uiStore.getState().showNotice('Could not read voice notes.');
     return;
   }
+  if (voiceStore.getState().phase === 'capturing') {
+    return; // a capture is in flight — don't yank the line out from under it
+  }
   voiceStore.setState({
-    phase: 'viewing',
+    phase: 'ready',
     tabId,
     notePath,
     commentsPath: commentsPathFor(notePath),
     comments,
-    anchoredIds: anchoredIdsFor(tabId),
-    focusId: id,
+    focusId: null,
     line,
+    quote: lineQuote(docTextFor(tabId), line),
     captureKind: null,
   });
 }
 
-/**
- * Open the panel showing ALL of a note's comments (no single focus). This is the
- * read-mode entry point: the preview has no gutter markers to click, so the
- * ribbon opens the full list to view/play/edit/delete — and add from within it.
- */
+/** Open the panel listing ALL of a note's voice notes (no single focus). */
 export async function openAllComments(tabId: string): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding voice comments.');
+    uiStore.getState().showNotice('Save the note before adding voice notes.');
     return;
   }
   let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
-    uiStore.getState().showNotice('Could not read voice comments.');
+    uiStore.getState().showNotice('Could not read voice notes.');
     return;
   }
   voiceStore.setState({
@@ -225,68 +247,44 @@ export async function openAllComments(tabId: string): Promise<void> {
     notePath,
     commentsPath: commentsPathFor(notePath),
     comments,
-    anchoredIds: anchoredIdsFor(tabId),
     focusId: null,
     line: null,
+    quote: '',
     captureKind: null,
   });
 }
 
-/**
- * Add a comment from within the panel (the "+" button). Anchors to the source
- * editor's current caret line — which is valid in read mode too, since the CM6
- * source editor stays attached (just hidden) there.
- */
-export async function addFromPanel(): Promise<void> {
-  const { tabId } = voiceStore.getState();
-  if (!tabId) {
-    return;
+/** From the ready phase, show the note list instead (nothing captured). */
+export function showNotes(): void {
+  if (voiceStore.getState().phase === 'ready') {
+    voiceStore.setState({ phase: 'viewing', line: null, quote: '' });
   }
-  const line = getSourceAdapter(tabId)?.anchorLineAt() ?? 1;
-  await addCommentAtLine(tabId, line);
 }
 
 /**
- * Begin adding a voice comment on `line`. Loads existing comments (to dedupe the
- * new id), mints the id, then starts the platform capture. The anchor token and
- * the stored comment are written only when capture completes.
+ * The microphone button: first tap starts a capture for the chosen line,
+ * second tap finishes it. A tap in any other phase is ignored.
  */
-export async function addCommentAtLine(tabId: string, line: number): Promise<void> {
-  const notePath = notePathFor(tabId);
-  if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding a voice comment.');
-    return;
+export function toggleMic(): void {
+  const { phase } = voiceStore.getState();
+  if (phase === 'ready') {
+    startCapture();
+  } else if (phase === 'capturing') {
+    stopCapture();
   }
-  const adapter = getSourceAdapter(tabId);
-  if (!adapter) {
-    return;
-  }
-  let existing: VoiceComment[];
-  try {
-    existing = await loadComments(notePath);
-  } catch {
-    uiStore
-      .getState()
-      .showNotice(
-        'Could not read existing voice comments; not adding one to avoid overwriting them.',
-      );
-    return;
-  }
-  const used = new Set<string>([...anchoredIdsFor(tabId), ...existing.map((c) => c.id)]);
-  captureId = newCommentId(used);
+}
 
+/** Mint the id, flip to `capturing`, and start the platform capture. */
+function startCapture(): void {
+  const { tabId, line, comments } = voiceStore.getState();
+  if (!tabId || line === null) {
+    return;
+  }
+  captureId = newCommentId(new Set(comments.map((c) => c.id)));
   voiceStore.setState({
     phase: 'capturing',
-    tabId,
-    notePath,
-    commentsPath: commentsPathFor(notePath),
-    comments: existing,
-    anchoredIds: anchoredIdsFor(tabId),
-    focusId: null,
-    line,
     captureKind: isAndroid() ? 'android' : 'desktop',
   });
-
   if (isAndroid()) {
     void captureAndroid();
   } else {
@@ -301,7 +299,7 @@ export async function addCommentAtLine(tabId: string, line: number): Promise<voi
  */
 function sttErrorMessage(raw: string): string {
   if (raw.includes('PERMISSION_DENIED')) {
-    return 'Microphone permission is required for voice comments.';
+    return 'Microphone permission is required for voice notes.';
   }
   if (raw.includes('STT_BUSY')) {
     return 'Still finishing the last recording — try again in a moment.';
@@ -320,7 +318,7 @@ function sttErrorMessage(raw: string): string {
     case 8: // RECOGNIZER_BUSY
       return 'The recognizer is busy — try again in a moment.';
     case 9: // INSUFFICIENT_PERMISSIONS
-      return 'Microphone permission is required for voice comments.';
+      return 'Microphone permission is required for voice notes.';
     case 12: // LANGUAGE_UNAVAILABLE
     case 13: // LANGUAGE_NOT_SUPPORTED
       return 'No speech model for this language. Install offline voice typing, or connect to the network.';
@@ -413,17 +411,19 @@ async function finishCaptureDesktop(blob: Blob): Promise<void> {
   await finishCapture('', audioName);
 }
 
-/** Commit the in-flight capture: insert the anchor, append + save the comment. */
+/** Commit the in-flight capture: append + save the note. The document is untouched. */
 async function finishCapture(transcript: string, audio: string | null): Promise<void> {
-  const { tabId, comments, line } = voiceStore.getState();
-  if (!tabId || !captureId || line === null) {
+  const { notePath, comments, line, quote } = voiceStore.getState();
+  if (!notePath || !captureId || line === null) {
     return;
   }
   const id = captureId;
   captureId = null;
-  getSourceAdapter(tabId)?.insertAnchorAtLine(line, id);
   const comment: VoiceComment = {
     id,
+    file: baseName(notePath),
+    line,
+    quote,
     time: new Date().toISOString(),
     transcript,
     audio,
@@ -432,20 +432,25 @@ async function finishCapture(transcript: string, audio: string | null): Promise<
   voiceStore.setState({
     phase: 'viewing',
     comments: next,
-    anchoredIds: anchoredIdsFor(tabId),
     focusId: id,
+    line: null,
+    quote: '',
+    captureKind: null,
   });
   await saveNow();
 }
 
+/** A capture failed: report it and drop back to the ready phase for the same line. */
 function failCapture(message: string): void {
   captureId = null;
   teardownMedia();
   uiStore.getState().showNotice(message);
-  voiceStore.setState({ phase: 'closed', ...initialTail() });
+  if (voiceStore.getState().phase === 'capturing') {
+    voiceStore.setState({ phase: 'ready', captureKind: null });
+  }
 }
 
-/** Stop the live capture early (user tapped Stop). */
+/** Stop the live capture (the second mic tap). */
 export function stopCapture(): void {
   const { captureKind } = voiceStore.getState();
   if (captureKind === 'desktop') {
@@ -455,7 +460,7 @@ export function stopCapture(): void {
   }
 }
 
-/** Edit a comment's transcript text (debounced save). */
+/** Edit a note's transcript text (debounced save). */
 export function updateTranscript(id: string, transcript: string): void {
   voiceStore.setState((s) => ({
     comments: s.comments.map((c) => (c.id === id ? { ...c, transcript } : c)),
@@ -463,12 +468,9 @@ export function updateTranscript(id: string, transcript: string): void {
   scheduleSave();
 }
 
-/** Delete a comment: remove its anchor token, its audio clip, and its entry. */
+/** Delete a note: its audio clip (if any) and its entry. */
 export async function deleteComment(id: string): Promise<void> {
-  const { tabId, comments, notePath } = voiceStore.getState();
-  if (tabId) {
-    getSourceAdapter(tabId)?.removeAnchor(id);
-  }
+  const { comments, notePath } = voiceStore.getState();
   const removed = comments.find((c) => c.id === id);
   if (removed?.audio && notePath) {
     try {
@@ -479,13 +481,12 @@ export async function deleteComment(id: string): Promise<void> {
   }
   voiceStore.setState((s) => ({
     comments: s.comments.filter((c) => c.id !== id),
-    anchoredIds: tabId ? anchoredIdsFor(tabId) : s.anchoredIds,
     focusId: s.focusId === id ? null : s.focusId,
   }));
   await saveNow();
 }
 
-/** Close the panel; cancels an in-flight capture without committing it. */
+/** Close the panel; cancels an in-flight capture without committing it. The toggle stays armed. */
 export function closePanel(): void {
   const { phase, captureKind } = voiceStore.getState();
   if (phase === 'capturing') {
@@ -502,7 +503,7 @@ export function closePanel(): void {
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
-/** Resolve a comment's audio clip to a playable data: URL. */
+/** Resolve a note's audio clip to a playable data: URL. */
 export async function audioDataUrl(notePath: string, audio: string): Promise<string> {
   const b64 = await currentProvider().readFileBase64(joinPath(dirName(notePath), audio));
   const type = audio.endsWith('.ogg') ? 'audio/ogg' : 'audio/webm';
@@ -518,16 +519,16 @@ function stem(notePath: string): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-/** The reset fields shared by close/fail (keeps a closed panel tidy). */
+/** The reset fields shared by close (keeps a closed panel tidy; `armed` is untouched). */
 function initialTail() {
   return {
     tabId: null,
     notePath: null,
     commentsPath: null,
     comments: [],
-    anchoredIds: [],
     focusId: null,
     line: null,
+    quote: '',
     captureKind: null,
-  } satisfies Omit<VoiceCommentsState, 'phase'>;
+  } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }

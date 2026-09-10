@@ -1,9 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
   commentsPathFor,
-  findAnchors,
-  insertAnchorText,
   isCommentsPath,
+  lineQuote,
   newCommentId,
   parseCommentsFile,
   serializeCommentsFile,
@@ -39,28 +38,14 @@ describe('isCommentsPath', () => {
   });
 });
 
-describe('findAnchors', () => {
-  test('locates tokens with correct id, offsets, and 1-based line', () => {
-    const doc = 'line one\n## Setup <!-- ^c1a2 -->\nbody\n- item <!-- ^c9zz -->';
-    const anchors = findAnchors(doc);
-    expect(anchors.map((a) => a.id)).toEqual(['c1a2', 'c9zz']);
-    expect(anchors[0]!.line).toBe(2);
-    expect(anchors[1]!.line).toBe(4);
-    // Offset round-trips to the exact token text.
-    expect(doc.slice(anchors[0]!.from, anchors[0]!.to)).toBe('<!-- ^c1a2 -->');
+describe('lineQuote', () => {
+  test('returns the trimmed 1-based line, tolerating CRLF', () => {
+    expect(lineQuote('a\n  ## Setup  \r\nc', 2)).toBe('## Setup');
   });
 
-  test('tolerates flexible whitespace inside the token', () => {
-    expect(findAnchors('x <!--   ^cabc   -->').map((a) => a.id)).toEqual(['cabc']);
-  });
-
-  test('returns [] when there are no anchors', () => {
-    expect(findAnchors('nothing here\njust text')).toEqual([]);
-  });
-
-  test('insertAnchorText produces a token findAnchors recognizes', () => {
-    const doc = `heading${insertAnchorText('cff01')}`;
-    expect(findAnchors(doc).map((a) => a.id)).toEqual(['cff01']);
+  test('is empty out of range', () => {
+    expect(lineQuote('a\nb', 0)).toBe('');
+    expect(lineQuote('a\nb', 3)).toBe('');
   });
 });
 
@@ -76,65 +61,180 @@ describe('newCommentId', () => {
   });
 });
 
+const NOTE = 'meeting-notes.md';
+
+describe('serialize (v2 format)', () => {
+  test('writes the version header, a title linking the parent, and every field', () => {
+    const text = serializeCommentsFile(
+      [
+        {
+          id: 'c3f9a',
+          file: NOTE,
+          line: 42,
+          quote: 'Pricing goes live Friday',
+          time: '2026-09-10T21:32:07.000Z',
+          transcript: 'Ship the pricing change before the demo.',
+        },
+      ],
+      NOTE,
+    );
+    expect(text).toBe(
+      [
+        '<!-- md-notepad voice comments v2 -->',
+        '# Voice notes for [meeting-notes.md](./meeting-notes.md)',
+        '',
+        '## ^c3f9a',
+        '- file: meeting-notes.md',
+        '- line: 42',
+        '- time: 2026-09-10T21:32:07.000Z',
+        '',
+        '> Pricing goes live Friday',
+        '',
+        'Ship the pricing change before the demo.',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('fills a legacy entry with no file from the note name and omits line/quote', () => {
+    const text = serializeCommentsFile(
+      [{ id: 'cold1', file: '', line: null, quote: '', time: 't', transcript: 'x' }],
+      NOTE,
+    );
+    expect(text).toContain('- file: meeting-notes.md');
+    expect(text).not.toContain('- line:');
+    expect(text).not.toContain('\n> ');
+  });
+
+  test('percent-encodes spaces in the title link but not the label', () => {
+    const text = serializeCommentsFile([], 'my notes.md');
+    expect(text).toContain('# Voice notes for [my notes.md](./my%20notes.md)');
+  });
+});
+
 describe('parse/serialize round-trip', () => {
-  test('round-trips a multi-comment file including an audio field', () => {
+  test('round-trips a multi-note file including an audio field', () => {
     const comments: VoiceComment[] = [
-      { id: 'c3f9a', time: '2026-07-13T10:22:04.511Z', transcript: 'Buy milk before Friday.' },
+      {
+        id: 'c3f9a',
+        file: NOTE,
+        line: 3,
+        quote: '- item one',
+        time: '2026-07-13T10:22:04.511Z',
+        transcript: 'Buy milk before Friday.',
+      },
       {
         id: 'c7b21',
+        file: NOTE,
+        line: 10,
+        quote: '',
         time: '2026-07-13T10:24:31.002Z',
         transcript: 'Follow up with design.',
         audio: 'foo.c7b21.webm',
       },
     ];
-    const text = serializeCommentsFile(comments);
+    const text = serializeCommentsFile(comments, NOTE);
     expect(parseCommentsFile(text)).toEqual([{ ...comments[0], audio: null }, comments[1]]);
   });
 
-  test('preserves a multi-line transcript with dashes and list markers', () => {
+  test('preserves a multi-line transcript with dashes, list markers and blockquotes', () => {
     const comments: VoiceComment[] = [
       {
         id: 'cabcd',
+        file: NOTE,
+        line: 1,
+        quote: 'Title',
         time: '2026-07-13T10:00:00.000Z',
-        transcript: 'first line\n- a dashed line\nsecond paragraph',
+        transcript: 'first line\n- a dashed line\n> quoted in the body\nsecond paragraph',
         audio: null,
       },
     ];
-    const parsed = parseCommentsFile(serializeCommentsFile(comments));
-    expect(parsed[0]!.transcript).toBe('first line\n- a dashed line\nsecond paragraph');
-  });
-
-  test('tolerates CRLF line endings and a missing header', () => {
-    const text = '## ^cxyz\r\n- time: 2026-01-01T00:00:00.000Z\r\n\r\nhello world\r\n';
-    expect(parseCommentsFile(text)).toEqual([
-      { id: 'cxyz', time: '2026-01-01T00:00:00.000Z', audio: null, transcript: 'hello world' },
-    ]);
+    const parsed = parseCommentsFile(serializeCommentsFile(comments, NOTE));
+    expect(parsed).toEqual(comments);
   });
 
   test('handles an empty transcript (desktop record-only entry)', () => {
     const comments: VoiceComment[] = [
-      { id: 'cnull', time: '2026-01-01T00:00:00.000Z', transcript: '', audio: 'a.webm' },
+      { id: 'cnull', file: NOTE, line: 2, quote: 'q', time: 't', transcript: '', audio: 'a.webm' },
     ];
-    expect(parseCommentsFile(serializeCommentsFile(comments))).toEqual(comments);
+    expect(parseCommentsFile(serializeCommentsFile(comments, NOTE))).toEqual(comments);
   });
 
-  test('an empty comment list serializes to just the header and parses back empty', () => {
-    expect(parseCommentsFile(serializeCommentsFile([]))).toEqual([]);
+  test('an empty note list serializes to just the header/title and parses back empty', () => {
+    expect(parseCommentsFile(serializeCommentsFile([], NOTE))).toEqual([]);
   });
 
   test('preserves a transcript whose first body line looks like metadata', () => {
-    // The blank separator ends the meta run, so a body line matching META_RE
-    // (`- time:`/`- audio:`) must survive rather than being swallowed as meta.
     const comments: VoiceComment[] = [
       {
         id: 'cmeta',
+        file: NOTE,
+        line: 5,
+        quote: '',
         time: '2026-07-13T10:00:00.000Z',
         transcript: '- audio: something\nand more text',
         audio: null,
       },
     ];
-    const parsed = parseCommentsFile(serializeCommentsFile(comments));
-    expect(parsed).toEqual(comments);
-    expect(parsed[0]!.transcript).toBe('- audio: something\nand more text');
+    expect(parseCommentsFile(serializeCommentsFile(comments, NOTE))).toEqual(comments);
+  });
+
+  test('tolerates CRLF line endings', () => {
+    const text = serializeCommentsFile(
+      [{ id: 'ccrlf', file: NOTE, line: 7, quote: 'the line', time: 't', transcript: 'hi\nthere' }],
+      NOTE,
+    ).replace(/\n/g, '\r\n');
+    expect(parseCommentsFile(text)).toEqual([
+      {
+        id: 'ccrlf',
+        file: NOTE,
+        line: 7,
+        quote: 'the line',
+        time: 't',
+        transcript: 'hi\nthere',
+        audio: null,
+      },
+    ]);
+  });
+});
+
+describe('legacy v1 files', () => {
+  test('parse with empty file/line/quote and the body kept verbatim', () => {
+    const v1 = [
+      '<!-- md-notepad voice comments v1 -->',
+      '',
+      '## ^cxyz',
+      '- time: 2026-01-01T00:00:00.000Z',
+      '',
+      '> a v1 body that happens to start with a blockquote',
+      'and continues',
+      '',
+    ].join('\n');
+    expect(parseCommentsFile(v1)).toEqual([
+      {
+        id: 'cxyz',
+        file: '',
+        line: null,
+        quote: '',
+        time: '2026-01-01T00:00:00.000Z',
+        audio: null,
+        transcript: '> a v1 body that happens to start with a blockquote\nand continues',
+      },
+    ]);
+  });
+
+  test('a headerless file is treated as v1', () => {
+    const text = '## ^cxyz\n- time: t\n\nhello world\n';
+    expect(parseCommentsFile(text)).toEqual([
+      {
+        id: 'cxyz',
+        file: '',
+        line: null,
+        quote: '',
+        time: 't',
+        audio: null,
+        transcript: 'hello world',
+      },
+    ]);
   });
 });

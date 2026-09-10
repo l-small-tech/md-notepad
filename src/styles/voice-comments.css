@@ -1,4 +1,4 @@
-/* Voice comments — capture sheet + transcript panel.
+/* Voice notes — capture sheet + note list.
  *
  * One overlay serves both platforms: a right-side panel on desktop, a bottom
  * sheet on mobile (body gets [data-android] — see main.tsx). Colours are all
@@ -70,7 +70,8 @@
 }
 .vc-add {
   color: var(--accent);
-  font-size: 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .vc-body {
@@ -81,25 +82,54 @@
   gap: 12px;
 }
 
-/* Capture state */
+/* Capture state: the line being annotated, then the big two-tap mic. */
 .vc-capturing {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 28px 14px;
+  gap: 18px;
+  padding: 22px 14px 28px;
 }
-.vc-pulse {
-  width: 54px;
-  height: 54px;
+.vc-mic {
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
+  border: none;
   background: var(--accent);
-  opacity: 0.85;
+  color: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  cursor: pointer;
+  opacity: 0.92;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease;
+}
+.vc-mic:active {
+  transform: scale(0.96);
+}
+.vc-mic svg {
+  width: 48px;
+  height: 48px;
+}
+.vc-mic-live {
+  background: var(--danger);
   animation: vc-pulse 1.3s ease-in-out infinite;
+}
+/* The line under review, echoed above the mic and on each note card. */
+.vc-quote {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  border-left: 3px solid var(--accent);
+  padding: 2px 8px;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.vc-quote-target {
+  align-self: stretch;
+  margin-bottom: 0;
 }
 @keyframes vc-pulse {
   0%,
@@ -127,9 +157,6 @@
 .vc-card-focus {
   border-color: var(--accent);
 }
-.vc-card-orphan {
-  opacity: 0.85;
-}
 .vc-card-meta {
   display: flex;
   align-items: center;
@@ -137,9 +164,6 @@
   font-size: 0.75rem;
   color: var(--fg-muted);
   margin-bottom: 6px;
-}
-.vc-orphan-tag {
-  color: var(--danger);
 }
 .vc-transcript {
   width: 100%;
@@ -184,4 +208,12 @@
   padding: 2px 6px;
   font-size: 0.75rem;
   cursor: pointer;
+}
+
+/* While the Read-mode toggle is armed the pane owns the long press: no text
+   selection or callout may start on top of the hold gesture. */
+.preview[data-line-hold] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }

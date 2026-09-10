@@ -61,7 +61,7 @@ import { isAndroid } from '../platform';
 import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
 import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
-import { addCommentAtLine, openComment } from '../voice-comments';
+import { openNoteAtLine, voiceStore } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
 import { LiveEditBanner } from './LiveEditBanner';
 import { DiffView } from './DiffView';
@@ -258,10 +258,6 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             },
             saveImage: (data) => savePastedImageForTab(tabId, data),
             enrichCopy: (text) => enrichCopiedText(tabId, text),
-            // Voice comments: a gutter marker opens the transcript; on touch a
-            // long-press on a line starts a new dictated comment there.
-            onOpenComment: (id, line) => void openComment(tabId, id, line),
-            onLongPressLine: isAndroid() ? (line) => void addCommentAtLine(tabId, line) : undefined,
             // Android: double-tap the text to dismiss the soft keyboard.
             dismissKeyboardOnDoubleTap: isAndroid(),
             // Raw mode on a whiteboard is an SVG source editor — highlight it
@@ -362,7 +358,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onOpenExternal: (url) => externalLinkStore.getState().request(url),
       // A right-clicked board opens the theme/true colours menu.
       onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
+      // Voice notes: while the Read-mode toggle is armed, holding a line of
+      // the rendered document opens the capture sheet for that source line.
+      onHoldLine: mode === 'read' ? (line) => void openNoteAtLine(tabId, line) : undefined,
     });
+    // The hold gesture follows the voice-notes toggle (Read mode only).
+    const syncLineHold = () => pane.setLineHold(mode === 'read' && voiceStore.getState().armed);
+    syncLineHold();
+    const unsubscribeVoice = voiceStore.subscribe(syncLineHold);
     registerPreviewGoBack(tabId, () => pane.goBack());
     registerImageRefresher(`${tabId}:preview`, (paths) => pane.refreshImages(paths));
     registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));
@@ -394,6 +397,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       host.focus();
     }
     return () => {
+      unsubscribeVoice();
       unsubscribeDark();
       unsubscribeScheme();
       unsubscribePath();

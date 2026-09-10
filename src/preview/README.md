@@ -33,6 +33,16 @@ const processor = unified()
 Create the processor ONCE at module scope (it's stateless across runs);
 `await processor.process(text)` per render.
 
+A second processor, identical but with a `rehypeSourceLines` step before the
+sanitizer, stamps every element with `data-line` = the 1-based source line it
+starts on (from the `position` remark keeps through remark-rehype).
+`renderMarkdownToHtml(text, { sourceLines: true })` selects it. Only the live
+pane asks for it, and only when a host wires `onHoldLine` — the export and
+markup-comparing tests render without stamps. It exists for one consumer: the
+Read-mode voice-note gesture, which maps a press-and-hold on rendered text back
+to a source line (`closest('[data-line]')`, innermost wins, so a wrapped
+paragraph's inline elements give the more precise line).
+
 ## Sanitize schema (I6 — extend `defaultSchema` by exactly this much)
 
 ```ts
@@ -47,6 +57,8 @@ const schema = {
       ...(defaultSchema.attributes?.input ?? []),
       ['type', 'checkbox'], ['checked'], ['disabled'],
     ],
+    // the source-line stamp (a number; carries no script or URL)
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataLine'],
   },
   tagNames: [...(defaultSchema.tagNames ?? []), 'input'],
 };
@@ -127,6 +139,19 @@ never touched. `pane.ts` keeps a `navStack` of `{ path, text }`:
   the reading column.
 - While browsing (stack non-empty) model edits are ignored — an edit to the
   underlying tab must not yank the reader off the page it's on.
+
+## Press-and-hold line gesture (voice notes)
+
+`attachPreviewPane(host, model, { onHoldLine })` + `pane.setLineHold(on)`.
+While armed, a pointer held ~500 ms (≤10 px drift) on the tab's own document
+reports the source line under it: the innermost `[data-line]` ancestor of the
+pressed target, else the nearest stamped top-level block above the press (a
+hold in the margin beside a paragraph means that paragraph). Never fires on a
+followed link (that page isn't the tab's document). Armed, the pane also
+swallows `contextmenu` and marks itself `data-line-hold` (preview.css /
+voice-comments.css turn off selection + touch callout) so Android's long-press
+selection handles don't fight the gesture. `EditorHost` arms it from the
+voice-notes store in Read mode only.
 
 ## Styling (`src/styles/preview.css`, new in M4)
 
