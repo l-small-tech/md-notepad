@@ -11,7 +11,10 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import { allowedModesFor, docFamilyFor } from '../../core/doc-family';
+import { formatClockTime, isLiveEditTab } from '../../core/live-edit';
 import type { EditorMode } from '../../core/types';
+import { useLiveEditStore } from '../stores/live-edit';
+import { useSettingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { downloadAndInstall, useUpdateStore } from '../update';
@@ -77,6 +80,38 @@ function UpdateChip() {
   );
 }
 
+/**
+ * Live Edit chip: shown while the active tab merges changes from a shared
+ * folder. The dot pulses once per merge (the keyed span remounts, restarting
+ * its animation) and the tooltip says when the last change landed. Not a
+ * button — the toggle lives in the Save menu, where a stray click can't
+ * silently turn merging off.
+ */
+function LiveChip({ tabId }: { tabId: string }) {
+  const kind = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.kind ?? null);
+  const filePath = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.filePath ?? null);
+  const override = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.liveEdit ?? null);
+  const workspaces = useSettingsStore((s) => s.settings.workspaces);
+  const activity = useLiveEditStore((s) => s.byTab[tabId]);
+  if (kind === null || !isLiveEditTab({ kind, filePath, liveEdit: override }, workspaces)) {
+    return null;
+  }
+  const title = activity
+    ? `Live edit — last merged a change from disk at ${formatClockTime(activity.lastMergeAt)}. This file saves as you type; turn it off from the Save menu.`
+    : 'Live edit — this file saves as you type and merges changes other people save to it. Turn it off from the Save menu.';
+  return (
+    <span className="statusbar-live-chip" title={title} role="status">
+      <span
+        key={activity?.merges ?? 0}
+        className="statusbar-live-dot"
+        data-pulse={activity ? '' : undefined}
+        aria-hidden="true"
+      />
+      Live
+    </span>
+  );
+}
+
 export function StatusBar() {
   const active = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const cursor = useUiStore((s) => s.cursor);
@@ -116,6 +151,7 @@ export function StatusBar() {
       <div className="statusbar-notice" role="status">
         {notice}
       </div>
+      <LiveChip tabId={active.id} />
       <UpdateChip />
       <div className="statusbar-meta">
         <span className="statusbar-caret">{caret}</span>

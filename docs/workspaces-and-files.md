@@ -39,6 +39,14 @@ can see at a glance which project a tab belongs to. If you'd also like tabs from
 one workspace kept side by side, turn on **Arrange tabs by workspace** in
 Settings → Behavior; otherwise tabs stay wherever you drag them.
 
+## Sharing a folder with other people (Live edit)
+
+For a workspace that lives in a shared Google Drive or OneDrive folder,
+right-click its heading and turn on **Live edit (shared folder)**. Files
+opened from it save as you type and merge the changes other people save,
+while you both have the file open — see
+[Live edit](notes-tabs-and-saving.md#live-edit-working-on-one-file-together).
+
 ## Creating, renaming, moving, deleting
 
 Right-click gets you everywhere:

@@ -81,6 +81,13 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
               cwd={pane.cwd}
               initialInput={pane.initialInput}
               onInitialInputSent={() => terminalsStore.getState().clearInitialInput(paneId)}
+              // A pane adopted with its tab takes over the shell that is
+              // already running in it instead of spawning a new one.
+              adoptPtyId={pane.adoptPtyId}
+              onPty={(ptyId) => {
+                terminalsStore.getState().setPanePty(paneId, ptyId);
+                terminalsStore.getState().clearAdoptPtyId(paneId);
+              }}
               onTitle={(title) => {
                 terminalsStore.getState().setPaneTitle(paneId, title);
                 // Only the focused pane names the tab.

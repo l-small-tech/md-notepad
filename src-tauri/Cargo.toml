@@ -29,9 +29,9 @@ tauri-plugin-log = "2"
 tauri-plugin-clipboard-manager = "2"
 
 # Windows-only: the on-device Windows.Media.Ocr engine behind the whiteboard
-# scan's text recognition. The `windows` crate is already in the tree via
-# tauri/wry — this direct dependency only turns on the WinRT namespaces the
-# OCR command uses.
+# scan's text recognition, and the shell's virtual-desktop query (src/vdesk.rs).
+# The `windows` crate is already in the tree via tauri/wry — this direct
+# dependency only turns on the namespaces those two use.
 [target.'cfg(target_os = "windows")'.dependencies]
 # The persistent user/machine PATH from the registry (shell.rs `search_path`):
 # what a NEW console would see, which a running process's environment snapshot
@@ -44,6 +44,10 @@ windows = { version = "0.61", features = [
   "Media_Ocr",
   "Storage_Streams",
   "Win32_System_WinRT",
+  # IVirtualDesktopManager (src/vdesk.rs): which virtual desktop a window is on,
+  # so the single-instance handoff never drags the user across desktops.
+  "Win32_System_Com",
+  "Win32_UI_Shell",
 ] }
 
 # Desktop-only plugins. These crates either don't compile for mobile

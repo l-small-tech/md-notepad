@@ -27,6 +27,7 @@ import {
   openFileInNewWindow,
   removeWorkspace,
   setWorkspaceColor,
+  setWorkspaceLiveEdit,
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
@@ -59,6 +60,11 @@ interface FileMenuProps extends CommonProps {
 interface DirMenuProps extends CommonProps {
   dir: string;
   wsColor?: WorkspaceColor | null;
+  /**
+   * Live Edit flag of an ADDED workspace (given = the toggle is offered; the
+   * default notes dir and read-only/synced workspaces leave it undefined).
+   */
+  wsLiveEdit?: boolean;
   renameTarget?: ExplorerEntry;
   removableWs?: boolean;
   readOnly?: boolean;
@@ -201,8 +207,17 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     );
   }
 
-  const { dir, wsColor, renameTarget, removableWs, readOnly, onNewFile, onNewFolder, onSelectDir } =
-    props;
+  const {
+    dir,
+    wsColor,
+    wsLiveEdit,
+    renameTarget,
+    removableWs,
+    readOnly,
+    onNewFile,
+    onNewFolder,
+    onSelectDir,
+  } = props;
 
   // Terminals need a real path to spawn in: no pty on Android, and synced
   // (SAF) workspaces are opaque document ids, not directories.
@@ -382,6 +397,33 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           }
         >
           Set active
+        </button>
+      )}
+      {/* Live Edit: a shared Drive/OneDrive folder. Files opened from it save
+          as you type and merge what others save, live (core/live-edit.ts). A
+          checkable row — the glyph column shows the state. */}
+      {wsLiveEdit !== undefined && (
+        <button
+          className="context-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={wsLiveEdit}
+          title="Shared folder: files save as you type and merge changes other people save, while they are open"
+          onClick={() => {
+            onClose();
+            setWorkspaceLiveEdit(dir, !wsLiveEdit);
+            uiStore
+              .getState()
+              .showNotice(
+                wsLiveEdit
+                  ? 'Live edit is off for this workspace.'
+                  : 'Live edit is on: files here save as you type and merge changes from others.',
+              );
+          }}
+        >
+          <span className="context-menu-check" aria-hidden="true">
+            {wsLiveEdit ? '✓' : ''}
+          </span>
+          Live edit (shared folder)
         </button>
       )}
       {/* Everything created here — files, folders, drawings, terminal and AI

@@ -10,7 +10,14 @@ session concepts in Rust, stop and move it to `src/core`.
 - `src/lib.rs` — builder: plugin registration (single-instance FIRST),
   managed `StartupFiles` state, `drain_startup_files` command, `open-files`
   event for second-instance argv. Read its doc comments — the
-  "why not emit from setup" note matters.
+  "why not emit from setup" note matters. `handle_second_instance` reuses a
+  live window only when the user can SEE it (`vdesk`), else builds a new
+  `w-<millis>` one carrying the argv files in its `?open=` URL param.
+- `src/vdesk.rs` — **Windows only**: `IVirtualDesktopManager`, the one
+  documented virtual-desktop interface (never reach for the undocumented
+  `…Internal` one — its vtable shifts between OS builds). Answers "is this
+  window on the desktop the user is looking at?"; `None` (any COM failure)
+  means "assume yes", degrading to the old always-focus behaviour.
 - `src/commands/fs.rs` — the entire custom IPC surface (reference
   implementation, tested): `read_text_file`, `atomic_write_text`,
   `list_notes`, `list_dir`, `list_session_manifests`, `read_file_base64`,
@@ -21,7 +28,15 @@ session concepts in Rust, stop and move it to `src/core`.
   (reader → bounded channel → emitter, a waiter, and a writer fed by a
   bounded queue so `write()` never blocks the caller), output coalesced
   into ≤64 KB chunks every 4 ms. Deliberately Tauri-free so its tests run a real
-  shell. `src/shell.rs` resolves the default shell when the frontend's
+  shell. A session's sink is SWAPPABLE (`Relay`): a pty outlives the webview
+  that spawned it, so `detach` / `attach` move the listener between windows
+  when a terminal tab is dragged out, and the last ≤1 MB of output (plus an
+  exit code the old window never saw) is replayed to whoever attaches, which
+  is what repaints the screen there. `attach` resizes to the new window's grid
+  FIRST (the shell's redraw then belongs to the replay instead of landing on
+  top of it) and closes the replay with `PtyEvent::ReplayEnd` — the frontend
+  must not answer the queries a replay contains, so it needs to know when the
+  stream goes live. `src/shell.rs` resolves the default shell when the frontend's
   profile names no program: PowerShell 7 (else Windows PowerShell) on
   Windows, zsh on macOS, bash on Linux — each probed on `PATH` first, then
   `$SHELL`, then a shell that always exists. It also owns `search_path`
@@ -37,8 +52,11 @@ session concepts in Rust, stop and move it to `src/core`.
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and
   `closed` travel down the same channel as JSON so they stay ordered against
-  the output they follow. Commands: `default_shell`, `find_programs`, `pty_spawn`,
-  `pty_write`, `pty_resize`, `pty_kill`.
+  the output they follow. The registry is APP-wide, not per-window — that is
+  what lets `pty_attach` hand a running shell to another window (and
+  `pty_detach` let go of one without killing it). Commands: `default_shell`,
+  `find_programs`, `pty_spawn`, `pty_write`, `pty_resize`, `pty_kill`,
+  `pty_attach`, `pty_detach`.
 - `capabilities/default.json` — plugin/core permissions for every app
   window: `main` plus torn-off tab windows (`w-*`, M8). Custom commands
   need NO capability entries.

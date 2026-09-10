@@ -13,7 +13,7 @@ reads CSS variables or the DOM for configuration — everything is passed in.
 
 | File | Role |
 | --- | --- |
-| `view.ts` | `TermView` — the mountable surface. Owns the canvas, frame loop, `ResizeObserver`, devicePixelRatio, focus, link hover, and the scroll animation; reports grid size so the host can resize the pty. |
+| `view.ts` | `TermView` — the mountable surface. Owns the canvas, frame loop, `ResizeObserver`, devicePixelRatio, web-font readiness, focus, link hover, and the scroll animation; reports grid size so the host can resize the pty. |
 | `renderer.ts` | The canvas painter: dirty rows → `clearRect` → background spans → text runs → decorations. |
 | `runs.ts` | Row → draw runs. Batches consecutive cells into background spans and text runs so a line is a couple of canvas calls, not a hundred. |
 | `colors.ts` | Cell attributes → painted colors. A *default* background resolves to `null` and that area is left unpainted, so the page background shows through. |
@@ -52,10 +52,17 @@ reads CSS variables or the DOM for configuration — everything is passed in.
 3. **Configuration is passed, not read.** Theme, font and cursor style arrive
    as options and are re-applied idempotently, which is what makes live
    re-theming a prop change rather than a shell restart.
-4. **Never let the surface collapse.** A 0×0 element resizes the pty to 1×1
+4. **Measure the font you will PAINT with.** A view that mounts before the web
+   font has loaded measures the fallback face, and then every cell position —
+   the cursor included — is computed from a width the canvas does not paint
+   with: runs overhang their cells and overlap the run before them. `TermView`
+   waits on `document.fonts.ready` and re-measures (`remeasure`), which is why
+   a pane in a window that has JUST opened (a torn-off tab, a restored
+   session) looks the same as one mounted a second later.
+5. **Never let the surface collapse.** A 0×0 element resizes the pty to 1×1
    and every running TUI redraws into a corner — see invariant I10 in
    `src/ui/README.md`. That is why terminal tab pages are hidden with
    `visibility: hidden`, never `display: none`.
-5. **Encoding stays pure.** `keys.ts`, `mouse.ts`, `paste.ts` and `runs.ts`
+6. **Encoding stays pure.** `keys.ts`, `mouse.ts`, `paste.ts` and `runs.ts`
    take plain values, not events or canvases, so the whole matrix is
    unit-testable (and diffable against `showkey -a`).

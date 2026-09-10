@@ -6,6 +6,7 @@ function provider(defaultShell: () => Promise<string>): PtyProvider {
   return {
     defaultShell,
     spawn: () => Promise.reject(new Error('not under test')),
+    attach: () => Promise.reject(new Error('not under test')),
   };
 }
 

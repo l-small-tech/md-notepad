@@ -27,6 +27,7 @@ import { uiStore } from '../stores/ui';
 import { isAndroid } from '../platform';
 import { probeTabConflict } from './conflict-probe';
 import type { SessionCtx } from './context';
+import { hasPendingMerge, isTabLive } from './live-merge';
 import { cursorByTab, pathKey, persistedToInit } from './facade';
 
 export function createFlushRestore(ctx: SessionCtx) {
@@ -58,11 +59,21 @@ export function createFlushRestore(ctx: SessionCtx) {
     // THIS flush). Conflicted tabs are skipped — the banner must be resolved
     // first — and a save that fails or newly detects an on-disk change falls
     // back to the buffer path below, keeping the edits crash-safe either way.
-    if (settingsStore.getState().settings.liveSave) {
-      for (const t of tabsStore.getState().tabs) {
-        if (t.kind === 'file' && t.filePath && !t.conflict && t.model.isDirty('file')) {
-          await saveFileTab(t.id);
-        }
+    // Live Edit tabs (a shared cloud folder) save the same way whatever the
+    // global setting says — the other side can only see what is on disk.
+    const liveSave = settingsStore.getState().settings.liveSave;
+    for (const t of tabsStore.getState().tabs) {
+      if (
+        t.kind === 'file' &&
+        t.filePath &&
+        !t.conflict &&
+        t.model.isDirty('file') &&
+        (liveSave || isTabLive(t)) &&
+        // A live tab mid red-flash is about to adopt a change from disk;
+        // writing its stale text now would clobber that change.
+        !hasPendingMerge(t.id)
+      ) {
+        await saveFileTab(t.id);
       }
     }
 
@@ -131,6 +142,7 @@ export function createFlushRestore(ctx: SessionCtx) {
         sessionDirty: t.model.isDirty('session') && !(t.kind === 'note' && t.conflict),
         fileDirty: t.model.isDirty('file'),
         savedMtimeMs: t.savedMtimeMs,
+        liveEdit: t.liveEdit,
         cursor: cursorByTab.get(t.id) ?? null,
         // Terminal tabs contribute no text and no buffer — only their layout.
         terminal: t.kind === 'terminal' ? terminalsStore.getState().snapshot(t.id) : null,
@@ -224,8 +236,11 @@ export function createFlushRestore(ctx: SessionCtx) {
     for (const pt of persisted) {
       if (pt.kind === 'terminal') {
         // Nothing to read: a terminal tab is pane metadata only, and the
-        // shells respawn when the panes mount. Android has no pty, so a
-        // manifest written on a desktop simply loses its terminal tabs there.
+        // shells respawn when the panes mount — unless the descriptor came
+        // from a live window handing the tab over, in which case it names the
+        // ptys still running and the panes attach to those instead. Android
+        // has no pty, so a manifest written on a desktop simply loses its
+        // terminal tabs there.
         if (!isAndroid()) {
           restored.push(persistedToInit(pt, ''));
         }
@@ -467,9 +482,19 @@ export function createFlushRestore(ctx: SessionCtx) {
       return false;
     }
     const filePath = tab.filePath;
+    if (hasPendingMerge(id)) {
+      // The red flash is showing: the text is about to change under us.
+      // The next flush (a second away) saves the merged result instead.
+      return false;
+    }
     try {
       const stat = await ctx.ipc.statPath(filePath);
-      if (stat.exists && stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs) {
+      // A Live Edit tab probes (reads + merges) before EVERY write — see the
+      // probe for why mtime alone is not trusted on cloud drives.
+      if (
+        stat.exists &&
+        ((stat.mtimeMs !== null && stat.mtimeMs !== tab.savedMtimeMs) || isTabLive(tab))
+      ) {
         // An mtime move alone may be benign (touch, identical rewrite) — the
         // probe reads and compares content, adopting the baseline when
         // nothing really changed so the save may proceed.

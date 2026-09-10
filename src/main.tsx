@@ -6,6 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
+import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
@@ -788,6 +789,25 @@ async function boot(): Promise<void> {
       .catch(() => {});
   }
 
+  // A second launch of the app from a virtual desktop with no window on it
+  // (Windows 11) builds a fresh window instead of yanking the user to the old
+  // one — src-tauri/src/lib.rs. Any files that launch carried ride the URL like
+  // ?adopt= does: at build time this window had no `open-files` listener yet.
+  const openParam = bootParams.get('open');
+  if (openParam !== null) {
+    const handoffFiles = ((): string[] => {
+      try {
+        const parsed: unknown = JSON.parse(openParam);
+        return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : [];
+      } catch {
+        return []; // malformed param — open the window empty, never throw
+      }
+    })();
+    if (handoffFiles.length > 0) {
+      void controller.openPaths(handoffFiles).catch(() => {});
+    }
+  }
+
   // Android: files from an "Open with"/"Share" intent arrive as content:// URIs
   // held in the androidfs plugin. Drain them at boot (cold-start intent) and on
   // window focus (warm start — a new intent resumes the app). copyInExternal
@@ -813,13 +833,15 @@ async function boot(): Promise<void> {
     let watchedSignature = '';
     const syncWatchedDirs = (): void => {
       const defaultPath = getDefaultWorkspacePath();
+      const { workspaces } = settingsStore.getState().settings;
       const roots = [
         ...(defaultPath === null ? [] : [defaultPath]),
-        ...settingsStore
-          .getState()
-          .settings.workspaces.filter((w) => w.kind !== 'synced')
-          .map((w) => w.path),
+        ...workspaces.filter((w) => w.kind !== 'synced').map((w) => w.path),
       ];
+      // Live Edit: a shared file opened from OUTSIDE every workspace (per-tab
+      // override) still needs its folder watched, or its merges would only
+      // happen on window focus.
+      roots.push(...extraLiveWatchDirs(tabsStore.getState().tabs, workspaces, roots));
       const signature = JSON.stringify(roots);
       if (signature === watchedSignature) {
         return;
@@ -829,6 +851,7 @@ async function boot(): Promise<void> {
     };
     syncWatchedDirs();
     settingsStore.subscribe(syncWatchedDirs);
+    tabsStore.subscribe(syncWatchedDirs);
 
     // Trailing debounce on top of Rust's: a long burst (sync tool writing many
     // files) still collapses into few re-lists. refreshExplorer is idempotent
@@ -850,6 +873,17 @@ async function boot(): Promise<void> {
         void controller.checkAllFileConflicts();
       }, 300);
     }).catch(() => {});
+
+    // Live Edit fallback: a cloud drive's virtual volume (Google Drive's G:)
+    // does not reliably deliver ReadDirectoryChangesW events, so while any
+    // live tab is open, probe on a timer too. One stat + one small read per
+    // live tab every few seconds; nothing at all when no tab is live.
+    setInterval(() => {
+      const { workspaces } = settingsStore.getState().settings;
+      if (tabsStore.getState().tabs.some((t) => isLiveEditTab(t, workspaces))) {
+        void controller.checkAllFileConflicts();
+      }
+    }, LIVE_EDIT_POLL_MS);
   }
 
   // Second-instance argv (user opens a .md while the app runs). Windows close

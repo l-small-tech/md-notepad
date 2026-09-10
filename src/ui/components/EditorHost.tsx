@@ -63,6 +63,7 @@ import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
 import { addCommentAtLine, openComment } from '../voice-comments';
 import { ConflictBanner } from './ConflictBanner';
+import { LiveEditBanner } from './LiveEditBanner';
 import { DiffView } from './DiffView';
 import { diffViewStore, useDiffView } from '../stores/diff-view';
 
@@ -418,6 +419,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       data-mode={mode satisfies EditorMode}
     >
       <ConflictBanner tabId={tabId} />
+      <LiveEditBanner tabId={tabId} />
       {showDiff && diffEntry && (
         <DiffView
           oldText={diffEntry.diskText}
