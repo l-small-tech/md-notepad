@@ -32,7 +32,7 @@ import { AppMenuDivider, AppMenuItem } from './AppMenu';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
-import { insertFileLink, saveActiveTab, saveActiveTabAs } from '../session';
+import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
 import { addCommentAtLine, openAllComments } from '../voice-comments';
 import {
   FONT_FAMILIES,
@@ -339,6 +339,19 @@ function SaveMenu({
   liveSave: boolean;
   onClose: () => void;
 }) {
+  // The per-tab Live Edit override is offered for a saved FILE tab only —
+  // notes have no file of their own to share.
+  // (Two primitive selectors, not one object — a fresh object per call would
+  // re-render the menu on every store change.)
+  const liveTabId = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab && tab.kind === 'file' && tab.filePath && !tab.readOnly ? tab.id : null;
+  });
+  const liveOn = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab ? isTabLive(tab) : false;
+  });
+  const liveTab = liveTabId === null ? null : { id: liveTabId, live: liveOn };
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener('pointerdown', close);
@@ -377,6 +390,25 @@ function SaveMenu({
         }}
         onClose={onClose}
       />
+      {liveTab && (
+        <AppMenuItem
+          glyph={liveTab.live ? '✓' : ''}
+          label="Live edit (shared file)"
+          title="Save this file as you type AND merge changes other people save to it, live — for a file in a shared Drive/OneDrive folder. Overrides the workspace setting for this tab."
+          onPick={() => {
+            const next = !liveTab.live;
+            tabsStore.getState().setLiveEdit(liveTab.id, next);
+            uiStore
+              .getState()
+              .showNotice(
+                next
+                  ? 'Live edit is on for this file: it saves as you type and merges changes from others.'
+                  : 'Live edit is off for this file.',
+              );
+          }}
+          onClose={onClose}
+        />
+      )}
       <AppMenuDivider />
       <AppMenuItem
         glyph="⤓"

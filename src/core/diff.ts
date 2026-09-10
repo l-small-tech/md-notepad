@@ -295,3 +295,90 @@ export function buildDiffRows(ops: DiffOp[]): DiffRow[] {
   }
   return rows;
 }
+
+/* ------------------------- minimal text changes ------------------------- */
+
+/** One replacement in a text: `[from, to)` becomes `insert`. Offsets index
+ *  the OLD text, so a list applies as one simultaneous change set (the shape
+ *  CodeMirror's `changes` accepts directly). */
+export interface TextChange {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+/**
+ * The smallest line-granular edit turning `oldText` into `newText` — what an
+ * editor should dispatch for an external change (a merge from disk, a reload)
+ * so the caret, selection and scroll position map through instead of being
+ * reset by a whole-document replace. Empty when the texts are equal.
+ */
+export function diffToChanges(oldText: string, newText: string): TextChange[] {
+  if (oldText === newText) {
+    return [];
+  }
+  const ops = diffLines(oldText, newText);
+  const oldLineCount = splitLines(oldText).length;
+  // Start offset of each old line, plus one past the end.
+  const starts: number[] = [0];
+  for (let i = 0; i < oldText.length; i += 1) {
+    if (oldText.charCodeAt(i) === 10) {
+      starts.push(i + 1);
+    }
+  }
+  const changes: TextChange[] = [];
+  let run: { start: number; end: number; lines: string[] } | null = null;
+  const flush = (): void => {
+    if (run === null) {
+      return;
+    }
+    const { start, end, lines } = run;
+    run = null;
+    if (end < oldLineCount) {
+      // The replaced lines are followed by more: the newline after them is ours.
+      changes.push({
+        from: starts[start]!,
+        to: starts[end]!,
+        insert: lines.length > 0 ? `${lines.join('\n')}\n` : '',
+      });
+      return;
+    }
+    if (start === oldLineCount) {
+      // Pure append after the last line: the new lines bring their own
+      // leading newline.
+      changes.push({ from: oldText.length, to: oldText.length, insert: `\n${lines.join('\n')}` });
+      return;
+    }
+    // Through the end of the text: no trailing newline to keep. Deleting the
+    // tail entirely must also take the newline that preceded it.
+    const from = lines.length === 0 && start > 0 ? starts[start]! - 1 : starts[start]!;
+    changes.push({ from, to: oldText.length, insert: lines.join('\n') });
+  };
+  for (const op of ops) {
+    if (op.type === 'equal') {
+      flush();
+      continue;
+    }
+    if (run === null) {
+      run = { start: op.oldStart, end: op.oldStart, lines: [] };
+    }
+    if (op.type === 'delete') {
+      run.end += op.lines.length;
+    } else {
+      run.lines.push(...op.lines);
+    }
+  }
+  flush();
+  return changes;
+}
+
+/** Apply `changes` (as produced by `diffToChanges`) to `text`. */
+export function applyChanges(text: string, changes: TextChange[]): string {
+  let out = '';
+  let pos = 0;
+  for (const c of changes) {
+    out += text.slice(pos, c.from) + c.insert;
+    pos = c.to;
+  }
+  return out + text.slice(pos);
+}

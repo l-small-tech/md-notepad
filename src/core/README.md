@@ -11,7 +11,9 @@ do not rewrite them.
 | --- | --- | --- |
 | `types.ts` | reference | shared vocabulary (TabState, Settings, EditorMode…) |
 | `doc-model.ts` | reference | canonical-text document model (I1) |
-| `diff.ts` | reference | pure line diff (Myers) + side-by-side row builder with intra-line ranges — DiffView now, git integration later |
+| `diff.ts` | reference | pure line diff (Myers) + side-by-side row builder with intra-line ranges — DiffView now, git integration later. Also `diffToChanges`: the minimal `{from,to,insert}` set turning one text into another, which the CM6 adapter dispatches for every external push so the caret and scroll map through instead of resetting |
+| `merge.ts` | reference | three-way line merge for Live Edit (`mergeThreeWay(base, mine, theirs)`): one-sided regions take that side, identical changes are taken once, and a region both sides changed DIFFERENTLY takes THEIRS (disk) — deterministic, so two machines converge instead of ping-ponging, and no duplicate lines. What the local author loses is reported, not hidden: `removed` (ranges of the current text about to go — the red flash), `theirs` (ranges of the merged text that arrived — the green flash) and `lost` (the author's overwritten blocks + where to put them back). `restoreLostBlocks` is the Restore-mine reinsertion. `pickMergeBase(candidates, theirs)` chooses the base among our recent snapshots — the one `theirs` is closest to (changed lines, then words; ties go to the OLDER) — so a sync client's last-writer-wins overwrite of our save is SEEN as a collision rather than read as a plain edit |
+| `live-edit.ts` | reference | Live Edit policy: `isLiveEditTab` (per-tab override, else the file's workspace `liveEdit` flag; never notes/images/terminals), `extraLiveWatchDirs` (folders of overridden files outside every workspace root, for the watcher), `LIVE_EDIT_POLL_MS` (the re-read timer that backs up a cloud volume's unreliable change events), `formatClockTime` for the status chip |
 | `mode-sync.ts` | reference | mode-switch state machine + WYSIWYG write-back guard (I2) |
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
 | `error-text.ts` | reference | `errorDetail` / `withErrorDetail`: the one-line reason behind a failed file operation, for the notice the UI shows (cloud drives fail in ways a bare "Could not rename" hides) |
@@ -45,7 +47,14 @@ do not rewrite them.
 1. **DocModel** — the markdown string is the only truth (I1). Subscription
    dispatch is SYNCHRONOUS; echo suppression therefore uses a reentrancy
    flag (pattern in `doc-model.ts` header + `doc-model.test.ts`). Dirty
-   tracking is snapshot-per-persistence-kind (`session` vs `file`).
+   tracking is snapshot-per-persistence-kind (`session` vs `file`);
+   `markPersistedAs(kind, text)` records a snapshot OTHER than the current
+   text — a Live Edit merge sets the `file` snapshot to what disk now holds
+   while the editor holds the merged result, so the tab is dirty by exactly
+   the lines the next live save must write. Every change of a snapshot pushes
+   the outgoing one onto `getPersistedHistory(kind)` (newest first, deduped,
+   capped at `PERSISTED_HISTORY_LIMIT`) — the candidates `pickMergeBase`
+   chooses from.
 2. **Write-back guard** (I2) — WYSIWYG serialization is pushed only after a
    user edit since attach. `detach()` must call `flushSync()`. The
    "mount → look → leave is byte-identical" test is the guarantee users

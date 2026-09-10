@@ -41,11 +41,17 @@ import { tags } from '@lezer/highlight';
 - Editor → model: `EditorView.updateListener.of((u) => { if (u.docChanged) pushSelf(u.state.doc.toString()) })`
   where `pushSelf` wraps `model.pushText(text, 'cm6')` in the reentrancy
   flag.
-- Model → editor (external change: file reload, wysiwyg write-back):
-  subscribe in `attach`; unless suppressed by the flag, replace content
-  with a single transaction:
-  `view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })`.
-  Do NOT recreate the view for external changes — that loses scroll/cursor.
+- Model → editor (external change: file reload, wysiwyg write-back, a Live
+  Edit merge): subscribe in `attach`; unless suppressed by the flag, apply
+  the change as ONE transaction of minimal line-level edits —
+  `view.dispatch({ changes: diffToChanges(current, text) })` (core/diff.ts) —
+  so the selection and scroll position map through instead of resetting. A
+  whole-document replace would put the caret at 0 every time someone else's
+  save merged in. Do NOT recreate the view for external changes either.
+- `flashRanges(ranges)` (Live Edit): a `StateField` of `Decoration.line`
+  marks (`.cm-live-merged`, CSS fade in app.css) on the lines covering the
+  given ranges, mapped through later edits and cleared by a timer that
+  `detach` cancels.
 - Unsubscribe from the model in `detach` (keep the unsubscribe fn).
 - Cursor persistence (M2): expose `getSelection()`/`setSelection(anchor,
   head)` on the adapter (clamp offsets to doc length — a restored cursor

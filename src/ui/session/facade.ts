@@ -785,6 +785,24 @@ export function setWorkspaceColor(path: string, color: WorkspaceColor | null): v
   });
 }
 /**
+ * FileExplorer → settings: mark a workspace as a shared Live Edit folder (or
+ * not). Only added workspaces carry the flag — the default notes dir has no
+ * WorkspaceEntry, and a note's file is the flusher's, not a live document.
+ * Tabs already open from the folder follow the change on their next probe.
+ */
+export function setWorkspaceLiveEdit(path: string, liveEdit: boolean): void {
+  const { settings, update } = settingsStore.getState();
+  update({
+    workspaces: settings.workspaces.map((w) => {
+      if (pathKey(w.path) !== pathKey(path)) {
+        return w;
+      }
+      const { liveEdit: _prev, ...rest } = w;
+      return liveEdit ? { ...rest, liveEdit: true } : rest;
+    }),
+  });
+}
+/**
  * FileExplorer single-click → controller: open a note file (activates it if
  * already open). Opens as a reusable preview tab when the setting is on.
  */
@@ -876,6 +894,7 @@ export function persistedToInit(tab: PersistedTab, text: string, dirty = false):
     customTitle: tab.customTitle,
     mode: tab.mode,
     savedMtimeMs: tab.savedMtimeMs,
+    liveEdit: tab.liveEdit ?? null,
     text,
     dirty,
     // Recomputed (not persisted): settings are loaded before restore runs.

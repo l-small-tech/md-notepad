@@ -100,6 +100,11 @@ interface WorkspaceView {
   readOnly: boolean;
   /** Synced (SAF) workspace — gets a cloud glyph so it's distinguishable. */
   synced: boolean;
+  /**
+   * Live Edit (shared folder) state, or undefined where the toggle is not
+   * offered: the default notes dir, read-only and synced workspaces.
+   */
+  liveEdit?: boolean;
 }
 
 /** setState-style argument (value or updater) for the two tree sets below. */
@@ -204,6 +209,7 @@ export function FileExplorer() {
       removable: true,
       readOnly: w.readOnly === true,
       synced: w.kind === 'synced',
+      ...(w.readOnly === true || w.kind === 'synced' ? {} : { liveEdit: w.liveEdit === true }),
     })),
   ];
   /** Is `dir` the root of (or inside) a read-only workspace? */
@@ -853,6 +859,7 @@ export function FileExplorer() {
                     <ExplorerContextMenu
                       dir={ws.path}
                       wsColor={ws.color}
+                      wsLiveEdit={ws.liveEdit}
                       removableWs={ws.removable}
                       readOnly={ws.readOnly}
                       onClose={() => setMenuFor(null)}

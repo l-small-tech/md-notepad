@@ -57,12 +57,30 @@ export interface DocModel {
   subscribe(listener: (change: DocChange) => void): () => void;
   /** Snapshot current text as "persisted" for the given target. */
   markPersisted(kind: PersistKind): void;
+  /**
+   * Record `text` — not the current text — as what the target holds. For a
+   * Live Edit merge: the file now contains the other side's text while the
+   * editor holds the merged result, so the tab is dirty by exactly that
+   * difference.
+   */
+  markPersistedAs(kind: PersistKind, text: string): void;
   /** The last snapshot taken for the target — what we believe is on disk.
    *  The conflict check compares this against a fresh read, so an mtime-only
    *  change (touch, sync rewrite) never raises the banner. */
   getPersisted(kind: PersistKind): string;
+  /**
+   * The snapshots the target held BEFORE the current one, newest first
+   * (capped, deduped, current snapshot excluded). Live Edit picks its merge
+   * base from these: a text arriving from a sync client that never received
+   * our last write is closest to an OLDER snapshot, and merging against that
+   * one keeps our write instead of silently adopting the overwrite.
+   */
+  getPersistedHistory(kind: PersistKind): readonly string[];
   isDirty(kind: PersistKind): boolean;
 }
+
+/** How many prior snapshots per target the model remembers. */
+export const PERSISTED_HISTORY_LIMIT = 8;
 
 export function createDocModel(initialText: string): DocModel {
   let text = initialText;
@@ -71,6 +89,24 @@ export function createDocModel(initialText: string): DocModel {
   const persisted: Record<PersistKind, string> = {
     session: initialText,
     file: initialText,
+  };
+  const history: Record<PersistKind, string[]> = { session: [], file: [] };
+  const setPersisted = (kind: PersistKind, snapshot: string): void => {
+    const prev = persisted[kind];
+    if (prev === snapshot) {
+      return;
+    }
+    persisted[kind] = snapshot;
+    const h = history[kind];
+    // Neither the outgoing nor the incoming snapshot may appear twice.
+    for (const dup of [prev, snapshot]) {
+      const idx = h.indexOf(dup);
+      if (idx >= 0) {
+        h.splice(idx, 1);
+      }
+    }
+    h.unshift(prev);
+    h.length = Math.min(h.length, PERSISTED_HISTORY_LIMIT);
   };
 
   return {
@@ -100,11 +136,19 @@ export function createDocModel(initialText: string): DocModel {
     },
 
     markPersisted(kind) {
-      persisted[kind] = text;
+      setPersisted(kind, text);
+    },
+
+    markPersistedAs(kind, snapshot) {
+      setPersisted(kind, snapshot);
     },
 
     getPersisted(kind) {
       return persisted[kind];
+    },
+
+    getPersistedHistory(kind) {
+      return history[kind];
     },
 
     isDirty(kind) {

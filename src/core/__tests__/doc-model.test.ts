@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { createDocModel } from '../doc-model';
+import { createDocModel, PERSISTED_HISTORY_LIMIT } from '../doc-model';
 
 describe('createDocModel', () => {
   test('starts clean with version 0', () => {
@@ -117,5 +117,34 @@ describe('createDocModel', () => {
     model.pushText('start', 'cm6');
     // String-snapshot dirty tracking can see through an edit-then-undo.
     expect(model.isDirty('session')).toBe(false);
+  });
+
+  test('markPersistedAs records a snapshot other than the current text', () => {
+    const model = createDocModel('base');
+    model.pushText('merged', 'programmatic');
+    model.markPersistedAs('file', 'theirs');
+    expect(model.getPersisted('file')).toBe('theirs');
+    expect(model.isDirty('file')).toBe(true);
+    expect(model.getPersisted('session')).toBe('base'); // other target untouched
+    model.pushText('theirs', 'programmatic');
+    expect(model.isDirty('file')).toBe(false);
+  });
+
+  test('getPersistedHistory lists prior snapshots newest first, deduped and capped', () => {
+    const model = createDocModel('v0');
+    expect(model.getPersistedHistory('file')).toEqual([]);
+    model.pushText('v1', 'cm6');
+    model.markPersisted('file');
+    model.markPersisted('file'); // identical re-mark: no history entry
+    model.markPersistedAs('file', 'v2');
+    expect(model.getPersistedHistory('file')).toEqual(['v1', 'v0']);
+    expect(model.getPersistedHistory('session')).toEqual([]); // per target
+    model.markPersistedAs('file', 'v0'); // back to an old snapshot: moves, not duplicates
+    expect(model.getPersistedHistory('file')).toEqual(['v2', 'v1']);
+    for (let i = 0; i < 20; i += 1) {
+      model.markPersistedAs('file', `x${i}`);
+    }
+    expect(model.getPersistedHistory('file')).toHaveLength(PERSISTED_HISTORY_LIMIT);
+    expect(model.getPersistedHistory('file')[0]).toBe('x18');
   });
 });

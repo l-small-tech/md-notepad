@@ -119,6 +119,7 @@ export function createWindows(
       savedMtimeMs: tab.savedMtimeMs,
       hasBuffer: tab.kind === 'file' && tab.model.isDirty('file'),
       cursor: cursorByTab.get(tab.id) ?? null,
+      ...(tab.liveEdit !== null ? { liveEdit: tab.liveEdit } : {}),
       // A terminal's layout goes over with the pty id of every live pane, so
       // the receiving window attaches to the SAME shells rather than
       // respawning them (see `pty_attach`). Read BEFORE detachTab, which
