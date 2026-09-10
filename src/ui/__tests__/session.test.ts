@@ -1823,6 +1823,7 @@ describe('insertFileLink (file/image links)', () => {
       anchorLineAt: () => 1,
       removeAnchor() {},
       flashRanges() {},
+      clearFlash() {},
     });
     return calls;
   }

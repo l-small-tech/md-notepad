@@ -155,7 +155,7 @@ export {
   takePendingReveal,
   tearOffTab,
 } from './facade';
-export { isTabLive } from './live-merge';
+export { dismissLostLines, isTabLive, REMOVE_FLASH_MS, restoreLostLines } from './live-merge';
 export type {
   ConfirmDialog,
   ConfirmRememberDialog,

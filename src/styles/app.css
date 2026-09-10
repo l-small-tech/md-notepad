@@ -3442,6 +3442,20 @@ body.explorer-dragging * {
   }
 }
 
+/* Lines a pending merge is about to remove or replace: a steady red wash,
+   cleared the moment the merged text lands (cm6 clearFlash('removed')). */
+.cm-line.cm-live-removed {
+  background-color: color-mix(in srgb, var(--danger) 24%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 70%, transparent);
+}
+
+/* The Restore-mine banner shares the conflict banner's shape, tinted so it
+   reads as "something changed", not "something is wrong". */
+.live-edit-banner {
+  border-left: 3px solid var(--danger);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .statusbar-live-dot[data-pulse] {
     animation: none;

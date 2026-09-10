@@ -27,7 +27,7 @@ import { uiStore } from '../stores/ui';
 import { isAndroid } from '../platform';
 import { probeTabConflict } from './conflict-probe';
 import type { SessionCtx } from './context';
-import { isTabLive } from './live-merge';
+import { hasPendingMerge, isTabLive } from './live-merge';
 import { cursorByTab, pathKey, persistedToInit } from './facade';
 
 export function createFlushRestore(ctx: SessionCtx) {
@@ -68,7 +68,10 @@ export function createFlushRestore(ctx: SessionCtx) {
         t.filePath &&
         !t.conflict &&
         t.model.isDirty('file') &&
-        (liveSave || isTabLive(t))
+        (liveSave || isTabLive(t)) &&
+        // A live tab mid red-flash is about to adopt a change from disk;
+        // writing its stale text now would clobber that change.
+        !hasPendingMerge(t.id)
       ) {
         await saveFileTab(t.id);
       }
@@ -476,6 +479,11 @@ export function createFlushRestore(ctx: SessionCtx) {
       return false;
     }
     const filePath = tab.filePath;
+    if (hasPendingMerge(id)) {
+      // The red flash is showing: the text is about to change under us.
+      // The next flush (a second away) saves the merged result instead.
+      return false;
+    }
     try {
       const stat = await ctx.ipc.statPath(filePath);
       // A Live Edit tab probes (reads + merges) before EVERY write — see the

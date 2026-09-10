@@ -50,10 +50,14 @@ to the sidebar as a workspace, right-click its heading and turn on
   lines glow briefly in the accent colour, a **Live** chip in the status bar
   pulses, and your caret stays where it was.
 
-Edits to different lines simply combine. If you and someone else changed the
-very same lines, nothing is thrown away: your version is kept and theirs is
-placed right after it, the status bar says so, and you tidy up the duplicate.
-Both computers end up with the same text.
+Edits to different lines simply combine. Lines someone else deleted or
+rewrote glow red for a moment before they go, so nothing vanishes without
+you seeing it. If you and someone else changed the very same lines, the
+version on disk wins (that is the only rule under which both computers end
+up with the same text) — but a bar appears above the editor: **Another
+editor replaced N lines you wrote — Restore mine / Dismiss**. Restore mine
+puts your lines back, right after theirs, so you can decide which to keep.
+Ctrl+Z also still undoes the change like any other edit.
 
 To make a single file live without flagging its whole folder — or to switch
 it off for one file inside a live folder — press and hold the save button and

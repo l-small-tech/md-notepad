@@ -128,7 +128,7 @@ describe('Live Edit — merging changes from disk', () => {
     expect(tab().conflict).toBe(false);
     expect(tab().dirty).toBe(false);
     expect(tab().savedMtimeMs).toBe(fs.mtimes.get(`${SHARED}/plan.md`));
-    expect(live.liveEditStore.getState().byTab[id]).toMatchObject({ merges: 1, overlapped: false });
+    expect(live.liveEditStore.getState().byTab[id]).toMatchObject({ merges: 1 });
   });
 
   test('my unsaved edit and their edit to different lines both survive, and mine is saved back', async () => {
@@ -151,7 +151,7 @@ describe('Live Edit — merging changes from disk', () => {
     expect(tab().dirty).toBe(false);
   });
 
-  test('an overlapping edit keeps both versions and says so', async () => {
+  test('an overlapping edit takes the version on disk and offers my lines back', async () => {
     const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'title\nbody\n' });
     const controller = makeController(fs);
     const { id, tab } = await openShared(controller);
@@ -160,10 +160,84 @@ describe('Live Edit — merging changes from disk', () => {
     fs.external(`${SHARED}/plan.md`, 'title\nbody (theirs)\n');
     await controller.checkConflict(id);
 
-    expect(tab().model.getText()).toBe('title\nbody (mine)\nbody (theirs)\n');
+    expect(tab().model.getText()).toBe('title\nbody (theirs)\n');
     expect(tab().conflict).toBe(false);
-    expect(live.liveEditStore.getState().byTab[id]?.overlapped).toBe(true);
-    expect(ui.uiStore.getState().notice).toMatch(/both versions were kept/);
+    expect(tab().dirty).toBe(false); // nothing of mine left to write
+    expect(live.liveEditStore.getState().lost[id]).toEqual([
+      { lines: ['body (mine)'], afterOffset: 'title\nbody (theirs)\n'.length },
+    ]);
+    expect(ui.uiStore.getState().notice).toMatch(/replaced 1 line you wrote/);
+
+    // Restore mine: my line comes back right after theirs, and gets saved.
+    session.restoreLostLines(id);
+    expect(tab().model.getText()).toBe('title\nbody (theirs)\nbody (mine)\n');
+    expect(live.liveEditStore.getState().lost[id]).toBeUndefined();
+    await controller.flushNow();
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('title\nbody (theirs)\nbody (mine)\n');
+  });
+
+  test('Dismiss forgets the lost lines without touching the text', async () => {
+    const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'title\nbody\n' });
+    const controller = makeController(fs);
+    const { id, tab } = await openShared(controller);
+    tab().model.pushText('title\nbody (mine)\n', 'cm6');
+    fs.external(`${SHARED}/plan.md`, 'title\nbody (theirs)\n');
+    await controller.checkConflict(id);
+
+    session.dismissLostLines(id);
+
+    expect(live.liveEditStore.getState().lost[id]).toBeUndefined();
+    expect(tab().model.getText()).toBe('title\nbody (theirs)\n');
+  });
+
+  test('with a source editor attached, removed lines flash red first and the merge lands later', async () => {
+    const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'a\nb\nc\n' });
+    const controller = makeController(fs);
+    const { id, tab } = await openShared(controller);
+    const registry = await import('../editor-registry');
+    const flashes: Array<{ kind: string; text: string[] }> = [];
+    const cleared: string[] = [];
+    registry.registerSourceAdapter(id, {
+      attach() {},
+      detach() {},
+      focus() {},
+      revealLine() {},
+      getSelection: () => ({ anchor: 0, head: 0 }),
+      setSelection() {},
+      setWordWrap() {},
+      setLineNumbers() {},
+      setFontSize() {},
+      format() {},
+      insertLinkTo() {},
+      insertAnchorAtLine() {},
+      anchorLineAt: () => 1,
+      removeAnchor() {},
+      flashRanges(ranges, kind) {
+        const text = tab().model.getText();
+        flashes.push({ kind, text: ranges.map((r) => text.slice(r.from, r.to)) });
+      },
+      clearFlash(kind) {
+        cleared.push(kind);
+      },
+    });
+    tab().model.pushText('a\nb (mine)\nc\n', 'cm6');
+    fs.external(`${SHARED}/plan.md`, 'a\nb (theirs)\nc\n');
+
+    await controller.checkConflict(id);
+
+    // Red on my line, text untouched, and a live save is held meanwhile.
+    expect(flashes).toEqual([{ kind: 'removed', text: ['b (mine)'] }]);
+    expect(tab().model.getText()).toBe('a\nb (mine)\nc\n');
+    await controller.flushNow();
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('a\nb (theirs)\nc\n'); // not clobbered
+
+    vi.advanceTimersByTime(session.REMOVE_FLASH_MS);
+
+    expect(tab().model.getText()).toBe('a\nb (theirs)\nc\n');
+    expect(cleared).toEqual(['removed']);
+    expect(flashes[1]).toEqual({ kind: 'added', text: ['b (theirs)'] });
+    expect(live.liveEditStore.getState().lost[id]?.[0]?.lines).toEqual(['b (mine)']);
+    registry.unregisterSourceAdapter(id);
   });
 
   test('a save that races an external write merges first, then writes the union', async () => {
@@ -253,7 +327,7 @@ describe('Live Edit — merging changes from disk', () => {
 });
 
 describe('Live Edit — cloud-drive realities', () => {
-  test('a sync client that let the other save win does not lose my line: both are kept', async () => {
+  test('a sync client that let the other save win is caught: their text lands, mine is offered back', async () => {
     const fs = makeFakeFs({ [`${SHARED}/plan.md`]: 'title\n\n' });
     const controller = makeController(fs);
     const { id, tab } = await openShared(controller);
@@ -266,12 +340,15 @@ describe('Live Edit — cloud-drive realities', () => {
     fs.external(`${SHARED}/plan.md`, 'title\n\ntheir line\n');
     await controller.checkConflict(id);
 
-    expect(tab().model.getText()).toBe('title\n\nmy line\ntheir line\n');
+    // Disk wins — but the collision was SEEN (older base), so my line is
+    // kept aside instead of silently vanishing.
+    expect(tab().model.getText()).toBe('title\n\ntheir line\n');
     expect(tab().conflict).toBe(false);
-    expect(ui.uiStore.getState().notice).toMatch(/both versions were kept/);
-    // ...and the union goes back out so the other side converges too.
+    expect(live.liveEditStore.getState().lost[id]?.[0]?.lines).toEqual(['my line']);
+    expect(ui.uiStore.getState().notice).toMatch(/replaced 1 line you wrote/);
+    // Nothing goes back out: both machines already hold the same text.
     await controller.flushNow();
-    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('title\n\nmy line\ntheir line\n');
+    expect(fs.files.get(`${SHARED}/plan.md`)).toBe('title\n\ntheir line\n');
   });
 
   test('a content change with an unchanged mtime (coarse FAT timestamps) is still merged', async () => {

@@ -12,6 +12,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `EditorHost` | M1 | THE critical component — see below |
 | `StatusBar` | M1 | mode segment control, cursor pos, word count; notice area (hints, flush errors); the **Live** chip (`LiveChip`) while the active tab is in Live Edit mode — its dot pulses once per merge (keyed on `liveEditStore`'s per-tab merge count) and the tooltip carries the last merge time. Deliberately not a button: the toggle is in the Save menu |
 | `ConflictBanner` | M3 | per-tab "File changed on disk — View diff / Reload / Keep mine". Never shown for a Live Edit tab: `session/conflict-probe.ts` merges instead (see "Live Edit" below) |
+| `LiveEditBanner` | reference | per-tab "Another editor replaced N lines you wrote — Restore mine / Dismiss" after a Live Edit merge where disk won a collision (`liveEditStore.lost`); same shape as ConflictBanner, mounted beside it in EditorHost |
 | `DiffView` | reference | read-only side-by-side diff of two texts (core/diff.ts does the comparing); shown inline in EditorHost while a conflict's "View diff" is open, reusable for the future git integration |
 | `ExternalLinkPrompt` | reference | the confirm bar for a clicked `http(s)` link (non-modal, bottom centre) — see "Link policy" below |
 | `SettingsDialog` | M6 | plain form over the settings store |
@@ -419,37 +420,50 @@ check, the `fs-changed` listener and `saveFileTab`'s pre-write guard. For a
 live tab a real change goes to `mergeDiskChange` instead of `setConflict`:
 
 ```
-base   = model.getPersisted('file')   ← what we last wrote / loaded
-mine   = model.getText()              ← the editor now
-theirs = fresh read from disk         ← their save
-merged = mergeThreeWay(base, mine, theirs)
-model.pushText(merged, 'programmatic')            → CM6 applies a minimal diff, caret survives
+base   = pickMergeBase(snapshot + history, theirs)   ← see "Which base"
+mine   = model.getText()                             ← the editor now
+theirs = fresh read from disk                        ← their save
+result = mergeThreeWay(base, mine, theirs)           ← disk wins a collision
+if result.removed and a CM6 adapter is attached:
+    adapter.flashRanges(result.removed, 'removed')   → red on the lines about to go
+    wait REMOVE_FLASH_MS (live save held: hasPendingMerge), then recompute
+model.pushText(result.text, 'programmatic')          → minimal diff, caret survives
 tabsStore.adoptMergedText(id, { diskText: theirs, mtimeMs })
-                                                  → 'file' baseline := theirs; dirty iff merged ≠ theirs
-liveEditStore.recordMerge(...)                    → chip pulses; overlap → status-bar notice
-adapter.flashRanges(theirLines)                   → fading accent wash on their lines
+                                                     → 'file' baseline := theirs; dirty iff merged ≠ theirs
+adapter.clearFlash('removed'); flashRanges(result.theirs, 'added')
+                                                     → green fade on the lines that arrived
+result.lost → liveEditStore.setLost(id, blocks)      → LiveEditBanner: Restore mine / Dismiss
 ```
 
-The next flush then live-saves the merged text (the flusher saves a live
-tab whatever `settings.liveSave` says), and the other machine's probe finds
-"disk ≠ my baseline, but I typed nothing since" and simply adopts it — the
-keep-both rule in `merge.ts` is what makes that converge rather than
-ping-pong. `saveFileTab` needs no special case: its mtime pre-check runs the
-same probe, so a save that races an external write merges first and then
-writes the union. Disk catching up to exactly the editor's text just marks
-the tab saved. If a merge cannot be applied (an editor refused the push) the
-probe falls back to the banner, so nothing is ever silently lost.
+Where both sides changed the same lines, THEIRS (disk) wins — the one rule
+under which two machines converge instead of each re-saving its own version
+(keep-both was tried first and rejected: it filled a collaborative document
+with duplicate lines). What the local author loses is never silent: the red
+flash first, then `LiveEditBanner` above the editor with the overwritten
+lines held in `liveEditStore.lost`; `restoreLostLines` reinserts them right
+after their replacement (`restoreLostBlocks`, green flash) and the next
+flush saves that, `dismissLostLines` forgets them. CM6's own history also
+has the merge transaction, so Ctrl+Z is a further escape hatch.
+
+The next flush live-saves whatever the merge left that disk lacks (the
+flusher saves a live tab whatever `settings.liveSave` says, except while a
+red flash is pending). `saveFileTab` needs no special case: its pre-check
+runs the same probe, so a save that races an external write merges first
+and then writes the result. Disk catching up to exactly the editor's text
+just marks the tab saved. If a merge cannot be applied (an editor refused
+the push) the probe falls back to the banner, so nothing is ever lost.
 
 **Which base.** The sync client resolves a write race last-writer-wins, so
 a text can arrive that was built on the snapshot BEFORE our last write (our
 write never reached that machine — observed on Google Drive, 2026-09-10).
-Against our latest snapshot that reads as "they deleted my line" and the
-adopt is silent. `mergeDiskChange` therefore hands `pickMergeBase` the
+Against our latest snapshot that reads as "they deleted my line" — a plain
+edit, so no banner. `mergeDiskChange` therefore hands `pickMergeBase` the
 current snapshot plus `model.getPersistedHistory('file')` (the last few
 `file` snapshots, kept by DocModel) and merges against the one `theirs` is
-closest to; the older base turns the overwrite into a keep-both. The
-trade-off is documented in `merge.test.ts`: a tweak of a line we only just
-inserted is indistinguishable from a concurrent insert and also keeps both.
+closest to; the older base makes the collision visible, so the author gets
+the red flash and the Restore-mine offer. The trade-off is documented in
+`merge.test.ts`: a tweak of a line we only just inserted is
+indistinguishable from a concurrent insert and also raises the offer.
 
 **Watching.** `fs-changed` already covers workspace roots; `main.tsx` adds
 `extraLiveWatchDirs` (folders of overridden files outside every root) and

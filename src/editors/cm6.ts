@@ -122,55 +122,71 @@ export interface Cm6Adapter extends EditorAdapter {
   /** Remove the anchor token for `id` (and one leading space), if present. */
   removeAnchor(id: string): void;
   /**
-   * Live Edit: briefly highlight the lines covering these document ranges —
-   * text that just arrived from another person's save. The highlight maps
-   * through subsequent edits and fades on its own.
+   * Live Edit: highlight the lines covering these document ranges. 'added'
+   * is text that just arrived from another person's save (green, fades on
+   * its own); 'removed' is text a pending merge is about to take away (red,
+   * steady until `clearFlash('removed')` or the timer). Both map through
+   * subsequent edits.
    */
-  flashRanges(ranges: { from: number; to: number }[]): void;
+  flashRanges(ranges: { from: number; to: number }[], kind: FlashKind): void;
+  /** Drop every highlight of that kind now (the merge landed). */
+  clearFlash(kind: FlashKind): void;
 }
 
 /* ---- Live Edit merge highlight ------------------------------------------ */
 
+export type FlashKind = 'added' | 'removed';
 type FlashRange = { from: number; to: number };
 
-const addFlash = StateEffect.define<FlashRange[]>({
-  map: (ranges, change) =>
-    ranges.map((r) => ({ from: change.mapPos(r.from), to: change.mapPos(r.to) })),
+const addFlash = StateEffect.define<{ kind: FlashKind; ranges: FlashRange[] }>({
+  map: ({ kind, ranges }, change) => ({
+    kind,
+    ranges: ranges.map((r) => ({ from: change.mapPos(r.from), to: change.mapPos(r.to) })),
+  }),
 });
-const clearFlash = StateEffect.define<null>();
-const flashLine = Decoration.line({ class: 'cm-live-merged' });
+const clearFlash = StateEffect.define<FlashKind>();
+const FLASH_CLASS: Record<FlashKind, string> = {
+  added: 'cm-live-merged',
+  removed: 'cm-live-removed',
+};
 
-/** Line decorations for merged-in text; cleared wholesale by `clearFlash`. */
-const flashField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    let next = deco.map(tr.changes);
-    for (const effect of tr.effects) {
-      if (effect.is(clearFlash)) {
-        next = Decoration.none;
-      } else if (effect.is(addFlash)) {
-        const doc = tr.state.doc;
-        const marks = [];
-        for (const r of effect.value) {
-          const from = Math.max(0, Math.min(r.from, doc.length));
-          const to = Math.max(from, Math.min(r.to, doc.length));
-          const first = doc.lineAt(from).number;
-          const last = doc.lineAt(to).number;
-          for (let n = first; n <= last; n += 1) {
-            marks.push(flashLine.range(doc.line(n).from));
+/** One decoration set per flash kind, so clearing one leaves the other. */
+function flashField(kind: FlashKind): StateField<DecorationSet> {
+  const lineDeco = Decoration.line({ class: FLASH_CLASS[kind] });
+  return StateField.define<DecorationSet>({
+    create: () => Decoration.none,
+    update(deco, tr) {
+      let next = deco.map(tr.changes);
+      for (const effect of tr.effects) {
+        if (effect.is(clearFlash) && effect.value === kind) {
+          next = Decoration.none;
+        } else if (effect.is(addFlash) && effect.value.kind === kind) {
+          const doc = tr.state.doc;
+          const marks = [];
+          for (const r of effect.value.ranges) {
+            const from = Math.max(0, Math.min(r.from, doc.length));
+            const to = Math.max(from, Math.min(r.to, doc.length));
+            const first = doc.lineAt(from).number;
+            const last = doc.lineAt(to).number;
+            for (let n = first; n <= last; n += 1) {
+              marks.push(lineDeco.range(doc.line(n).from));
+            }
           }
+          next = next.update({ add: marks, sort: true });
         }
-        next = next.update({ add: marks, sort: true });
       }
-    }
-    return next;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
+      return next;
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+}
+const addedFlashField = flashField('added');
+const removedFlashField = flashField('removed');
 
-/** How long the merged-line highlight stays before it is dropped (the CSS
- *  fade is a little shorter, so the removal is invisible). */
-const FLASH_MS = 2600;
+/** How long each highlight stays before it is dropped. The green CSS fade is
+ *  a little shorter than its timer, so the removal is invisible; the red one
+ *  is normally cleared by the merge landing — the timer is the backstop. */
+const FLASH_MS: Record<FlashKind, number> = { added: 2600, removed: 4000 };
 
 const baseTheme = EditorView.theme({
   '&': {
@@ -552,7 +568,10 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   // we are pushing INTO the editor from the model.
   let pushingSelf = false;
   let applyingExternal = false;
-  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  const flashTimers: Record<FlashKind, ReturnType<typeof setTimeout> | null> = {
+    added: null,
+    removed: null,
+  };
 
   function reportSelection() {
     if (!view || !options.onSelection) {
@@ -666,7 +685,8 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         imagePasteHandler,
         copyEnrichHandler,
         plainDotsExtension,
-        flashField,
+        addedFlashField,
+        removedFlashField,
         themeCompartment.of([
           baseTheme,
           syntaxHighlighting(isXml ? xmlHighlightStyle : highlightStyle),
@@ -725,9 +745,12 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     // write-back to flush here — the detach contract is trivially met.
     unsubscribe?.();
     unsubscribe = null;
-    if (flashTimer !== null) {
-      clearTimeout(flashTimer);
-      flashTimer = null;
+    for (const kind of ['added', 'removed'] as const) {
+      const timer = flashTimers[kind];
+      if (timer !== null) {
+        clearTimeout(timer);
+        flashTimers[kind] = null;
+      }
     }
     view?.destroy();
     view = null;
@@ -826,18 +849,27 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
           : anchor.from;
       view.dispatch({ changes: { from, to: anchor.to } });
     },
-    flashRanges(ranges) {
+    flashRanges(ranges, kind) {
       if (!view || ranges.length === 0) {
         return;
       }
-      view.dispatch({ effects: addFlash.of(ranges) });
-      if (flashTimer !== null) {
-        clearTimeout(flashTimer);
+      view.dispatch({ effects: addFlash.of({ kind, ranges }) });
+      const prior = flashTimers[kind];
+      if (prior !== null) {
+        clearTimeout(prior);
       }
-      flashTimer = setTimeout(() => {
-        flashTimer = null;
-        view?.dispatch({ effects: clearFlash.of(null) });
-      }, FLASH_MS);
+      flashTimers[kind] = setTimeout(() => {
+        flashTimers[kind] = null;
+        view?.dispatch({ effects: clearFlash.of(kind) });
+      }, FLASH_MS[kind]);
+    },
+    clearFlash(kind) {
+      const prior = flashTimers[kind];
+      if (prior !== null) {
+        clearTimeout(prior);
+        flashTimers[kind] = null;
+      }
+      view?.dispatch({ effects: clearFlash.of(kind) });
     },
   };
 }

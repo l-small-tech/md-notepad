@@ -97,9 +97,7 @@ function LiveChip({ tabId }: { tabId: string }) {
     return null;
   }
   const title = activity
-    ? `Live edit — last merged a change from disk at ${formatClockTime(activity.lastMergeAt)}${
-        activity.overlapped ? ' (both versions kept)' : ''
-      }. This file saves as you type; turn it off from the Save menu.`
+    ? `Live edit — last merged a change from disk at ${formatClockTime(activity.lastMergeAt)}. This file saves as you type; turn it off from the Save menu.`
     : 'Live edit — this file saves as you type and merges changes other people save to it. Turn it off from the Save menu.';
   return (
     <span className="statusbar-live-chip" title={title} role="status">

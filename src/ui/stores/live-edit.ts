@@ -1,49 +1,67 @@
 /**
- * Live Edit activity store — what the status-bar "Live" chip shows: per tab,
- * when a change from disk was last merged in, how many merges have landed
- * (the chip pulses when this moves) and whether the last one had to keep
- * both versions of an overlapping edit. Session-only display state; whether a
- * tab IS live comes from settings + the tab (core/live-edit.ts), not here.
+ * Live Edit activity store — what the status-bar "Live" chip and the
+ * Restore-mine banner show: per tab, when a change from disk was last merged
+ * in, how many merges have landed (the chip pulses when this moves), and the
+ * author's own lines the last merge overwrote (`lost`), kept until restored
+ * or dismissed. Session-only display state; whether a tab IS live comes from
+ * settings + the tab (core/live-edit.ts), not here.
  */
 
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import type { LostBlock } from '../../core/merge';
 
 export interface LiveEditActivity {
   /** Wall-clock ms of the last merge from disk. */
   lastMergeAt: number;
   /** Monotonic per-tab merge counter — the chip keys its pulse animation on it. */
   merges: number;
-  /** The last merge kept both sides of an overlapping edit. */
-  overlapped: boolean;
 }
 
 export interface LiveEditState {
   byTab: Record<string, LiveEditActivity>;
-  recordMerge: (tabId: string, at: number, overlapped: boolean) => void;
+  /** Tabs whose last merge replaced lines the local author had written. */
+  lost: Record<string, LostBlock[]>;
+  recordMerge: (tabId: string, at: number) => void;
+  /** Remember (or, with an empty list, clear) the author's overwritten lines. */
+  setLost: (tabId: string, blocks: LostBlock[]) => void;
   forget: (tabId: string) => void;
 }
 
 export const liveEditStore = createStore<LiveEditState>()((set, get) => ({
   byTab: {},
+  lost: {},
 
-  recordMerge(tabId, at, overlapped) {
+  recordMerge(tabId, at) {
     const prev = get().byTab[tabId];
     set({
-      byTab: {
-        ...get().byTab,
-        [tabId]: { lastMergeAt: at, merges: (prev?.merges ?? 0) + 1, overlapped },
-      },
+      byTab: { ...get().byTab, [tabId]: { lastMergeAt: at, merges: (prev?.merges ?? 0) + 1 } },
     });
   },
 
+  setLost(tabId, blocks) {
+    const lost = { ...get().lost };
+    if (blocks.length === 0) {
+      if (!(tabId in lost)) {
+        return;
+      }
+      delete lost[tabId];
+    } else {
+      lost[tabId] = blocks;
+    }
+    set({ lost });
+  },
+
   forget(tabId) {
-    if (!(tabId in get().byTab)) {
+    const s = get();
+    if (!(tabId in s.byTab) && !(tabId in s.lost)) {
       return;
     }
-    const next = { ...get().byTab };
-    delete next[tabId];
-    set({ byTab: next });
+    const byTab = { ...s.byTab };
+    const lost = { ...s.lost };
+    delete byTab[tabId];
+    delete lost[tabId];
+    set({ byTab, lost });
   },
 }));
 

@@ -7,11 +7,14 @@
  *
  * - a region only one side touched takes that side's lines;
  * - a region both sides changed identically takes it once;
- * - a region both sides changed DIFFERENTLY keeps both: my lines, then
- *   theirs. Never a conflict marker, never a dropped edit. This is what makes
- *   two machines converge instead of ping-ponging: once A saves "mine+theirs",
- *   B's next probe finds disk ≠ its baseline but equal to nothing it typed
- *   since, and simply adopts it.
+ * - a region both sides changed DIFFERENTLY takes THEIRS — the version on
+ *   disk. Deterministic, so two machines converge instead of ping-ponging
+ *   (a "mine wins" would have each side re-saving its own version forever),
+ *   and never a duplicate line the document has to be cleaned of. What it
+ *   costs the local author is reported, not hidden: `removed` says which of
+ *   the current lines are about to go (the editor flashes them red before the
+ *   change lands), and `lost` carries the author's own overwritten lines with
+ *   the spot they came from, so the UI can offer to put them back.
  *
  * Texts are split on `\n` exactly like `diffLines` (a `\r` stays on its line,
  * a trailing newline yields a final empty line), so joining the merged lines
@@ -21,21 +24,33 @@
 
 import { diffLines, type DiffOp } from './diff';
 
-/** A contiguous run of the merged text that came from the other side. */
-export interface MergedRange {
-  /** Char offsets into `text`, `[from, to)`. */
+/** A char range `[from, to)`. */
+export interface CharRange {
   from: number;
   to: number;
-  /** 0-based line offsets into `text`, `[startLine, endLine)`. */
-  startLine: number;
-  endLine: number;
+}
+
+/** A block of the local author's lines that the merge replaced with theirs. */
+export interface LostBlock {
+  /** The overwritten lines, as they were. */
+  lines: string[];
+  /**
+   * Char offset into the MERGED text of the start of the line right after
+   * their replacement — where "Restore mine" reinserts the block, so the two
+   * versions end up adjacent and the author can reconcile them.
+   */
+  afterOffset: number;
 }
 
 export interface MergeResult {
   text: string;
-  /** Where the other side's lines landed — for the fading highlight. */
-  theirs: MergedRange[];
-  /** Regions where both sides edited the same lines and both were kept. */
+  /** Lines of `text` that came from the other side — the green flash. */
+  theirs: CharRange[];
+  /** Lines of `mine` (the CURRENT text) the merge removes or replaces — the red flash. */
+  removed: CharRange[];
+  /** My own edits that lost to theirs, for the Restore-mine banner. */
+  lost: LostBlock[];
+  /** Regions where both sides edited the same lines (theirs won). */
   overlaps: number;
   /** True when `text` differs from `mine` — i.e. the editor must change. */
   changed: boolean;
@@ -110,16 +125,35 @@ function sameLines(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((line, i) => line === b[i]);
 }
 
+/** Start offset of each line (and one past the end) in `lines.join('\n')`. */
+function lineOffsets(lines: string[]): number[] {
+  const offsets = [0];
+  let acc = 0;
+  for (const line of lines) {
+    acc += line.length + 1;
+    offsets.push(acc);
+  }
+  return offsets;
+}
+
+/** Char range covering lines `[startLine, endLine)`, excluding the final newline. */
+function lineSpan(offsets: number[], startLine: number, endLine: number): CharRange {
+  const from = offsets[startLine]!;
+  return { from, to: Math.max(from, offsets[endLine]! - 1) };
+}
+
 /**
  * Which of our past snapshots did `theirs` grow from? Sync clients resolve a
  * write race last-writer-wins, so a text can arrive that was built on the
  * snapshot BEFORE our last write (our write never reached that machine).
  * Merging it against our latest snapshot would read our own lines as "theirs
- * deleted these" and drop them silently; merging against the snapshot it
- * actually derives from keeps both. The base is the candidate whose diff to
- * `theirs` is smallest — line count first, then word count for a finer read
- * of "did they edit MY line or write over the original?" — and on an exact
- * tie the OLDER one, because keeping both lines beats losing one.
+ * deleted these" — a plain edit, nothing to warn about; merging against the
+ * snapshot it actually derives from sees the collision, so the author gets
+ * the red flash and the Restore-mine offer. The base is the candidate whose
+ * diff to `theirs` is smallest — line count first, then word count for a
+ * finer read of "did they edit MY line or write over the original?" — and on
+ * an exact tie the OLDER one, because a warning you can dismiss beats a
+ * silent loss.
  *
  * `candidates` is newest first: [current snapshot, ...history].
  */
@@ -159,9 +193,10 @@ function words(text: string): string {
 
 export function mergeThreeWay(base: string, mine: string, theirs: string): MergeResult {
   if (theirs === base || theirs === mine) {
-    return { text: mine, theirs: [], overlaps: 0, changed: false };
+    return { text: mine, theirs: [], removed: [], lost: [], overlaps: 0, changed: false };
   }
   const baseLines = base.split('\n');
+  const mineOffsets = lineOffsets(mine.split('\n'));
   const mineHunks = hunksFromOps(diffLines(base, mine)).map((h) => ({
     ...h,
     side: 'mine' as const,
@@ -190,55 +225,102 @@ export function mergeThreeWay(base: string, mine: string, theirs: string): Merge
   }
 
   const out: string[] = [];
-  const theirLineRanges: Array<[number, number]> = [];
+  const theirsLines: Array<[number, number]> = [];
+  const removed: CharRange[] = [];
+  const lostBlocks: Array<{ lines: string[]; afterLine: number }> = [];
   let overlaps = 0;
   let pos = 0;
+  // Where the current region starts in MINE's line space: its base position
+  // plus the net growth of every one of my hunks before it.
+  let mineDelta = 0;
   for (const r of regions) {
     out.push(...baseLines.slice(pos, r.start));
     pos = r.end;
-    const mineText = r.mine.length > 0 ? sideText(baseLines, r.start, r.end, r.mine) : null;
-    const theirText = r.theirs.length > 0 ? sideText(baseLines, r.start, r.end, r.theirs) : null;
-    if (theirText === null) {
-      out.push(...mineText!);
+    const mineStartLine = r.start + mineDelta;
+    const mineSide = sideText(baseLines, r.start, r.end, r.mine);
+    for (const h of r.mine) {
+      mineDelta += h.lines.length - (h.end - h.start);
+    }
+    if (r.theirs.length === 0) {
+      out.push(...mineSide); // mine only
       continue;
     }
-    if (mineText === null || sameLines(mineText, theirText)) {
-      // Theirs only, or both made the same change: take it once. Highlight
-      // only genuinely incoming lines.
-      if (mineText === null && theirText.length > 0) {
-        theirLineRanges.push([out.length, out.length + theirText.length]);
+    const theirText = sideText(baseLines, r.start, r.end, r.theirs);
+    if (sameLines(mineSide, theirText)) {
+      out.push(...theirText); // both made the same change: nothing to flag
+      continue;
+    }
+    if (r.mine.length > 0) {
+      // Both changed the same lines differently: theirs wins, mine is kept
+      // aside for the Restore-mine offer.
+      overlaps += 1;
+      lostBlocks.push({ lines: mineSide, afterLine: out.length + theirText.length });
+    }
+    // Their lines replace mine here. Flag only what really changes: the
+    // lines of mine that go (red, in the current text) and the lines of
+    // theirs that are new (green, in the merged text). An empty side is a
+    // pure deletion/insertion — diffing it would invent an empty line.
+    if (theirText.length === 0) {
+      removed.push(lineSpan(mineOffsets, mineStartLine, mineStartLine + mineSide.length));
+    } else if (mineSide.length === 0) {
+      theirsLines.push([out.length, out.length + theirText.length]);
+    } else {
+      for (const op of diffLines(mineSide.join('\n'), theirText.join('\n'))) {
+        if (op.type === 'delete') {
+          const startLine = mineStartLine + op.oldStart;
+          removed.push(lineSpan(mineOffsets, startLine, startLine + op.lines.length));
+        } else if (op.type === 'insert') {
+          const startLine = out.length + op.newStart;
+          theirsLines.push([startLine, startLine + op.lines.length]);
+        }
       }
-      out.push(...theirText);
-      continue;
-    }
-    // Both changed the same lines differently: keep mine, then theirs.
-    overlaps += 1;
-    out.push(...mineText);
-    if (theirText.length > 0) {
-      theirLineRanges.push([out.length, out.length + theirText.length]);
     }
     out.push(...theirText);
   }
   out.push(...baseLines.slice(pos));
 
   const text = out.join('\n');
-  const offsets = lineOffsets(out);
-  const ranges: MergedRange[] = theirLineRanges.map(([s, e]) => ({
-    from: offsets[s]!,
-    to: e < out.length ? offsets[e]! - 1 : text.length,
-    startLine: s,
-    endLine: e,
+  const outOffsets = lineOffsets(out);
+  const lost: LostBlock[] = lostBlocks.map((b) => ({
+    lines: b.lines,
+    afterOffset: Math.min(outOffsets[b.afterLine]!, text.length),
   }));
-  return { text, theirs: ranges, overlaps, changed: text !== mine };
+  return {
+    text,
+    theirs: theirsLines.map(([s, e]) => lineSpan(outOffsets, s, e)),
+    removed,
+    lost,
+    overlaps,
+    changed: text !== mine,
+  };
 }
 
-/** Start offset of each line (and one past the end) in `lines.join('\n')`. */
-function lineOffsets(lines: string[]): number[] {
-  const offsets = [0];
-  let acc = 0;
-  for (const line of lines) {
-    acc += line.length + 1;
-    offsets.push(acc);
+/**
+ * "Restore mine": put lost blocks back into `text` right after the lines that
+ * replaced them, highest offset first so earlier insertions do not shift the
+ * later ones. An offset past the end (the document shrank since) appends.
+ * Returns the new text and where each block landed (for the green flash).
+ */
+export function restoreLostBlocks(
+  text: string,
+  blocks: readonly LostBlock[],
+): { text: string; inserted: CharRange[] } {
+  const ordered = [...blocks].sort((a, b) => b.afterOffset - a.afterOffset);
+  const inserted: CharRange[] = [];
+  let out = text;
+  for (const block of ordered) {
+    const at = Math.min(block.afterOffset, out.length);
+    const atLineStart = at === 0 || out[at - 1] === '\n';
+    const atEnd = at === out.length;
+    const body = block.lines.join('\n');
+    // Keep the block on lines of its own whatever it lands next to, and keep
+    // a newline-terminated document terminated when appending to it.
+    const leading = atLineStart ? '' : '\n';
+    const trailing = !atEnd || (atLineStart && at > 0) ? '\n' : '';
+    const chunk = leading + body + trailing;
+    out = out.slice(0, at) + chunk + out.slice(at);
+    const from = at + (atLineStart ? 0 : 1);
+    inserted.push({ from, to: from + body.length });
   }
-  return offsets;
+  return { text: out, inserted };
 }
