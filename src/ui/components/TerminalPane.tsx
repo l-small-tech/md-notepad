@@ -10,6 +10,11 @@
  *
  * The pty is spawned once, on mount, and lives as long as the element does
  * (which is why `PaneTree` places panes as keyed SIBLINGS — see its header).
+ * `adoptPtyId` is the one exception: a pane whose tab was dragged in from
+ * another window ATTACHES to the shell that is already running instead of
+ * starting one, and the backend replays what it buffered so the screen comes
+ * back as it was. The mirror of that is teardown — a pane whose session was
+ * released (`consumePaneRelease`) detaches rather than killing its shell.
  * Everything else — settings, theme, font zoom — is applied to the live
  * objects by a second effect, so changing a setting never restarts a shell.
  * Actions the pane cannot service itself (new tab, palette, splits) go up
@@ -47,6 +52,7 @@ import { isExternalHref } from '../../core/external-links';
 import { desktopOs } from '../platform';
 import { shellIntegrationFor } from '../shell-integration';
 import { defaultShellStore } from '../stores/default-shell';
+import { consumePaneRelease } from '../stores/terminals';
 import { externalLinkStore } from '../stores/external-link';
 import { currentFont } from '../terminal-theme';
 import { workspaceRoots } from '../workspace-cues';
@@ -98,6 +104,14 @@ export interface TerminalPaneProps {
   initialInput?: string | null;
   /** `initialInput` has been written; the owner forgets it so it is never sent twice. */
   onInitialInputSent?: () => void;
+  /**
+   * A live pty to take over instead of spawning a shell: this pane's tab was
+   * handed over from another window. Read once, at mount; a shell that is
+   * gone by then (NOT_FOUND) falls back to a fresh spawn.
+   */
+  adoptPtyId?: number | null;
+  /** The pty this pane ended up on — null once it has none. */
+  onPty?: (ptyId: number | null) => void;
   onTitle: (title: string) => void;
   onCwd: (cwd: string) => void;
   /** The child exited; the app decides whether the pane closes (settings). */
@@ -133,6 +147,8 @@ export function TerminalPane({
   cwd,
   initialInput,
   onInitialInputSent,
+  adoptPtyId,
+  onPty,
   onTitle,
   onCwd,
   onExit,
@@ -165,6 +181,8 @@ export function TerminalPane({
     cwd,
     initialInput,
     onInitialInputSent,
+    adoptPtyId,
+    onPty,
     onTitle,
     onCwd,
     onExit,
@@ -178,6 +196,8 @@ export function TerminalPane({
       cwd,
       initialInput,
       onInitialInputSent,
+      adoptPtyId,
+      onPty,
       onTitle,
       onCwd,
       onExit,
@@ -196,9 +216,14 @@ export function TerminalPane({
       theme: initialTheme,
       cwd: initialCwd,
       initialInput: pendingInput,
+      adoptPtyId: adoptedPty,
     } = latest.current;
 
     let disposed = false;
+    // Set by the cleanup below: this pane's session was released, so its pty
+    // belongs to another window now. A handle that arrives after that (the
+    // spawn/attach was still in flight) is let go of, not killed.
+    let released = false;
     let bellTimer: ReturnType<typeof setTimeout> | null = null;
     // The one-shot `initialInput`: armed by the first output, re-armed by each
     // further chunk, fired when the shell has been quiet for a moment.
@@ -444,7 +469,63 @@ export function TerminalPane({
     // Unset = the platform default, resolved in Rust at spawn time.
     const program = terminalProgram(initialSettings, initialProfile);
 
+    /** Take the handle, or let go of it if the pane died while we waited. */
+    function keep(handle: PtyHandle): boolean {
+      if (disposed) {
+        void (released ? handle.detach() : handle.kill());
+        return false;
+      }
+      handleRef.current = handle;
+      latest.current.onPty?.(handle.id);
+      setStatus(null);
+      return true;
+    }
+
+    const handlers = {
+      onData: (bytes: Uint8Array) => {
+        term.write(bytes);
+        view.requestRender();
+        armInitialInput();
+      },
+      onExit: (code: number) => {
+        setStatus(code === 0 ? 'shell exited' : `shell exited (${code})`);
+        latest.current.onExit(code);
+      },
+      // The pty is drained and reaped: there is nothing left to hand to
+      // another window, so the pane stops advertising one.
+      onClose: () => latest.current.onPty?.(null),
+    };
+
     void (async () => {
+      // A tab dragged in from another window brings its shell with it: attach
+      // to the running pty, which replays its recent output into this fresh
+      // engine. A pty that is gone (the shell exited, or the id outlived the
+      // app that minted it) falls through to a normal spawn.
+      if (typeof adoptedPty === 'number') {
+        try {
+          // Which shell this is, for the context menu's helpers: resolved the
+          // same way the spawn path does, minus the integration it already
+          // has (this shell was launched with it, in the other window).
+          if (initialProfile.program === undefined) {
+            const resolved = terminalProgram(initialSettings, initialProfile);
+            setPaneShell(shellKind(resolved ?? (await defaultShellStore.getState().resolve())));
+          }
+          if (disposed) {
+            return;
+          }
+          const handle = await getPtyProvider().attach(adoptedPty, handlers);
+          if (keep(handle)) {
+            // The pane this shell came from may have had a different grid.
+            void handle.resize(view.gridSize.cols, view.gridSize.rows);
+          }
+          return;
+        } catch {
+          // Fall through and start a shell, which beats an empty pane.
+        }
+        if (disposed) {
+          return;
+        }
+      }
       try {
         // Shell integration — the prompt hook that reports `cd` (OSC 7) and
         // lets the tab wear its workspace's color — goes ONLY to a plain
@@ -477,24 +558,11 @@ export function TerminalPane({
               ...launch.env,
             },
           },
-          {
-            onData: (bytes) => {
-              term.write(bytes);
-              view.requestRender();
-              armInitialInput();
-            },
-            onExit: (code) => {
-              setStatus(code === 0 ? 'shell exited' : `shell exited (${code})`);
-              latest.current.onExit(code);
-            },
-          },
+          handlers,
         );
-        if (disposed) {
-          void handle.kill();
+        if (!keep(handle)) {
           return;
         }
-        handleRef.current = handle;
-        setStatus(null);
         if (pendingInput) {
           inputDeadline = setTimeout(sendInitialInput, INITIAL_INPUT_MAX_WAIT_MS);
         }
@@ -505,6 +573,9 @@ export function TerminalPane({
 
     return () => {
       disposed = true;
+      // Asked exactly once, whether or not the pty has arrived yet: a released
+      // pane is moving to another window, not closing.
+      released = consumePaneRelease(paneId);
       if (bellTimer) {
         clearTimeout(bellTimer);
       }
@@ -519,7 +590,12 @@ export function TerminalPane({
       offData();
       input.dispose();
       view.dispose();
-      void handleRef.current?.kill();
+      // Let go of a released pane's pty so the shell keeps running and the
+      // window that adopted the tab can attach to it; kill a closing one's.
+      const handle = handleRef.current;
+      if (handle) {
+        void (released ? handle.detach() : handle.kill());
+      }
       handleRef.current = null;
       inputRef.current = null;
       viewRef.current = null;

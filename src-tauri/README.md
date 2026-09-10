@@ -21,7 +21,11 @@ session concepts in Rust, stop and move it to `src/core`.
   (reader → bounded channel → emitter, a waiter, and a writer fed by a
   bounded queue so `write()` never blocks the caller), output coalesced
   into ≤64 KB chunks every 4 ms. Deliberately Tauri-free so its tests run a real
-  shell. `src/shell.rs` resolves the default shell when the frontend's
+  shell. A session's sink is SWAPPABLE (`Relay`): a pty outlives the webview
+  that spawned it, so `detach` / `attach` move the listener between windows
+  when a terminal tab is dragged out, and the last ≤1 MB of output (plus an
+  exit code the old window never saw) is replayed to whoever attaches, which
+  is what repaints the screen there. `src/shell.rs` resolves the default shell when the frontend's
   profile names no program: PowerShell 7 (else Windows PowerShell) on
   Windows, zsh on macOS, bash on Linux — each probed on `PATH` first, then
   `$SHELL`, then a shell that always exists. It also owns `search_path`
@@ -37,8 +41,11 @@ session concepts in Rust, stop and move it to `src/core`.
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and
   `closed` travel down the same channel as JSON so they stay ordered against
-  the output they follow. Commands: `default_shell`, `find_programs`, `pty_spawn`,
-  `pty_write`, `pty_resize`, `pty_kill`.
+  the output they follow. The registry is APP-wide, not per-window — that is
+  what lets `pty_attach` hand a running shell to another window (and
+  `pty_detach` let go of one without killing it). Commands: `default_shell`,
+  `find_programs`, `pty_spawn`, `pty_write`, `pty_resize`, `pty_kill`,
+  `pty_attach`, `pty_detach`.
 - `capabilities/default.json` — plugin/core permissions for every app
   window: `main` plus torn-off tab windows (`w-*`, M8). Custom commands
   need NO capability entries.

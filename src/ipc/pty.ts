@@ -8,6 +8,7 @@
  * reaches this file (`isAndroid()` hides every entry point).
  */
 
+import type { Channel } from '@tauri-apps/api/core';
 import {
   IpcError,
   createIpcChannel,
@@ -41,16 +42,32 @@ export interface PtyHandle {
   write: (data: Uint8Array | string) => Promise<void>;
   resize: (cols: number, rows: number) => Promise<void>;
   kill: () => Promise<void>;
+  /**
+   * Stop listening without killing the shell — how a pane lets go of a pty
+   * that is being handed to another window. Output buffers in the backend
+   * until something attaches.
+   */
+  detach: () => Promise<void>;
 }
 
 /**
  * The slice of `Ipc` this provider actually calls. Narrow on purpose: a test
  * fake is five functions, not the whole filesystem surface.
  */
-export type PtyIpc = Pick<Ipc, 'defaultShell' | 'ptySpawn' | 'ptyWrite' | 'ptyResize' | 'ptyKill'>;
+export type PtyIpc = Pick<
+  Ipc,
+  'defaultShell' | 'ptySpawn' | 'ptyWrite' | 'ptyResize' | 'ptyKill' | 'ptyAttach' | 'ptyDetach'
+>;
 
 export interface PtyProvider {
   spawn: (options: PtySpawnOptions, handlers: PtyHandlers) => Promise<PtyHandle>;
+  /**
+   * Take over an EXISTING pty — a shell handed to this window with its tab.
+   * The backend replays what it buffered, so `handlers.onData` repaints the
+   * screen before any new output arrives. Rejects with a `NOT_FOUND` IpcError
+   * when that shell is gone, which the caller answers by spawning.
+   */
+  attach: (id: number, handlers: PtyHandlers) => Promise<PtyHandle>;
   defaultShell: () => Promise<string>;
 }
 
@@ -96,44 +113,62 @@ export function createTauriPtyProvider(
     defaultShell: () => ipc.defaultShell(),
 
     async spawn(options, handlers) {
-      const channel = createChannel();
-      // Registered before the await so nothing the child prints in its first
-      // milliseconds can be dropped.
-      channel.onmessage = (message: PtyMessage) => {
-        if (isControl(message)) {
-          if (message.type === 'exit') handlers.onExit?.(message.code);
-          else handlers.onClose?.();
-          return;
-        }
-        handlers.onData(toBytes(message));
-      };
-
+      const channel = wire(createChannel(), handlers);
       const id = await ipc.ptySpawn(normalizeSpawnOptions(options), channel);
-
-      return {
-        id,
-        // A dropped keystroke is a bug worth surfacing, so writes do not
-        // swallow anything.
-        write: (data) => ipc.ptyWrite(id, typeof data === 'string' ? encoder.encode(data) : data),
-
-        // Resize and kill race with a shell exiting on its own — a window
-        // resize a frame after the child died is normal, not an error.
-        resize: async (cols, rows) => {
-          try {
-            await ipc.ptyResize(id, Math.max(1, Math.floor(cols)), Math.max(1, Math.floor(rows)));
-          } catch (error) {
-            if (!isMissing(error)) throw error;
-          }
-        },
-        kill: async () => {
-          try {
-            await ipc.ptyKill(id);
-          } catch (error) {
-            if (!isMissing(error)) throw error;
-          }
-        },
-      };
+      return handleFor(ipc, id, SPAWN_EPOCH);
     },
+
+    async attach(id, handlers) {
+      // Wired before the await for the same reason spawn is: the replay the
+      // backend sends on attach starts arriving immediately.
+      const channel = wire(createChannel(), handlers);
+      const epoch = await ipc.ptyAttach(id, channel);
+      return handleFor(ipc, id, epoch);
+    },
+  };
+}
+
+/** Route one channel's messages at `handlers`. */
+function wire(channel: Channel<PtyMessage>, handlers: PtyHandlers): Channel<PtyMessage> {
+  // Registered before the spawn/attach await so nothing the child prints in
+  // its first milliseconds can be dropped.
+  channel.onmessage = (message: PtyMessage) => {
+    if (isControl(message)) {
+      if (message.type === 'exit') handlers.onExit?.(message.code);
+      else handlers.onClose?.();
+      return;
+    }
+    handlers.onData(toBytes(message));
+  };
+  return channel;
+}
+
+/** The epoch the backend gives the window that spawned a pty. */
+const SPAWN_EPOCH = 0;
+
+function handleFor(ipc: PtyIpc, id: number, epoch: number): PtyHandle {
+  /** A shell that exited on its own is already gone — not an error here. */
+  const tolerateMissing = async (action: Promise<void>): Promise<void> => {
+    try {
+      await action;
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  };
+  return {
+    id,
+    // A dropped keystroke is a bug worth surfacing, so writes do not swallow
+    // anything.
+    write: (data) => ipc.ptyWrite(id, typeof data === 'string' ? encoder.encode(data) : data),
+
+    // Resize, kill and detach race with a shell exiting on its own — a window
+    // resize a frame after the child died is normal, not an error.
+    resize: (cols, rows) =>
+      tolerateMissing(
+        ipc.ptyResize(id, Math.max(1, Math.floor(cols)), Math.max(1, Math.floor(rows))),
+      ),
+    kill: () => tolerateMissing(ipc.ptyKill(id)),
+    detach: () => tolerateMissing(ipc.ptyDetach(id, epoch)),
   };
 }
 

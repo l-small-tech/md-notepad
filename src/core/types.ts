@@ -313,7 +313,19 @@ export interface TerminalSnapshot {
   /** The split tree, in the JSON shape `core/panes.ts` round-trips. */
   tree: PaneNode;
   activePaneId: string;
-  panes: { id: string; profileId: string; cwd?: string }[];
+  panes: {
+    id: string;
+    profileId: string;
+    cwd?: string;
+    /**
+     * The live pty behind this pane, for a HANDOVER snapshot only (a tab
+     * dragged into another window): the receiving pane attaches to this
+     * shell instead of spawning one. Never persisted — pty ids are
+     * per-process, so a stale one from a previous run could name somebody
+     * else's shell.
+     */
+    ptyId?: number;
+  }[];
 }
 
 export interface Settings {

@@ -192,6 +192,10 @@ pub fn run() {
             commands::pty::pty_resize,
             #[cfg(desktop)]
             commands::pty::pty_kill,
+            #[cfg(desktop)]
+            commands::pty::pty_attach,
+            #[cfg(desktop)]
+            commands::pty::pty_detach,
             #[cfg(target_os = "android")]
             commands::android::extract_docs_dir,
             #[cfg(target_os = "android")]

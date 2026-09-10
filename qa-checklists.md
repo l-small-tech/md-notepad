@@ -209,6 +209,16 @@ sibling `session/` folder).
       dirty dot intact; Ctrl+S there writes the file once.
 - [ ] Tear off an unflushed note ("Buy milk", immediately drag out) → the
       note file exists and the new window owns it; no duplicate in source.
+- [ ] Tear off a TERMINAL tab (run `echo test` first) → the new window shows
+      the SAME shell: the scrollback is there, the shell did not restart, and
+      typing still lands in it. Repeat with a long-running command (`ping -t`
+      / `sleep 60`) → it keeps running across the move; and with a split
+      terminal → both panes come over live.
+- [ ] Tear off a Harness tab mid-session → the agent's screen and its
+      conversation survive the move (a full-screen TUI may need one keystroke
+      to repaint).
+- [ ] Drop a terminal tab onto ANOTHER window, then drag it back → the shell
+      survives both hops. Closing the tab (or the window) still kills it.
 - [ ] Type in both windows simultaneously → each window's notes flush;
       `sessionDir` shows `session.json` plus one `session-w-*.json`.
 - [ ] Quit via the MAIN window's X with a torn-off window open → both close;

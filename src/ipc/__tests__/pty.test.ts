@@ -26,7 +26,9 @@ function harness(overrides: Partial<PtyIpc> = {}) {
     writes: number[][];
     resizes: number[][];
     kills: number[];
-  } = { writes: [], resizes: [], kills: [] };
+    attaches: number[];
+    detaches: number[][];
+  } = { writes: [], resizes: [], kills: [], attaches: [], detaches: [] };
 
   const ipc: PtyIpc = {
     defaultShell: () => Promise.resolve('/bin/bash'),
@@ -44,6 +46,15 @@ function harness(overrides: Partial<PtyIpc> = {}) {
     },
     ptyKill: (id) => {
       calls.kills.push(id);
+      return Promise.resolve();
+    },
+    ptyAttach: (id) => {
+      calls.attaches.push(id);
+      // The backend hands each new listener the next epoch.
+      return Promise.resolve(calls.attaches.length);
+    },
+    ptyDetach: (id, epoch) => {
+      calls.detaches.push([id, epoch]);
       return Promise.resolve();
     },
     ...overrides,
@@ -149,6 +160,8 @@ describe('the Tauri pty provider', () => {
       ptyWrite: () => Promise.resolve(),
       ptyResize: () => Promise.resolve(),
       ptyKill: () => Promise.resolve(),
+      ptyAttach: () => Promise.resolve(1),
+      ptyDetach: () => Promise.resolve(),
     } satisfies PtyIpc;
 
     const provider = createTauriPtyProvider(ipc, () => channel as unknown as Channel<PtyMessage>);
@@ -167,13 +180,77 @@ describe('the Tauri pty provider', () => {
     expect(calls.writes).toEqual([[0xc3, 0xa9, 0x0a], [3]]);
   });
 
+  it('attaches to an existing pty and writes to that id', async () => {
+    const { provider, calls } = harness();
+    const seen = handlers();
+
+    const handle = await provider.attach(42, seen);
+    await handle.write('x');
+
+    expect(calls.attaches).toEqual([42]);
+    expect(calls.spawned).toBeUndefined();
+    expect(handle.id).toBe(42);
+    expect(calls.writes).toEqual([[120]]);
+  });
+
+  it('is listening before attach resolves, so the replay is not lost', async () => {
+    const channel = new FakeChannel();
+    const seen = handlers();
+    const ipc: PtyIpc = {
+      defaultShell: () => Promise.resolve('/bin/sh'),
+      ptySpawn: () => Promise.resolve(1),
+      ptyWrite: () => Promise.resolve(),
+      ptyResize: () => Promise.resolve(),
+      ptyKill: () => Promise.resolve(),
+      // The backend replays buffered output from inside the attach call.
+      ptyAttach: () => {
+        channel.onmessage(Uint8Array.from([36, 32]).buffer);
+        return Promise.resolve(1);
+      },
+      ptyDetach: () => Promise.resolve(),
+    };
+
+    const provider = createTauriPtyProvider(ipc, () => channel as unknown as Channel<PtyMessage>);
+    await provider.attach(5, seen);
+
+    expect(seen.data).toEqual([[36, 32]]);
+  });
+
+  it('detaches without killing — the shell is moving, not closing', async () => {
+    const { provider, calls } = harness();
+    const handle = await provider.spawn({ cols: 80, rows: 24 }, handlers());
+
+    await handle.detach();
+
+    // Epoch 0: the window that spawned the pty.
+    expect(calls.detaches).toEqual([[7, 0]]);
+    expect(calls.kills).toEqual([]);
+  });
+
+  it('a detach quotes the epoch its own attach was given', async () => {
+    const { provider, calls } = harness();
+    const first = await provider.attach(7, handlers());
+    const second = await provider.attach(7, handlers());
+
+    await first.detach();
+    await second.detach();
+
+    // The backend ignores the stale one; the provider just has to be honest
+    // about which listener is asking.
+    expect(calls.detaches).toEqual([
+      [7, 1],
+      [7, 2],
+    ]);
+  });
+
   it('ignores resize and kill for a session that already exited', async () => {
     const gone = () => Promise.reject(new IpcError('NOT_FOUND', 'no pty session 7'));
-    const { provider } = harness({ ptyResize: gone, ptyKill: gone });
+    const { provider } = harness({ ptyResize: gone, ptyKill: gone, ptyDetach: gone });
     const handle = await provider.spawn({ cols: 80, rows: 24 }, handlers());
 
     await expect(handle.resize(100, 30)).resolves.toBeUndefined();
     await expect(handle.kill()).resolves.toBeUndefined();
+    await expect(handle.detach()).resolves.toBeUndefined();
   });
 
   it('still reports real failures', async () => {
