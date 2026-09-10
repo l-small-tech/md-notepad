@@ -106,20 +106,24 @@ export function VoiceComments() {
 /** The two-tap microphone: idle in `ready`, pulsing in `capturing`. */
 function CaptureView({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
+  const finishing = capturing && state.stopping;
   const error = capturing ? null : state.error;
-  const label = capturing
-    ? 'Listening… tap again to finish'
-    : error
-      ? 'Tap to try again'
-      : 'Tap to start';
+  const label = finishing
+    ? 'Finishing…'
+    : capturing
+      ? 'Listening… tap again to finish'
+      : error
+        ? 'Tap to try again'
+        : 'Tap to start';
   return (
     <div className="vc-capturing">
       {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
       <button
-        className={`vc-mic${capturing ? ' vc-mic-live' : ''}`}
+        className={`vc-mic${capturing && !finishing ? ' vc-mic-live' : ''}${finishing ? ' vc-mic-finishing' : ''}`}
         onClick={toggleMic}
         aria-pressed={capturing}
-        aria-label={capturing ? 'Finish recording' : 'Start recording'}
+        aria-busy={finishing}
+        aria-label={finishing ? 'Finishing' : capturing ? 'Finish recording' : 'Start recording'}
       >
         <svg
           viewBox="0 0 24 24"

@@ -255,3 +255,9 @@
   font-size: 0.72rem;
   font-family: var(--font-mono);
 }
+
+/* Second tap landed: the engine is finishing the phrase in flight. */
+.vc-mic-finishing {
+  opacity: 0.6;
+  cursor: progress;
+}

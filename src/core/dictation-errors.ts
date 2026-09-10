@@ -185,6 +185,24 @@ function sharedError(code: string): Omit<CaptureError, 'code'> {
       steps: ['Wait a moment, then tap the microphone again.'],
     };
   }
+  if (code.includes('STT_START_TIMEOUT')) {
+    return {
+      title: "Dictation didn't start",
+      steps: [
+        'Wait a few seconds, then tap the microphone again.',
+        'If it keeps happening, close md-notepad and open it again.',
+      ],
+    };
+  }
+  if (code.includes('STT_STOP_TIMEOUT')) {
+    return {
+      title: "Dictation didn't finish",
+      steps: [
+        'Tap the microphone to record the note again.',
+        'If it keeps happening, close md-notepad and open it again.',
+      ],
+    };
+  }
   if (code.includes('PERMISSION_BRIDGE_FAILED')) {
     return {
       title: "Couldn't ask for microphone permission",

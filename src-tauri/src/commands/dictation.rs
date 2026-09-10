@@ -10,6 +10,12 @@
 //!   tap on the mic), which lets the engine finish the phrase in flight. The
 //!   recognized phrases are joined into one transcript. Nothing is recorded
 //!   to disk.
+//! - Every wait is bounded. `stt_stop` only posts a message to the dictation
+//!   thread and returns at once; that thread asks Windows to stop and, if
+//!   Windows hasn't reported `Completed` within `STOP_GRACE`, cancels the
+//!   session and returns what it heard so far. A session that never starts
+//!   fails with `STT_START_TIMEOUT`. A new `stt_start` ends a leftover
+//!   session instead of refusing — `STT_BUSY` only if it won't wind down.
 //! - Free dictation on Windows is Microsoft's ONLINE recognizer: it only runs
 //!   with Settings → Privacy & security → Speech → "Online speech
 //!   recognition" turned on, and audio is sent to Microsoft while it runs.
@@ -21,13 +27,14 @@
 //!   `stt_permission` / `stt_request_permission` report `true` and a denial
 //!   shows up at `stt_start` instead.
 //! - Errors are plain strings with the same `CODE` / `CODE:detail` shape as
-//!   the Android bridge; `src/ui/voice-comments.ts` maps them to messages.
+//!   the Android bridge; `src/core/dictation-errors.ts` maps them to messages.
 //! - WinRT needs an initialized apartment; every command hops onto a blocking
 //!   thread and `ensure_winrt` there (shared with `ocr.rs`).
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::core::{Ref, HRESULT};
 use windows::Foundation::{TimeSpan, TypedEventHandler};
@@ -44,19 +51,44 @@ const HR_PRIVACY_POLICY: HRESULT = HRESULT(0x8004_5509_u32 as i32);
 /// `E_ACCESSDENIED`: microphone access for desktop apps is turned off.
 const HR_ACCESS_DENIED: HRESULT = HRESULT(0x8007_0005_u32 as i32);
 
-/// How long a dictation may sit silent before Windows ends it on its own. The
-/// two-tap UI means the user decides when a note is done, so this is only a
-/// backstop against a session left running forever. (TimeSpan = 100 ns ticks.)
+/// How long a dictation may sit silent before Windows ends it on its own —
+/// both before the first word (the recognizer's initial-silence timeout, ~5 s
+/// by default, which would end a note while the user gathers their thoughts)
+/// and between phrases. The two-tap UI means the user decides when a note is
+/// done, so this is only a backstop. (TimeSpan = 100 ns ticks.)
 const AUTO_STOP_SILENCE: TimeSpan = TimeSpan {
     Duration: 10 * 60 * 10_000_000,
 };
-/// Upper bound on waiting for the session's `Completed` event.
+/// Upper bound on a whole session.
 const MAX_SESSION: Duration = Duration::from_secs(15 * 60);
+/// How long `StartAsync` may take before the session is given up on.
+const START_TIMEOUT: Duration = Duration::from_secs(15);
+/// After a stop request, how long Windows gets to finish the phrase in flight
+/// and report `Completed` before the session is cancelled.
+const STOP_GRACE: Duration = Duration::from_secs(4);
 
-/// The session in flight, so `stt_stop` (a separate IPC call) can end it.
-static ACTIVE: Mutex<Option<SpeechContinuousRecognitionSession>> = Mutex::new(None);
+/// What wakes the dictation thread's wait loop.
+enum Wake {
+    /// `StartAsync` settled.
+    Started(Result<(), String>),
+    /// The session's `Completed` event fired.
+    Completed(SpeechRecognitionResultStatus),
+    /// `stt_stop` (the second tap, or closing the sheet) asked it to finish.
+    Stop,
+}
 
-fn active() -> MutexGuard<'static, Option<SpeechContinuousRecognitionSession>> {
+/// The session in flight. `stt_stop` (a separate IPC call) only posts
+/// [`Wake::Stop`] through `wake`; every WinRT call on the session stays on
+/// the dictation thread, so a stop can never block on Windows.
+struct Active {
+    id: u64,
+    wake: Sender<Wake>,
+}
+
+static ACTIVE: Mutex<Option<Active>> = Mutex::new(None);
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn active() -> MutexGuard<'static, Option<Active>> {
     // A panic while holding the lock can't leave the Option half-written.
     ACTIVE
         .lock()
@@ -100,13 +132,38 @@ fn join_phrases(phrases: &[String]) -> String {
         .join(" ")
 }
 
+/// A session left over from an abandoned capture: ask it to stop and wait for
+/// it to wind down, rather than refusing the new capture with `STT_BUSY`.
+fn end_previous_session() -> Result<(), String> {
+    let wake = active().as_ref().map(|a| a.wake.clone());
+    let Some(wake) = wake else {
+        return Ok(());
+    };
+    let _ = wake.send(Wake::Stop);
+    let until = Instant::now() + STOP_GRACE + Duration::from_secs(2);
+    while Instant::now() < until {
+        if active().is_none() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err("STT_BUSY".to_string())
+}
+
 /// Run one continuous dictation session to completion; returns the transcript.
 fn dictate() -> Result<String, String> {
     ensure_winrt();
-    if active().is_some() {
-        return Err("STT_BUSY".to_string());
-    }
+    end_previous_session()?;
     let recognizer = SpeechRecognizer::new().map_err(|_| "STT_UNAVAILABLE".to_string())?;
+    let result = run_session(&recognizer);
+    let _ = recognizer.Close();
+    result
+}
+
+fn run_session(recognizer: &SpeechRecognizer) -> Result<String, String> {
+    if let Ok(timeouts) = recognizer.Timeouts() {
+        let _ = timeouts.SetInitialSilenceTimeout(AUTO_STOP_SILENCE);
+    }
     // No constraints added = the default free-dictation grammar.
     let compiled = recognizer
         .CompileConstraintsAsync()
@@ -114,7 +171,6 @@ fn dictate() -> Result<String, String> {
         .map_err(|e| hr_error(&e))?;
     let compiled_status = compiled.Status().map_err(|e| hr_error(&e))?;
     if compiled_status != SpeechRecognitionResultStatus::Success {
-        let _ = recognizer.Close();
         return Err(status_error(compiled_status));
     }
 
@@ -145,7 +201,8 @@ fn dictate() -> Result<String, String> {
         ))
         .map_err(|e| hr_error(&e))?;
 
-    let (done_tx, done_rx) = mpsc::channel::<SpeechRecognitionResultStatus>();
+    let (wake_tx, wake_rx) = mpsc::channel::<Wake>();
+    let done_tx = wake_tx.clone();
     let done_token = session
         .Completed(&TypedEventHandler::new(
             move |_: Ref<SpeechContinuousRecognitionSession>,
@@ -154,32 +211,40 @@ fn dictate() -> Result<String, String> {
                     Some(args) => args.Status()?,
                     None => SpeechRecognitionResultStatus::Unknown,
                 };
-                let _ = done_tx.send(status);
+                let _ = done_tx.send(Wake::Completed(status));
                 Ok(())
             },
         ))
         .map_err(|e| hr_error(&e))?;
 
-    *active() = Some(session.clone());
-    let started = session.StartAsync().and_then(|action| action.get());
-    let status = match started {
-        Ok(()) => done_rx
-            .recv_timeout(MAX_SESSION)
-            .unwrap_or(SpeechRecognitionResultStatus::TimeoutExceeded),
-        Err(e) => {
-            *active() = None;
-            let _ = session.RemoveResultGenerated(result_token);
-            let _ = session.RemoveCompleted(done_token);
-            let _ = recognizer.Close();
-            return Err(hr_error(&e));
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let registered = {
+        let mut slot = active();
+        if slot.is_some() {
+            false
+        } else {
+            *slot = Some(Active {
+                id,
+                wake: wake_tx.clone(),
+            });
+            true
         }
     };
-
-    *active() = None;
+    let outcome = if registered {
+        wait_for_session(&session, &wake_tx, &wake_rx)
+    } else {
+        Err("STT_BUSY".to_string())
+    };
+    {
+        let mut slot = active();
+        if slot.as_ref().is_some_and(|a| a.id == id) {
+            *slot = None;
+        }
+    }
     let _ = session.RemoveResultGenerated(result_token);
     let _ = session.RemoveCompleted(done_token);
-    let _ = recognizer.Close();
 
+    let status = outcome?;
     let transcript = join_phrases(
         &phrases
             .lock()
@@ -191,6 +256,76 @@ fn dictate() -> Result<String, String> {
         Err(status_error(status))
     } else {
         Ok(transcript)
+    }
+}
+
+/// Start the session and wait until it completes, a stop is honoured, or a
+/// timeout fires. Nothing here can block forever.
+fn wait_for_session(
+    session: &SpeechContinuousRecognitionSession,
+    wake_tx: &Sender<Wake>,
+    wake_rx: &Receiver<Wake>,
+) -> Result<SpeechRecognitionResultStatus, String> {
+    let begun = Instant::now();
+    let start = session.StartAsync().map_err(|e| hr_error(&e))?;
+    // Awaited off-thread, so a stop still gets through if it never settles.
+    let started_tx = wake_tx.clone();
+    std::thread::spawn(move || {
+        ensure_winrt();
+        let _ = started_tx.send(Wake::Started(start.get().map_err(|e| hr_error(&e))));
+    });
+
+    let mut started = false;
+    let mut stop_by: Option<Instant> = None;
+    loop {
+        let limit = match (started, stop_by) {
+            (_, Some(deadline)) => deadline,
+            (false, None) => begun + START_TIMEOUT,
+            (true, None) => begun + MAX_SESSION,
+        };
+        match wake_rx.recv_timeout(limit.saturating_duration_since(Instant::now())) {
+            Ok(Wake::Started(Ok(()))) => {
+                started = true;
+                if stop_by.is_some() {
+                    request_stop(session);
+                }
+            }
+            Ok(Wake::Started(Err(code))) => return Err(code),
+            Ok(Wake::Completed(status)) => return Ok(status),
+            Ok(Wake::Stop) => {
+                if stop_by.is_none() {
+                    stop_by = Some(Instant::now() + STOP_GRACE);
+                    if started {
+                        request_stop(session);
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                let _ = session.CancelAsync();
+                return match (started, stop_by) {
+                    // Stopped, but Windows never reported back: keep what was heard.
+                    (_, Some(_)) => Ok(SpeechRecognitionResultStatus::Success),
+                    (false, None) => Err("STT_START_TIMEOUT".to_string()),
+                    (true, None) => Ok(SpeechRecognitionResultStatus::TimeoutExceeded),
+                };
+            }
+        }
+    }
+}
+
+/// Ask Windows to finish the phrase in flight and end the session. Not
+/// awaited: `Completed` (or the stop grace) ends the wait loop.
+fn request_stop(session: &SpeechContinuousRecognitionSession) {
+    if session.StopAsync().is_err() {
+        let _ = session.CancelAsync();
+    }
+}
+
+/// Ask the session in flight (if any) to stop. Only posts a message to the
+/// dictation thread, so it returns at once.
+fn stop_active() {
+    if let Some(a) = active().as_ref() {
+        let _ = a.wake.send(Wake::Stop);
     }
 }
 
@@ -225,27 +360,18 @@ pub async fn stt_start() -> Result<String, String> {
         .map_err(|e| format!("STT_JOIN: {e}"))?
 }
 
-/// End the session in flight; its final phrase still lands in `stt_start`'s result.
+/// End the session in flight; its final phrase still lands in `stt_start`'s
+/// result, which settles within `STOP_GRACE`.
 #[tauri::command]
 pub async fn stt_stop() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        ensure_winrt();
-        let session = active().clone();
-        if let Some(session) = session {
-            session
-                .StopAsync()
-                .and_then(|action| action.get())
-                .map_err(|e| hr_error(&e))?;
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("STT_JOIN: {e}"))?
+    stop_active();
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{join_phrases, status_error, SpeechRecognitionResultStatus as S};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn phrases_join_with_single_spaces_and_skip_blanks() {
@@ -272,5 +398,55 @@ mod tests {
         assert_eq!(status_error(S::UserCanceled), "STT_NO_MATCH");
         assert_eq!(status_error(S::TimeoutExceeded), "STT_NO_MATCH");
         assert_eq!(status_error(S::Unknown), "STT_ERROR:6");
+    }
+
+    /// Real hardware (mic + "Online speech recognition" on); run by hand:
+    /// `cargo test --lib dictation -- --ignored --nocapture --test-threads=1`.
+    /// Silence past Windows' default 5 s initial-silence timeout, then a stop:
+    /// the session must still be live, and the stop must settle quickly.
+    #[test]
+    #[ignore]
+    fn live_session_outlasts_initial_silence_and_stops_promptly() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(super::dictate());
+        });
+        std::thread::sleep(Duration::from_secs(8));
+        assert!(super::active().is_some(), "session ended on its own");
+        let stopped = Instant::now();
+        super::stop_active();
+        let result = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("stt_start never settled after stop");
+        eprintln!("result {result:?} after {:?}", stopped.elapsed());
+        assert!(stopped.elapsed() < Duration::from_secs(6));
+        assert!(super::active().is_none());
+    }
+
+    /// A second start while a session is live ends the first one instead of
+    /// failing with STT_BUSY. Same hardware requirements as above.
+    #[test]
+    #[ignore]
+    fn a_new_start_ends_a_leftover_session() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(super::dictate());
+        });
+        std::thread::sleep(Duration::from_secs(3));
+        let (tx2, rx2) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx2.send(super::dictate());
+        });
+        let first = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("leftover session never ended");
+        eprintln!("first {first:?}");
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(super::active().is_some(), "second session didn't start");
+        super::stop_active();
+        let second = rx2
+            .recv_timeout(Duration::from_secs(10))
+            .expect("second session never settled");
+        assert_ne!(second, Err("STT_BUSY".to_string()));
     }
 }

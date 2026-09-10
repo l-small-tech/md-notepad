@@ -59,6 +59,13 @@ describe('captureErrorFor — shared', () => {
     expect(e.steps.length).toBeGreaterThan(0);
   });
 
+  test('a dictation that never starts or never finishes says so, on both engines', () => {
+    for (const engine of ['android', 'windows'] as const) {
+      expect(captureErrorFor('STT_START_TIMEOUT', engine).title).toMatch(/didn't start/);
+      expect(captureErrorFor('STT_STOP_TIMEOUT', engine).title).toMatch(/didn't finish/);
+    }
+  });
+
   test('an empty rejection still produces a usable error', () => {
     expect(captureErrorFor('  ', 'android').code).toBe('UNKNOWN');
   });
@@ -75,6 +82,8 @@ describe('captureErrorFor — shared', () => {
       'STT_LANGUAGE',
       'STT_AUDIO_QUALITY',
       'STT_NO_MATCH',
+      'STT_START_TIMEOUT',
+      'STT_STOP_TIMEOUT',
       'STT_ERROR:1',
       'STT_ERROR:12',
       'WHATEVER',

@@ -50,7 +50,10 @@ session concepts in Rust, stop and move it to `src/core`.
   commands as the Android bridge (`android.rs`), so the frontend runs one
   capture flow. Free dictation is Microsoft's online recognizer: it needs
   "Online speech recognition" on in Windows privacy settings (`STT_PRIVACY`
-  otherwise). No audio is written anywhere.
+  otherwise). No audio is written anywhere. Every wait is bounded:
+  `stt_stop` only messages the dictation thread, which cancels the session
+  if Windows hasn't reported back within a few seconds, and a new
+  `stt_start` ends a leftover session instead of refusing it.
 - `src/commands/programs.rs` — `find_programs(names)` (**desktop only**):
   each name → its resolved path or null, so the Settings dialog can dim the
   harnesses that are not installed and offer to install them. Policy-free:

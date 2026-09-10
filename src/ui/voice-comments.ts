@@ -78,6 +78,12 @@ export interface VoiceCommentsState {
    * steps to fix it (see core/dictation-errors). Cleared by the next tap.
    */
   error: CaptureError | null;
+  /**
+   * The second tap landed and the engine is finishing the phrase in flight
+   * (capturing phase only). The mic shows "Finishing…" and ignores taps; a
+   * watchdog fails the capture if the engine never answers.
+   */
+  stopping: boolean;
 }
 
 const initial: VoiceCommentsState = {
@@ -91,6 +97,7 @@ const initial: VoiceCommentsState = {
   line: null,
   quote: '',
   error: null,
+  stopping: false,
 };
 
 export const voiceStore = createStore<VoiceCommentsState>()(() => initial);
@@ -191,6 +198,22 @@ async function saveNow(): Promise<void> {
 
 // The id minted for the in-flight capture.
 let captureId: string | null = null;
+
+/**
+ * How long after the second tap the engine has to hand back the transcript
+ * before the capture is failed with STT_STOP_TIMEOUT. The Windows bridge
+ * settles within ~4 s of a stop; this only guards against a bridge that never
+ * answers, so the mic can't stay stuck on "Finishing…".
+ */
+export const STOP_WATCHDOG_MS = 10_000;
+let stopWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+function clearStopWatchdog(): void {
+  if (stopWatchdog !== null) {
+    clearTimeout(stopWatchdog);
+    stopWatchdog = null;
+  }
+}
 
 /* ---- public actions ---------------------------------------------------- */
 
@@ -297,29 +320,32 @@ function startCapture(): void {
     return;
   }
   captureId = newCommentId(new Set(comments.map((c) => c.id)));
-  voiceStore.setState({ phase: 'capturing', error: null });
-  void captureDictation();
+  voiceStore.setState({ phase: 'capturing', error: null, stopping: false });
+  void captureDictation(captureId);
 }
 
 /** Permission → availability → dictation, through the platform's `stt*` bridge. */
-async function captureDictation(): Promise<void> {
+async function captureDictation(id: string): Promise<void> {
+  // A result that arrives after its capture was abandoned (closed, timed out,
+  // or superseded by a newer capture) must not land on the newer one.
+  const current = () => captureId === id && voiceStore.getState().phase === 'capturing';
   // Stage 1 — permission. A rejection here (vs. a clean "not granted") means the
   // permission bridge itself failed, which is worth its own message.
   let granted: boolean;
   try {
     granted = (await ipc.sttPermission()) || (await ipc.sttRequestPermission());
   } catch {
-    failCapture('PERMISSION_BRIDGE_FAILED');
+    if (current()) failCapture('PERMISSION_BRIDGE_FAILED');
     return;
   }
   if (!granted) {
-    failCapture('PERMISSION_DENIED');
+    if (current()) failCapture('PERMISSION_DENIED');
     return;
   }
   // Stage 2 — availability (best-effort; a flaky check shouldn't block a try).
   try {
     if (!(await ipc.sttAvailable())) {
-      failCapture('STT_UNAVAILABLE');
+      if (current()) failCapture('STT_UNAVAILABLE');
       return;
     }
   } catch {
@@ -328,12 +354,12 @@ async function captureDictation(): Promise<void> {
   // Stage 3 — recognition. Map the error code so the message is actionable.
   try {
     const text = await ipc.sttStart(); // resolves on the final result
-    if (voiceStore.getState().phase !== 'capturing') {
-      return; // panel was closed mid-capture
+    if (!current()) {
+      return; // abandoned mid-capture
     }
     await finishCapture(text.trim());
   } catch (e) {
-    if (voiceStore.getState().phase === 'capturing') {
+    if (current()) {
       failCapture(e instanceof Error ? e.message : String(e));
     }
   }
@@ -347,6 +373,7 @@ async function finishCapture(transcript: string): Promise<void> {
   }
   const id = captureId;
   captureId = null;
+  clearStopWatchdog();
   const comment: VoiceComment = {
     id,
     file: noteRefFor(commentsPath, notePath),
@@ -361,6 +388,7 @@ async function finishCapture(transcript: string): Promise<void> {
     focusId: id,
     line: null,
     quote: '',
+    stopping: false,
   });
   await saveNow();
 }
@@ -372,9 +400,11 @@ async function finishCapture(transcript: string): Promise<void> {
  */
 function failCapture(raw: string): void {
   captureId = null;
+  clearStopWatchdog();
   if (voiceStore.getState().phase === 'capturing') {
     voiceStore.setState({
       phase: 'ready',
+      stopping: false,
       error: captureErrorFor(raw, dictationEngine() ?? 'windows'),
     });
   }
@@ -389,11 +419,28 @@ export function openCaptureSettings(uri: string): void {
   });
 }
 
-/** Stop the live capture (the second mic tap); the final result still resolves `sttStart`. */
+/**
+ * Stop the live capture (the second mic tap); the final result still resolves
+ * `sttStart`. Further taps are ignored until it does, and a watchdog makes
+ * sure the sheet can't stay stuck if it never does.
+ */
 export function stopCapture(): void {
-  if (voiceStore.getState().phase === 'capturing') {
-    void ipc.sttStop();
+  const { phase, stopping } = voiceStore.getState();
+  if (phase !== 'capturing' || stopping) {
+    return;
   }
+  voiceStore.setState({ stopping: true });
+  void ipc.sttStop().catch(() => {
+    // The watchdog below covers a stop that never reaches the engine.
+  });
+  const id = captureId;
+  clearStopWatchdog();
+  stopWatchdog = setTimeout(() => {
+    stopWatchdog = null;
+    if (captureId === id && voiceStore.getState().phase === 'capturing') {
+      failCapture('STT_STOP_TIMEOUT');
+    }
+  }, STOP_WATCHDOG_MS);
 }
 
 /** Edit a note's transcript text (debounced save). */
@@ -418,9 +465,10 @@ export function closePanel(): void {
   if (voiceStore.getState().phase === 'capturing') {
     // Flip phase first so the capture completion guard bails out.
     voiceStore.setState({ phase: 'closed' });
-    void ipc.sttStop();
+    void ipc.sttStop().catch(() => {});
     captureId = null;
   }
+  clearStopWatchdog();
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
@@ -435,5 +483,6 @@ function initialTail() {
     line: null,
     quote: '',
     error: null,
+    stopping: false,
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }
