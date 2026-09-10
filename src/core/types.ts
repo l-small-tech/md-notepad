@@ -64,6 +64,12 @@ export interface TabState {
   mode: EditorMode;
   /** kind='file': disk mtime at last load/save, baseline for conflict detection. */
   savedMtimeMs: number | null;
+  /**
+   * kind='file': Live Edit override — true/false forces the mode for this tab,
+   * null follows the file's workspace (`WorkspaceEntry.liveEdit`). See
+   * core/live-edit.ts for the resolution.
+   */
+  liveEdit: boolean | null;
 }
 
 /**
@@ -185,6 +191,13 @@ export interface WorkspaceEntry {
   path: string;
   /** Accent color, or null for none. */
   color: WorkspaceColor | null;
+  /**
+   * Live Edit (shared cloud folder): files opened from this workspace save
+   * themselves as you type AND merge changes other people save into the
+   * editor, three-way, as they arrive (core/live-edit.ts, core/merge.ts).
+   * Absent = off.
+   */
+  liveEdit?: boolean;
   /**
    * Read-only workspace (the bundled documentation): files open pinned to
    * read mode and the explorer offers no create/rename/move/delete for it.
@@ -313,7 +326,19 @@ export interface TerminalSnapshot {
   /** The split tree, in the JSON shape `core/panes.ts` round-trips. */
   tree: PaneNode;
   activePaneId: string;
-  panes: { id: string; profileId: string; cwd?: string }[];
+  panes: {
+    id: string;
+    profileId: string;
+    cwd?: string;
+    /**
+     * The live pty behind this pane, for a HANDOVER snapshot only (a tab
+     * dragged into another window): the receiving pane attaches to this
+     * shell instead of spawning one. Never persisted — pty ids are
+     * per-process, so a stale one from a previous run could name somebody
+     * else's shell.
+     */
+    ptyId?: number;
+  }[];
 }
 
 export interface Settings {

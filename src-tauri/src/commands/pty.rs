@@ -9,6 +9,10 @@
 //! under load. Control messages (exit, closed) travel down the same channel as
 //! JSON, so they stay ordered against the output they follow.
 //!
+//! A pty outlives the webview that spawned it: `pty_attach` / `pty_detach`
+//! move the listener between windows (a terminal tab dragged into another
+//! window), which is why the registry is app-wide state and not per-window.
+//!
 //! Desktop-only — see `crate::pty`.
 
 use std::collections::HashMap;
@@ -60,8 +64,14 @@ impl PtyRegistry {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum PtyControl {
-    Exit { code: u32 },
+    Exit {
+        code: u32,
+    },
     Closed,
+    /// Sent once per attach, after the replayed output: the frontend keeps the
+    /// engine's query responses to itself until it arrives (see
+    /// `PtyEvent::ReplayEnd`).
+    ReplayEnd,
 }
 
 #[tauri::command]
@@ -78,25 +88,72 @@ pub fn pty_spawn(
     // on this guard until the insert below has happened.
     let mut sessions = state.lock();
 
-    let session = PtySession::spawn(&options, move |event| {
-        let reap = matches!(event, PtyEvent::Closed);
-        let body = match event {
-            PtyEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
-            PtyEvent::Exit(code) => control(&PtyControl::Exit { code }),
-            PtyEvent::Closed => control(&PtyControl::Closed),
-        };
-        // A closed window drops the receiving end; nothing to do about it.
-        let _ = on_event.send(body);
-
-        // Reap only once the pty is drained, so dropping the master can never
-        // truncate the child's last words.
-        if reap {
-            app.state::<PtyRegistry>().lock().remove(&id);
-        }
+    // Reap only once the pty is drained, so dropping the master can never
+    // truncate the child's last words.
+    let session = PtySession::spawn(&options, channel_sink(on_event), move || {
+        app.state::<PtyRegistry>().lock().remove(&id);
     })?;
 
     sessions.insert(id, session);
     Ok(id)
+}
+
+/// Re-point a live pty at this window's channel, replaying the output it
+/// buffered while detached (see `crate::pty::Relay`) so the screen comes back.
+///
+/// This is what makes a terminal tab dragged into another window the SAME
+/// shell rather than a fresh one: the pty registry is app-wide, only the
+/// listener is per-webview. `NOT_FOUND` means the session is gone (the shell
+/// exited and reaped itself, or the id is from a previous run of the app) —
+/// the caller spawns a new shell then. Returns the listener's epoch, which is
+/// what `pty_detach` quotes back.
+///
+/// `cols`/`rows` are the NEW window's grid; `PtySession::attach` resizes to it
+/// before replaying, which is what keeps the restored screen and its cursor
+/// coherent — see the reasoning there.
+#[tauri::command]
+pub fn pty_attach(
+    state: State<'_, PtyRegistry>,
+    id: u32,
+    cols: u16,
+    rows: u16,
+    on_event: Channel<InvokeResponseBody>,
+) -> Result<u64, PtyError> {
+    state.with_session(id, |session| {
+        Ok(session.attach(cols, rows, channel_sink(on_event)))
+    })
+}
+
+/// Stop delivering a session's events to this window without killing the
+/// shell — the releasing half of a handover. Output accumulates until
+/// something attaches.
+///
+/// `epoch` names the attachment doing the releasing (0 for the window that
+/// spawned the pty). The two halves of a handover race — the receiving window
+/// usually attaches before the releasing pane has finished unmounting — so a
+/// detach from a listener that has already been replaced is ignored rather
+/// than silencing the window that took over.
+#[tauri::command]
+pub fn pty_detach(state: State<'_, PtyRegistry>, id: u32, epoch: u64) -> Result<(), PtyError> {
+    state.with_session(id, |session| {
+        session.detach(epoch);
+        Ok(())
+    })
+}
+
+/// Adapts pty events onto one webview's channel. The sink a session holds is
+/// swappable, so this closure is built once per listener, not once per pty.
+fn channel_sink(on_event: Channel<InvokeResponseBody>) -> impl FnMut(PtyEvent) + Send + 'static {
+    move |event| {
+        let body = match event {
+            PtyEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
+            PtyEvent::Exit(code) => control(&PtyControl::Exit { code }),
+            PtyEvent::Closed => control(&PtyControl::Closed),
+            PtyEvent::ReplayEnd => control(&PtyControl::ReplayEnd),
+        };
+        // A closed window drops the receiving end; nothing to do about it.
+        let _ = on_event.send(body);
+    }
 }
 
 #[tauri::command]

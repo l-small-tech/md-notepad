@@ -151,9 +151,11 @@ export {
   savePastedFileInto,
   savePastedImageForTab,
   setWorkspaceColor,
+  setWorkspaceLiveEdit,
   takePendingReveal,
   tearOffTab,
 } from './facade';
+export { dismissLostLines, isTabLive, REMOVE_FLASH_MS, restoreLostLines } from './live-merge';
 export type {
   ConfirmDialog,
   ConfirmRememberDialog,

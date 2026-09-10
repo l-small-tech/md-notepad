@@ -56,6 +56,8 @@ export interface SessionTabView {
   /** model.isDirty('file') — file tabs only; decides whether a buffer exists. */
   fileDirty: boolean;
   savedMtimeMs: number | null;
+  /** kind='file': the Live Edit override (TabState.liveEdit). */
+  liveEdit: boolean | null;
   cursor: CursorPos | null;
   /** kind='terminal' only: the pane layout to persist (terminalsStore.snapshot). */
   terminal?: TerminalSnapshot | null;
@@ -104,6 +106,8 @@ export interface PersistedTab {
   savedMtimeMs: number | null;
   hasBuffer: boolean;
   cursor: CursorPos | null;
+  /** kind='file': Live Edit override; absent (older manifests) = follow the workspace. */
+  liveEdit?: boolean | null;
   /**
    * kind='terminal' only: the pane layout to respawn. Absent on every other
    * kind, and never carries scrollback — see `TerminalSnapshot`.
@@ -399,6 +403,7 @@ export function planFlush(view: AppSessionView): FlushPlan {
       savedMtimeMs: tab.savedMtimeMs,
       hasBuffer: tab.kind === 'file' && tab.fileDirty,
       cursor: tab.cursor,
+      ...(tab.liveEdit !== null ? { liveEdit: tab.liveEdit } : {}),
       // Terminal tabs contribute NO writes and NO buffer — only this.
       ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
     })),

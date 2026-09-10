@@ -3372,3 +3372,96 @@ body.explorer-dragging * {
 .settings-dialog .settings-body {
   min-height: 280px;
 }
+
+/* ---- Live Edit (shared cloud folder) ------------------------------------ */
+
+/* Checkable context-menu row: a fixed glyph column so the label lines up
+   whether or not the check is showing. */
+.context-menu-check {
+  display: inline-block;
+  width: 1.2em;
+  color: var(--accent);
+}
+
+/* Status-bar chip: a dot that pulses once per merge (the keyed span
+   remounts, restarting the animation) beside the word "Live". */
+.statusbar-live-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 3px 9px 3px 7px;
+  margin-right: 12px;
+  cursor: default;
+}
+
+.statusbar-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.statusbar-live-dot[data-pulse] {
+  animation: live-dot-pulse 1.2s ease-out 1;
+}
+
+@keyframes live-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+/* Lines that just arrived from another person's save (cm6 flashRanges):
+   an accent wash that fades out. The decoration is removed a beat after the
+   animation ends, so the removal is never visible. */
+.cm-line.cm-live-merged {
+  animation: live-merge-fade 2.4s ease-out forwards;
+}
+
+@keyframes live-merge-fade {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  40% {
+    background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Lines a pending merge is about to remove or replace: a steady red wash,
+   cleared the moment the merged text lands (cm6 clearFlash('removed')). */
+.cm-line.cm-live-removed {
+  background-color: color-mix(in srgb, var(--danger) 24%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 70%, transparent);
+}
+
+/* The Restore-mine banner shares the conflict banner's shape, tinted so it
+   reads as "something changed", not "something is wrong". */
+.live-edit-banner {
+  border-left: 3px solid var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusbar-live-dot[data-pulse] {
+    animation: none;
+  }
+  .cm-line.cm-live-merged {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+}

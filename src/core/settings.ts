@@ -336,6 +336,7 @@ function normalizeWorkspaces(raw: unknown): WorkspaceEntry[] {
       path: entry.path,
       color: normalizeColor(entry.color),
       ...(entry.readOnly === true ? { readOnly: true } : {}),
+      ...(entry.liveEdit === true ? { liveEdit: true } : {}),
       ...(synced ? { kind: 'synced' as const, treeUri: entry.treeUri as string } : {}),
     });
   }
