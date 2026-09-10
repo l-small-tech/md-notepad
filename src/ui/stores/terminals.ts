@@ -54,6 +54,35 @@ export interface TerminalPaneState {
    * shell, not a replay).
    */
   initialInput: string | null;
+  /**
+   * The pty this pane is talking to, reported by the pane once its shell is
+   * running (null before that, and for a pane whose spawn failed). The store
+   * holds the id, never the handle — so a handover snapshot can name the
+   * shell without anyone here being able to write to it.
+   */
+  ptyId: number | null;
+  /**
+   * An EXISTING pty this pane should attach to instead of spawning: set when
+   * the pane was adopted from another window with its tab (`openSession` from
+   * a handover snapshot). Transient — the pane clears it once it has
+   * attached, so a later remount spawns a shell like any other pane.
+   */
+  adoptPtyId: number | null;
+}
+
+/**
+ * Panes whose pty is being handed to another window rather than closed.
+ *
+ * `closeSession` removes a pane's record before its element unmounts, so the
+ * unmounting pane has nowhere left to ask "was I released, or closed?" — this
+ * set is that answer, written by `releaseSession` and consumed once by the
+ * pane's cleanup. A released pane detaches from its pty; a closed one kills it.
+ */
+const released = new Set<string>();
+
+/** True once, for a pane whose session was released (see the set above). */
+export function consumePaneRelease(paneId: string): boolean {
+  return released.delete(paneId);
 }
 
 export interface TerminalSession {
@@ -79,6 +108,12 @@ interface TerminalsState {
 
   openSession: (tabId: string, init: OpenSessionInit) => void;
   closeSession: (tabId: string) => void;
+  /**
+   * Let go of a tab's panes WITHOUT killing their shells — the tab is moving
+   * to another window, which attaches to the same ptys. Otherwise identical
+   * to `closeSession`.
+   */
+  releaseSession: (tabId: string) => void;
 
   splitActivePane: (tabId: string, direction: SplitDirection) => void;
   /** Close one pane. Returns true when that emptied the tab. */
@@ -92,9 +127,17 @@ interface TerminalsState {
   markExited: (paneId: string, code: number) => void;
   /** The pane wrote its `initialInput`; forget it so nothing can type it twice. */
   clearInitialInput: (paneId: string) => void;
+  /** The pane's shell is live on this pty (null when it is gone). */
+  setPanePty: (paneId: string, ptyId: number | null) => void;
+  /** The pane attached to its adopted pty; forget it so a remount spawns instead. */
+  clearAdoptPtyId: (paneId: string) => void;
 
-  /** The persistable layout, or null for a tab with no session. */
-  snapshot: (tabId: string) => TerminalSnapshot | null;
+  /**
+   * The persistable layout, or null for a tab with no session. With
+   * `handover`, each pane also names its live pty (see `TerminalSnapshot`) —
+   * for a tab moving to another window, never for the manifest on disk.
+   */
+  snapshot: (tabId: string, opts?: { handover?: boolean }) => TerminalSnapshot | null;
 }
 
 let counter = 0;
@@ -104,6 +147,7 @@ const nextSplitId = (): string => `s${(counter += 1)}`;
 /** Test hook: makes generated ids deterministic from the start of a case. */
 export function resetTerminalIds(): void {
   counter = 0;
+  released.clear();
 }
 
 function makePane(
@@ -122,6 +166,8 @@ function makePane(
     exited: false,
     exitCode: null,
     initialInput: initialInput || null,
+    ptyId: null,
+    adoptPtyId: null,
   } satisfies TerminalPaneState;
 }
 
@@ -167,7 +213,12 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
         const panes: Record<string, TerminalPaneState> = { ...get().panes };
         for (const [stored, fresh] of renamed) {
           const record = byStoredId.get(stored);
-          panes[fresh] = makePane(fresh, tabId, record?.profileId ?? init.profileId, record?.cwd);
+          panes[fresh] = {
+            ...makePane(fresh, tabId, record?.profileId ?? init.profileId, record?.cwd),
+            // A handover snapshot names a shell that is still running; the
+            // pane attaches to it instead of starting a new one.
+            adoptPtyId: record?.ptyId ?? null,
+          };
         }
         const active = renamed.get(snapshot.activePaneId) ?? paneIds(tree)[0]!;
         set({ sessions: { ...get().sessions, [tabId]: { tree, activePaneId: active } }, panes });
@@ -191,6 +242,17 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
       return;
     }
     set({ sessions, panes: withoutTab(get().panes, tabId) });
+  },
+
+  releaseSession(tabId) {
+    const session = get().sessions[tabId];
+    if (!session) {
+      return;
+    }
+    for (const id of paneIds(session.tree)) {
+      released.add(id);
+    }
+    get().closeSession(tabId);
   },
 
   splitActivePane(tabId, direction) {
@@ -311,7 +373,23 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
     set({ panes: { ...get().panes, [paneId]: { ...pane, initialInput: null } } });
   },
 
-  snapshot(tabId) {
+  setPanePty(paneId, ptyId) {
+    const pane = get().panes[paneId];
+    if (!pane || pane.ptyId === ptyId) {
+      return;
+    }
+    set({ panes: { ...get().panes, [paneId]: { ...pane, ptyId } } });
+  },
+
+  clearAdoptPtyId(paneId) {
+    const pane = get().panes[paneId];
+    if (!pane || pane.adoptPtyId === null) {
+      return;
+    }
+    set({ panes: { ...get().panes, [paneId]: { ...pane, adoptPtyId: null } } });
+  },
+
+  snapshot(tabId, opts) {
     const session = get().sessions[tabId];
     if (!session) {
       return null;
@@ -320,12 +398,21 @@ export const terminalsStore = createStore<TerminalsState>()((set, get) => ({
     return {
       tree: session.tree,
       activePaneId: session.activePaneId,
-      // Scrollback is deliberately absent: a restored terminal respawns its
-      // shell, it does not resurrect the old one's output.
+      // Scrollback is deliberately absent: a RESTORED terminal respawns its
+      // shell, it does not resurrect the old one's output. A handover is the
+      // other case — the shell never died, so the pty id travels instead and
+      // the backend replays to the window that attaches.
       panes: paneIds(session.tree).flatMap((id) => {
         const pane = panes[id];
         return pane
-          ? [{ id, profileId: pane.profileId, ...(pane.cwd ? { cwd: pane.cwd } : {}) }]
+          ? [
+              {
+                id,
+                profileId: pane.profileId,
+                ...(pane.cwd ? { cwd: pane.cwd } : {}),
+                ...(opts?.handover && pane.ptyId !== null ? { ptyId: pane.ptyId } : {}),
+              },
+            ]
           : [];
       }),
     };

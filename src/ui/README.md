@@ -349,6 +349,25 @@ the pill (no controller, no manifest), every window enumeration skips
   THEN spawns the window, passing a one-tab manifest in the `?adopt=` URL
   param. A crash mid-handoff can therefore never restore the tab in two
   windows; worst case it's in neither manifest but its files are on disk.
+- **A terminal tab takes its SHELLS with it.** The pty registry is app-wide
+  (Rust), so only the listener is per-webview: a descriptor built for a live
+  window (`persistedDescriptor(tab, { handover: true })` →
+  `snapshot(tabId, { handover: true })`) names each pane's pty, `detachTab`
+  RELEASES the panes instead of closing them (`releaseSession`, so the
+  unmounting pane calls `pty_detach` and not `pty_kill`), and the receiving
+  pane attaches to that same pty (`adoptPtyId` → `PtyProvider.attach`)
+  instead of spawning. The backend replays its recent output, so the screen
+  comes back and a running command keeps running. Two things make the restored
+  screen correct rather than merely present: the pty is resized to the new
+  pane's grid BEFORE the replay (so the shell's redraw is part of it), and the
+  engine's query responses go through `PtyHandle.report`, which swallows them
+  until the replay's end marker — a replay carries the queries the shell asked
+  in the OLD window, and answering one afterwards hands a live shell a stale
+  cursor report, which is what left the caret inside the prompt. A pty id NEVER reaches
+  disk — ids are per-process, so a persisted one would name somebody else's
+  shell after a restart; a manifest snapshot therefore has none and restore
+  respawns as before. A shell that is already gone (NOT_FOUND on attach)
+  falls back to a fresh spawn.
 - **Session restore covers windows**: at boot, main lists
   `session-*.json` (a dedicated Rust command) and re-spawns each window;
   the window-state plugin restores per-label geometry.
@@ -358,7 +377,8 @@ the pill (no controller, no manifest), every window enumeration skips
   tab close. The flusher is disposed BEFORE `session-<label>.json` is
   deleted, so no armed timer or blur-triggered flush can resurrect the
   manifest and respawn the window next boot. Terminal tabs close through
-  the store first so the panes' unmount cleanup kills their shells. The
+  the store first so the panes' unmount cleanup kills their shells (the
+  handover above is the one path that releases them alive instead). The
   exception is the LAST window standing: closing it quits the app, and quit
   preserves the session — its tabs fold into main's manifest
   (`bequeathTabsToMain`), so relaunch opens one window with everything.

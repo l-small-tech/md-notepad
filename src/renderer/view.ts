@@ -149,6 +149,7 @@ export class TermView {
     this.renderer.resize(container.clientWidth, container.clientHeight, this.dpr());
 
     this.observe();
+    this.watchFonts();
     this.watchPixelRatio();
     this.restartBlink();
     this.container.addEventListener('mousemove', this.onMouseMove);
@@ -415,6 +416,46 @@ export class TermView {
       { width: this.metrics.width, height: this.metrics.height },
       this.padding,
     );
+  }
+
+  /**
+   * Re-measure once the page's web fonts are ready.
+   *
+   * A pane that mounts while its font is still loading measures the FALLBACK
+   * face — every cell position, and the cursor with it, is then computed from
+   * a cell width the canvas will not paint with once the real face arrives:
+   * text overhangs its cells, and each colored run lands on the tail of the
+   * one before it (the caret sitting inside the prompt is the visible form of
+   * this). A pane mounted later in the same window is fine, which is what
+   * makes this a WINDOW-START bug: the panes of a window that has just opened
+   * — a tab torn off into one, a session restored at launch — are exactly the
+   * ones that mount too early.
+   */
+  private watchFonts(): void {
+    const fonts = this.container.ownerDocument.fonts;
+    // No FontFaceSet (a headless test environment): nothing to wait for.
+    if (!fonts?.ready) {
+      return;
+    }
+    void fonts.ready.then(() => {
+      if (this.disposed) {
+        return;
+      }
+      this.remeasure();
+    });
+  }
+
+  /** Re-measure the cell and, if it moved, re-lay-out and repaint everything. */
+  private remeasure(): void {
+    const metrics = this.measure();
+    if (sameMetrics(this.metrics, metrics)) {
+      return;
+    }
+    this.metrics = metrics;
+    this.renderer.setFont(this.font, metrics);
+    // `force`: the grid may come out the same size (a wider cell in a wider
+    // pane), and every painted row is still wrong until it is repainted.
+    this.relayout(true);
   }
 
   private observe(): void {

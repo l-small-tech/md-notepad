@@ -462,6 +462,31 @@ describe('parseManifest', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.tabs.map((t) => t.id)).toEqual(['a']);
   });
+
+  test("a handover manifest keeps each terminal pane's live pty id", () => {
+    // A tab dragged into a new window travels as a manifest in the `?adopt=`
+    // URL, and the receiving window parses it with this function. Losing
+    // `ptyId` on the way would silently respawn the shell instead of
+    // attaching to it — the bug this field exists to fix.
+    const parsed = parseManifest(
+      JSON.stringify({
+        schema: 1,
+        activeTabId: 't1',
+        tabs: [
+          {
+            id: 't1',
+            kind: 'terminal',
+            terminal: {
+              tree: { type: 'leaf', id: 'p1' },
+              activePaneId: 'p1',
+              panes: [{ id: 'p1', profileId: 'shell', cwd: '/work', ptyId: 12 }],
+            },
+          },
+        ],
+      }),
+    );
+    expect(parsed!.tabs[0]?.terminal?.panes[0]?.ptyId).toBe(12);
+  });
 });
 
 describe('relativePath', () => {
