@@ -26,7 +26,7 @@ function harness(overrides: Partial<PtyIpc> = {}) {
     writes: number[][];
     resizes: number[][];
     kills: number[];
-    attaches: number[];
+    attaches: number[][];
     detaches: number[][];
   } = { writes: [], resizes: [], kills: [], attaches: [], detaches: [] };
 
@@ -48,8 +48,8 @@ function harness(overrides: Partial<PtyIpc> = {}) {
       calls.kills.push(id);
       return Promise.resolve();
     },
-    ptyAttach: (id) => {
-      calls.attaches.push(id);
+    ptyAttach: (id, cols, rows) => {
+      calls.attaches.push([id, cols, rows]);
       // The backend hands each new listener the next epoch.
       return Promise.resolve(calls.attaches.length);
     },
@@ -184,13 +184,23 @@ describe('the Tauri pty provider', () => {
     const { provider, calls } = harness();
     const seen = handlers();
 
-    const handle = await provider.attach(42, seen);
+    const handle = await provider.attach(42, { cols: 100, rows: 30 }, seen);
     await handle.write('x');
 
-    expect(calls.attaches).toEqual([42]);
+    // The grid travels WITH the attach: the backend resizes the shell to the
+    // pane it is landing in before replaying, so the replay is drawn for it.
+    expect(calls.attaches).toEqual([[42, 100, 30]]);
     expect(calls.spawned).toBeUndefined();
     expect(handle.id).toBe(42);
     expect(calls.writes).toEqual([[120]]);
+  });
+
+  it('clamps the grid an attach asks for, like a spawn does', async () => {
+    const { provider, calls } = harness();
+
+    await provider.attach(42, { cols: 0, rows: 12.7 }, handlers());
+
+    expect(calls.attaches).toEqual([[42, 1, 12]]);
   });
 
   it('is listening before attach resolves, so the replay is not lost', async () => {
@@ -211,7 +221,7 @@ describe('the Tauri pty provider', () => {
     };
 
     const provider = createTauriPtyProvider(ipc, () => channel as unknown as Channel<PtyMessage>);
-    await provider.attach(5, seen);
+    await provider.attach(5, { cols: 80, rows: 24 }, seen);
 
     expect(seen.data).toEqual([[36, 32]]);
   });
@@ -227,10 +237,57 @@ describe('the Tauri pty provider', () => {
     expect(calls.kills).toEqual([]);
   });
 
+  // The handover bug this separation exists for: replayed output still holds
+  // the queries the shell asked in the window the tab came from, and answering
+  // one after the move sends a stale cursor report into a live shell.
+  it("swallows the terminal's answers until the replay is over", async () => {
+    const { provider, channel, calls } = harness();
+    const handle = await provider.attach(7, { cols: 80, rows: 24 }, handlers());
+
+    // Mid-replay: the engine answers a replayed `ESC[6n`. It must go nowhere.
+    await handle.report(Uint8Array.from([27, 91, 49, 59, 49, 82]));
+    expect(calls.writes).toEqual([]);
+
+    channel.onmessage({ type: 'replayEnd' });
+
+    // Live now — a real query deserves a real answer.
+    await handle.report(Uint8Array.from([27, 91, 49, 59, 49, 82]));
+    expect(calls.writes).toEqual([[27, 91, 49, 59, 49, 82]]);
+  });
+
+  it('never swallows what the USER types, replay or not', async () => {
+    const { provider, calls } = harness();
+    const handle = await provider.attach(7, { cols: 80, rows: 24 }, handlers());
+
+    await handle.write('a');
+
+    expect(calls.writes).toEqual([[97]]);
+  });
+
+  it('answers queries from the start for a spawned pty — nothing is replayed', async () => {
+    const { provider, calls } = harness();
+    const handle = await provider.spawn({ cols: 80, rows: 24 }, handlers());
+
+    await handle.report(Uint8Array.from([27]));
+
+    expect(calls.writes).toEqual([[27]]);
+  });
+
+  it('leaves nothing muted when the attach fails', async () => {
+    const gone = () => Promise.reject(new IpcError('NOT_FOUND', 'no pty session 7'));
+    const { provider } = harness({ ptyAttach: gone });
+
+    // The caller answers a failed attach by spawning; a handle from THAT must
+    // not inherit a stuck mute. (The rejected attach's own state is dropped.)
+    await expect(provider.attach(7, { cols: 80, rows: 24 }, handlers())).rejects.toThrow(
+      'no pty session 7',
+    );
+  });
+
   it('a detach quotes the epoch its own attach was given', async () => {
     const { provider, calls } = harness();
-    const first = await provider.attach(7, handlers());
-    const second = await provider.attach(7, handlers());
+    const first = await provider.attach(7, { cols: 80, rows: 24 }, handlers());
+    const second = await provider.attach(7, { cols: 80, rows: 24 }, handlers());
 
     await first.detach();
     await second.detach();

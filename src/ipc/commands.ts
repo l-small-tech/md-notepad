@@ -106,7 +106,12 @@ export interface PtySpawnArgs {
  * boundary. Control messages are tagged objects, ordered against the output
  * that preceded them because they share the one channel.
  */
-export type PtyMessage = ArrayBuffer | { type: 'exit'; code: number } | { type: 'closed' };
+export type PtyMessage =
+  | ArrayBuffer
+  | { type: 'exit'; code: number }
+  | { type: 'closed' }
+  // Once per attach, after the replayed output (see `ptyAttach`).
+  | { type: 'replayEnd' };
 
 /** One workspace-search hit (mirrors `SearchHit` in commands/search.rs). */
 export interface SearchHit {
@@ -327,10 +332,14 @@ export const ipc = {
    * while detached. This is how a terminal tab dragged into another window
    * keeps the SAME shell: the pty registry is app-wide, only the listener is
    * per-webview. `NOT_FOUND` = the session is gone; spawn a fresh one.
-   * Resolves with this listener's epoch, which `ptyDetach` quotes back.
+   *
+   * `cols`/`rows` are the grid the pty is moving INTO; the backend resizes to
+   * them before it replays, so the shell's redraw-on-resize is part of the
+   * replay rather than something painted over it. Resolves with this
+   * listener's epoch, which `ptyDetach` quotes back.
    */
-  ptyAttach: (id: number, onEvent: Channel<PtyMessage>) =>
-    call<number>('pty_attach', { id, onEvent }),
+  ptyAttach: (id: number, cols: number, rows: number, onEvent: Channel<PtyMessage>) =>
+    call<number>('pty_attach', { id, cols, rows, onEvent }),
 
   /**
    * Stop listening to a pty without killing it — the releasing half of a

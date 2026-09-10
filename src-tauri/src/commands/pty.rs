@@ -64,8 +64,14 @@ impl PtyRegistry {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum PtyControl {
-    Exit { code: u32 },
+    Exit {
+        code: u32,
+    },
     Closed,
+    /// Sent once per attach, after the replayed output: the frontend keeps the
+    /// engine's query responses to itself until it arrives (see
+    /// `PtyEvent::ReplayEnd`).
+    ReplayEnd,
 }
 
 #[tauri::command]
@@ -101,13 +107,21 @@ pub fn pty_spawn(
 /// exited and reaped itself, or the id is from a previous run of the app) —
 /// the caller spawns a new shell then. Returns the listener's epoch, which is
 /// what `pty_detach` quotes back.
+///
+/// `cols`/`rows` are the NEW window's grid; `PtySession::attach` resizes to it
+/// before replaying, which is what keeps the restored screen and its cursor
+/// coherent — see the reasoning there.
 #[tauri::command]
 pub fn pty_attach(
     state: State<'_, PtyRegistry>,
     id: u32,
+    cols: u16,
+    rows: u16,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<u64, PtyError> {
-    state.with_session(id, |session| Ok(session.attach(channel_sink(on_event))))
+    state.with_session(id, |session| {
+        Ok(session.attach(cols, rows, channel_sink(on_event)))
+    })
 }
 
 /// Stop delivering a session's events to this window without killing the
@@ -135,6 +149,7 @@ fn channel_sink(on_event: Channel<InvokeResponseBody>) -> impl FnMut(PtyEvent) +
             PtyEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
             PtyEvent::Exit(code) => control(&PtyControl::Exit { code }),
             PtyEvent::Closed => control(&PtyControl::Closed),
+            PtyEvent::ReplayEnd => control(&PtyControl::ReplayEnd),
         };
         // A closed window drops the receiving end; nothing to do about it.
         let _ = on_event.send(body);

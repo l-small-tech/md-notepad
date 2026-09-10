@@ -25,7 +25,11 @@ session concepts in Rust, stop and move it to `src/core`.
   that spawned it, so `detach` / `attach` move the listener between windows
   when a terminal tab is dragged out, and the last ≤1 MB of output (plus an
   exit code the old window never saw) is replayed to whoever attaches, which
-  is what repaints the screen there. `src/shell.rs` resolves the default shell when the frontend's
+  is what repaints the screen there. `attach` resizes to the new window's grid
+  FIRST (the shell's redraw then belongs to the replay instead of landing on
+  top of it) and closes the replay with `PtyEvent::ReplayEnd` — the frontend
+  must not answer the queries a replay contains, so it needs to know when the
+  stream goes live. `src/shell.rs` resolves the default shell when the frontend's
   profile names no program: PowerShell 7 (else Windows PowerShell) on
   Windows, zsh on macOS, bash on Linux — each probed on `PATH` first, then
   `$SHELL`, then a shell that always exists. It also owns `search_path`

@@ -87,6 +87,15 @@ pub enum PtyEvent {
     /// The pty reached EOF and every thread is done: no more events, and the
     /// session can be reaped.
     Closed,
+    /// The replay a fresh listener was given is over; everything after this is
+    /// live. Only [`PtySession::attach`] produces it, and the listener needs it
+    /// for one reason: a terminal must not ANSWER the queries inside a replay.
+    /// Recorded output is full of them — ConPTY opens with `ESC[6n` — and an
+    /// answer sent now is a stale cursor report arriving as input, which
+    /// re-syncs the shell's idea of the cursor to the wrong column (the caret
+    /// lands mid-prompt and typing overwrites it). So the pane stays mute
+    /// until this arrives.
+    ReplayEnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -171,7 +180,9 @@ impl Relay {
             PtyEvent::Output(bytes) => self.remember(bytes),
             PtyEvent::Exit(code) => self.exit = Some(*code),
             // Closed reaps the session; there is nothing left to replay to.
-            PtyEvent::Closed => {}
+            // ReplayEnd never travels this way — `attach` hands it straight to
+            // the listener it belongs to, so it is never recorded or re-sent.
+            PtyEvent::Closed | PtyEvent::ReplayEnd => {}
         }
         if let Some(sink) = self.sink.as_mut() {
             sink(event);
@@ -202,6 +213,8 @@ impl Relay {
         if let Some(code) = self.exit {
             sink(PtyEvent::Exit(code));
         }
+        // Everything from here is live, and the listener may speak again.
+        sink(PtyEvent::ReplayEnd);
         self.epoch
     }
 
@@ -294,10 +307,22 @@ impl PtySession {
     /// missed (see [`Relay`]) so a fresh terminal engine ends up showing the
     /// same screen. The previous sink is dropped. Returns the new listener's
     /// epoch, which is what it passes back to [`detach`](Self::detach).
-    pub fn attach<F>(&self, sink: F) -> u64
+    ///
+    /// `cols`/`rows` are the grid the new listener is replaying INTO, and the
+    /// resize happens FIRST, before the sink is swapped: a shell redraws when
+    /// its pty changes size (ConPTY repaints the viewport, unix shells redraw
+    /// the prompt line on SIGWINCH), so that redraw joins the replay buffer
+    /// BEHIND the old screen. The replay therefore ends in a state drawn for
+    /// the grid it is landing in, cursor included. Resize after attaching
+    /// instead and the redraw paints on top of an already-restored old screen,
+    /// which leaves the cursor in the column the old geometry put it.
+    pub fn attach<F>(&self, cols: u16, rows: u16, sink: F) -> u64
     where
         F: FnMut(PtyEvent) + Send + 'static,
     {
+        // A pty that refuses the resize (a child mid-exit) is still worth
+        // attaching to: the alternative is spawning over a live shell.
+        let _ = self.resize(cols, rows);
         lock_relay(&self.relay).attach(Box::new(sink))
     }
 
@@ -557,10 +582,18 @@ mod tests {
         session.write(b"echo second-line\r\n").unwrap();
 
         let second = Sink::default();
-        let epoch = session.attach(second.sink());
+        // A different grid — the window the tab was dropped into is its own
+        // size — so this also covers the resize attach performs first.
+        let epoch = session.attach(100, 30, second.sink());
         second.wait_for("replay + output from while it was detached", |s| {
             s.text().contains("first-line") && s.text().contains("second-line")
         });
+        // The marker told the new window the replay was over, so it may answer
+        // the shell's queries again.
+        assert!(
+            second.events().contains(&PtyEvent::ReplayEnd),
+            "the attach never marked the end of its replay"
+        );
         // The shell is still the same live process, not a replay of a dead one.
         assert!(
             !second.events().contains(&PtyEvent::Closed),
@@ -572,6 +605,14 @@ mod tests {
             "the detached sink kept receiving: {:?}",
             first.text()
         );
+
+        // The shell is living in the new window's grid: the resize was part
+        // of attaching, so its redraw is inside the replay rather than
+        // painted over it.
+        session.write(size_command()).unwrap();
+        second.wait_for("the shell reporting the new window's width", |s| {
+            reports_width_100(&s.text())
+        });
 
         // A detach quoting the epoch that has been replaced is ignored — the
         // releasing window's pane unmounting after the new one attached.
@@ -591,6 +632,34 @@ mod tests {
 
     /// The epoch the spawning window's listener holds.
     const SPAWN_EPOCH: u64 = 0;
+
+    /// Asks the shell how wide its pty is, so a test can check the resize
+    /// reached the child and not just the ioctl.
+    #[cfg(windows)]
+    fn size_command() -> &'static [u8] {
+        // `mode con` prints "Columns:        100" among its lines.
+        b"mode con\r\n"
+    }
+
+    #[cfg(unix)]
+    fn size_command() -> &'static [u8] {
+        // `stty size` prints "<rows> <cols>".
+        b"stty size\n"
+    }
+
+    /// Did the shell just say it is 100 columns wide? Matched on the reporting
+    /// LINE, not on the whole stream: a 100-column terminal emits escapes that
+    /// contain "100" (`ESC[100X`) all by itself, which would pass vacuously.
+    #[cfg(windows)]
+    fn reports_width_100(text: &str) -> bool {
+        text.lines()
+            .any(|line| line.contains("Columns") && line.contains("100"))
+    }
+
+    #[cfg(unix)]
+    fn reports_width_100(text: &str) -> bool {
+        text.lines().any(|line| line.trim() == "30 100")
+    }
 
     #[test]
     #[cfg(unix)]
@@ -776,9 +845,55 @@ mod tests {
         session.detach(SPAWN_EPOCH);
 
         let second = Sink::default();
-        session.attach(second.sink());
+        session.attach(80, 24, second.sink());
         second.wait_for("replayed exit", |s| s.events().contains(&PtyEvent::Exit(7)));
         assert!(second.text().contains("bye"), "got {:?}", second.text());
+    }
+
+    /// The marker is the listener's cue that it may answer queries again; it
+    /// has to come AFTER everything replayed, or the pane unmutes too early
+    /// and answers a query out of the past.
+    #[test]
+    fn a_replay_ends_with_the_marker_that_tells_the_terminal_to_speak_again() {
+        let mut relay = Relay::default();
+        relay.dispatch(PtyEvent::Output(b"hello".to_vec()));
+        relay.dispatch(PtyEvent::Exit(3));
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        relay.attach(Box::new(move |event| log.lock().unwrap().push(event)));
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                PtyEvent::Output(b"hello".to_vec()),
+                PtyEvent::Exit(3),
+                PtyEvent::ReplayEnd,
+            ]
+        );
+    }
+
+    /// …and it is per-attach, never recorded: a second window attaching must
+    /// not be handed the first one's marker in the middle of its own replay.
+    #[test]
+    fn the_marker_is_not_part_of_what_a_later_listener_replays() {
+        let mut relay = Relay::default();
+        relay.dispatch(PtyEvent::Output(b"one".to_vec()));
+        relay.attach(Box::new(|_| {}));
+        relay.dispatch(PtyEvent::Output(b"two".to_vec()));
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        relay.attach(Box::new(move |event| log.lock().unwrap().push(event)));
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                PtyEvent::Output(b"one".to_vec()),
+                PtyEvent::Output(b"two".to_vec()),
+                PtyEvent::ReplayEnd,
+            ]
+        );
     }
 
     #[test]

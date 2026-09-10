@@ -458,7 +458,10 @@ export function TerminalPane({
       },
     });
     registerPaneActions(paneId, (action: PaneAction) => runAction(action));
-    const offData = term.onData((bytes) => void handleRef.current?.write(bytes));
+    // The engine's answers to the queries a shell asks — `report`, not
+    // `write`, because a handover replay carries queries that were already
+    // answered in the window this shell came from (see `PtyHandle.report`).
+    const offData = term.onData((bytes) => void handleRef.current?.report(bytes));
     const offResize = view.onResize(({ cols, rows }) => {
       void handleRef.current?.resize(cols, rows);
     });
@@ -513,11 +516,12 @@ export function TerminalPane({
           if (disposed) {
             return;
           }
-          const handle = await getPtyProvider().attach(adoptedPty, handlers);
-          if (keep(handle)) {
-            // The pane this shell came from may have had a different grid.
-            void handle.resize(view.gridSize.cols, view.gridSize.rows);
-          }
+          // The grid goes WITH the attach: the backend resizes the shell
+          // before replaying, so the replay is drawn for THIS pane and the
+          // shell is not left running at the size of the window the tab came
+          // from. Any later size change rides the normal resize path.
+          const handle = await getPtyProvider().attach(adoptedPty, view.gridSize, handlers);
+          keep(handle);
           return;
         } catch {
           // Fall through and start a shell, which beats an empty pane.

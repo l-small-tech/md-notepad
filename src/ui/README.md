@@ -357,7 +357,13 @@ the pill (no controller, no manifest), every window enumeration skips
   unmounting pane calls `pty_detach` and not `pty_kill`), and the receiving
   pane attaches to that same pty (`adoptPtyId` → `PtyProvider.attach`)
   instead of spawning. The backend replays its recent output, so the screen
-  comes back and a running command keeps running. A pty id NEVER reaches
+  comes back and a running command keeps running. Two things make the restored
+  screen correct rather than merely present: the pty is resized to the new
+  pane's grid BEFORE the replay (so the shell's redraw is part of it), and the
+  engine's query responses go through `PtyHandle.report`, which swallows them
+  until the replay's end marker — a replay carries the queries the shell asked
+  in the OLD window, and answering one afterwards hands a live shell a stale
+  cursor report, which is what left the caret inside the prompt. A pty id NEVER reaches
   disk — ids are per-process, so a persisted one would name somebody else's
   shell after a restart; a manifest snapshot therefore has none and restore
   respawns as before. A shell that is already gone (NOT_FOUND on attach)
