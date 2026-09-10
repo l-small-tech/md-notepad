@@ -244,6 +244,8 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultWorkspaceColor: null,
   imagePasteLocation: 'subfolder',
   imageFolderName: 'images',
+  voiceNotesLocation: 'workspaceFolder',
+  voiceNotesFolderName: 'Voice Notes',
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
   scanPreset: DEFAULT_SCAN_PRESET,
@@ -600,6 +602,14 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.imageFolderName === 'string' && r.imageFolderName.trim().length > 0
         ? r.imageFolderName.trim()
         : d.imageFolderName,
+    voiceNotesLocation:
+      r.voiceNotesLocation === 'workspaceFolder' || r.voiceNotesLocation === 'nextToFile'
+        ? r.voiceNotesLocation
+        : d.voiceNotesLocation,
+    voiceNotesFolderName:
+      typeof r.voiceNotesFolderName === 'string' && r.voiceNotesFolderName.trim().length > 0
+        ? r.voiceNotesFolderName.trim()
+        : d.voiceNotesFolderName,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
     scanPreset:

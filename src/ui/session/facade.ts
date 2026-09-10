@@ -268,6 +268,7 @@ let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
 let viewDiffDispatch: (id: string) => void = () => {};
 let changeNotesDirDispatch: () => void = () => {};
+let workspaceRootForDispatch: (path: string) => string = (path) => dirName(path);
 
 let openExportPreviewDispatch: (tabId?: string) => void = () => {};
 let openExportPreviewForFileDispatch: (path: string) => void = () => {};
@@ -318,6 +319,14 @@ export function setViewDiffDispatch(fn: (id: string) => void): void {
 }
 export function setChangeNotesDirDispatch(fn: () => void): void {
   changeNotesDirDispatch = fn;
+}
+/** The workspace root containing `path` (its own directory if none) — voice
+ *  notes use it to find the workspace's shared "Voice Notes" folder. */
+export function workspaceRootFor(path: string): string {
+  return workspaceRootForDispatch(path);
+}
+export function setWorkspaceRootForDispatch(fn: (path: string) => string): void {
+  workspaceRootForDispatch = fn;
 }
 
 /** One entry in the file-explorer listing: a subfolder, .md file, or image. */

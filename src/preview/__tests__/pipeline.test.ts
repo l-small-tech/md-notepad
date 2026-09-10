@@ -115,3 +115,27 @@ describe('createRenderSequence', () => {
     expect(seq.isCurrent(second)).toBe(true);
   });
 });
+
+describe('renderMarkdownToHtml — source line stamps', () => {
+  test('every rendered element carries the 1-based source line it starts on', async () => {
+    const html = await renderMarkdownToHtml('# Title\n\npara one\n\n- a\n- b\n', {
+      sourceLines: true,
+    });
+    expect(html).toContain('<h1 data-line="1">');
+    expect(html).toContain('<p data-line="3">');
+    expect(html).toContain('<li data-line="5">');
+    expect(html).toContain('<li data-line="6">');
+  });
+
+  test('inline elements are stamped with their own line inside a wrapped paragraph', async () => {
+    const html = await renderMarkdownToHtml('first line\nsecond **bold** line\n', {
+      sourceLines: true,
+    });
+    expect(html).toContain('<p data-line="1">');
+    expect(html).toContain('<strong data-line="2">');
+  });
+
+  test('stamps are off by default (exports and markup comparisons stay clean)', async () => {
+    expect(await renderMarkdownToHtml('# Title\n')).toBe('<h1>Title</h1>');
+  });
+});

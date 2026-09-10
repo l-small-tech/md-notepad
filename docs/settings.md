@@ -87,6 +87,22 @@ remembered. Press Esc or click outside the panel to close it.
 - **Image folder name** — the name of the images folder used by the
   "subfolder" and "workspace root" choices.
 
+## Voice notes
+
+Voice notes are dictated comments about a line of a document, made in Read
+mode: turn on the toolbar's voice-notes button, press and hold a line, then
+tap the microphone to start and again to finish. The document itself is never
+changed; each note goes into a separate `<name>.comments.md` file that names
+the document, the line, a quote of that line and the time — ready for a
+person or an AI agent to act on.
+
+- **Voice notes** — where those files are kept. **Shared folder at workspace
+  root** (the default) collects them in one folder at the top of the
+  workspace, mirroring the document's sub-folders inside it. **Next to the
+  file** keeps each one beside its document, hidden from the sidebar.
+- **Voice notes folder name** — the shared folder's name. Default
+  `Voice Notes`.
+
 ## Terminal (desktop only)
 
 Terminal tabs have their own group of settings; none of these exist on

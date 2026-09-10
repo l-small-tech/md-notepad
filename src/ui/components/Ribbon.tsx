@@ -33,7 +33,7 @@ import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
-import { addCommentAtLine, openAllComments } from '../voice-comments';
+import { toggleArmed, useVoiceStore } from '../voice-comments';
 import {
   FONT_FAMILIES,
   PALETTE,
@@ -187,35 +187,30 @@ const SaveAutoIcon = (
  * directory so the CLI can find them regardless of where it was launched.
  */
 /**
- * Start a voice comment anchored to the caret's line (desktop entry point; on
- * mobile a long-press on the line does this). Gated out of WYSIWYG like the
- * formatting controls — anchor tokens live in the CM6 source, and a rich-mode
- * re-serialize could drop them.
+ * The Read-mode voice-notes toggle. While on, pressing and holding a line of
+ * the rendered document opens the voice-note sheet for that line (the pane's
+ * hold gesture → `openNoteAtLine`). Read mode only: notes are about reviewing
+ * a finished document, and the rendered view is where a line is held.
  */
-function addVoiceCommentAtCaret(): void {
-  const state = tabsStore.getState();
-  const tab = state.tabs.find((t) => t.id === state.activeTabId);
-  if (!tab) {
-    return;
-  }
-  if (tab.mode === 'wysiwyg' || tab.mode === 'draw') {
-    uiStore.getState().showNotice('Voice comments work in Markdown and Split modes.');
-    return;
-  }
-  const adapter = getSourceAdapter(tab.id);
-  if (!adapter) {
-    return;
-  }
-  void addCommentAtLine(tab.id, adapter.anchorLineAt());
-}
-
-/** Open the voice-comments panel for the active tab (read-mode entry point). */
-function openVoiceComments(): void {
-  const state = tabsStore.getState();
-  const tab = state.tabs.find((t) => t.id === state.activeTabId);
-  if (tab) {
-    void openAllComments(tab.id);
-  }
+function VoiceNotesToggle() {
+  const armed = useVoiceStore((s) => s.armed);
+  return (
+    <button
+      className="ribbon-btn"
+      data-active={armed || undefined}
+      aria-pressed={armed}
+      aria-label="Voice notes"
+      title={
+        armed
+          ? 'Voice notes on — press and hold a line to add one'
+          : 'Voice notes — turn on, then press and hold a line'
+      }
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={toggleArmed}
+    >
+      {CommentIcon}
+    </button>
+  );
 }
 
 /** How long the save button has to be held before its options menu opens. */
@@ -485,18 +480,6 @@ function FormatControls() {
         onClick={(e) => insertFileLink({ image: true, absolute: !e.altKey })}
       >
         {ImageIcon}
-      </button>
-
-      <span className="ribbon-divider" role="separator" />
-
-      <button
-        className="ribbon-btn"
-        aria-label="Add a voice comment"
-        title="Add a voice comment on the current line"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={addVoiceCommentAtCaret}
-      >
-        {CommentIcon}
       </button>
     </div>
   );
@@ -822,15 +805,7 @@ function ReaderControls() {
 
       <span className="ribbon-divider" role="separator" />
 
-      <button
-        className="ribbon-btn"
-        aria-label="Voice comments"
-        title="Voice comments — view, play, or add"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={openVoiceComments}
-      >
-        {CommentIcon}
-      </button>
+      <VoiceNotesToggle />
     </div>
   );
 }

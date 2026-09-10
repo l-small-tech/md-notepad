@@ -1,19 +1,19 @@
 /**
- * VoiceComments — the capture sheet + transcript panel.
+ * VoiceComments — the voice-note capture sheet + note list.
  *
- * A pure projection of `voiceStore` (src/ui/voice-comments.ts): it renders the
- * live-capture state while dictating/recording, then the note's comments once
- * captured or when a gutter marker is opened. Mounted once at the app root; it
- * renders nothing while the panel is closed.
+ * A pure projection of `voiceStore` (src/ui/voice-comments.ts): in the `ready`
+ * and `capturing` phases it shows the chosen line and a big two-tap microphone
+ * (tap to start, tap again to finish); in `viewing` it lists the note's voice
+ * notes. Mounted once at the app root; it renders nothing while closed.
  */
 
 import { useEffect, useState } from 'react';
 import {
-  addFromPanel,
   audioDataUrl,
   closePanel,
   deleteComment,
-  stopCapture,
+  showNotes,
+  toggleMic,
   updateTranscript,
   useVoiceStore,
   type VoiceCommentsState,
@@ -26,13 +26,13 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-/** Lazily resolve a comment's audio clip to a playable object URL. */
-function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
+/** Lazily resolve a note's audio clip (beside the sidecar) to a playable object URL. */
+function AudioClip({ commentsPath, audio }: { commentsPath: string; audio: string }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let revoked: string | null = null;
     let cancelled = false;
-    void audioDataUrl(notePath, audio)
+    void audioDataUrl(commentsPath, audio)
       .then((u) => {
         if (cancelled) {
           URL.revokeObjectURL(u);
@@ -48,7 +48,7 @@ function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
         URL.revokeObjectURL(revoked);
       }
     };
-  }, [notePath, audio]);
+  }, [commentsPath, audio]);
   if (!url) {
     return null;
   }
@@ -57,39 +57,36 @@ function AudioClip({ notePath, audio }: { notePath: string; audio: string }) {
 
 function CommentCard({
   comment,
-  notePath,
+  commentsPath,
   focused,
-  orphaned,
 }: {
   comment: VoiceComment;
-  notePath: string;
+  commentsPath: string;
   focused: boolean;
-  orphaned: boolean;
 }) {
   return (
-    <div
-      className={`vc-card${focused ? ' vc-card-focus' : ''}${orphaned ? ' vc-card-orphan' : ''}`}
-    >
+    <div className={`vc-card${focused ? ' vc-card-focus' : ''}`}>
       <div className="vc-card-meta">
         <span>
+          {comment.line !== null ? `Line ${comment.line} · ` : ''}
           {formatTime(comment.time)}
-          {orphaned && <span className="vc-orphan-tag"> · unanchored</span>}
         </span>
         <button
           className="vc-btn-danger"
           onClick={() => void deleteComment(comment.id)}
-          aria-label="Delete voice comment"
+          aria-label="Delete voice note"
         >
           Delete
         </button>
       </div>
+      {comment.quote && <div className="vc-quote">{comment.quote}</div>}
       <textarea
         className="vc-transcript"
         value={comment.transcript}
         placeholder="Transcript…"
         onChange={(e) => updateTranscript(comment.id, e.target.value)}
       />
-      {comment.audio && <AudioClip notePath={notePath} audio={comment.audio} />}
+      {comment.audio && <AudioClip commentsPath={commentsPath} audio={comment.audio} />}
     </div>
   );
 }
@@ -99,6 +96,13 @@ export function VoiceComments() {
   if (state.phase === 'closed') {
     return null;
   }
+  const capturing = state.phase === 'capturing';
+  const title =
+    state.phase === 'viewing'
+      ? 'Voice notes'
+      : state.line !== null
+        ? `Voice note · line ${state.line}`
+        : 'Voice note';
   return (
     <div
       className={`vc-backdrop${isAndroid() ? ' vc-android' : ''}`}
@@ -109,62 +113,82 @@ export function VoiceComments() {
         }
       }}
     >
-      <div className="vc-panel" role="dialog" aria-label="Voice comments">
+      <div className="vc-panel" role="dialog" aria-label="Voice notes">
         <div className="vc-header">
-          <span>{state.phase === 'capturing' ? 'New voice comment' : 'Voice comments'}</span>
+          <span>{title}</span>
           <div className="vc-header-actions">
-            {state.phase === 'viewing' && (
+            {state.phase === 'ready' && (
               <button
                 className="vc-add"
-                onClick={() => void addFromPanel()}
-                aria-label="Add a voice comment"
-                title="Add a voice comment on the current line"
+                onClick={showNotes}
+                aria-label="Show all voice notes"
+                title="Show this note's voice notes"
               >
-                ＋
+                {state.comments.length > 0 ? `Notes (${state.comments.length})` : 'Notes'}
               </button>
             )}
-            <button className="vc-close" onClick={closePanel} aria-label="Close">
+            <button
+              className="vc-close"
+              onClick={closePanel}
+              aria-label={capturing ? 'Cancel' : 'Close'}
+            >
               ✕
             </button>
           </div>
         </div>
-        {state.phase === 'capturing' ? (
-          <CaptureView state={state} />
-        ) : (
-          <ViewingBody state={state} />
-        )}
+        {state.phase === 'viewing' ? <ViewingBody state={state} /> : <CaptureView state={state} />}
       </div>
     </div>
   );
 }
 
+/** The two-tap microphone: idle in `ready`, pulsing in `capturing`. */
 function CaptureView({ state }: { state: VoiceCommentsState }) {
-  const listening = state.captureKind === 'android';
+  const capturing = state.phase === 'capturing';
+  const dictating = state.captureKind === 'android';
+  const label = !capturing
+    ? 'Tap to start'
+    : dictating
+      ? 'Listening… tap again to finish'
+      : 'Recording… tap again to finish';
   return (
     <div className="vc-capturing">
-      <div className="vc-pulse" aria-hidden="true">
-        🎙️
-      </div>
-      <div className="vc-capture-label">{listening ? 'Listening… speak now' : 'Recording…'}</div>
-      <button className="vc-btn" onClick={stopCapture}>
-        {listening ? 'Stop' : 'Stop & save'}
+      {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
+      <button
+        className={`vc-mic${capturing ? ' vc-mic-live' : ''}`}
+        onClick={toggleMic}
+        aria-pressed={capturing}
+        aria-label={capturing ? 'Finish recording' : 'Start recording'}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M5 11a7 7 0 0 0 14 0" />
+          <path d="M12 18v3M8 21h8" />
+        </svg>
       </button>
+      <div className="vc-capture-label">{label}</div>
     </div>
   );
 }
 
 function ViewingBody({ state }: { state: VoiceCommentsState }) {
-  const anchored = new Set(state.anchoredIds);
-  const notePath = state.notePath ?? '';
+  const commentsPath = state.commentsPath ?? '';
   if (state.comments.length === 0) {
     return (
       <div className="vc-body">
-        <div className="vc-empty">No voice comments on this note yet.</div>
+        <div className="vc-empty">No voice notes on this document yet.</div>
       </div>
     );
   }
-  // Focused first, then the rest in file order; orphans keep their place but are
-  // flagged so a transcript whose anchor was edited away is never lost.
+  // Focused first, then the rest in file order.
   const ordered = [...state.comments].sort((a, b) => {
     if (a.id === state.focusId) return -1;
     if (b.id === state.focusId) return 1;
@@ -176,9 +200,8 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
         <CommentCard
           key={c.id}
           comment={c}
-          notePath={notePath}
+          commentsPath={commentsPath}
           focused={c.id === state.focusId}
-          orphaned={!anchored.has(c.id)}
         />
       ))}
     </div>

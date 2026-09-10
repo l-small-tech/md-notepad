@@ -31,6 +31,11 @@ const schema: Schema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
+    // Every element carries the 1-based source line it was parsed from
+    // (`data-line`, stamped by `rehypeSourceLines` below) so Read mode can map
+    // a touch on rendered text back to a line of the markdown — the voice-note
+    // gesture. A numeric data attribute can't carry script or a URL.
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataLine'],
     // Fenced code blocks keep their language class for mermaid detection
     // (mermaid.ts looks for `code.language-mermaid`) and future highlighting.
     code: [...(defaultSchema.attributes?.code ?? []), ['className', /^language-./]],
@@ -62,6 +67,38 @@ const schema: Schema = {
   },
 };
 
+/**
+ * Stamp each element with `data-line` = the 1-based source line it starts on
+ * (remark keeps `position` through remark-rehype). Inline elements are stamped
+ * too: for a paragraph that wraps several source lines, the innermost stamped
+ * ancestor of a touched node is the more precise answer, and `closest()` finds
+ * it. Runs BEFORE the sanitizer so the attribute is subject to the schema.
+ */
+interface HastNode {
+  type: string;
+  position?: { start: { line: number } };
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+}
+
+function stampSourceLines(node: HastNode): void {
+  if (node.type === 'element') {
+    const line = node.position?.start.line;
+    if (line !== undefined) {
+      node.properties = { ...node.properties, dataLine: line };
+    }
+  }
+  for (const child of node.children ?? []) {
+    stampSourceLines(child);
+  }
+}
+
+function rehypeSourceLines() {
+  return (tree: HastNode) => {
+    stampSourceLines(tree);
+  };
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
@@ -69,9 +106,30 @@ const processor = unified()
   .use(rehypeSanitize, schema)
   .use(rehypeStringify);
 
+/** The same pipeline with `data-line` stamps — the live pane's variant. */
+const processorWithLines = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkRehype)
+  .use(rehypeSourceLines)
+  .use(rehypeSanitize, schema)
+  .use(rehypeStringify);
+
+export interface RenderOptions {
+  /**
+   * Stamp every element with `data-line` (its 1-based source line). The live
+   * preview pane asks for this so a touch can be mapped back to a source line;
+   * exports and tests that compare markup leave it off.
+   */
+  sourceLines?: boolean;
+}
+
 /** Parse `text` as GFM and return sanitized HTML, safe to assign to `innerHTML`. */
-export async function renderMarkdownToHtml(text: string): Promise<string> {
-  const file = await processor.process(text);
+export async function renderMarkdownToHtml(
+  text: string,
+  options: RenderOptions = {},
+): Promise<string> {
+  const file = await (options.sourceLines ? processorWithLines : processor).process(text);
   return String(file);
 }
 

@@ -1,72 +1,124 @@
 /**
- * comments.ts — the pure data layer for voice comments (invariant: no I/O here).
+ * comments.ts — the pure data layer for voice notes (invariant: no I/O here).
  *
- * A voice comment is a short dictated note anchored to a point in a markdown
- * file. The anchor is an invisible HTML comment — `<!-- ^cXXXX -->` — inserted
- * into the parent `.md` at the end of the anchored line. Because it is ordinary
- * document text it moves with edits automatically, survives save/restore, and is
- * stripped from the rendered preview (the pipeline has no `allowDangerousHtml`).
+ * A voice note is a short dictated note about one line of a markdown file. The
+ * note never touches the file it comments on: the parent `.md` stays byte-for-
+ * byte unchanged (no markers, no checksum churn, nothing for a sync client to
+ * merge). Everything lives in a sibling human-readable file, `<name>.comments.md`,
+ * whose entries each carry an obvious reference back to the parent — its file
+ * name, the 1-based line the note is about, a quote of that line's text as it
+ * read at capture time, and a UTC timestamp. The quote is what keeps a note
+ * findable after the parent is edited and the line number drifts.
  *
- * The transcripts live in a sibling human-readable file, `<name>.comments.md`,
- * keyed by the same token id. This module owns the four pure concerns the rest
- * of the feature composes: locating the comments file, parsing/serializing it,
- * scanning a document for anchors, and minting collision-free ids. Everything
- * here is synchronous and side-effect-free so it is exhaustively unit-testable;
- * the storage-provider round-trip and CM6 wiring live elsewhere.
+ * The intended reader of that file is as often an AI agent as a person — the
+ * author reviews a document on a phone, dictates notes, then hands the sidecar
+ * to an agent to act on — so the format is plain, regular markdown with every
+ * field spelled out.
+ *
+ * This module owns the pure concerns the rest of the feature composes: locating
+ * the comments file, parsing/serializing it, and minting collision-free ids.
+ * Everything here is synchronous and side-effect-free so it is exhaustively
+ * unit-testable; the storage-provider round-trip and the UI live elsewhere.
+ *
+ * File format (v2):
+ *
+ *     <!-- md-notepad voice comments v2 -->
+ *     # Voice notes for [meeting-notes.md](../meeting-notes.md)
+ *
+ *     ## ^c3f9a
+ *     - file: ../meeting-notes.md
+ *     - line: 42
+ *     - time: 2026-09-10T21:32:07.000Z
+ *
+ *     > The original line's text, quoted at capture time
+ *
+ *     Ship the pricing change before the demo.
+ *
+ * `file:` (and the title link) is the parent's path RELATIVE TO THE SIDECAR, so
+ * it is both an obvious reference and a link that resolves — `meeting-notes.md`
+ * when the sidecar sits beside the document, `../meeting-notes.md` (or deeper)
+ * from a shared workspace "Voice Notes" folder. Where the sidecar lives is a
+ * setting; `commentsPathFor` resolves it.
+ *
+ * v1 files (which had no file/line/quote fields — the parent carried an
+ * invisible `<!-- ^cXXXX -->` anchor instead) still parse; the missing fields
+ * come back empty. Nothing writes v1 any more.
  */
 
-import { baseName, dirName, extName, joinPath } from './session/plan-flush';
+import { baseName, dirName, extName, joinPath, relativePath } from './session/plan-flush';
+import type { VoiceNotesLocation } from './types';
 
-/** A single anchored voice comment as stored in `<name>.comments.md`. */
+/** A single voice note as stored in `<name>.comments.md`. */
 export interface VoiceComment {
-  /** Token id (without the `^`), e.g. `c3f9a`. Matches the parent `.md` marker. */
+  /** Entry id (without the `^`), e.g. `c3f9a`. Unique within the file. */
   id: string;
-  /** ISO-8601 capture time (`new Date().toISOString()`). */
+  /** Name of the file the note is about (no directory), e.g. `meeting-notes.md`. */
+  file: string;
+  /** 1-based line the note is about; null for a legacy (v1) entry. */
+  line: number | null;
+  /** The text of that line at capture time (single line, trimmed); '' if unknown. */
+  quote: string;
+  /** ISO-8601 UTC capture time (`new Date().toISOString()`). */
   time: string;
-  /** The dictated/typed text. May be empty for a desktop record-only comment. */
+  /** The dictated/typed text. May be empty for a desktop record-only note. */
   transcript: string;
   /** Optional sibling audio file name (desktop record path); null/absent otherwise. */
   audio?: string | null;
 }
 
-/** An anchor token located within a document string. */
-export interface Anchor {
-  id: string;
-  /** Document offset of the `<` that opens the token. */
-  from: number;
-  /** Document offset just past the `>` that closes the token. */
-  to: number;
-  /** 1-based line the token sits on. */
-  line: number;
-}
-
 /** First line of every comments file — a version stamp and a human hint. */
-const HEADER = '<!-- md-notepad voice comments v1 -->';
+const HEADER_V2 = '<!-- md-notepad voice comments v2 -->';
+const HEADER_VERSION_RE = /^<!--\s*md-notepad voice comments v(\d+)\s*-->\s*$/;
 
-/**
- * Matches an anchor token and captures its id. Global + sticky-free so it can be
- * reused with `matchAll`/`exec`; callers that keep state must reset `lastIndex`.
- * The id is `c` followed by base36 chars (see `newCommentId`).
- */
-export const ANCHOR_RE = /<!--\s*\^(c[0-9a-z]+)\s*-->/g;
-
-/** The exact text inserted into a `.md` to anchor a comment (leading space). */
-export function insertAnchorText(id: string): string {
-  return ` <!-- ^${id} -->`;
+/** Where a document's sidecar goes — the user's setting plus the workspace it's in. */
+export interface CommentsPathOptions {
+  location: VoiceNotesLocation;
+  /** The shared folder's name (already sanitized), for 'workspaceFolder'. */
+  folderName: string;
+  /** Root of the workspace the document belongs to (its own directory if none). */
+  workspaceRoot: string;
 }
 
 /**
- * Sibling comments-file path for a note: `foo.md` → `foo.comments.md`, in the
- * same directory / same provider namespace (so a `saf://…` note yields a
- * `saf://…` comments path). A `.markdown` note also collapses to `.comments.md`.
+ * The comments-file path for a note: `foo.md` → `foo.comments.md` (a
+ * `.markdown` note also collapses to `.comments.md`), always in the same
+ * provider namespace (a `saf://…` note yields a `saf://…` path).
+ *
+ * With no options, or 'nextToFile', the sidecar sits beside the note. With
+ * 'workspaceFolder' it goes under `<workspaceRoot>/<folderName>/`, mirroring
+ * the note's sub-path within the workspace (`ws/docs/a/foo.md` →
+ * `ws/Voice Notes/docs/a/foo.comments.md`) so same-named notes in different
+ * folders never share a sidecar. A note that isn't under the given root (or on
+ * another drive) lands directly in the folder.
  */
-export function commentsPathFor(notePath: string): string {
+export function commentsPathFor(notePath: string, opts?: CommentsPathOptions): string {
   const ext = extName(notePath); // '.md' | '.markdown' | ''
   const base = baseName(notePath);
   const stem = ext ? base.slice(0, base.length - ext.length) : base;
   const file = `${stem}.comments.md`;
-  const dir = dirName(notePath);
-  return dir ? joinPath(dir, file) : file;
+  const noteDir = dirName(notePath);
+  if (!opts || opts.location === 'nextToFile') {
+    return noteDir ? joinPath(noteDir, file) : file;
+  }
+  const folder = joinPath(opts.workspaceRoot, opts.folderName);
+  const rel = noteDir ? relativePath(opts.workspaceRoot, noteDir) : null;
+  // '.' = the root itself; './sub/dir' = inside it; '../…' or null = outside.
+  const inside = rel !== null && rel.startsWith('./') ? rel.slice(2) : '';
+  return inside ? joinPath(joinPath(folder, inside), file) : joinPath(folder, file);
+}
+
+/**
+ * How a sidecar refers to its parent: the parent's path relative to the
+ * sidecar's directory, forward-slashed, without a leading `./` — `foo.md` for a
+ * sibling, `../docs/foo.md` from a shared folder. Falls back to the bare file
+ * name when no relative path exists (different roots).
+ */
+export function noteRefFor(commentsPath: string, notePath: string): string {
+  const rel = relativePath(dirName(commentsPath), notePath);
+  if (rel === null || rel === '.') {
+    return baseName(notePath);
+  }
+  return rel.startsWith('./') ? rel.slice(2) : rel;
 }
 
 /** True for a comments-file name/path (`*.comments.md`), used to hide them. */
@@ -75,42 +127,8 @@ export function isCommentsPath(path: string): boolean {
 }
 
 /**
- * Scan a document for anchor tokens, in document order. Line numbers are 1-based
- * and derived from newline counts so the result maps directly onto CM6 lines.
- */
-export function findAnchors(docText: string): Anchor[] {
-  const out: Anchor[] = [];
-  const re = new RegExp(ANCHOR_RE.source, 'g');
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(docText)) !== null) {
-    const from = m.index;
-    out.push({
-      id: m[1]!,
-      from,
-      to: from + m[0].length,
-      // Count newlines up to the token: cheap and correct for any line ending
-      // whose final char is '\n' (LF and CRLF both qualify).
-      line: countLines(docText, from),
-    });
-  }
-  return out;
-}
-
-function countLines(text: string, upTo: number): number {
-  let n = 1;
-  for (let i = 0; i < upTo; i++) {
-    if (text.charCodeAt(i) === 10 /* \n */) {
-      n++;
-    }
-  }
-  return n;
-}
-
-/**
- * Mint an id that collides with none of `existingIds` — pass the union of ids
- * already in the parent `.md` (`findAnchors`) and in the comments file so the
- * new token is unique across both. `c` + 4 base36 chars gives ~1.7M values;
- * the retry loop makes uniqueness deterministic regardless.
+ * Mint an id that collides with none of `existingIds`. `c` + 4 base36 chars
+ * gives ~1.7M values; the retry loop makes uniqueness deterministic regardless.
  */
 export function newCommentId(existingIds: Set<string>): string {
   for (;;) {
@@ -121,62 +139,114 @@ export function newCommentId(existingIds: Set<string>): string {
   }
 }
 
-const HEADER_RE = /^##\s+\^(c[0-9a-z]+)\s*$/;
-const META_RE = /^-\s+(time|audio):\s*(.*)$/;
+/**
+ * The 1-based line's text from a document, trimmed to one line — the quote
+ * stored beside a note. '' when the line is out of range.
+ */
+export function lineQuote(docText: string, line: number): string {
+  const lines = docText.split('\n');
+  const raw = lines[line - 1];
+  return raw === undefined ? '' : raw.replace(/\r$/, '').trim();
+}
+
+const ENTRY_RE = /^##\s+\^(c[0-9a-z]+)\s*$/;
+const META_RE = /^-\s+(file|line|time|audio):\s*(.*)$/;
 
 /**
- * Parse a `<name>.comments.md` file into comments, in file order. Tolerant of a
+ * Parse a `<name>.comments.md` file into notes, in file order. Tolerant of a
  * missing header and of hand-edits: each `## ^id` heading starts an entry; the
- * leading run of `- time:` / `- audio:` lines is metadata, and everything after
- * the first non-metadata line (trimmed) is the transcript verbatim — so dashes
- * or lists inside a transcript are preserved. Unknown/garbage lines before the
- * first heading are ignored.
+ * leading run of `- key:` lines is metadata. In a v2 file a blockquote run right
+ * after the metadata is the line quote. Everything after that (trimmed) is the
+ * transcript verbatim — so dashes or lists inside a transcript are preserved.
+ * Unknown/garbage lines before the first entry (including the title) are ignored.
  */
 export function parseCommentsFile(text: string): VoiceComment[] {
-  const lines = text.split('\n');
+  const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
+  const first = lines[0] ?? '';
+  const versionMatch = HEADER_VERSION_RE.exec(first);
+  const version = versionMatch ? Number(versionMatch[1]) : 1;
+
   const out: VoiceComment[] = [];
-  let cur: { id: string; time: string; audio: string | null; body: string[] } | null = null;
-  let inMeta = false;
+  interface Cur {
+    id: string;
+    file: string;
+    line: number | null;
+    time: string;
+    audio: string | null;
+    body: string[];
+  }
+  let cur: Cur | null = null;
+  // 'meta' → the leading `- key:` run; 'quote' → an optional `>` run (v2 only);
+  // 'body' → everything else.
+  let section: 'meta' | 'quote' | 'body' = 'body';
+  let quoteLines: string[] = [];
 
   const flush = () => {
     if (cur) {
       out.push({
         id: cur.id,
+        file: cur.file,
+        line: cur.line,
+        quote: quoteLines.join(' ').trim(),
         time: cur.time,
         audio: cur.audio,
         transcript: cur.body.join('\n').trim(),
       });
     }
+    quoteLines = [];
   };
 
-  for (const raw of lines) {
-    const line = raw.replace(/\r$/, '');
-    const head = HEADER_RE.exec(line);
+  for (const line of lines) {
+    const head = ENTRY_RE.exec(line);
     if (head) {
       flush();
-      cur = { id: head[1]!, time: '', audio: null, body: [] };
-      inMeta = true;
+      cur = { id: head[1]!, file: '', line: null, time: '', audio: null, body: [] };
+      section = 'meta';
       continue;
     }
     if (!cur) {
       continue; // preamble before the first entry
     }
-    if (inMeta) {
+    if (section === 'meta') {
       const meta = META_RE.exec(line);
       if (meta) {
-        if (meta[1] === 'time') {
-          cur.time = meta[2]!.trim();
-        } else {
-          const v = meta[2]!.trim();
-          cur.audio = v ? v : null;
+        const v = meta[2]!.trim();
+        switch (meta[1]) {
+          case 'file':
+            cur.file = v;
+            break;
+          case 'line': {
+            const n = Number.parseInt(v, 10);
+            cur.line = Number.isFinite(n) && n > 0 ? n : null;
+            break;
+          }
+          case 'time':
+            cur.time = v;
+            break;
+          case 'audio':
+            cur.audio = v ? v : null;
+            break;
         }
         continue;
       }
+      // The blank separator (or the first non-meta line) ends the meta run.
+      section = version >= 2 ? 'quote' : 'body';
       if (line.trim() === '') {
-        inMeta = false; // the blank separator ends the meta run; body follows
-        continue; // blank line between metadata and transcript
+        continue;
       }
-      inMeta = false; // first real content line ends the metadata run
+    }
+    if (section === 'quote') {
+      if (/^>/.test(line)) {
+        quoteLines.push(line.replace(/^>\s?/, ''));
+        continue;
+      }
+      section = 'body';
+      if (line.trim() === '' && quoteLines.length > 0) {
+        continue; // the blank line between the quote and the transcript
+      }
+      if (line.trim() === '' && cur.body.length === 0) {
+        continue; // stray blank before the body
+      }
     }
     cur.body.push(line);
   }
@@ -184,15 +254,27 @@ export function parseCommentsFile(text: string): VoiceComment[] {
   return out;
 }
 
-/** Serialize comments back to the canonical `<name>.comments.md` text. */
-export function serializeCommentsFile(comments: VoiceComment[]): string {
+/**
+ * Serialize notes to the canonical v2 `<name>.comments.md` text. `noteRef` is
+ * the parent's path relative to the sidecar (see `noteRefFor`) — it titles the
+ * file and fills in the `file:` field of any legacy entry that has none.
+ */
+export function serializeCommentsFile(comments: VoiceComment[], noteRef: string): string {
   const blocks = comments.map((c) => {
-    const meta = [`- time: ${c.time}`];
+    const file = c.file || noteRef;
+    const meta = [`- file: ${file}`];
+    if (c.line !== null) {
+      meta.push(`- line: ${c.line}`);
+    }
+    meta.push(`- time: ${c.time}`);
     if (c.audio) {
       meta.push(`- audio: ${c.audio}`);
     }
+    const quote = c.quote.trim();
+    const quoteBlock = quote ? `> ${quote}\n\n` : '';
     const body = c.transcript.trim();
-    return `## ^${c.id}\n${meta.join('\n')}\n\n${body}\n`;
+    return `## ^${c.id}\n${meta.join('\n')}\n\n${quoteBlock}${body}\n`;
   });
-  return `${HEADER}\n\n${blocks.join('\n')}`;
+  const title = `# Voice notes for [${baseName(noteRef)}](${encodeURI(noteRef)})`;
+  return `${HEADER_V2}\n${title}\n\n${blocks.join('\n')}`;
 }
