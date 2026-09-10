@@ -219,6 +219,11 @@ sibling `session/` folder).
       to repaint).
 - [ ] Drop a terminal tab onto ANOTHER window, then drag it back → the shell
       survives both hops. Closing the tab (or the window) still kills it.
+- [ ] In a WINDOW THAT HAS JUST OPENED, terminal text is aligned: even
+      spacing, nothing overlapping, caret directly after the prompt. A pane
+      that mounts before the web font loads measured the wrong cell (see
+      src/renderer/README.md) — the tell is runs sliding into each other,
+      worse the further right they sit.
 - [ ] Type in both windows simultaneously → each window's notes flush;
       `sessionDir` shows `session.json` plus one `session-w-*.json`.
 - [ ] Quit via the MAIN window's X with a torn-off window open → both close;
