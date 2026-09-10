@@ -788,6 +788,25 @@ async function boot(): Promise<void> {
       .catch(() => {});
   }
 
+  // A second launch of the app from a virtual desktop with no window on it
+  // (Windows 11) builds a fresh window instead of yanking the user to the old
+  // one — src-tauri/src/lib.rs. Any files that launch carried ride the URL like
+  // ?adopt= does: at build time this window had no `open-files` listener yet.
+  const openParam = bootParams.get('open');
+  if (openParam !== null) {
+    const handoffFiles = ((): string[] => {
+      try {
+        const parsed: unknown = JSON.parse(openParam);
+        return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : [];
+      } catch {
+        return []; // malformed param — open the window empty, never throw
+      }
+    })();
+    if (handoffFiles.length > 0) {
+      void controller.openPaths(handoffFiles).catch(() => {});
+    }
+  }
+
   // Android: files from an "Open with"/"Share" intent arrive as content:// URIs
   // held in the androidfs plugin. Drain them at boot (cold-start intent) and on
   // window focus (warm start — a new intent resumes the app). copyInExternal

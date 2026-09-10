@@ -5,6 +5,10 @@ mod commands;
 mod pty;
 #[cfg(desktop)]
 mod shell;
+// Windows-only: which virtual desktop a window sits on, for the
+// single-instance handoff below.
+#[cfg(windows)]
+mod vdesk;
 
 use std::sync::Mutex;
 
@@ -14,7 +18,7 @@ use tauri_plugin_log::log::LevelFilter;
 // mobile (no second process) and in debug builds (so a dev instance can coexist
 // with an installed release instead of folding into it).
 #[cfg(all(desktop, not(debug_assertions)))]
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// The shell a terminal profile spawns when it names no program. The frontend
 /// shows it in Settings and passes it back on spawn.
@@ -74,6 +78,135 @@ fn log_level_from(env: Option<&str>, args: &[String]) -> LevelFilter {
     LevelFilter::Info
 }
 
+/// Shared window geometry/chrome for every window the app creates, as
+/// (width, height, min width, min height). Mirrors `WINDOW_OPTIONS` in
+/// `src/main.tsx` — a window born in Rust (the second-instance handoff below)
+/// must look exactly like one born in JS.
+#[cfg(all(desktop, not(debug_assertions)))]
+const NEW_WINDOW: (f64, f64, f64, f64) = (900.0, 650.0, 400.0, 300.0);
+
+/// Percent-encode a query-parameter VALUE (the RFC 3986 unreserved set is kept).
+///
+/// The second-instance handoff hands file paths to a brand-new window through
+/// its URL, and Windows paths are full of characters a query string reads as
+/// structure — backslashes, spaces, `#`, `&`, `%` — so nothing may travel raw.
+// Dead where the only caller is not compiled (debug builds, mobile): the
+// second-instance handoff is release-desktop-only. The unit tests below still
+// cover it everywhere.
+#[cfg_attr(not(all(desktop, not(debug_assertions))), allow(dead_code))]
+fn encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// A window label no live window is using.
+///
+/// `w-<millis>` — the `w-` prefix is what the frontend's restore sweep and
+/// `capabilities/default.json` both match on, so a handoff window is an
+/// ordinary secondary window in every other respect. Two launches inside the
+/// same millisecond (or a restored window that already owns the label) fall
+/// through to a `-<n>` suffix, which the frontend's manifest regex accepts.
+// Dead where the only caller is not compiled (debug builds, mobile): the
+// second-instance handoff is release-desktop-only. The unit tests below still
+// cover it everywhere.
+#[cfg_attr(not(all(desktop, not(debug_assertions))), allow(dead_code))]
+fn fresh_window_label(millis: u128, taken: &[String]) -> String {
+    let base = format!("w-{millis}");
+    if !taken.contains(&base) {
+        return base;
+    }
+    (1u32..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or(base)
+}
+
+/// Can the user see this window from where they are standing?
+///
+/// On Windows 11 that is a real question: `set_focus()` on a window parked on
+/// another virtual desktop switches the user's whole desktop out from under
+/// them. Everywhere else — and whenever the shell refuses to answer — it is
+/// yes, which keeps the old always-focus behaviour.
+#[cfg(all(desktop, not(debug_assertions)))]
+fn is_reachable(window: &WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        window
+            .hwnd()
+            .ok()
+            .and_then(vdesk::is_on_current_desktop)
+            .unwrap_or(true)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        true
+    }
+}
+
+/// A second launch of the app: reuse a window the user can actually see, or
+/// give them a new one here rather than teleporting them to an old one.
+///
+/// Files (a double-clicked `.md`) reach a REUSED window over the `open-files`
+/// event — its frontend is already listening. A NEW window has no listener yet
+/// when it is built, so they ride its URL as `?open=` instead, the same trick
+/// `spawnTabWindow` uses for `?adopt=`.
+#[cfg(all(desktop, not(debug_assertions)))]
+fn handle_second_instance(app: &tauri::AppHandle, args: &[String]) {
+    let files = file_args(args);
+
+    // Windows close independently, so "main" may be gone while the app still
+    // runs — every surviving window is a candidate, main first. Tab-drag ghosts
+    // ("ghost-*") are transient cursor-followers, never a reuse target.
+    let mut candidates: Vec<WebviewWindow> = app.get_webview_window("main").into_iter().collect();
+    candidates.extend(
+        app.webview_windows()
+            .into_iter()
+            .filter(|(label, _)| label != "main" && !label.starts_with("ghost-"))
+            .map(|(_, window)| window),
+    );
+
+    if let Some(window) = candidates.into_iter().find(is_reachable) {
+        let _ = window.set_focus();
+        // Target the event at that one window only (every window listens on its
+        // own label), so the files open exactly once.
+        if !files.is_empty() {
+            let _ = app.emit_to(window.label(), "open-files", files);
+        }
+        return;
+    }
+
+    // Nothing on this virtual desktop: build a window, which Windows places on
+    // the desktop the user is looking at.
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0);
+    let taken: Vec<String> = app.webview_windows().into_keys().collect();
+    let label = fresh_window_label(millis, &taken);
+
+    let url = match serde_json::to_string(&files) {
+        Ok(json) if !files.is_empty() => format!("index.html?open={}", encode_query(&json)),
+        _ => "index.html".to_string(),
+    };
+
+    let (width, height, min_width, min_height) = NEW_WINDOW;
+    let _ = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+        .title("MD Notepad")
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
+        .decorations(false)
+        .build();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let args = std::env::args().collect::<Vec<_>>();
@@ -98,20 +231,7 @@ pub fn run() {
             // single-instance must be the FIRST plugin registered (its docs) so it
             // can bail out before any other plugin does work in a doomed instance.
             .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-                // Windows close independently, so "main" may be gone while the app
-                // still runs — fall back to any surviving window. Target the event
-                // at that one window only (every window listens on its own label),
-                // so the files open exactly once.
-                let target = app
-                    .get_webview_window("main")
-                    .or_else(|| app.webview_windows().into_values().next());
-                if let Some(window) = target {
-                    let _ = window.set_focus();
-                    let files = file_args(&args);
-                    if !files.is_empty() {
-                        let _ = app.emit_to(window.label(), "open-files", files);
-                    }
-                }
+                handle_second_instance(app, &args);
             }));
 
         builder
@@ -247,7 +367,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_args, log_level_from, LevelFilter};
+    use super::{encode_query, file_args, fresh_window_label, log_level_from, LevelFilter};
 
     fn argv(flags: &[&str]) -> Vec<String> {
         std::iter::once("md-notepad")
@@ -300,5 +420,33 @@ mod tests {
         // Unparseable MDN_LOG falls through to the flag rather than panicking.
         assert_eq!(log_level_from(Some("loud"), &verbose), LevelFilter::Debug);
         assert_eq!(log_level_from(Some(""), &argv(&[])), LevelFilter::Info);
+    }
+
+    #[test]
+    fn encode_query_escapes_everything_a_url_would_read() {
+        // A Windows path is the real payload: backslashes, spaces, and the
+        // characters a query string treats as structure.
+        assert_eq!(
+            encode_query("C:\\my notes\\a&b#c.md"),
+            "C%3A%5Cmy%20notes%5Ca%26b%23c.md"
+        );
+        // Unreserved characters survive untouched; non-ASCII leaves as UTF-8.
+        assert_eq!(encode_query("a-z_0.9~"), "a-z_0.9~");
+        assert_eq!(encode_query("\u{e9}"), "%C3%A9");
+        assert_eq!(encode_query(""), "");
+    }
+
+    #[test]
+    fn fresh_window_label_avoids_live_labels() {
+        assert_eq!(fresh_window_label(17, &[]), "w-17");
+        assert_eq!(
+            fresh_window_label(17, &["main".to_string(), "w-16".to_string()]),
+            "w-17"
+        );
+        assert_eq!(fresh_window_label(17, &["w-17".to_string()]), "w-17-1");
+        assert_eq!(
+            fresh_window_label(17, &["w-17".to_string(), "w-17-1".to_string()]),
+            "w-17-2"
+        );
     }
 }
