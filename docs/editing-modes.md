@@ -1,6 +1,6 @@
-# The four viewing modes
+# The viewing modes
 
-Every tab can be viewed four ways. Switch with the buttons at the
+Every markdown tab can be viewed four ways; code files get Raw and Review. Switch with the buttons at the
 bottom-left of the window, or with **Ctrl+1** to **Ctrl+4** (Cmd on Mac).
 Each tab remembers its own mode.
 
@@ -59,6 +59,57 @@ hidden, there are two ways back:
 
 How wide the text column is in Read mode is up to you — see **Read mode
 margins** in [Settings](settings.md).
+
+## Review (Ctrl+4, code files)
+
+A code file — `.ts`, `.tsx`, `.js` or `.rs` — offers two modes: **Raw**, the
+plain source with syntax colouring, and **Review**, which takes Read's place.
+Review is read-only. It shows the file's *structure* for someone who knows
+what code is but not the syntax, so you can read what an agent did and tell
+it what to change next, by voice.
+
+Every piece of the file becomes a card, in source order:
+
+- **A plain-English sentence** for each function — "Takes a folder path, a
+  list of folders, and an optional list of folders, and gives back *show*
+  (yes or no) and *explicit* (yes or no)." The real signature sits under it
+  in code font, and the author's doc comment under that. The sentence is a
+  reading aid built from simple rules, not a specification; when it looks
+  off, trust the signature.
+- **Forms** for structs, interfaces, enums and classes: a table of fields,
+  each with its plain-English type and its comment.
+- **An imports card** at the top: what this file uses from the app and
+  which packages.
+- **Facts** on each card: what it calls and what calls it, its size (the
+  dots), and whether it is exported.
+- **Code** opens the body folded to its bones — the declarations and the
+  `if` / `for` / `match` / `return` lines — with `⋯ 9 lines` markers you tap
+  to open one level at a time. Short functions open in full.
+- **Flow** draws one function's branches and loops as a flowchart.
+
+Above the deck, **Cards / Calls / Changes** switch views. *Calls* draws which
+functions in this file use which; tap a node to jump to its card. Chips
+under the header filter the deck (All · Exported · Changed · Functions ·
+Types). Any diagram opens full screen with pinch-zoom when tapped.
+
+**Changes** needs git on the machine. The header offers a baseline — *this
+branch* (against the branch it was made from), *uncommitted*, or *last
+commit* — and cards carry **added**, **changed** and **removed** badges;
+a changed signature says what changed ("now also takes hiddenDirs"). When
+the same file is also changed on another worktree's branch, the card says
+so. Without git, the header just says so and every other view works. The
+branch to compare against is auto-detected (`development`, `main`, or
+`master`) and can be set under **Review baseline branch** in
+[Settings](settings.md).
+
+**Voice notes work on cards.** Turn on the toolbar's voice-notes button,
+press and hold a card, and dictate. The note lands in
+`<file>.<ext>.comments.md` beside the file, quoting the card's signature and
+naming the declaration, with the branch and baseline recorded at the top.
+Spoken names snap to the real identifiers ("shows all files" becomes
+`showsAllFiles`); each snap can be undone before you move on. On the
+desktop, the offline Whisper engine is primed with the file's own names, so
+they transcribe correctly far more often.
 
 ## Choosing a default
 
