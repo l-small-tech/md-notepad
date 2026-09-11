@@ -676,6 +676,38 @@ describe('reviewing a code file: unit, whisper hint, snapped names', () => {
     expect(writes[0]?.text).toContain('`showAllFilesState` misses the hidden dirs');
   });
 
+  test('the review context lands in the sidecar preamble; without one nothing is added', async () => {
+    ipc.sttStart.mockResolvedValue('looks fine');
+    openCodeTab();
+    await openNoteAtLine('t1', 3, {
+      unit: 'showAllFilesState (function)',
+      context: {
+        branch: 'feat/explorer',
+        worktree: 'C:/repo/worktrees/explorer',
+        baseBranch: 'development',
+        baseRef: '3c77f30',
+      },
+    });
+    expect(state().context?.branch).toBe('feat/explorer');
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(writes[0]?.text).toContain(
+      '- branch: feat/explorer (worktree: C:/repo/worktrees/explorer)',
+    );
+    expect(writes[0]?.text).toContain('- compared against: development (merge-base 3c77f30)');
+
+    writes.length = 0;
+    await openNoteAtLine('t1', 3);
+    expect(state().context).toBeNull();
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(writes[0]?.text).not.toContain('- branch:');
+  });
+
   test('with no identifiers nothing is snapped and no unit line is written', async () => {
     ipc.sttStart.mockResolvedValue('show all files state misses the hidden dirs');
     openCodeTab();

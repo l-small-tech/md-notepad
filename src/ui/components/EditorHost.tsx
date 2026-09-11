@@ -25,8 +25,9 @@ import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import type { MilkdownAdapter } from '../../editors/milkdown';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
-import { attachCodeReviewPane } from '../../preview/code-review';
+import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
 import { attachPreviewPane } from '../../preview/pane';
+import { createReviewGit } from '../code-review-git';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
 import {
   enrichCopiedText,
@@ -127,7 +128,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   // drops it. The store entry itself is closed by reload/keep-mine and on
   // unmount, so a re-flagged conflict starts with a fresh snapshot.
   const showDiff = conflict && diffEntry !== null;
-  useEffect(() => () => diffViewStore.getState().close(tabId), [tabId]);
+  useEffect(
+    () => () => {
+      diffViewStore.getState().close(tabId);
+      // The Review pane's per-tab view state is transient — it dies with the tab.
+      codeReviewStore.getState().clear(tabId);
+    },
+    [tabId],
+  );
 
   function startDividerDrag(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault();
@@ -358,36 +366,89 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     // dark / voice-hold wiring; its view state lives in `stores/code-review`.
     if (mode === 'read' && docFamilyFor(tab.filePath ?? tab.notePath) === 'code') {
       const path = tab.filePath ?? tab.notePath ?? 'untitled';
-      const review = attachCodeReviewPane(host, tab.model, {
+      // "What changed" (review_plan.md §6): git facts arrive asynchronously and
+      // are pushed into the pane; the pane renders its cards first regardless.
+      // Created before the pane because the pane's first parse reports
+      // synchronously through onModelChange.
+      let review: CodeReviewPane | null = null;
+      const reviewGit = createReviewGit({
+        path,
+        baseBranchSetting: () => settingsStore.getState().settings.reviewBaseBranch,
+        getBaseline: () => reviewStateFor(tabId).baseline,
+        setBaseline: (baseline) => codeReviewStore.getState().setBaseline(tabId, baseline),
+        onGitInfo: (info) => review?.setGitInfo(info),
+        onChanges: (changes, radar) => review?.setChanges(changes, radar),
+      });
+      review = attachCodeReviewPane(host, tab.model, {
         dark: isDark(),
         path,
         state: reviewStateFor(tabId),
         onAction: (action) => codeReviewStore.getState().dispatch(tabId, action),
         onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
+        onModelChange: (model, text) => reviewGit.modelChanged(model, text),
         // Voice notes: holding a card opens the sheet on that declaration,
-        // with the file's identifiers priming Whisper and snapping the transcript.
+        // with the file's identifiers priming Whisper and snapping the
+        // transcript, and the review context for the sidecar's preamble.
         onHoldUnit: (unit, model) =>
           void openNoteAtLine(tabId, unit.signatureLine, {
             unit: `${unit.name} (${unit.kind})`,
             quote: unit.signature,
             hint: identifierHint(model.identifiers),
             identifiers: model.identifiers,
+            context: reviewGit.context(),
           }),
       });
-      const syncReviewState = () => review.setState(reviewStateFor(tabId));
+      const pane = review;
+      let lastBaseline = reviewStateFor(tabId).baseline;
+      const syncReviewState = () => {
+        const next = reviewStateFor(tabId);
+        pane.setState(next);
+        if (next.baseline !== lastBaseline) {
+          lastBaseline = next.baseline;
+          reviewGit.baselineChanged();
+        }
+      };
       const unsubscribeReview = codeReviewStore.subscribe(syncReviewState);
-      const syncReviewHold = () => review.setLineHold(voiceStore.getState().armed);
+      const syncReviewHold = () => pane.setLineHold(voiceStore.getState().armed);
       syncReviewHold();
       const unsubscribeReviewVoice = voiceStore.subscribe(syncReviewHold);
-      const unsubscribeReviewDark = subscribeDark((dark) => review.setDark(dark));
-      if (tabsStore.getState().activeTabId === tabId) {
+      const unsubscribeReviewDark = subscribeDark((dark) => pane.setDark(dark));
+      // Git facts refresh when the tab gains focus (throttled inside), when the
+      // window comes back, and at once when the base-branch setting changes.
+      let wasActive = tabsStore.getState().activeTabId === tabId;
+      const unsubscribeReviewFocus = tabsStore.subscribe(() => {
+        const active = tabsStore.getState().activeTabId === tabId;
+        if (active && !wasActive) {
+          reviewGit.refresh();
+        }
+        wasActive = active;
+      });
+      const onWindowFocus = () => {
+        if (tabsStore.getState().activeTabId === tabId) {
+          reviewGit.refresh();
+        }
+      };
+      window.addEventListener('focus', onWindowFocus);
+      let lastBaseBranch = settingsStore.getState().settings.reviewBaseBranch;
+      const unsubscribeReviewSettings = settingsStore.subscribe((s) => {
+        if (s.settings.reviewBaseBranch !== lastBaseBranch) {
+          lastBaseBranch = s.settings.reviewBaseBranch;
+          reviewGit.refresh(true);
+        }
+      });
+      reviewGit.refresh(true);
+      if (wasActive) {
         host.focus();
       }
       return () => {
         unsubscribeReview();
         unsubscribeReviewVoice();
         unsubscribeReviewDark();
-        review.dispose();
+        unsubscribeReviewFocus();
+        unsubscribeReviewSettings();
+        window.removeEventListener('focus', onWindowFocus);
+        reviewGit.dispose();
+        pane.dispose();
       };
     }
     const pane = attachPreviewPane(host, tab.model, {

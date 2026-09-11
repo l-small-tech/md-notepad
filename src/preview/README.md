@@ -205,6 +205,33 @@ only what changed (a view/filter/baseline change re-renders the pane; an
 expander or fold change re-renders that card's body). Without `onAction`
 the pane reduces the state itself.
 
+### What changed (review_plan.md §6)
+
+Git is the host's business (`ui/code-review-git.ts`); the pane only renders
+what it is handed:
+
+- `setGitInfo({ available, hint?, branch?, baseBranch?, baseRef? })` fills
+  `#cr-baseline-slot` in place: a `select.cr-baseline-select` with *this
+  branch (vs development)* (only when `baseRef` exists) · *uncommitted* ·
+  *last commit*, or — `available: false` — the hint text (`.cr-git-hint`:
+  "Git not found" / "Not a git repository"). Picking an option reports a
+  plain `{ type: 'baseline' }` action like every other tap; the host turns
+  the baseline into a revision.
+- `setChanges(changeMap, radar)` re-renders the deck with the `ChangeMap`
+  from `core/code/changes`: an `added` / `changed` badge in each card's
+  `.cr-badges` (`data-status` on the card; a `signature-changed` unit shows
+  the note — "now also takes hiddenDirs" — as `.cr-change-note` under its
+  signature), ghost cards (`.cr-card-ghost[data-ghost-id]`, "Removed:
+  `oldHelper`") at the end of the deck, the *Changed* chip's count, the amber
+  ring in the Calls view (`callGraphMermaid({ changed })`) and, on a changed
+  card, the worktree radar line `.cr-radar` ("also changed on: feat/x") from
+  `radar: { branch }[]`. `null` clears all of it. The *Changed* chip floats
+  changed cards first; the **Changes** view is that deck without the chip
+  row. Both are disabled (with the hint as their title) until a change map
+  exists, so a machine without git loses exactly those two controls.
+- `onModelChange(model, text)` fires once per re-parse (never on a theme or
+  state render) so the host recomputes the map on the same 200 ms debounce.
+
 Voice notes: `onHoldUnit(unit, model)` fires from the same 500 ms / 10 px
 press-and-hold gesture as `pane.ts`, resolved to the card under the pointer
 (`[data-unit-id]`), while `setLineHold(true)`; armed, the host carries
