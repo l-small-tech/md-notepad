@@ -9,7 +9,7 @@ export default tseslint.config(
   {
     // Maintenance scripts run under Node, not in the app.
     files: ['scripts/**/*.mjs'],
-    languageOptions: { globals: { process: 'readonly', fetch: 'readonly' } },
+    languageOptions: { globals: { process: 'readonly', fetch: 'readonly', console: 'readonly' } },
   },
   {
     files: ['**/*.{ts,tsx}'],

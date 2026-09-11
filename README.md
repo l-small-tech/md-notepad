@@ -275,10 +275,12 @@ the app only wants the Vulkan loader that ships with any GPU driver, and on
 Windows it is delay-loaded so a machine without one still starts and
 transcribes on the CPU. **Windows, one more thing:** the shader generator
 is a nested CMake project ~150 characters deep inside the target dir and
-MSVC's build tooling still stops at MAX_PATH, so build from a short target
-dir — `$env:CARGO_TARGET_DIR = "C:\t"` (or any path a few characters
-long) before `pnpm run tauri dev`; `src-tauri/.cargo` is deliberately not
-pinning one for you.
+MSVC's build tooling still stops at MAX_PATH. The `pnpm run tauri*` scripts
+go through `scripts/tauri-env.mjs`, which builds from a short
+`C:\t\<hash>` target dir (one per checkout; even `%LOCALAPPDATA%` is too deep) and
+fills in `VULKAN_SDK`, `LIBCLANG_PATH` and CMake's PATH entry when the
+shell lacks them. Running `cargo` directly in `src-tauri` needs the same:
+set `CARGO_TARGET_DIR` to something short and `VULKAN_SDK` yourself.
 
 ```sh
 pnpm install
