@@ -756,3 +756,19 @@ bar shape — starts the recommended download through the models store or
 sends the offer away for good (`whisperSetupOffered`). `pcm-capture.ts` is
 DOM plumbing and untested by policy; everything with a decision in it lives
 in core or the stores.
+
+## Voice typing (edit modes)
+
+`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Rich: the
+same `dictationEngine()` engines, but the transcript goes into the document
+at the caret instead of a sidecar. It types into the tab the capture started
+on, through the editor that tab shows when the words arrive — the CM6
+adapter (raw/split) or the Milkdown one (wysiwyg), both looked up in
+`editor-registry.ts` and both exposing `insertText` (spacing from core's
+`joinDictation`). Windows voice typing is a one-shot hand-off: focus the
+editor, press Win+H, and the shell types straight into it — its own panel
+owns the listening state, which the app can't see, so the store stays
+`idle`. Whisper and Android get a real two-tap `listening` state
+(`transcribing` for Whisper). Failures are status-bar notices. The ribbon
+button finishes a live capture when the active tab changes or the edit
+controls unmount (a switch to Review or Draw).

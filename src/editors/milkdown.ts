@@ -26,6 +26,7 @@ import {
 import { Slice, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView, NodeView, NodeViewConstructor } from '@milkdown/kit/prose/view';
 import type { Transaction } from '@milkdown/kit/prose/state';
+import { joinDictation } from '../core/dictation-insert';
 import type { DocModel } from '../core/doc-model';
 import { imageMimeType, localImageToInline } from '../core/images';
 import { createWritebackGuard, type EditorAdapter, type WritebackGuard } from '../core/mode-sync';
@@ -137,6 +138,8 @@ export interface MilkdownAdapter extends EditorAdapter {
    * is a re-read only when the resolved values actually moved).
    */
   refreshTheme(): void;
+  /** Voice typing: put a dictated phrase at the caret (`joinDictation` spacing). */
+  insertText(text: string): void;
 }
 
 /** Everything an image node view needs from its adapter, shared by all of them. */
@@ -526,6 +529,22 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
     },
     focus() {
       view?.focus();
+    },
+    insertText(text) {
+      if (!view) {
+        return;
+      }
+      const { state } = view;
+      const { from, to } = state.selection;
+      const before = state.doc.textBetween(Math.max(0, from - 1), from, '\n', ' ');
+      const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 1), '\n', ' ');
+      const insert = joinDictation(before, text, after);
+      if (!insert) {
+        return;
+      }
+      // Routed through dispatchTransaction, so the write-back serializes it.
+      view.dispatch(state.tr.insertText(insert, from, to).scrollIntoView());
+      view.focus();
     },
     revealHeading(index) {
       // The outline indexes headings in document order; the rendered DOM lists

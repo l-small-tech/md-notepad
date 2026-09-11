@@ -28,7 +28,12 @@ import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
 import { attachPreviewPane } from '../../preview/pane';
 import { createReviewGit } from '../code-review-git';
-import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
+import {
+  registerRichAdapter,
+  registerSourceAdapter,
+  unregisterRichAdapter,
+  unregisterSourceAdapter,
+} from '../editor-registry';
 import {
   enrichCopiedText,
   getCursor,
@@ -249,6 +254,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               // nodes reload theirs. Unregistered with the mode-sync below.
               registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
               richAdapterRef.current = adapter;
+              registerRichAdapter(tabId, adapter);
               return adapter;
             },
           };
@@ -337,6 +343,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       unsubscribeRichDark();
       richAdapterRef.current = null;
       unregisterSourceAdapter(tabId);
+      unregisterRichAdapter(tabId);
       unregisterWhiteboardAdapter(tabId);
       unregisterImageRefresher(`${tabId}:rich`);
       void sync.dispose();

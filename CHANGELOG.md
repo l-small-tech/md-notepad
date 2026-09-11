@@ -10,6 +10,10 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Voice typing.** A microphone in the ribbon in Raw, Split and Rich modes
+  types what you say at the cursor — Windows voice typing, offline Whisper,
+  or the phone's recognizer, the same engines as Review's voice notes.
+
 - **Read mode is now Review.** The fourth mode (Ctrl+4) is called Review for
   every file type, matching the code view.
 

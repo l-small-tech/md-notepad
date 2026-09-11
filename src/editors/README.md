@@ -56,6 +56,9 @@ import { tags } from '@lezer/highlight';
 - Cursor persistence (M2): expose `getSelection()`/`setSelection(anchor,
   head)` on the adapter (clamp offsets to doc length — a restored cursor
   may exceed a shrunken doc).
+- Voice typing: `insertText(text)` puts a dictated phrase at the caret
+  (replacing any selection, spacing from `core/dictation-insert.ts`) and
+  refocuses. The Milkdown adapter implements the same method.
 
 ### List indentation (Tab / Shift+Tab)
 

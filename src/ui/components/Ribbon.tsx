@@ -34,6 +34,7 @@ import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
 import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
+import { stopVoiceTyping, toggleVoiceTyping, useVoiceTypingStore } from '../voice-typing';
 import {
   FONT_FAMILIES,
   PALETTE,
@@ -151,6 +152,15 @@ const ImageIcon = (
 const CommentIcon = (
   <RibbonIcon>
     <path d="M16.5 11.3a1.8 1.8 0 0 1-1.8 1.8H8.2L5 15.8v-2.7h-.2a1.8 1.8 0 0 1-1.3-1.8V6a1.8 1.8 0 0 1 1.8-1.8h9.4A1.8 1.8 0 0 1 16.5 6z" />
+  </RibbonIcon>
+);
+
+/** A microphone — voice typing. */
+const MicIcon = (
+  <RibbonIcon>
+    <rect x="7.4" y="2.8" width="5.2" height="9" rx="2.6" />
+    <path d="M4.6 9.4a5.4 5.4 0 0 0 10.8 0" />
+    <path d="M10 14.8v2.6" />
   </RibbonIcon>
 );
 
@@ -486,7 +496,61 @@ function FormatControls() {
       >
         {ImageIcon}
       </button>
+
+      <VoiceTypingSlot />
     </div>
+  );
+}
+
+/** The divider + mic, present only while an engine exists — re-evaluated when the settings change. */
+function VoiceTypingSlot() {
+  useSettingsStore((s) => s.settings.desktopDictationEngine);
+  useSettingsStore((s) => s.settings.androidDictationEngine);
+  if (dictationEngine() === null) {
+    return null;
+  }
+  return (
+    <>
+      <span className="ribbon-divider" role="separator" />
+      <VoiceTypingButton />
+    </>
+  );
+}
+
+/**
+ * Voice typing in the edit modes (`ui/voice-typing.ts`): speak and the words
+ * land at the caret. Pressing keeps focus in the editor, which Windows voice
+ * typing needs to type into it. Switching tabs, or to Review/Draw (which
+ * unmounts this), finishes a live capture into the tab it started on.
+ */
+function VoiceTypingButton() {
+  const phase = useVoiceTypingStore((s) => s.phase);
+  const stopping = useVoiceTypingStore((s) => s.stopping);
+  const activeTabId = useTabsStore((s) => s.activeTabId);
+  useEffect(() => stopVoiceTyping, [activeTabId]);
+  const listening = phase === 'listening' && !stopping;
+  const busy = phase === 'transcribing' || stopping;
+  return (
+    <button
+      className="ribbon-btn ribbon-mic"
+      data-listening={listening || undefined}
+      data-busy={busy || undefined}
+      aria-pressed={phase !== 'idle'}
+      aria-busy={busy}
+      aria-label="Voice typing"
+      title={
+        busy
+          ? 'Voice typing — writing it down…'
+          : listening
+            ? 'Voice typing — listening; click to finish'
+            : 'Voice typing — speak to type at the cursor'
+      }
+      disabled={phase === 'transcribing'}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={toggleVoiceTyping}
+    >
+      {MicIcon}
+    </button>
   );
 }
 

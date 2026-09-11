@@ -891,6 +891,35 @@ body.tab-drag-live * {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
+/* Voice typing's mic: flat like the rest of the strip — no fill, no badge.
+   Listening tints the glyph with the accent and lets it breathe; writing it
+   down (Whisper transcribing) dims it. */
+.ribbon-mic[data-listening] {
+  color: var(--accent);
+}
+.ribbon-mic[data-listening] .ribbon-icon {
+  animation: ribbon-mic-breathe 1.4s ease-in-out infinite;
+}
+.ribbon-mic[data-busy] {
+  color: var(--accent);
+  opacity: 0.5;
+  cursor: progress;
+}
+@keyframes ribbon-mic-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ribbon-mic[data-listening] .ribbon-icon {
+    animation: none;
+  }
+}
+
 /* Save is the one ribbon button whose GLYPH carries state rather than naming a
    command: the accent marks auto save (the icon itself swaps to the badged
    floppy), and full-strength ink marks a document with unwritten edits — the

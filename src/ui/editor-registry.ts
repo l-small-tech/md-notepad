@@ -1,19 +1,23 @@
 /**
- * A tiny registry mapping tabId → its live CM6 source adapter.
+ * A tiny registry mapping tabId → its live editor adapters.
  *
  * The ribbon (a single, tab-agnostic bar) needs to drive formatting on
- * whichever tab is active, but each source editor is created deep inside its
- * own EditorHost effect. Rather than thread refs up through React, EditorHost
- * registers its adapter here when the source factory runs and unregisters on
+ * whichever tab is active, but each editor is created deep inside its own
+ * EditorHost effect. Rather than thread refs up through React, EditorHost
+ * registers its adapters here when the factories run and unregisters on
  * dispose; the ribbon looks up the active tab's adapter on demand.
  *
- * Only the CM6 source editor (raw/split modes) is tracked — the WYSIWYG editor
- * carries its own inline toolbar, and the ribbon reports a notice there.
+ * The CM6 source editor (raw/split modes) is what formatting drives — the
+ * WYSIWYG editor carries its own inline toolbar, and the ribbon reports a
+ * notice there. The rich (Milkdown) adapter is tracked too, for the one ribbon
+ * control that works in every edit mode: voice typing (`ui/voice-typing.ts`).
  */
 
 import type { Cm6Adapter } from '../editors/cm6';
+import type { MilkdownAdapter } from '../editors/milkdown';
 
 const sourceAdapters = new Map<string, Cm6Adapter>();
+const richAdapters = new Map<string, MilkdownAdapter>();
 
 export function registerSourceAdapter(tabId: string, adapter: Cm6Adapter): void {
   sourceAdapters.set(tabId, adapter);
@@ -25,4 +29,16 @@ export function unregisterSourceAdapter(tabId: string): void {
 
 export function getSourceAdapter(tabId: string): Cm6Adapter | undefined {
   return sourceAdapters.get(tabId);
+}
+
+export function registerRichAdapter(tabId: string, adapter: MilkdownAdapter): void {
+  richAdapters.set(tabId, adapter);
+}
+
+export function unregisterRichAdapter(tabId: string): void {
+  richAdapters.delete(tabId);
+}
+
+export function getRichAdapter(tabId: string): MilkdownAdapter | undefined {
+  return richAdapters.get(tabId);
 }

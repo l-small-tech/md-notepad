@@ -19,6 +19,7 @@
 import { Decoration, EditorView, keymap, lineNumbers, type DecorationSet } from '@codemirror/view';
 import { EditorState, Compartment, StateEffect, StateField } from '@codemirror/state';
 import { diffToChanges } from '../core/diff';
+import { joinDictation } from '../core/dictation-insert';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
@@ -106,6 +107,8 @@ export interface Cm6Adapter extends EditorAdapter {
   format(action: FormatAction): void;
   /** Insert a file/image reference at the caret (from the ribbon's link pickers). */
   insertLinkTo(label: string, url: string, image: boolean): void;
+  /** Voice typing: put a dictated phrase at the caret (`joinDictation` spacing). */
+  insertText(text: string): void;
   /**
    * Live Edit: highlight the lines covering these document ranges. 'added'
    * is text that just arrived from another person's save (green, fades on
@@ -801,6 +804,27 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
       if (view) {
         insertReference(view, label, url, image);
       }
+    },
+    insertText(text) {
+      if (!view) {
+        return;
+      }
+      const { state } = view;
+      const range = state.selection.main;
+      const before = state.doc.sliceString(Math.max(0, range.from - 1), range.from);
+      const after = state.doc.sliceString(range.to, range.to + 1);
+      const insert = joinDictation(before, text, after);
+      if (!insert) {
+        return;
+      }
+      view.dispatch({
+        changes: { from: range.from, to: range.to, insert },
+        // Caret after the words, before any spacing added for the next one.
+        selection: { anchor: range.from + insert.trimEnd().length },
+        scrollIntoView: true,
+        userEvent: 'input.type',
+      });
+      view.focus();
     },
     flashRanges(ranges, kind) {
       if (!view || ranges.length === 0) {
