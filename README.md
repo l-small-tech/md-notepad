@@ -4,9 +4,9 @@
 
 # MD Notepad
 
-**A minimal, fast, cross-platform markdown notepad — with tabs you never have to save.**
+**A markdown notepad that grew into a workbench for building software with AI — no syntax required.**
 
-*In the spirit of Windows 11 Notepad: open a tab, type, close the app. It's all there when you come back.*
+*Write the prompt. Run the agent beside it. Read what it built in plain English. Tell it what to change next, out loud.*
 
 [![Latest release](https://img.shields.io/github/v/release/l-small-tech/md-notepad?include_prereleases&label=release)](https://github.com/l-small-tech/md-notepad/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
@@ -21,7 +21,7 @@
 [![Milkdown](https://img.shields.io/badge/Milkdown-1e1e2e)](https://milkdown.dev)
 [![Mermaid](https://img.shields.io/badge/Mermaid-FF3670?logo=mermaid&logoColor=white)](https://mermaid.js.org)
 
-[Install](#install) · [Features](#features) · [Built for AI workflows](#built-for-ai-assisted-workflows) · [Docs](docs/README.md) · [Build from source](#build-from-source)
+[Install](#install) · [The loop](#the-loop) · [Write](#write) · [Run](#run) · [Review](#review) · [Docs](docs/README.md) · [Build from source](#build-from-source)
 
 </div>
 
@@ -29,110 +29,142 @@
 
 ## Why
 
-Notepad's ephemeral tabs are perfect for half-formed thoughts — open a tab,
-type, close the app, and it's simply *there* again next time. MD Notepad
-keeps that feel and adds what markdown people want: GitHub-Flavored
-Markdown, Mermaid diagrams, four viewing modes, workspaces for browsing any
-folder of markdown, and Fira Code with ligatures (`->` really is one glyph).
+Coding agents like [Claude Code](https://claude.com/claude-code) let anyone
+build software by describing it. But the tools around them still assume you
+can read code: the prompt lives in a chat box, the agent runs in a bare
+terminal, and the result is a folder of `.ts` files you can't judge.
 
-It's also quietly built for the age of AI pair-programming — see
-[Built for AI-assisted workflows](#built-for-ai-assisted-workflows).
+MD Notepad closes that gap. It started as a Windows-Notepad-style markdown
+app — open a tab, type, close the app, it's all there next time — and that
+core is still what makes it good for the two things you do most with an
+agent: **writing prompts** and **reading what comes back**. Around it grew
+the rest of the loop: terminals that run the agent next to your notes, a
+**Review** mode that shows a code file's structure as plain-English cards,
+and **voice notes** that turn your reaction into the next prompt.
 
-The whole idea in one diagram (which is itself markdown — MD Notepad
-renders it too):
+The point is a gentle slope. A first-timer can build something real without
+learning a shell or a language. Every step of the way the app shows the
+real command it typed, the real signature under the plain sentence, the real
+file on disk — so the concepts arrive one at a time, and the app keeps up
+when you've learned them.
+
+## The loop
 
 ```mermaid
 flowchart LR
-    A([💭 a thought]) --> B[open a tab]
-    B --> C[type]
-    C --> D[close the app]
-    D -. days pass .-> E[open the app]
-    E --> F([it's all still there])
-    F --> C
+    W([📝 write the prompt<br/>in a note]) --> C[⧉ copy — files and<br/>images ride along]
+    C --> R[🖥️ paste into the agent<br/>in a terminal tab]
+    R --> V[🔍 open what it built<br/>in Review mode]
+    V --> N[🎙️ hold a card, say<br/>what's wrong]
+    N -. the note is the<br/>next prompt .-> W
 ```
 
-## Features
+Everything in the diagram is markdown, files on disk, or a real terminal.
+Nothing is trapped in the app.
 
-- 🗂️ **Notepad-style tabs** — unsaved notes persist across restarts; kill
-  the app any time and lose at most ~5 seconds of typing. Tabs name
-  themselves after their first line. Chrome-style **tab groups** keep a
-  project's tabs together under a named, colored header.
+## Write
+
+The notepad half. Fast, plain, and built to never lose a word.
+
+- 🗂️ **Tabs you never have to save.** Unsaved notes persist across restarts
+  and name themselves after their first line. Chrome-style **tab groups**
+  keep a project's tabs together. Kill the app any time and lose at most a
+  few seconds of typing.
 - 📄 **Notes are plain `.md` files** in a folder you choose — no database,
   no lock-in. Open and save regular files anywhere, too.
 - 👁️ **Four modes per tab** — raw source (CodeMirror 6), split
   source+preview, WYSIWYG (Milkdown Crepe), and a distraction-free **Read**
-  mode with zoom. Any mode can go fullscreen (F11) in two stages — full
-  window, then full screen.
+  mode with zoom. Any mode goes fullscreen (F11) in two stages.
 - 🧜 **Full GFM preview** — tables, task lists, strikethrough, autolinks —
-  plus **Mermaid** diagrams rendered in place.
+  plus **Mermaid** diagrams rendered in place. Ask an agent for a diagram
+  and read it here.
 - 🗄️ **Workspaces** — add any folder as a sidebar section with its own
-  accent color: browse, create, rename, move, and drag-and-drop files.
-  Read-only workspaces supported.
+  accent color. Add a repo's `docs/` folder read-only and read what the
+  agent wrote, rendered, without leaving your notes.
+- 🤝 **Live edit** — mark a shared folder and every file in it merges other
+  people's (or agents') changes as they land. When the disk wins a
+  collision it flashes red and offers *Restore mine*.
 - 🖼️ **Painless images** — paste a screenshot and it's saved beside your
   note and referenced at the caret; drag images in from anywhere.
-  Configurable storage layout (subfolder / same folder / workspace root).
-- 🔤 **Eight bundled open-source fonts** — Fira Code (default) plus
-  JetBrains Mono, Cascadia Code, Source Code Pro, IBM Plex Mono,
-  Inconsolata, and Victor Mono for your notes; optional Inter for the UI
-  chrome. Ligatures on by default.
-- ✏️ **Drawing tabs** — a whiteboard in a tab, saved as a plain `.svg`
-  file (it renders in the markdown preview like any other image). Point
-  your camera at a real whiteboard and **scan** it: the ink comes back as
-  editable vector strokes, with OCR to make the words searchable.
-- 🪟 **Multiple windows** — drag a tab out of the window to open it in its
-  own window at the drop point, or drop it onto *another* window to move
-  it there — the tab pill follows your cursor across the desktop. Extra
-  windows are part of your session and come back on restart.
-- 🖥️ **Terminal tabs** (desktop) — a real terminal emulator in a tab, split
-  as many ways as you like, with a palette derived from whichever theme
-  you're using. Written from scratch: no xterm.js, no web dependency. `+`
-  makes another one of whatever you're looking at; alt-click it to choose.
-  A **Harness** row launches your coding agent directly, and the tab
-  wears a status badge so you can see it thinking from another tab.
-- 🎨 **Fifteen built-in themes** — light and dark greens, a
-  maximum-contrast pair (Beacon / Vantablack), a color-vision-friendly
-  Okabe–Ito pair (Skylark / Nightjar), and a dozen moods in between.
-  Themes are tiny files you can edit yourself, an **AI theme** button
-  writes a new one from a description, and a right-click applies a theme
-  to just one window.
-- 📤 **Export to HTML or PDF** — themed to match the app, including any
-  embedded SVG images, which are recolored to fit.
-- 🧈 **Smooth scrolling with spring physics** everywhere — editor,
-  preview, terminal — with touchpad passthrough. Small, quiet, fast.
-- 🔄 **Safe auto-updates** — signed with minisign and verified before
-  install; open tabs are flushed to disk first, so updating never costs
-  typed text.
+- ✏️ **Drawing tabs** — a whiteboard in a tab, saved as a plain `.svg`.
+  Point a camera at a real whiteboard and **scan** it into editable strokes,
+  with OCR so the words are searchable.
+- 🪟 **Multiple windows** — drag a tab out to open it in its own window, or
+  drop it onto another window. Extra windows come back on restart.
+- 🎨 **Fifteen built-in themes**, including maximum-contrast and
+  color-vision-friendly pairs. Themes are tiny files; an **AI theme** button
+  writes a new one from a description.
+- 🔤 **Eight bundled open-source fonts**, Fira Code with ligatures by default.
+- 📤 **Export to HTML or PDF**, themed to match, embedded SVGs recolored.
 
-## Built for AI-assisted workflows
-
-MD Notepad doubles as a **prompt notebook** for agentic AI tools like
-[Claude Code](https://claude.com/claude-code). Lots of small heuristics add
-up:
+### Prompts that carry their context
 
 - **Copy carries your attachments.** The ⧉ button — and plain **Ctrl+C** on
   a selection — copies markdown *plus* an appended block of `@path`
   mentions for every local file and image the text references. Paste into
-  an agent CLI and it can pull those files in directly. Build and store
-  prompts with images and files explicitly included, then ship them with
-  one copy-paste.
-- **Absolute paths by default.** Inserted links, pasted screenshots, and
-  dropped images are referenced by absolute path, so an agent (or any other
-  tool) can resolve them no matter where it was launched. Alt+click the
-  link buttons when you want a relative path instead.
-- **Great for exploring a repo's `/docs`.** Add any folder — say, the
-  documentation an agent just wrote — as a (read-only, if you like)
-  workspace and read it rendered, with Mermaid diagrams, without leaving
-  your notes.
-- **Nothing is ever trapped.** Notes are ordinary markdown files on disk
-  with human-readable names — agents can read and edit them, and your
-  editor picks the changes up.
+  an agent and it pulls those files in directly. Build a prompt with
+  screenshots and reference files, keep it in a note, ship it in one paste.
+- **Absolute paths by default.** Inserted links and pasted images are
+  referenced by absolute path, so an agent can resolve them wherever it was
+  launched. Alt+click the link buttons for a relative path instead.
+
+## Run
+
+Terminal tabs (desktop) put the agent next to the prompt.
+
+- 🖥️ **A real terminal in a tab**, split as many ways as you like, colored
+  by whichever theme you use. Written from scratch — no xterm.js.
+- 🤖 **Harness row.** The `+` menu launches your coding agent (Claude Code,
+  Copilot, opencode…) in the current folder. The tab wears a status badge so
+  you can see it thinking from another tab. Missing agents are detected and
+  offered an **Install** button.
+- 🧭 **The tab knows where it is.** Shell integration follows `cd`, so a
+  terminal tab takes the color of the workspace its shell is standing in.
+- 🖱️ **Right-click helpers that teach the shell.** *Change directory…*,
+  *List files*, and *Open Claude* each **type an ordinary command at the
+  prompt** and press Enter — nothing hidden, so you watch and learn it.
+- 🎨 Light themes are tuned so agent TUIs stay readable.
+
+## Review
+
+Understanding code without reading the syntax. Open a `.ts`, `.tsx`, `.js`
+or `.rs` file and press **Ctrl+4**. (More languages are planned; the model
+is language-neutral and each one is a single extractor.)
+
+- 🃏 **One card per declaration**, in source order. A function becomes a
+  sentence: *"Takes a folder path, a list of folders, and an optional list
+  of folders, and gives back* show *(yes or no) and* explicit *(yes or
+  no)."* The real signature sits under it in code font, then the author's
+  comment. Structs, interfaces, enums and classes become **forms** — a table
+  of fields with plain-English types.
+- 🩻 **X-ray fold.** *Code* on a card opens the body folded to its bones —
+  declarations and the `if` / `for` / `match` / `return` lines — with
+  `⋯ 9 lines` markers you tap to open one level at a time.
+- 🔀 **Flow and Calls.** One function's branches as a flowchart; the whole
+  file's who-calls-whom as a graph. Tap a node to jump to its card. Every
+  diagram opens fullscreen with pinch-zoom.
+- 🔍 **What changed.** Pick a baseline — *this branch*, *uncommitted*, or
+  *last commit* — and cards carry **added / changed / removed** badges, with
+  a changed signature explained ("now also takes hiddenDirs"). Needs `git`
+  on the machine; without it every other view still works.
+- 🎙️ **Voice notes on cards.** Press and hold a card and say what's wrong.
+  The note lands in `<file>.<ext>.comments.md` beside the file, quoting the
+  declaration and recording the branch and baseline — a prompt an agent can
+  act on directly. Spoken names snap to the real identifiers; the offline
+  Whisper engine is primed with the file's own names.
+
+Voice notes work on markdown too: in Read mode, hold a line and dictate.
+Notes never touch the document. Transcription is Windows voice typing on
+Windows, offline **Whisper** on macOS and Linux (or Windows, if you choose),
+and the native recognizer on Android. No audio is ever written to disk.
 
 ## Install
 
 Prebuilt installers are on the
 [Releases](https://github.com/l-small-tech/md-notepad/releases) page:
 Windows (NSIS `.exe`), macOS (universal `.dmg`), Linux (`.deb`, `.rpm`,
-`.AppImage`), and Android (`.apk`).
+`.AppImage`), and Android (`.apk`). Each release carries a short changelog of
+what's new.
 
 Because releases are not code-signed with paid OS certificates (yet):
 
@@ -151,12 +183,12 @@ gh attestation verify <asset-file> --repo l-small-tech/md-notepad
 
 ### Updates
 
-The app checks GitHub Releases on launch (and on demand from Settings).
-When a newer version exists, a quiet chip appears in the status bar — one
-click downloads, installs, and restarts. Every update package is verified
-against the minisign public key embedded in the app before it is applied.
-The update check is silent on failure and never blocks startup — if you're
-offline, nothing happens.
+The app checks GitHub Releases on launch, weekly, and on demand from
+Settings. When a newer version exists, a quiet chip appears in the status
+bar — one click downloads, installs, and restarts. Every update package is
+verified against the minisign public key embedded in the app before it is
+applied, and open tabs are flushed to disk first, so updating never costs
+typed text. The check is silent on failure and never blocks startup.
 
 ## Where your notes live
 
@@ -175,36 +207,39 @@ into a regular file.
 
 The full user guide lives in [`docs/`](docs/README.md) and ships inside the
 app — Settings → **Open docs** adds it to the sidebar as a read-only
-workspace:
+workspace. It is written for people who have never used markdown or a
+terminal:
 
 [Getting started](docs/getting-started.md) ·
 [Notes, tabs & saving](docs/notes-tabs-and-saving.md) ·
-[Viewing modes](docs/editing-modes.md) ·
+[Viewing modes (incl. Review)](docs/editing-modes.md) ·
 [Writing markdown](docs/writing-markdown.md) ·
 [Workspaces](docs/workspaces-and-files.md) ·
 [Images](docs/pictures-and-images.md) ·
-[Settings](docs/settings.md) ·
+[Settings (incl. voice notes & harness)](docs/settings.md) ·
 [Themes](docs/themes.md) ·
+[Terminal tabs](docs/terminal.md) ·
 [Keyboard shortcuts](docs/keyboard-shortcuts.md)
 
-## Known limitations (rich / WYSIWYG mode)
+## Known limitations
 
-Rich mode is markdown-first, but a WYSIWYG editor rewrites source the moment
-you edit. By design:
+**Review mode** is a reading aid, not a specification. The plain-English
+sentence is built from rules about parameter names and types; when it looks
+off, trust the signature underneath. Review never edits code.
+
+**Rich / WYSIWYG mode** is markdown-first, but a WYSIWYG editor rewrites
+source the moment you edit. By design:
 
 - **Viewing never changes a note.** Opening a note in rich mode and switching
   back is byte-identical — nothing is written until you actually edit.
 - **Your first edit normalizes syntax spelling** (list markers, emphasis
-  characters, blank-line spacing may change). *Content is preserved*; only how
-  the markdown is written may differ. A one-time status-bar hint appears when
-  entering rich mode on a note this would affect.
+  characters, blank-line spacing may change). *Content is preserved*; only
+  how the markdown is written may differ.
 - **Mermaid diagrams show as plain code** in rich mode (they still render in
-  split/preview). Rendering diagrams inside WYSIWYG is a deliberate non-goal.
-- **Undo history does not cross a raw ⇄ rich switch** (industry norm for
-  dual-mode markdown editors).
+  split/preview).
+- **Undo history does not cross a raw ⇄ rich switch.**
 
-Prefer raw or split mode when you need byte-exact control over markdown
-formatting.
+Prefer raw or split mode when you need byte-exact control over markdown.
 
 ## Tech stack
 
@@ -216,6 +251,8 @@ formatting.
 | WYSIWYG editor | [Milkdown Crepe](https://milkdown.dev) |
 | Markdown pipeline | [unified](https://unifiedjs.com) (remark-gfm → rehype-sanitize) |
 | Diagrams | [Mermaid](https://mermaid.js.org) |
+| Code review | [Lezer](https://lezer.codemirror.net) parsers (TypeScript, Rust) → language-neutral model → plain-English rules, call graph, flowcharts; `git` via the CLI for *What changed* |
+| Voice | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) via `whisper-rs` (offline, desktop); Windows voice typing; Android SpeechRecognizer |
 | Drawing | hand-written SVG whiteboard editor + camera-scan pipeline (raster clean-up → vectorized strokes → OCR) |
 | Terminal | hand-written VT/xterm engine + canvas renderer (no xterm.js), [portable-pty](https://crates.io/crates/portable-pty) on the Rust side |
 | Build / test | [Vite](https://vite.dev) + [Vitest](https://vitest.dev), cargo for the shell |
@@ -224,10 +261,11 @@ formatting.
 ## Build from source
 
 Prerequisites: Node ≥ 20, [pnpm](https://pnpm.io) ≥ 10, Rust (stable, via
-[rustup](https://rustup.rs)),
-plus per-OS Tauri deps — Windows: MSVC Build Tools + WebView2 (in Windows
-11); macOS: Xcode CLT; Linux: `libwebkit2gtk-4.1-dev build-essential curl
-wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
+[rustup](https://rustup.rs)), CMake and LLVM/libclang (for the bundled
+Whisper engine), plus per-OS Tauri deps — Windows: MSVC Build Tools +
+WebView2 (in Windows 11); macOS: Xcode CLT; Linux: `libwebkit2gtk-4.1-dev
+build-essential curl wget file libxdo-dev libssl-dev
+libayatana-appindicator3-dev librsvg2-dev`.
 
 ```sh
 pnpm install
@@ -243,17 +281,27 @@ Checks: `pnpm run check && pnpm test`, and in `src-tauri/`:
 
 Start with [src/README.md](src/README.md) — it owns the frontend-wide rules.
 Each source directory has a README specifying its architecture, contracts,
-and invariants.
+and invariants. [CLAUDE.md](CLAUDE.md) is the guide for coding agents
+working in this repo, which is how most of it gets built.
 
 ## Releasing (maintainers)
 
 Versions live in three files that must agree: `package.json`,
-`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`. Bump all three on
-`main`, tag `vX.Y.Z`, push the tag — `release.yml` builds every platform
-into a **draft** release with the updater manifest (`latest.json`),
-minisign `.sig` files, `SHA256SUMS`, and Sigstore attestations. Review the
-draft (install at least one asset), then publish; publishing is what makes
-`latest.json` visible to auto-updaters.
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`. Bump all three,
+then:
+
+1. **Write the changelog.** Rename the `## [Unreleased]` section of
+   [CHANGELOG.md](CHANGELOG.md) to `## [X.Y.Z] — YYYY-MM-DD`. It is a
+   short, high-level list of the major improvements — a paragraph a user
+   would want to read, not an inventory of commits. `release.yml` copies it
+   into the release notes and **fails the release if the section is
+   missing.**
+2. Tag `vX.Y.Z` and push the tag. `release.yml` builds every platform into
+   a **draft** release with the changelog on top, the updater manifest
+   (`latest.json`), minisign `.sig` files, `SHA256SUMS`, and Sigstore
+   attestations.
+3. Review the draft (install at least one asset), then publish; publishing
+   is what makes `latest.json` visible to auto-updaters.
 
 The updater key ceremony happened once at M7 (2026-07-10): a minisign
 keypair was generated offline with `tauri signer generate`; the private

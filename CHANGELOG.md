@@ -1,0 +1,47 @@
+# Changelog
+
+Every tagged release gets a short, high-level entry here: the handful of
+improvements a user would want to know about, not an inventory of commits.
+The release workflow copies the tagged version's section into the GitHub
+release notes and refuses to build a tag that has none.
+
+Keep an `## [Unreleased]` section at the top while working; rename it to
+`## [X.Y.Z] — YYYY-MM-DD` when bumping the version.
+
+## [Unreleased]
+
+- **Review mode for code files.** Open a `.ts`, `.tsx`, `.js` or `.rs` file
+  and press Ctrl+4 to see it as plain-English cards instead of syntax: one
+  card per declaration, forms for types, an x-ray-folded Code expander,
+  Flow and Calls diagrams, and a *What changed* view against a git
+  baseline.
+- **Voice notes.** In Read mode (and on Review cards) press and hold and
+  dictate; the note lands in a `.comments.md` sidecar the document never
+  sees, ready for an agent to act on. Windows voice typing on Windows,
+  offline Whisper on macOS/Linux (downloadable models, no audio saved),
+  native recognizer on Android. Spoken identifiers snap to real names.
+- **Live edit.** Mark a shared folder and open files merge outside changes
+  as they land; a lost collision flashes red and offers *Restore mine*.
+- **Explorer:** show or hide unsupported files per workspace or folder.
+- Windows 11: launching from an empty virtual desktop opens the window
+  there.
+
+## [0.7.3] — 2026-09-02
+
+- **Terminal tabs follow the shell.** Shell integration reports `cd`, so a
+  terminal tab takes its workspace's color, and right-click helpers
+  (*Change directory…*, *List files*, *Open Claude*) type the real command
+  for you.
+- **Harness detection and install.** Settings shows which AI agents
+  (Claude Code, Copilot, opencode) are installed and offers to install the
+  missing ones; light themes made readable for agent TUIs.
+- **Settings** reorganized into tabs, with *Update now* and a weekly
+  automatic update check.
+- Whiteboard fixes: overlay opacity, vanishing strokes, and boards that
+  blend into the surface they sit on; right-click a board image to switch
+  its theme.
+- File explorer: cross-workspace moves and case-only renames on cloud
+  volumes.
+
+Earlier releases are described on the
+[GitHub Releases](https://github.com/l-small-tech/md-notepad/releases) page.

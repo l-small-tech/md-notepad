@@ -41,6 +41,24 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      # Every tagged release carries a short changelog: the `## [X.Y.Z]`
+      # section of CHANGELOG.md. It goes on top of the release notes, and a
+      # tag without one fails here, before anything is built.
+      - name: Read this version's changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="$(awk -v head="## [$VERSION]" '
+            /^## \[/ { on = (index($0, head) == 1); next }
+            on { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error file=CHANGELOG.md::No '## [$VERSION]' section — write the changelog before tagging."
+            exit 1
+          fi
+          { echo 'body<<CHANGELOG_EOF'; printf '%s\n' "$NOTES"; echo 'CHANGELOG_EOF'; } >> "$GITHUB_OUTPUT"
+
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -88,6 +106,10 @@ jobs:
           # Shown above the asset list — tells non-technical users which file
           # is theirs. Keep the suffixes in sync with the bundle targets.
           releaseBody: |
+            ## What's new
+
+            ${{ steps.changelog.outputs.body }}
+
             ## Which file should I download?
 
             | Your computer | Download the file ending in… |
