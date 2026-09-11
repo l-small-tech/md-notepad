@@ -807,6 +807,26 @@ function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
                 </label>
               )}
 
+              <label className="settings-row">
+                <span className="settings-label">Review baseline branch</span>
+                <input
+                  className="settings-control"
+                  type="text"
+                  value={settings.reviewBaseBranch}
+                  spellCheck={false}
+                  placeholder="auto"
+                  // Blank is meaningful (auto-detect), so there is nothing to
+                  // restore on blur — normalizeSettings only trims it.
+                  onChange={(e) => update({ reviewBaseBranch: e.target.value })}
+                />
+              </label>
+              <div className="settings-row settings-row-hint">
+                <span className="settings-label" />
+                <span className="settings-hint">
+                  Leave empty to detect development / main / master
+                </span>
+              </div>
+
               <div className="settings-row settings-row-notes">
                 <span className="settings-label">Notes folder</span>
                 <div className="settings-notes-value">

@@ -479,6 +479,14 @@ export interface Settings {
    */
   hideUnsupportedDirs: string[];
   /**
+   * Review mode's "What changed" baseline: the branch a code file is compared
+   * against (via `merge-base(HEAD, <branch>)`). Empty — the default — means
+   * auto-detect, trying `development`, then `main`, then `master`. A name this
+   * checkout does not have falls back to the same auto-detection. Desktop only
+   * in effect: Android has no git, and the view hides itself there.
+   */
+  reviewBaseBranch: string;
+  /**
    * Whiteboard-scan panel: last-used quality preset and trace smoothing.
    * Not dialog fields — the scan panel's own selects write them, so the next
    * scan opens the way the previous one was tuned.

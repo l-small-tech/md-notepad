@@ -23,6 +23,23 @@ session concepts in Rust, stop and move it to `src/core`.
   `list_notes`, `list_dir`, `list_session_manifests`, `read_file_base64`,
   `write_file_base64`, `copy_path`, `create_dir`, `rename_path`,
   `delete_path`, `stat_path`.
+- `src/commands/git.rs` — git facts for Review mode's "What changed"
+  (**desktop only**, `#[cfg(not(target_os = "android"))]` on the module).
+  Shells out to the `git` binary — no `git2`/libgit2, because the feature only
+  runs where a developer already has git and a large native build buys three
+  `rev-parse` calls nothing. `git_repo_info` (root, `rel`, branch, HEAD,
+  `is_worktree`, the baseline branch + its merge-base, and every worktree from
+  `git worktree list --porcelain`), `git_show_file` (`git show <rev>:<rel>`;
+  `None` — not an error — when the path did not exist at that revision), and
+  `git_file_changes` (per branch, does its blob for one path differ from the
+  baseline's? the worktree radar, one `rev-parse` per branch, no checkouts).
+  Every invocation runs on the blocking pool with a hard 3 s timeout (killed
+  after it), `stdin` null so nothing can prompt, both pipes drained by their
+  own thread so a full pipe can't deadlock the wait, and `CREATE_NO_WINDOW` on
+  Windows. The baseline branch is auto-detected — `development`, then `main`,
+  then `master` — and overridden by the frontend's `reviewBaseBranch` setting.
+  Policy-free (rule I5): which revision is "the baseline" and what a badge
+  means are `src/core/code/changes.ts`'s.
 - `src/pty.rs` — the pty engine behind terminal tabs (**desktop only**):
   spawn a child on a pseudo-terminal, four threads per session
   (reader → bounded channel → emitter, a waiter, and a writer fed by a
@@ -115,6 +132,17 @@ shares `INVALID_DATA` / `IO`, and adds its own codes — the sheet's
 | `DownloadCorrupt` | `WHISPER_DOWNLOAD_CORRUPT` | digest mismatch; the `.part` was deleted |
 | `DownloadCancelled` | `WHISPER_DOWNLOAD_CANCELLED` | `whisper_model_cancel` landed; the `.part` stays |
 | `DownloadBusy` | `WHISPER_DOWNLOAD_BUSY` | one download at a time |
+
+`GitError` (`src/commands/git.rs`) serializes the same shape with four codes of
+its own; `isGitUnavailable` in `src/ipc/commands.ts` treats the first two as
+"hide the baseline picker", not as failures:
+
+| Rust `GitError` | wire `code` | TS meaning |
+| --- | --- | --- |
+| `NoGit` | `GIT_NOT_FOUND` | no `git` binary on `PATH` |
+| `NotARepo(path)` | `GIT_NOT_A_REPO` | the path is outside any repository |
+| `Timeout` | `GIT_TIMEOUT` | git was killed at 3 s (a hung mount) |
+| `Failed { stderr }` | `GIT_FAILED` | git ran and failed; message is its stderr |
 
 Adding a variant = adding it to `IpcErrorCode` in `src/ipc/commands.ts` and
 to this table, same commit.
