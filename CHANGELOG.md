@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Review notes are typed on desktop.** The note sheet is now a text box
+  with a Save button; use Win+H (Windows) or the Dictation key (macOS) to
+  talk into it, or tap the microphone to dictate offline with Whisper. If
+  Whisper isn't installed yet, the microphone is an Install button that
+  downloads the model right there. The phone keeps its voice-first sheet.
+
 - **Voice typing.** A microphone in the ribbon in Raw, Split and Rich modes
   types what you say at the cursor — Windows voice typing, offline Whisper,
   or the phone's recognizer, the same engines as Review's voice notes.

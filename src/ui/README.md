@@ -729,19 +729,27 @@ declarative and thin.
 ## Voice notes — engines
 
 `voice-comments.ts` is the controller; `components/VoiceComments.tsx` the
-sheet. `dictationEngine()` picks the engine: Android's recognizer, Windows
-voice typing (Win+H into the sheet's draft box), or **Whisper** — the
-`desktopDictationEngine` setting decides on desktop ('auto' = voice typing
-on Windows, Whisper elsewhere), `androidDictationEngine` on Android
-('system' or 'whisper'). The ribbon's Review-mode button appears whenever an
-engine exists.
+sheet. `noteEngine()` picks the sheet's engine: on Android the recognizer or
+**Whisper** (`androidDictationEngine`, 'system' or 'whisper') — voice first,
+the keyboard is awkward there; on desktop always Whisper, because the note
+is **typed**: the sheet is a text box (`draft`, `updateDraft`) with a Save
+button (`saveDraft`), a hint that the OS's own dictation types into it
+(Win+H, the macOS Dictation key — suggested, never pressed by the app), and
+a Whisper microphone whose transcript is appended to the draft. Until the
+chosen model is on disk (`whisperReady`) the microphone's place is an
+Install button (`installWhisper` → the models store's download, progress in
+the sheet). `dictationEngine()` — the `desktopDictationEngine` setting,
+'auto' = Windows voice typing on Windows, Whisper elsewhere — only steers
+the edit modes' voice typing now. The ribbon's Review-mode button is always
+there.
 
 Whisper's flow: the first tap opens the mic through `pcm-capture.ts` (an
 `AudioWorkletNode` collecting 16 kHz f32 frames in memory — nothing touches
 disk) and, in parallel, `ipc.whisperPrepare` warms the model so a missing
 one fails the capture before anything is said. The second tap stops the mic
 and enters the `transcribing` phase: the PCM goes to `ipc.whisperTranscribe`
-as a raw body and the answer becomes the note. Closing the sheet mid-way
+as a raw body and the answer becomes the note (Android) or lands in the
+draft (desktop, `deliver`). Closing the sheet mid-way
 cancels the mic or drops the pending words. At `MAX_CAPTURE_SECONDS` the
 capture stops itself and transcribes what it has. Models are downloaded from
 Settings ▸ Voice notes through `stores/whisper-models.ts`, which sequences

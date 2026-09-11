@@ -29,23 +29,22 @@
  * per-name `undoSnap` in the sheet.
  *
  * Capture never records an audio file. The engine per platform is
- * `dictationEngine()`:
+ * `noteEngine()`:
  *   - Android: the on-device SpeechRecognizer through the `ipc.stt*` bridge,
- *     which returns the transcript directly.
- *   - Windows (default): Windows voice typing. The sheet focuses a draft box
- *     and `ipc.voiceTypingToggle()` presses Win+H, so the shell types what
- *     the user says into it. The note finishes by itself once the draft has
- *     gone quiet for `VOICE_TYPING_IDLE_MS` (voice typing stopped: its own
- *     mic button, or silence), or on a second tap; either way Win+H is
- *     pressed again and the draft becomes the note.
- *     (Windows.Media.SpeechRecognition can't be used: an app without package
- *     identity only ever hears silence through it.)
- *   - Whisper (macOS/Linux default, Windows opt-in): the mic is captured into
- *     memory (`ui/pcm-capture.ts`) while the model loads, and the second tap
- *     sends the PCM to `ipc.whisperTranscribe` — the `transcribing` phase —
- *     whose answer becomes the note. Offline; the model is downloaded once
- *     from Settings ▸ Voice notes.
- * The `desktopDictationEngine` setting picks between the desktop two.
+ *     which returns the transcript directly (or Whisper, per the
+ *     `androidDictationEngine` setting). Voice first: the keyboard is awkward.
+ *   - Desktop (Windows, macOS, Linux): the note is TYPED. The sheet is a text
+ *     box with a Save button; the OS's own dictation works into it like into
+ *     any other field (Win+H on Windows, the Dictation key on macOS) — the
+ *     sheet suggests it but never presses it. Whisper is the built-in
+ *     alternative: with a model installed the microphone captures the mic into
+ *     memory (`ui/pcm-capture.ts`) while the model loads, the second tap sends
+ *     the PCM to `ipc.whisperTranscribe` — the `transcribing` phase — and the
+ *     words are appended to the draft for the user to check and save. Without
+ *     a model the microphone is an Install button that downloads one in place
+ *     (`installWhisper`, through `stores/whisper-models.ts`).
+ * `desktopDictationEngine` only steers the edit modes' voice typing
+ * (`voice-typing.ts`, `dictationEngine()`); the note sheet ignores it.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -63,6 +62,8 @@ import {
 } from '../core/comments';
 import { snapIdentifiers, undoSnap as undoSnapIn, type Snap } from '../core/code/vocab';
 import { captureErrorFor, type CaptureError, type DictationEngine } from '../core/dictation-errors';
+import { joinDictation } from '../core/dictation-insert';
+import { isInstalled, recommendedModel } from '../core/whisper-models';
 import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
 import { currentProvider } from '../ipc/provider';
@@ -72,6 +73,7 @@ import { workspaceRootFor } from './session/facade';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
 import { uiStore } from './stores/ui';
+import { whisperModelsStore } from './stores/whisper-models';
 
 /**
  * Panel lifecycle: closed → ready (mic idle, line chosen) → capturing (mic
@@ -107,8 +109,9 @@ export interface VoiceCommentsState {
    */
   stopping: boolean;
   /**
-   * Windows: what voice typing has typed into the sheet's draft box so far
-   * (capturing phase). Becomes the note's transcript on the second tap.
+   * Desktop: the note being typed in the sheet's text box (ready phase; a
+   * Whisper capture appends to it). Saved as the note's transcript by
+   * `saveDraft`. Unused on Android, where the engine's answer is the note.
    */
   draft: string;
   /**
@@ -188,6 +191,41 @@ export function dictationEngine(): DictationEngine | null {
     return isWindows() ? 'windows' : null;
   }
   return isWindows() ? 'windows' : 'whisper';
+}
+
+/**
+ * The engine the voice-note sheet captures with. Android: `dictationEngine()`.
+ * Desktop: always Whisper — the note is typed by default, and the OS's own
+ * dictation types into the box by itself, so the only engine the sheet
+ * drives is the offline one.
+ */
+export function noteEngine(): DictationEngine {
+  return isAndroid() ? (dictationEngine() ?? 'android') : 'whisper';
+}
+
+/** Desktop: is the chosen Whisper model on disk (the microphone works)? */
+export function whisperReady(): boolean {
+  const { models } = whisperModelsStore.getState();
+  return isInstalled(models, settingsStore.getState().settings.whisperModel);
+}
+
+/**
+ * The sheet's Install button: download the chosen model (the recommended one
+ * when the chosen id is not in the manifest, in which case the setting is
+ * pointed at it), with progress shown in place of the microphone.
+ */
+export async function installWhisper(): Promise<void> {
+  const models = whisperModelsStore.getState();
+  if (!models.loaded) {
+    await models.refresh();
+  }
+  const { settings, update } = settingsStore.getState();
+  const known = whisperModelsStore.getState().models.some((m) => m.id === settings.whisperModel);
+  const id = known ? settings.whisperModel : recommendedModel();
+  if (id !== settings.whisperModel) {
+    update({ whisperModel: id });
+  }
+  await whisperModelsStore.getState().startDownload(id);
 }
 
 /** A capture-in-flight phase (the mic is live, or its audio is being transcribed). */
@@ -287,37 +325,6 @@ function clearStopWatchdog(): void {
   }
 }
 
-/**
- * Windows: after the second tap, how long voice typing gets to type the
- * phrase in flight into the draft before the draft is saved.
- */
-export const VOICE_TYPING_SETTLE_MS = 1200;
-// Whether this app pressed Win+H to open voice typing and hasn't closed it.
-let voiceTypingOn = false;
-
-/**
- * Windows: once voice typing has typed something, this long without a change
- * to the draft finishes the note — voice typing has stopped (its own mic
- * button, or silence), so the user needn't tap again.
- */
-export const VOICE_TYPING_IDLE_MS = 3000;
-let idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearIdleTimer(): void {
-  if (idleTimer !== null) {
-    clearTimeout(idleTimer);
-    idleTimer = null;
-  }
-}
-
-/** Press Win+H again to close voice typing, if this app opened it. */
-function closeVoiceTyping(): void {
-  if (voiceTypingOn) {
-    voiceTypingOn = false;
-    void ipc.voiceTypingToggle().catch(() => {});
-  }
-}
-
 /* ---- public actions ---------------------------------------------------- */
 
 /** Flip the Review-mode voice-notes toggle. Disarming also closes the panel. */
@@ -374,6 +381,10 @@ export async function openNoteAtLine(
   if (inFlight(voiceStore.getState().phase)) {
     return; // a capture is in flight — don't yank the line out from under it
   }
+  if (!isAndroid() && !whisperModelsStore.getState().loaded) {
+    // So the sheet knows whether to show a microphone or an Install button.
+    void whisperModelsStore.getState().refresh();
+  }
   voiceStore.setState({
     phase: 'ready',
     tabId,
@@ -384,6 +395,7 @@ export async function openNoteAtLine(
     line,
     quote: opts?.quote ?? lineQuote(docTextFor(tabId), line),
     error: null,
+    draft: '',
     unit: opts?.unit ?? null,
     hint: opts?.hint ?? null,
     identifiers: opts?.identifiers ?? [],
@@ -434,7 +446,8 @@ export function showNotes(): void {
 
 /**
  * The microphone button: first tap starts a capture for the chosen line,
- * second tap finishes it. A tap in any other phase is ignored.
+ * second tap finishes it. A tap in any other phase is ignored. On desktop the
+ * sheet only shows it once a Whisper model is installed (`whisperReady`).
  */
 export function toggleMic(): void {
   const { phase } = voiceStore.getState();
@@ -451,25 +464,50 @@ function startCapture(): void {
   if (!tabId || line === null) {
     return;
   }
-  const engine = dictationEngine();
-  if (engine === null) {
-    uiStore
-      .getState()
-      .showNotice(
-        'Windows voice typing only exists on Windows — pick Whisper in Settings > Voice notes.',
-      );
-    return;
-  }
   captureId = newCommentId(new Set(comments.map((c) => c.id)));
-  voiceStore.setState({ phase: 'capturing', error: null, stopping: false, draft: '' });
-  if (engine === 'windows') {
-    return; // the draft box calls voiceTypingFieldReady() once it has focus
-  }
-  if (engine === 'whisper') {
+  voiceStore.setState({ phase: 'capturing', error: null, stopping: false });
+  if (noteEngine() === 'whisper') {
     void captureWhisper(captureId);
     return;
   }
   void captureDictation(captureId);
+}
+
+/**
+ * Desktop: the text box's Save button. The typed (or dictated) draft becomes
+ * the note; nothing happens for an empty draft or outside the ready phase.
+ */
+export async function saveDraft(): Promise<void> {
+  const { phase, draft, comments } = voiceStore.getState();
+  const text = draft.trim();
+  if (phase !== 'ready' || !text) {
+    return;
+  }
+  captureId = newCommentId(new Set(comments.map((c) => c.id)));
+  await finishCapture(text);
+}
+
+/** The text box changed (typing, or the OS's dictation typing into it). */
+export function updateDraft(draft: string): void {
+  voiceStore.setState({ draft });
+}
+
+/**
+ * Where an engine's words go: on Android straight into a note; on desktop
+ * onto the end of the draft, for the user to check and save.
+ */
+async function deliver(spoken: string): Promise<void> {
+  if (isAndroid()) {
+    await finishCapture(spoken);
+    return;
+  }
+  captureId = null;
+  const { draft } = voiceStore.getState();
+  voiceStore.setState({
+    phase: 'ready',
+    stopping: false,
+    draft: draft + joinDictation(draft, spoken),
+  });
 }
 
 // Whisper: the live microphone buffer of the in-flight capture.
@@ -547,7 +585,7 @@ async function transcribeCapture(id: string, pcm: Float32Array, sampleRate: numb
       return; // closed while transcribing: the words are dropped, as cancelled
     }
     if (text) {
-      await finishCapture(text);
+      await deliver(text);
     } else {
       failCapture('STT_NO_MATCH');
     }
@@ -556,44 +594,6 @@ async function transcribeCapture(id: string, pcm: Float32Array, sampleRate: numb
       failCapture(rejectionCode(e));
     }
   }
-}
-
-/**
- * Windows: the sheet's draft box is on screen and focused — press Win+H so
- * voice typing types into it. Once per capture.
- */
-export function voiceTypingFieldReady(): void {
-  if (voiceStore.getState().phase !== 'capturing' || voiceTypingOn || captureId === null) {
-    return;
-  }
-  voiceTypingOn = true;
-  const id = captureId;
-  void ipc.voiceTypingToggle().catch((e: unknown) => {
-    voiceTypingOn = false;
-    if (captureId === id && voiceStore.getState().phase === 'capturing') {
-      const reason = e instanceof Error ? e.message : String(e);
-      failCapture(
-        reason.includes('VOICE_TYPING_FAILED') ? reason : `VOICE_TYPING_FAILED:${reason}`,
-      );
-    }
-  });
-}
-
-/**
- * Windows: voice typing (or the user) changed the draft box. Restarts the
- * quiet timer that finishes the note by itself.
- */
-export function updateDraft(draft: string): void {
-  voiceStore.setState({ draft });
-  clearIdleTimer();
-  const { phase, stopping } = voiceStore.getState();
-  if (phase !== 'capturing' || stopping || !draft.trim()) {
-    return;
-  }
-  idleTimer = setTimeout(() => {
-    idleTimer = null;
-    stopCapture();
-  }, VOICE_TYPING_IDLE_MS);
 }
 
 /** Permission → availability → dictation, through the platform's `stt*` bridge. */
@@ -629,7 +629,7 @@ async function captureDictation(id: string): Promise<void> {
     if (!current()) {
       return; // abandoned mid-capture
     }
-    await finishCapture(text.trim());
+    await deliver(text.trim());
   } catch (e) {
     if (current()) {
       failCapture(e instanceof Error ? e.message : String(e));
@@ -652,7 +652,6 @@ async function finishCapture(spoken: string): Promise<void> {
   const id = captureId;
   captureId = null;
   clearStopWatchdog();
-  clearIdleTimer();
   const { text: transcript, snaps } =
     identifiers.length > 0 ? snapIdentifiers(spoken, identifiers) : { text: spoken, snaps: [] };
   const comment: VoiceComment = {
@@ -671,6 +670,7 @@ async function finishCapture(spoken: string): Promise<void> {
     line: null,
     quote: '',
     stopping: false,
+    draft: '',
     snaps,
     snapCommentId: snaps.length > 0 ? id : null,
   });
@@ -708,15 +708,13 @@ export function undoSnap(at: number): void {
 function failCapture(raw: string): void {
   captureId = null;
   clearStopWatchdog();
-  clearIdleTimer();
-  closeVoiceTyping();
   pcmCapture?.cancel();
   pcmCapture = null;
   if (inFlight(voiceStore.getState().phase)) {
     voiceStore.setState({
       phase: 'ready',
       stopping: false,
-      error: captureErrorFor(raw, dictationEngine() ?? 'windows'),
+      error: captureErrorFor(raw, noteEngine()),
     });
   }
 }
@@ -727,12 +725,12 @@ export function openVoiceSettings(): void {
   uiStore.getState().openSettings('voice');
 }
 
-/** The error box's "Open … settings" button: jump to the Windows Settings page. */
+/** The error box's "Open … settings" button: jump to a system Settings page. */
 export function openCaptureSettings(uri: string): void {
   void openUrl(uri).catch(() => {
     uiStore
       .getState()
-      .showNotice('Could not open Windows Settings. Open it from the Start menu instead.');
+      .showNotice('Could not open the system settings. Open them from the Start menu instead.');
   });
 }
 
@@ -747,9 +745,8 @@ export function stopCapture(): void {
     return;
   }
   voiceStore.setState({ stopping: true });
-  clearIdleTimer();
   const id = captureId;
-  if (dictationEngine() === 'whisper') {
+  if (noteEngine() === 'whisper') {
     const capture = pcmCapture;
     pcmCapture = null;
     if (!capture || id === null) {
@@ -760,22 +757,6 @@ export function stopCapture(): void {
     const pcm = capture.stop();
     voiceStore.setState({ phase: 'transcribing', stopping: false });
     void transcribeCapture(id, pcm, capture.sampleRate);
-    return;
-  }
-  if (dictationEngine() === 'windows') {
-    // Close voice typing; the phrase in flight lands in the draft as it closes.
-    closeVoiceTyping();
-    setTimeout(() => {
-      if (captureId !== id || voiceStore.getState().phase !== 'capturing') {
-        return;
-      }
-      const text = voiceStore.getState().draft.trim();
-      if (text) {
-        void finishCapture(text);
-      } else {
-        failCapture('VOICE_TYPING_EMPTY');
-      }
-    }, VOICE_TYPING_SETTLE_MS);
     return;
   }
   void ipc.sttStop().catch(() => {
@@ -816,10 +797,7 @@ export function closePanel(): void {
   if (phase === 'capturing') {
     // Flip phase first so the capture completion guard bails out.
     voiceStore.setState({ phase: 'closed' });
-    const engine = dictationEngine();
-    if (engine === 'windows') {
-      closeVoiceTyping();
-    } else if (engine === 'whisper') {
+    if (noteEngine() === 'whisper') {
       pcmCapture?.cancel();
       pcmCapture = null;
     } else {
@@ -831,7 +809,6 @@ export function closePanel(): void {
     captureId = null;
   }
   clearStopWatchdog();
-  clearIdleTimer();
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 

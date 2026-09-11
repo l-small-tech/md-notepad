@@ -50,7 +50,45 @@ vi.mock('../platform', () => ({
 }));
 vi.mock('../session/facade', () => ({ workspaceRootFor: () => null }));
 vi.mock('../stores/settings', () => ({
-  settingsStore: { getState: () => ({ settings }) },
+  settingsStore: {
+    getState: () => ({
+      settings,
+      update: (patch: Partial<typeof settings>) => Object.assign(settings, patch),
+    }),
+  },
+}));
+/** The Whisper model list the sheet consults: what is installed, and downloads asked for. */
+const whisperModels = vi.hoisted(() => ({
+  loaded: true,
+  installed: [] as string[],
+  downloads: [] as string[],
+  refreshes: 0,
+}));
+vi.mock('../stores/whisper-models', () => ({
+  whisperModelsStore: {
+    getState: () => ({
+      loaded: whisperModels.loaded,
+      models: ['tiny.en-q5_1', 'small.en-q5_1', 'large-v3-turbo-q5_0'].map((id) => ({
+        id,
+        file: `ggml-${id}.bin`,
+        label: id,
+        bytes: 1,
+        multilingual: false,
+        installed: whisperModels.installed.includes(id),
+        partialBytes: 0,
+      })),
+      refresh: () => {
+        whisperModels.refreshes++;
+        whisperModels.loaded = true;
+        return Promise.resolve();
+      },
+      startDownload: (id: string) => {
+        whisperModels.downloads.push(id);
+        whisperModels.installed.push(id);
+        return Promise.resolve();
+      },
+    }),
+  },
 }));
 /** The tabs the controller can see (a Review-mode test needs a real one). */
 const tabs = vi.hoisted(
@@ -81,17 +119,18 @@ vi.mock('../pcm-capture', () => ({
 import {
   closePanel,
   dictationEngine,
+  installWhisper,
+  noteEngine,
   openNoteAtLine,
   openVoiceSettings,
+  saveDraft,
   STOP_WATCHDOG_MS,
   toggleMic,
   undoSnap,
   updateDraft,
   updateTranscript,
   voiceStore,
-  VOICE_TYPING_IDLE_MS,
-  VOICE_TYPING_SETTLE_MS,
-  voiceTypingFieldReady,
+  whisperReady,
 } from '../voice-comments';
 
 function deferred<T>() {
@@ -148,6 +187,10 @@ beforeEach(() => {
   settings.whisperModel = 'small.en-q5_1';
   settings.whisperUseGpu = true;
   ipc.voiceTypingToggle.mockReset().mockResolvedValue(undefined);
+  whisperModels.loaded = true;
+  whisperModels.installed = [];
+  whisperModels.downloads = [];
+  whisperModels.refreshes = 0;
   ipc.whisperPrepare.mockReset().mockResolvedValue(undefined);
   ipc.whisperTranscribe.mockReset();
   mic.stop.mockReset().mockReturnValue(new Float32Array([0.1, -0.1, 0.2]));
@@ -280,107 +323,133 @@ describe('voice-note capture on Android: two taps', () => {
   });
 });
 
-describe('voice-note capture on Windows: voice typing', () => {
+describe('desktop: the note is typed; Whisper is the microphone', () => {
   beforeEach(() => {
     platform.android = false;
     platform.windows = true;
   });
 
-  test('the first tap opens the draft box; voice typing starts once it has focus', async () => {
+  test('Save turns the draft into the note; an empty draft is nothing', async () => {
     openReady();
-    toggleMic();
-    await settle();
-    expect(state().phase).toBe('capturing');
-    expect(ipc.sttStart).not.toHaveBeenCalled();
-    expect(ipc.voiceTypingToggle).not.toHaveBeenCalled();
+    await saveDraft();
+    expect(state().phase).toBe('ready');
+    expect(writes).toEqual([]);
 
-    voiceTypingFieldReady();
-    voiceTypingFieldReady(); // a re-render must not press Win+H twice
-    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(1);
-  });
-
-  test('the second tap closes voice typing and saves what it typed', async () => {
-    openReady();
-    toggleMic();
-    voiceTypingFieldReady();
-    updateDraft('Move the tax column');
-    toggleMic();
-    expect(state().stopping).toBe(true);
-    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2);
-
-    // The phrase in flight still lands while voice typing closes.
-    updateDraft('Move the tax column before the demo. ');
-    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
-    await settle();
+    updateDraft('  Move the tax column before the demo. ');
+    await saveDraft();
     expect(state().phase).toBe('viewing');
+    expect(state().draft).toBe('');
     expect(state().comments.map((c) => c.transcript)).toEqual([
       'Move the tax column before the demo.',
     ]);
     expect(writes).toHaveLength(1);
+    expect(writes[0]?.text).toContain('Move the tax column before the demo.');
   });
 
-  test('nothing typed: the sheet says how to check voice typing', async () => {
+  test('Save is only for the ready phase', async () => {
+    openReady();
+    voiceStore.setState({ phase: 'viewing', draft: 'stray' });
+    await saveDraft();
+    expect(state().comments).toEqual([]);
+  });
+
+  test('the sheet never presses Win+H, whatever the engine setting says', async () => {
+    settings.desktopDictationEngine = 'windowsVoiceTyping';
+    whisperModels.installed = ['small.en-q5_1'];
+    expect(noteEngine()).toBe('whisper');
     openReady();
     toggleMic();
-    voiceTypingFieldReady();
+    await settle();
+    expect(state().phase).toBe('capturing');
+    expect(ipc.voiceTypingToggle).not.toHaveBeenCalled();
+    expect(mic.start).toHaveBeenCalledTimes(1);
+  });
+
+  test('a Whisper capture lands in the draft, after what was typed, for the user to save', async () => {
+    whisperModels.installed = ['small.en-q5_1'];
+    ipc.whisperTranscribe.mockResolvedValue(' ship it on Friday ');
+    openReady();
+    updateDraft('Also:');
     toggleMic();
-    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
+    await settle();
+    toggleMic();
     await settle();
     expect(state().phase).toBe('ready');
-    expect(state().error?.code).toBe('VOICE_TYPING_EMPTY');
+    expect(state().draft).toBe('Also: ship it on Friday');
+    expect(state().comments).toEqual([]);
     expect(writes).toEqual([]);
+
+    await saveDraft();
+    expect(state().comments.map((c) => c.transcript)).toEqual(['Also: ship it on Friday']);
   });
 
-  test('Win+H failing shows an error instead of a dead mic', async () => {
-    ipc.voiceTypingToggle.mockRejectedValueOnce(new Error('VOICE_TYPING_FAILED:Access is denied.'));
+  test('the identifier snap happens on save, so a typed name snaps like a spoken one', async () => {
     openReady();
-    toggleMic();
-    voiceTypingFieldReady();
-    await settle();
-    expect(state().phase).toBe('ready');
-    expect(state().error?.code).toContain('VOICE_TYPING_FAILED');
+    voiceStore.setState({ identifiers: ['showsAllFiles'] });
+    updateDraft('the shows all files flag is wrong');
+    await saveDraft();
+    expect(state().comments[0]?.transcript).toBe('the `showsAllFiles` flag is wrong');
+    expect(state().snaps).toHaveLength(1);
   });
 
-  test('closing mid-capture closes voice typing and saves nothing', async () => {
+  test('whisperReady is about the chosen model being on disk', () => {
+    expect(whisperReady()).toBe(false);
+    whisperModels.installed = ['tiny.en-q5_1'];
+    expect(whisperReady()).toBe(false);
+    whisperModels.installed = ['tiny.en-q5_1', 'small.en-q5_1'];
+    expect(whisperReady()).toBe(true);
+  });
+
+  test('Install downloads the chosen model, and the microphone appears', async () => {
+    expect(whisperReady()).toBe(false);
+    await installWhisper();
+    expect(whisperModels.downloads).toEqual(['small.en-q5_1']);
+    expect(whisperReady()).toBe(true);
+  });
+
+  test('Install with a chosen id the manifest no longer has falls back to the recommended one', async () => {
+    settings.whisperModel = 'medium.en';
+    await installWhisper();
+    expect(whisperModels.downloads).toEqual(['small.en-q5_1']);
+    expect(settings.whisperModel).toBe('small.en-q5_1');
+    expect(whisperReady()).toBe(true);
+  });
+
+  test('Install fetches the model list first when it has not been loaded', async () => {
+    whisperModels.loaded = false;
+    await installWhisper();
+    expect(whisperModels.refreshes).toBe(1);
+    expect(whisperModels.downloads).toEqual(['small.en-q5_1']);
+  });
+
+  test('opening the sheet asks for the model list once, so it knows which button to show', async () => {
+    tabs.push({ id: 't1', filePath: 'C:/notes/a.md', notePath: null, text: 'one\ntwo' });
+    whisperModels.loaded = false;
+    await openNoteAtLine('t1', 2);
+    expect(whisperModels.refreshes).toBe(1);
+    expect(state().draft).toBe('');
+    closePanel();
+    await openNoteAtLine('t1', 1);
+    expect(whisperModels.refreshes).toBe(1);
+  });
+
+  test('closing the sheet drops an unsaved draft', () => {
     openReady();
-    toggleMic();
-    voiceTypingFieldReady();
     updateDraft('half a thought');
     closePanel();
-    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2);
-    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
-    await settle();
-    expect(state().phase).toBe('closed');
+    expect(state().draft).toBe('');
     expect(writes).toEqual([]);
   });
 
-  test('the note finishes by itself once voice typing goes quiet', async () => {
+  test('a Whisper failure is explained with the Whisper steps', async () => {
+    whisperModels.installed = ['small.en-q5_1'];
+    ipc.whisperPrepare.mockRejectedValue(new Error('WHISPER_NO_MODEL'));
     openReady();
     toggleMic();
-    voiceTypingFieldReady();
-    updateDraft('Ship it');
-    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS - 1);
-    updateDraft('Ship it on Friday.'); // still talking: the timer restarts
-    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS - 1);
-    expect(state().phase).toBe('capturing');
-    expect(state().stopping).toBe(false);
-
-    vi.advanceTimersByTime(1);
-    expect(state().stopping).toBe(true);
-    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2); // voice typing closed
-    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
     await settle();
-    expect(state().phase).toBe('viewing');
-    expect(state().comments.map((c) => c.transcript)).toEqual(['Ship it on Friday.']);
-  });
-
-  test('before anything is typed, it waits for the user', () => {
-    openReady();
-    toggleMic();
-    voiceTypingFieldReady();
-    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS * 10);
-    expect(state().phase).toBe('capturing');
-    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(1);
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toContain('WHISPER_NO_MODEL');
+    expect(state().error?.appSettings?.tab).toBe('voice');
   });
 });
 
@@ -411,13 +480,14 @@ describe('dictationEngine: the desktop engine setting', () => {
     expect(dictationEngine()).toBeNull();
   });
 
-  test('with no engine, the first tap explains instead of capturing', () => {
+  test('the note sheet always has an engine: Whisper on desktop, the setting on Android', () => {
     platform.android = false;
     settings.desktopDictationEngine = 'windowsVoiceTyping';
-    openReady();
-    toggleMic();
-    expect(state().phase).toBe('ready');
-    expect(notices[0]).toMatch(/Whisper in Settings/);
+    expect(noteEngine()).toBe('whisper');
+    platform.android = true;
+    expect(noteEngine()).toBe('android');
+    settings.androidDictationEngine = 'whisper';
+    expect(noteEngine()).toBe('whisper');
   });
 });
 
@@ -427,7 +497,7 @@ describe('voice-note capture with Whisper (offline)', () => {
     platform.windows = false;
   });
 
-  test('first tap opens the mic and warms the model; second tap transcribes and saves', async () => {
+  test('first tap opens the mic and warms the model; second tap transcribes into the draft', async () => {
     const answer = deferred<string>();
     ipc.whisperTranscribe.mockReturnValue(answer.promise);
     openReady();
@@ -460,6 +530,11 @@ describe('voice-note capture with Whisper (offline)', () => {
 
     answer.resolve('  Move the tax column before the demo. ');
     await settle();
+    // Desktop: the words wait in the draft for a look, then Save makes the note.
+    expect(state().phase).toBe('ready');
+    expect(state().draft).toBe('Move the tax column before the demo.');
+    expect(writes).toHaveLength(0);
+    await saveDraft();
     expect(state().phase).toBe('viewing');
     expect(state().comments.map((c) => c.transcript)).toEqual([
       'Move the tax column before the demo.',
@@ -600,8 +675,8 @@ describe('voice-note capture with Whisper (offline)', () => {
     expect(state().phase).toBe('transcribing');
     expect(notices[0]).toMatch(/10-minute limit/);
     await settle();
-    expect(state().phase).toBe('viewing');
-    expect(state().comments.map((c) => c.transcript)).toEqual(['a very long note']);
+    expect(state().phase).toBe('ready');
+    expect(state().draft).toBe('a very long note');
   });
 
   test('a second tap before the mic has opened fails cleanly instead of hanging', async () => {
@@ -631,7 +706,7 @@ describe('voice-note capture with Whisper (offline)', () => {
     expect(state().phase).toBe('transcribing');
     second.resolve('fresh words');
     await settle();
-    expect(state().comments.map((c) => c.transcript)).toEqual(['fresh words']);
+    expect(state().draft).toBe('fresh words');
   });
 });
 
@@ -688,6 +763,8 @@ describe('reviewing a code file: unit, whisper hint, snapped names', () => {
     await settle();
     toggleMic();
     await settle();
+    expect(state().draft).toBe('show all files state misses the hidden dirs');
+    await saveDraft();
 
     expect(ipc.whisperTranscribe.mock.calls[0]?.[4]).toBe('show all files state');
     expect(state().comments.map((c) => c.transcript)).toEqual([

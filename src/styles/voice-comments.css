@@ -280,10 +280,71 @@
   }
 }
 
-/* Windows: the draft box Windows voice typing types into while capturing. */
+/* Desktop: the note is typed (or dictated by the OS) into this box. */
 .vc-draft {
   align-self: stretch;
   min-height: 5em;
+}
+.vc-desktop {
+  gap: 12px;
+  padding: 16px 14px 20px;
+}
+/* The row under the box: the Whisper mic (or its Install button) and Save. */
+.vc-actions {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vc-mic-small {
+  width: 44px;
+  height: 44px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.vc-mic-small svg {
+  width: 22px;
+  height: 22px;
+}
+.vc-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vc-install svg {
+  width: 16px;
+  height: 16px;
+}
+.vc-btn-quiet {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+.vc-install-progress {
+  flex: 1 1 200px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.vc-install-bar {
+  flex: 1 1 60px;
+}
+.vc-save {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  margin-left: auto;
+}
+.vc-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.vc-hint {
+  align-self: stretch;
+  text-align: left;
+  font-size: 0.8rem;
 }
 
 /* Review mode: the names snapping pulled out of the transcript, each with a

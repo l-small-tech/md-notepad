@@ -202,10 +202,9 @@ const SaveAutoIcon = (
  * hold gesture → `openNoteAtLine`). Review mode only: notes are about reviewing
  * a finished document, and the rendered view is where a line is held.
  *
- * Offered only where there is a dictation engine (`dictationEngine()`):
- * Android's on-device recognizer, Windows voice typing, or the offline
- * Whisper model on any desktop. Recording audio files instead is not wanted,
- * so with no engine the button isn't shown at all.
+ * Always offered: on Android the note is dictated (the on-device recognizer
+ * or Whisper), on desktop it is typed — with the OS's dictation, or Whisper —
+ * so there is no platform without a way to add one.
  */
 function VoiceNotesToggle() {
   const armed = useVoiceStore((s) => s.armed);
@@ -877,12 +876,8 @@ function ReaderControls() {
   );
 }
 
-/** The divider + toggle, present only while an engine exists — re-evaluated when the setting changes. */
+/** The divider + voice-notes toggle. */
 function VoiceNotesSlot() {
-  useSettingsStore((s) => s.settings.desktopDictationEngine);
-  if (dictationEngine() === null) {
-    return null;
-  }
   return (
     <>
       <span className="ribbon-divider" role="separator" />
