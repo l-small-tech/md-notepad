@@ -61,6 +61,7 @@ import {
   type VoiceComment,
 } from '../core/comments';
 import { snapIdentifiers, undoSnap as undoSnapIn, type Snap } from '../core/code/vocab';
+import { firstNoteAt } from '../core/note-marks';
 import { captureErrorFor, type CaptureError, type DictationEngine } from '../core/dictation-errors';
 import { joinDictation } from '../core/dictation-insert';
 import { isInstalled, recommendedModel } from '../core/whisper-models';
@@ -84,8 +85,16 @@ import { whisperModelsStore } from './stores/whisper-models';
 export type Phase = 'closed' | 'ready' | 'capturing' | 'transcribing' | 'viewing';
 
 export interface VoiceCommentsState {
-  /** The Review-mode voice-notes toggle: while true, holding a line opens the panel. */
+  /** The Review-mode review-notes toggle: while true, holding a line opens the panel. */
   armed: boolean;
+  /**
+   * The notes each Review pane draws its markers from, by tab id — loaded
+   * by `loadMarks` when a pane is on screen while armed, kept in step with
+   * every save from the sheet, and dropped when the toggle goes off. Only
+   * tabs that asked have an entry; a tab's entry is `[]` while its file is
+   * being read.
+   */
+  marks: Readonly<Record<string, readonly VoiceComment[]>>;
   phase: Phase;
   tabId: string | null;
   notePath: string | null;
@@ -145,6 +154,7 @@ export interface VoiceCommentsState {
 
 const initial: VoiceCommentsState = {
   armed: false,
+  marks: {},
   phase: 'closed',
   tabId: null,
   notePath: null,
@@ -293,7 +303,62 @@ async function flushSave(): Promise<void> {
       serializeCommentsFile(comments, noteRefFor(commentsPath, notePath), context ?? undefined),
     );
   } catch {
-    uiStore.getState().showNotice('Could not save voice notes.');
+    uiStore.getState().showNotice('Could not save review notes.');
+  }
+  syncMarks(notePath, comments);
+}
+
+/** After a save: every marked tab showing `notePath` gets the saved list. */
+function syncMarks(notePath: string, comments: readonly VoiceComment[]): void {
+  const { marks } = voiceStore.getState();
+  let next: Record<string, readonly VoiceComment[]> | null = null;
+  for (const tabId of Object.keys(marks)) {
+    if (notePathFor(tabId) === notePath) {
+      next ??= { ...marks };
+      next[tabId] = comments;
+    }
+  }
+  if (next) {
+    voiceStore.setState({ marks: next });
+  }
+}
+
+/**
+ * A Review pane is on screen for `tabId` while the toggle is armed: read the
+ * document's notes so the pane can mark the lines that have one. The entry
+ * appears at once (empty) so a second call while the read is in flight is a
+ * no-op; a read failure leaves it empty — the markers are a convenience, so
+ * no notice. Resolves when the entry holds the notes.
+ */
+export async function loadMarks(tabId: string): Promise<void> {
+  const { marks, armed } = voiceStore.getState();
+  if (!armed || tabId in marks) {
+    return;
+  }
+  voiceStore.setState({ marks: { ...marks, [tabId]: [] } });
+  const notePath = notePathFor(tabId);
+  if (!notePath) {
+    return;
+  }
+  let comments: VoiceComment[];
+  try {
+    comments = await loadComments(notePath);
+  } catch {
+    return;
+  }
+  const current = voiceStore.getState().marks;
+  if (tabId in current) {
+    voiceStore.setState({ marks: { ...current, [tabId]: comments } });
+  }
+}
+
+/** The pane left the screen: forget its notes (the next pane reads them afresh). */
+export function dropMarks(tabId: string): void {
+  const { marks } = voiceStore.getState();
+  if (tabId in marks) {
+    const next = { ...marks };
+    delete next[tabId];
+    voiceStore.setState({ marks: next });
   }
 }
 
@@ -327,13 +392,16 @@ function clearStopWatchdog(): void {
 
 /* ---- public actions ---------------------------------------------------- */
 
-/** Flip the Review-mode voice-notes toggle. Disarming also closes the panel. */
+/**
+ * Flip the Review-mode review-notes toggle. Disarming also closes the panel
+ * and drops the markers (each pane asks again the next time it is armed).
+ */
 export function toggleArmed(): void {
   const { armed } = voiceStore.getState();
   if (armed) {
     closePanel();
   }
-  voiceStore.setState({ armed: !armed });
+  voiceStore.setState({ armed: !armed, marks: {} });
 }
 
 /**
@@ -368,14 +436,14 @@ export async function openNoteAtLine(
 ): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding voice notes.');
+    uiStore.getState().showNotice('Save the note before adding review notes.');
     return;
   }
   let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
-    uiStore.getState().showNotice('Could not read voice notes.');
+    uiStore.getState().showNotice('Could not read review notes.');
     return;
   }
   if (inFlight(voiceStore.getState().phase)) {
@@ -405,18 +473,25 @@ export async function openNoteAtLine(
   });
 }
 
-/** Open the panel listing ALL of a note's voice notes (no single focus). */
-export async function openAllComments(tabId: string): Promise<void> {
+/**
+ * Open the panel listing ALL of a note's review notes. With `focus` — a
+ * marker's line, or a code card's declaration label — the first note there
+ * leads the list (`core/note-marks firstNoteAt`); without it, no single focus.
+ */
+export async function openAllComments(
+  tabId: string,
+  focus?: { line?: number; unit?: string },
+): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding voice notes.');
+    uiStore.getState().showNotice('Save the note before adding review notes.');
     return;
   }
   let comments: VoiceComment[];
   try {
     comments = await loadComments(notePath);
   } catch {
-    uiStore.getState().showNotice('Could not read voice notes.');
+    uiStore.getState().showNotice('Could not read review notes.');
     return;
   }
   voiceStore.setState({
@@ -425,7 +500,7 @@ export async function openAllComments(tabId: string): Promise<void> {
     notePath,
     commentsPath: sidecarFor(notePath),
     comments,
-    focusId: null,
+    focusId: focus ? (firstNoteAt(comments, focus)?.id ?? null) : null,
     line: null,
     quote: '',
     error: null,
@@ -812,7 +887,7 @@ export function closePanel(): void {
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
-/** The reset fields shared by close (keeps a closed panel tidy; `armed` is untouched). */
+/** The reset fields shared by close (keeps a closed panel tidy; `armed` and `marks` are untouched). */
 function initialTail() {
   return {
     tabId: null,
@@ -831,5 +906,5 @@ function initialTail() {
     context: null,
     snaps: [],
     snapCommentId: null,
-  } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
+  } satisfies Omit<VoiceCommentsState, 'phase' | 'armed' | 'marks'>;
 }

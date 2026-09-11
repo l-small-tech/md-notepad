@@ -21,8 +21,11 @@ import {
   WB_THEME_VAR_NAMES,
   type BoardThemeVars,
 } from '../core/whiteboard/theme-inject';
+import type { VoiceComment } from '../core/comments';
+import { notesByBlock } from '../core/note-marks';
 import { ipc } from '../ipc/commands';
 import { renderMermaidBlocks } from './mermaid';
+import { buildCallout, buildMark, CALLOUT_CLASS, MARK_CLASS } from './note-marks';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
@@ -81,6 +84,13 @@ export interface PreviewPaneOptions {
    * (that page isn't the tab's document, so a line number would mislead).
    */
   onHoldLine?: (line: number) => void;
+  /**
+   * The reader tapped "Open" in a note marker's callout (see `setNotes`).
+   * Receives the source line the marker's block starts on; the host opens the
+   * review-notes sheet on the notes of that line. Omit and the callout has no
+   * Open button.
+   */
+  onOpenNotes?: (line: number) => void;
 }
 
 export interface BoardContextMenuInfo {
@@ -135,6 +145,15 @@ export interface PreviewPane {
    * top of the gesture, and marks itself `data-line-hold` for styling.
    */
   setLineHold(on: boolean): void;
+  /**
+   * The review notes on the tab's document. Every top-level block that owns
+   * one (`core/note-marks notesByBlock`) gets a marker in its margin
+   * (`button.vn-mark`); a tap on the marker expands a read-only callout of
+   * those notes under the block, with an Open button → `onOpenNotes`. An
+   * empty list removes every marker. Markers are re-applied after each
+   * render and never shown on a followed link (not the tab's document).
+   */
+  setNotes(notes: readonly VoiceComment[]): void;
   dispose(): void;
 }
 
@@ -293,8 +312,86 @@ export function attachPreviewPane(
     // The Back affordance for followed links lives OUTSIDE the pane (the ribbon
     // toolbar in normal mode, the fullscreen cluster in full screen) — surfaced
     // via `onCanGoBackChange` — so nothing is injected into the content here.
+    applyNotes();
     await renderMermaidBlocks(host, { dark });
     await inlineLocalImages(token);
+  }
+
+  /* ---- review-note markers ------------------------------------------- */
+  let notes: readonly VoiceComment[] = [];
+  /** Blocks (by first source line) whose callout is open; survives re-renders. */
+  const expandedBlocks = new Set<number>();
+
+  /**
+   * Rebuild the markers from `notes` over the current DOM: a zero-height
+   * `.vn-mark-row` before each owning block holds the marker in the margin
+   * without moving the text; the callout goes after the block. Nothing is
+   * drawn while browsing a followed link (its lines are not the document's).
+   */
+  function applyNotes(): void {
+    for (const el of host.querySelectorAll(`.vn-mark-row, .${CALLOUT_CLASS}`)) {
+      el.remove();
+    }
+    if (notes.length === 0 || navStack.length > 0) {
+      return;
+    }
+    const blocks = [...host.querySelectorAll<HTMLElement>(':scope > [data-line]')];
+    const grouped = notesByBlock(
+      notes,
+      blocks.map((b) => Number(b.dataset.line)),
+    );
+    const doc = host.ownerDocument;
+    for (const block of blocks) {
+      const line = Number(block.dataset.line);
+      const own = grouped.get(line);
+      if (!own) {
+        continue;
+      }
+      // Duplicate first-lines (rare — a list item's paragraph) mark once.
+      grouped.delete(line);
+      const expanded = expandedBlocks.has(line);
+      const row = doc.createElement('div');
+      row.className = 'vn-mark-row';
+      row.dataset.vnLine = String(line);
+      row.appendChild(buildMark(doc, own.length, expanded));
+      block.before(row);
+      if (expanded) {
+        const callout = buildCallout(doc, own);
+        // Open leads with the block's first note, which may sit below the
+        // block's own first line (a wrapped paragraph's second line).
+        callout.dataset.vnLine = String(own[0]?.line ?? line);
+        if (!options.onOpenNotes) {
+          callout.querySelector('[data-vn-open]')?.remove();
+        }
+        block.after(callout);
+      }
+    }
+  }
+
+  /** A tap on a marker or its callout's Open button; true when it was one. */
+  function onNoteClick(el: Element): boolean {
+    const mark = el.closest<HTMLElement>(`.${MARK_CLASS}`);
+    if (mark) {
+      const line = Number(mark.parentElement?.dataset.vnLine);
+      if (!Number.isNaN(line)) {
+        if (expandedBlocks.has(line)) {
+          expandedBlocks.delete(line);
+        } else {
+          expandedBlocks.add(line);
+        }
+        applyNotes();
+      }
+      return true;
+    }
+    const open = el.closest<HTMLElement>('[data-vn-open]');
+    if (open) {
+      const line = Number(open.closest<HTMLElement>(`.${CALLOUT_CLASS}`)?.dataset.vnLine);
+      if (!Number.isNaN(line)) {
+        options.onOpenNotes?.(line);
+      }
+      return true;
+    }
+    return false;
   }
 
   function scheduleRender(): void {
@@ -365,6 +462,10 @@ export function attachPreviewPane(
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
+    if (onNoteClick(el)) {
+      event.preventDefault();
+      return;
+    }
     // A click anywhere on a rendered diagram opens the fullscreen viewer.
     // Checked BEFORE the anchor branch: mermaid SVGs can contain <a> elements,
     // and the viewer takes priority over following a link baked into one.
@@ -573,6 +674,13 @@ export function attachPreviewPane(
       } else {
         delete host.dataset.lineHold;
       }
+    },
+    setNotes(next) {
+      if (disposed || next === notes) {
+        return;
+      }
+      notes = next;
+      applyNotes();
     },
     dispose() {
       disposed = true;

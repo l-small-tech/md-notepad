@@ -85,7 +85,7 @@ function CommentCard({
         <button
           className="vc-btn-danger"
           onClick={() => void deleteComment(comment.id)}
-          aria-label="Delete voice note"
+          aria-label="Delete review note"
         >
           Delete
         </button>
@@ -110,13 +110,13 @@ export function VoiceComments() {
   const capturing = state.phase === 'capturing' || state.phase === 'transcribing';
   const title =
     state.phase === 'viewing'
-      ? 'Voice notes'
+      ? 'Review notes'
       : state.unit
         ? // Review mode: the declaration says more than its line number does.
-          `Voice note · ${state.unit}`
+          `Review note · ${state.unit}`
         : state.line !== null
-          ? `Voice note · line ${state.line}`
-          : 'Voice note';
+          ? `Review note · line ${state.line}`
+          : 'Review note';
   return (
     <div
       className={`vc-backdrop${isAndroid() ? ' vc-android' : ''}`}
@@ -127,7 +127,7 @@ export function VoiceComments() {
         }
       }}
     >
-      <div className="vc-panel" role="dialog" aria-label="Voice notes">
+      <div className="vc-panel" role="dialog" aria-label="Review notes">
         <div className="vc-header">
           <span>{title}</span>
           <div className="vc-header-actions">
@@ -135,8 +135,8 @@ export function VoiceComments() {
               <button
                 className="vc-add"
                 onClick={showNotes}
-                aria-label="Show all voice notes"
-                title="Show this note's voice notes"
+                aria-label="Show all review notes"
+                title="Show this document's review notes"
               >
                 {state.comments.length > 0 ? `Notes (${state.comments.length})` : 'Notes'}
               </button>
@@ -381,7 +381,7 @@ function DraftBox({ draft, disabled }: { draft: string; disabled: boolean }) {
       value={draft}
       disabled={disabled}
       placeholder="Type your note…"
-      aria-label="Voice note text"
+      aria-label="Review note text"
       onChange={(e) => updateDraft(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -397,7 +397,7 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
   if (state.comments.length === 0) {
     return (
       <div className="vc-body">
-        <div className="vc-empty">No voice notes on this document yet.</div>
+        <div className="vc-empty">No review notes on this document yet.</div>
       </div>
     );
   }

@@ -197,14 +197,16 @@ const SaveAutoIcon = (
  * directory so the CLI can find them regardless of where it was launched.
  */
 /**
- * The Review-mode voice-notes toggle. While on, pressing and holding a line of
- * the rendered document opens the voice-note sheet for that line (the pane's
- * hold gesture → `openNoteAtLine`). Review mode only: notes are about reviewing
- * a finished document, and the rendered view is where a line is held.
+ * The Review-mode review-notes toggle. While on, pressing and holding a line
+ * of the rendered document opens the note sheet for that line (the pane's
+ * hold gesture → `openNoteAtLine`), and lines that already have a note show
+ * a marker. Review mode only: notes are about reviewing a finished document,
+ * and the rendered view is where a line is held.
  *
- * Always offered: on Android the note is dictated (the on-device recognizer
- * or Whisper), on desktop it is typed — with the OS's dictation, or Whisper —
- * so there is no platform without a way to add one.
+ * "Review notes", not "voice notes": on Android the note is dictated (the
+ * on-device recognizer or Whisper), on desktop it is typed — with the OS's
+ * dictation, or Whisper — so the name says what they are for, not how they
+ * are made. There is no platform without a way to add one.
  */
 function VoiceNotesToggle() {
   const armed = useVoiceStore((s) => s.armed);
@@ -213,11 +215,11 @@ function VoiceNotesToggle() {
       className="ribbon-btn"
       data-active={armed || undefined}
       aria-pressed={armed}
-      aria-label="Voice notes"
+      aria-label="Review notes"
       title={
         armed
-          ? 'Voice notes on — press and hold a line to add one'
-          : 'Voice notes — turn on, then press and hold a line'
+          ? 'Review notes on — press and hold a line to add one'
+          : 'Review notes — turn on, then press and hold a line'
       }
       onMouseDown={(e) => e.preventDefault()}
       onClick={toggleArmed}

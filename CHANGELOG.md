@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Review notes show where they are.** The Review-mode button is now
+  "Review notes" (they are typed on desktop and spoken on the phone). While
+  it is on, every paragraph or code card that already has a note gets a
+  marker in the margin; tap it to read the notes right there, and Open to
+  edit them in the sheet.
+
 - **Review notes are typed on desktop.** The note sheet is now a text box
   with a Save button; use Win+H (Windows) or the Dictation key (macOS) to
   talk into it, or tap the microphone to dictate offline with Whisper. If

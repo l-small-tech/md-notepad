@@ -49,8 +49,11 @@ import {
   type ReviewState,
   type ReviewView,
 } from '../core/code/review-state';
+import type { VoiceComment } from '../core/comments';
 import type { DocModel } from '../core/doc-model';
+import { notesForUnit } from '../core/note-marks';
 import { renderMermaidBlocks } from './mermaid';
+import { buildCallout, buildMark, CALLOUT_CLASS, MARK_CLASS } from './note-marks';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
@@ -82,6 +85,12 @@ export interface CodeReviewPaneOptions {
    * from, for the identifier vocabulary.
    */
   onHoldUnit?: (unit: CodeUnit, model: CodeModel) => void;
+  /**
+   * The reader tapped "Open" in a card's note callout (see `setNotes`): the
+   * host opens the review-notes sheet on that declaration's notes. Omit and
+   * the callout has no Open button.
+   */
+  onOpenUnitNotes?: (unit: CodeUnit) => void;
   /**
    * The pane re-parsed the document (first render, and after each 200 ms
    * debounce on a text change). The What-changed host recomputes its change
@@ -125,6 +134,15 @@ export interface CodeReviewPane {
   setGitInfo(info: ReviewGitInfo | null): void;
   /** Arm/disarm the press-and-hold card gesture (`onHoldUnit`). */
   setLineHold(on: boolean): void;
+  /**
+   * The review notes on this file. Every card whose declaration owns one
+   * (`core/note-marks notesForUnit`) gets a marker in its head
+   * (`span.vn-mark`, after the badges); a tap on it expands a read-only
+   * callout of those notes under the head, with an Open button →
+   * `onOpenUnitNotes`. An empty list removes every marker. Re-applied after
+   * each render.
+   */
+  setNotes(notes: readonly VoiceComment[]): void;
   /** Bring a unit's card into view (switching to the Cards view first). */
   scrollToUnit(unitId: string): void;
   /** The parse the pane currently shows (null before the first render / for a non-code file). */
@@ -747,6 +765,7 @@ export function attachCodeReviewPane(
     const scrollTop = host.scrollTop;
     host.innerHTML = html;
     host.scrollTop = scrollTop;
+    applyNotes();
     await renderMermaidBlocks(host, { dark });
     if (disposed || !sequence.isCurrent(token)) {
       return;
@@ -848,10 +867,86 @@ export function attachCodeReviewPane(
     }
   }
 
+  /* ---- review-note markers ---- */
+  let notes: readonly VoiceComment[] = [];
+  /** Cards (by unit id) whose callout is open; survives re-renders. */
+  const expandedUnits = new Set<string>();
+
+  /**
+   * Rebuild the markers from `notes` over the current deck: the marker sits
+   * in the card's head after the badges (a `span`, since the head is itself a
+   * button); the callout goes between the head and the body, so a body
+   * refresh (`refreshCard`) leaves it alone.
+   */
+  function applyNotes(): void {
+    for (const el of host.querySelectorAll(`.${MARK_CLASS}, .${CALLOUT_CLASS}`)) {
+      el.remove();
+    }
+    if (notes.length === 0) {
+      return;
+    }
+    const doc = host.ownerDocument;
+    for (const card of host.querySelectorAll<HTMLElement>('.cr-card[data-unit-id]')) {
+      const unit = card.dataset.unitId ? unitsById.get(card.dataset.unitId) : undefined;
+      const head = card.querySelector<HTMLElement>(':scope > .cr-card-head');
+      if (!unit || !head) {
+        continue;
+      }
+      const own = notesForUnit(notes, unit);
+      if (own.length === 0) {
+        continue;
+      }
+      const expanded = expandedUnits.has(unit.id);
+      const mark = buildMark(doc, own.length, expanded, 'span');
+      const badges = head.querySelector(':scope > .cr-badges');
+      if (badges) {
+        badges.after(mark);
+      } else {
+        head.appendChild(mark);
+      }
+      if (expanded) {
+        const callout = buildCallout(doc, own);
+        if (!options.onOpenUnitNotes) {
+          callout.querySelector('[data-vn-open]')?.remove();
+        }
+        head.after(callout);
+      }
+    }
+  }
+
+  /** A tap on a card's marker or its callout's Open button; true when it was one. */
+  function onNoteClick(el: Element): boolean {
+    const mark = el.closest<HTMLElement>(`.${MARK_CLASS}`);
+    const open = mark ? null : el.closest<HTMLElement>('[data-vn-open]');
+    if (!mark && !open) {
+      return false;
+    }
+    const unitId = el.closest<HTMLElement>('.cr-card[data-unit-id]')?.dataset.unitId;
+    const unit = unitId ? unitsById.get(unitId) : undefined;
+    if (!unit) {
+      return true;
+    }
+    if (mark) {
+      if (expandedUnits.has(unit.id)) {
+        expandedUnits.delete(unit.id);
+      } else {
+        expandedUnits.add(unit.id);
+      }
+      applyNotes();
+    } else {
+      options.onOpenUnitNotes?.(unit);
+    }
+    return true;
+  }
+
   /* ---- events ---- */
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
+    if (onNoteClick(el)) {
+      event.preventDefault();
+      return;
+    }
     const view = el.closest<HTMLElement>('button[data-view]');
     if (view?.dataset.view && !(view as HTMLButtonElement).disabled) {
       apply({ type: 'view', view: view.dataset.view as ReviewView });
@@ -1062,6 +1157,13 @@ export function attachCodeReviewPane(
       } else {
         delete host.dataset.lineHold;
       }
+    },
+    setNotes(next) {
+      if (disposed || next === notes) {
+        return;
+      }
+      notes = next;
+      applyNotes();
     },
     scrollToUnit,
     currentModel: () => model,

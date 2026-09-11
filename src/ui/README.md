@@ -82,7 +82,8 @@ action)` from the pane's `onAction`, `pane.setState(reviewStateFor(tabId))`
 on every store tick), dark mode, `onOpenDiagram` → `stores/diagram-viewer`,
 and `onHoldUnit` → `voice-comments.openNoteAtLine(tabId, signatureLine,
 { unit, quote, hint, identifiers })` armed from the voice store like the
-markdown pane's line hold. The Ribbon's `ReaderControls` (text zoom) apply
+markdown pane's line hold, plus the note markers (`setNotes` from
+`marks[tabId]`, `onOpenUnitNotes` → `openAllComments(tabId, { unit })`). The Ribbon's `ReaderControls` (text zoom) apply
 unchanged. `stores/code-review` is transient and never persisted; EditorHost
 clears the tab's entry on unmount.
 
@@ -725,6 +726,28 @@ Stores (`stores/*.ts`) get full Vitest coverage — tab lifecycle, rename
 override, close bookkeeping (`closedNotePaths` tombstones), shortcut
 dispatch decisions (pure `keyEventToAction(e, platform)` helper). JSX stays
 declarative and thin.
+
+## Review notes — markers
+
+The user-facing name is **Review notes** (the ribbon toggle, the sheet's
+title and labels, the notices): a note is typed on desktop and spoken on
+Android, so the name says what they are for. Module and setting names keep
+`voice…` — the sidecar format, the Settings tab and its `voiceNotes*` keys
+are unchanged.
+
+While the toggle is armed, each Review pane shows a marker on every
+line/card that already has a note and expands it in place
+(`preview/README.md` "Review-note markers"). The notes come from the store's
+`marks: Record<tabId, VoiceComment[]>`: `EditorHost`'s per-pane
+subscription calls `loadMarks(tabId)` whenever armed (the entry appears
+empty at once, so repeat asks are no-ops, then fills from the sidecar; a
+missing or unreadable sidecar leaves it empty without a notice), feeds
+`pane.setNotes(marks[tabId])`, and `dropMarks(tabId)` on unmount so the next
+mount reads afresh. Every save from the sheet (`flushSave` → `syncMarks`)
+pushes the saved list into each marked tab on that document; disarming
+clears the map. A marker's Open button calls `openAllComments(tabId,
+{ line } | { unit })`, which opens the sheet in `viewing` with the first
+matching note (`core/note-marks firstNoteAt`) as `focusId`, listed first.
 
 ## Voice notes — engines
 

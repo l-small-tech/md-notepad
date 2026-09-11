@@ -23,6 +23,7 @@ const settings = vi.hoisted(() => ({
   whisperUseGpu: true,
 }));
 const notices = vi.hoisted(() => [] as string[]);
+const sidecar = vi.hoisted(() => ({ text: '' }));
 const opened = vi.hoisted(() => [] as (string | undefined)[]);
 /** The fake microphone: what `startPcmCapture` resolves with, and its calls. */
 const mic = vi.hoisted(() => ({
@@ -35,8 +36,8 @@ const mic = vi.hoisted(() => ({
 vi.mock('../../ipc/commands', () => ({ ipc, IpcError: class extends Error {} }));
 vi.mock('../../ipc/provider', () => ({
   currentProvider: () => ({
-    // No sidecar yet: an empty file parses to no notes.
-    readTextFile: () => Promise.resolve({ text: '', mtimeMs: 0 }),
+    // The sidecar on disk (empty by default: no notes yet).
+    readTextFile: () => Promise.resolve({ text: sidecar.text, mtimeMs: 0 }),
     atomicWriteText: (path: string, text: string) => {
       writes.push({ path, text });
       return Promise.resolve();
@@ -116,12 +117,18 @@ vi.mock('../pcm-capture', () => ({
   },
 }));
 
+import { serializeCommentsFile } from '../../core/comments';
 import {
   closePanel,
+  deleteComment,
   dictationEngine,
+  dropMarks,
   installWhisper,
+  loadMarks,
   noteEngine,
+  openAllComments,
   openNoteAtLine,
+  toggleArmed,
   openVoiceSettings,
   saveDraft,
   STOP_WATCHDOG_MS,
@@ -178,6 +185,7 @@ beforeEach(() => {
   ipc.sttStop.mockReset().mockResolvedValue(undefined);
   writes.length = 0;
   notices.length = 0;
+  sidecar.text = '';
   tabs.length = 0;
   opened.length = 0;
   platform.windows = false;
@@ -874,5 +882,85 @@ describe('reviewing a code file: unit, whisper hint, snapped names', () => {
     expect(state().identifiers).toEqual([]);
     expect(state().snaps).toEqual([]);
     expect(state().snapCommentId).toBeNull();
+  });
+});
+
+describe('note markers: the notes each Review pane draws from', () => {
+  const noteOn = (id: string, line: number, unit?: string) => ({
+    id,
+    file: 'a.md',
+    line,
+    quote: '',
+    time: '2026-01-01T00:00:00.000Z',
+    transcript: id,
+    ...(unit ? { unit } : {}),
+  });
+
+  beforeEach(() => {
+    tabs.push({ id: 't1', filePath: 'C:/notes/a.md', notePath: null, text: 'one\ntwo\nthree' });
+    tabs.push({ id: 't2', filePath: 'C:/notes/a.md', notePath: null, text: 'one\ntwo\nthree' });
+    tabs.push({ id: 'untitled', filePath: null, notePath: null, text: '' });
+    sidecar.text = serializeCommentsFile(
+      [noteOn('c1', 2), noteOn('c2', 3, 'f (function)')],
+      'a.md',
+    );
+  });
+
+  afterEach(() => {
+    voiceStore.setState({ armed: false, marks: {} });
+  });
+
+  test("loadMarks reads the tab's notes only while armed, once per tab", async () => {
+    await loadMarks('t1');
+    expect(state().marks).toEqual({});
+
+    toggleArmed();
+    const first = loadMarks('t1');
+    expect(state().marks.t1).toEqual([]); // claimed at once, so a second ask is a no-op
+    await Promise.all([first, loadMarks('t1')]);
+    expect(state().marks.t1!.map((n) => n.id)).toEqual(['c1', 'c2']);
+
+    // An unsaved tab has no sidecar to read: its entry stays empty, quietly.
+    await loadMarks('untitled');
+    expect(state().marks.untitled).toEqual([]);
+    expect(notices).toEqual([]);
+  });
+
+  test('a save from the sheet updates every marked tab on that document; disarming drops them all', async () => {
+    toggleArmed();
+    await loadMarks('t1');
+    await loadMarks('t2');
+    voiceStore.setState({
+      phase: 'viewing',
+      tabId: 't1',
+      notePath: 'C:/notes/a.md',
+      commentsPath: 'C:/notes/a.comments.md',
+      comments: [noteOn('c1', 2), noteOn('c2', 3, 'f (function)')],
+    });
+    await deleteComment('c1');
+    expect(writes).toHaveLength(1);
+    expect(state().marks.t1!.map((n) => n.id)).toEqual(['c2']);
+    expect(state().marks.t2!.map((n) => n.id)).toEqual(['c2']);
+
+    dropMarks('t2');
+    expect(Object.keys(state().marks)).toEqual(['t1']);
+    toggleArmed();
+    expect(state().armed).toBe(false);
+    expect(state().marks).toEqual({});
+  });
+
+  test("opening the sheet from a marker leads with that line's (or declaration's) note", async () => {
+    await openAllComments('t1', { line: 3, unit: 'f (function)' });
+    expect(state().phase).toBe('viewing');
+    expect(state().focusId).toBe('c2');
+    closePanel();
+    await openAllComments('t1', { line: 2 });
+    expect(state().focusId).toBe('c1');
+    closePanel();
+    await openAllComments('t1', { line: 9 });
+    expect(state().focusId).toBeNull();
+    closePanel();
+    await openAllComments('untitled');
+    expect(notices).toEqual(['Save the note before adding review notes.']);
   });
 });

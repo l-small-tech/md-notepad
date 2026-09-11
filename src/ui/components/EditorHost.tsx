@@ -71,11 +71,22 @@ import { isAndroid } from '../platform';
 import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
 import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
-import { openNoteAtLine, voiceStore } from '../voice-comments';
+import {
+  dropMarks,
+  loadMarks,
+  openAllComments,
+  openNoteAtLine,
+  voiceStore,
+} from '../voice-comments';
+import { unitNoteLabel } from '../../core/note-marks';
+import type { VoiceComment } from '../../core/comments';
 import { ConflictBanner } from './ConflictBanner';
 import { LiveEditBanner } from './LiveEditBanner';
 import { DiffView } from './DiffView';
 import { diffViewStore, useDiffView } from '../stores/diff-view';
+
+/** A stable empty list, so the panes' `setNotes` sees no change tick to tick. */
+const NO_NOTES: readonly VoiceComment[] = [];
 
 /**
  * Split-divider position, shared by every tab (module scope, not React
@@ -393,17 +404,19 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         onAction: (action) => codeReviewStore.getState().dispatch(tabId, action),
         onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
         onModelChange: (model, text) => reviewGit.modelChanged(model, text),
-        // Voice notes: holding a card opens the sheet on that declaration,
+        // Review notes: holding a card opens the sheet on that declaration,
         // with the file's identifiers priming Whisper and snapping the
         // transcript, and the review context for the sidecar's preamble.
         onHoldUnit: (unit, model) =>
           void openNoteAtLine(tabId, unit.signatureLine, {
-            unit: `${unit.name} (${unit.kind})`,
+            unit: unitNoteLabel(unit),
             quote: unit.signature,
             hint: identifierHint(model.identifiers),
             identifiers: model.identifiers,
             context: reviewGit.context(),
           }),
+        // A card's note marker → the sheet's list, that declaration's note first.
+        onOpenUnitNotes: (unit) => void openAllComments(tabId, { unit: unitNoteLabel(unit) }),
       });
       const pane = review;
       let lastBaseline = reviewStateFor(tabId).baseline;
@@ -416,7 +429,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         }
       };
       const unsubscribeReview = codeReviewStore.subscribe(syncReviewState);
-      const syncReviewHold = () => pane.setLineHold(voiceStore.getState().armed);
+      // The hold gesture and the note markers follow the review-notes toggle.
+      const syncReviewHold = () => {
+        const { armed, marks } = voiceStore.getState();
+        pane.setLineHold(armed);
+        pane.setNotes(armed ? (marks[tabId] ?? NO_NOTES) : NO_NOTES);
+        if (armed) {
+          void loadMarks(tabId);
+        }
+      };
       syncReviewHold();
       const unsubscribeReviewVoice = voiceStore.subscribe(syncReviewHold);
       const unsubscribeReviewDark = subscribeDark((dark) => pane.setDark(dark));
@@ -450,6 +471,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       return () => {
         unsubscribeReview();
         unsubscribeReviewVoice();
+        dropMarks(tabId);
         unsubscribeReviewDark();
         unsubscribeReviewFocus();
         unsubscribeReviewSettings();
@@ -474,12 +496,23 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onOpenExternal: (url) => externalLinkStore.getState().request(url),
       // A right-clicked board opens the theme/true colours menu.
       onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
-      // Voice notes: while the Review-mode toggle is armed, holding a line of
+      // Review notes: while the Review-mode toggle is armed, holding a line of
       // the rendered document opens the capture sheet for that source line.
       onHoldLine: mode === 'read' ? (line) => void openNoteAtLine(tabId, line) : undefined,
+      // A block's note marker → the sheet's list, that line's note first.
+      onOpenNotes: mode === 'read' ? (line) => void openAllComments(tabId, { line }) : undefined,
     });
-    // The hold gesture follows the voice-notes toggle (Review mode only).
-    const syncLineHold = () => pane.setLineHold(mode === 'read' && voiceStore.getState().armed);
+    // The hold gesture and the note markers follow the review-notes toggle
+    // (Review mode only).
+    const syncLineHold = () => {
+      const { armed, marks } = voiceStore.getState();
+      const on = mode === 'read' && armed;
+      pane.setLineHold(on);
+      pane.setNotes(on ? (marks[tabId] ?? NO_NOTES) : NO_NOTES);
+      if (on) {
+        void loadMarks(tabId);
+      }
+    };
     syncLineHold();
     const unsubscribeVoice = voiceStore.subscribe(syncLineHold);
     registerPreviewGoBack(tabId, () => pane.goBack());
@@ -514,6 +547,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     return () => {
       unsubscribeVoice();
+      dropMarks(tabId);
       unsubscribeDark();
       unsubscribeScheme();
       unsubscribePath();

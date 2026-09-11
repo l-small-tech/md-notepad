@@ -362,3 +362,58 @@ describe('highlightLines', () => {
     expect(line).toContain('<span class="cr-tok-def">main</span>');
   });
 });
+
+describe('review-note markers on cards', () => {
+  const notes = [
+    {
+      id: 'n1',
+      file: 'text-files.ts',
+      line: 24,
+      quote: '',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'rename <me>',
+      unit: 'dirKey (function)',
+    },
+    {
+      id: 'n2',
+      file: 'text-files.ts',
+      line: 24,
+      quote: '',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'elsewhere',
+      unit: 'other (function)',
+    },
+  ];
+
+  test('a card whose declaration has notes gets a marker; a tap expands them without toggling the card', async () => {
+    const onOpenUnitNotes = vi.fn();
+    const { el, pane, actions, model } = attach(fixture('text-files.ts.txt'), 'text-files.ts', {
+      onOpenUnitNotes,
+    });
+    await vi.runOnlyPendingTimersAsync();
+    pane.setNotes(notes);
+    const marks = el.querySelectorAll('.vn-mark');
+    expect(marks).toHaveLength(1);
+    const card = el.querySelector('[data-unit-id="function:dirKey"]')!;
+    expect(marks[0]!.closest('.cr-card')).toBe(card);
+    expect(marks[0]!.closest('.cr-card-head')).not.toBeNull();
+    expect(marks[0]!.querySelector('.vn-mark-count')?.textContent).toBe('1');
+
+    click(marks[0]!);
+    expect(actions).toEqual([]); // the head's own toggle did not fire
+    const callout = card.querySelector(':scope > .vn-callout')!;
+    expect(callout.querySelector('.vn-note-text')?.textContent).toBe('rename <me>');
+    expect(callout.previousElementSibling?.classList.contains('cr-card-head')).toBe(true);
+
+    click(callout.querySelector('[data-vn-open]')!);
+    expect(onOpenUnitNotes).toHaveBeenCalledTimes(1);
+    expect(onOpenUnitNotes.mock.calls[0]![0].name).toBe('dirKey');
+
+    // Still open after a re-parse; gone once the list is empty.
+    model.pushText(model.getText() + '\n', 'cm6');
+    await vi.runOnlyPendingTimersAsync();
+    expect(el.querySelector('.vn-callout')).not.toBeNull();
+    pane.setNotes([]);
+    expect(el.querySelector('.vn-mark, .vn-callout')).toBeNull();
+  });
+});

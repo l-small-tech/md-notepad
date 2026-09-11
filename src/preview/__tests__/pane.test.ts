@@ -525,3 +525,108 @@ describe('press-and-hold line gesture (voice notes)', () => {
     expect(fire()).toBe(true);
   });
 });
+
+describe('review-note markers', () => {
+  const notes = [
+    {
+      id: 'n1',
+      file: 'a.md',
+      line: 3,
+      quote: 'first para',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'Tighten <this> up',
+    },
+    {
+      id: 'n2',
+      file: 'a.md',
+      line: 4,
+      quote: '',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'and this',
+    },
+    {
+      id: 'n3',
+      file: 'a.md',
+      line: 5,
+      quote: 'second para',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'fine',
+    },
+  ];
+  const text = '# Title\n\nfirst para\n\nsecond para\n';
+
+  test('marks each block that owns a note; a tap expands the notes, Open hands the note line to the host', async () => {
+    const el = host();
+    const onOpenNotes = vi.fn();
+    const pane = attachPreviewPane(el, createDocModel(text), {
+      dark: false,
+      onHoldLine: () => {},
+      onOpenNotes,
+    });
+    await vi.runAllTimersAsync();
+    // The first block's notes start on its second line: Open leads with THAT line.
+    pane.setNotes([{ ...notes[0]!, line: 4 }, notes[1]!, notes[2]!]);
+    const rows = el.querySelectorAll('.vn-mark-row');
+    expect(rows).toHaveLength(2);
+    // The row sits right before its block, and says how many notes it has.
+    expect(rows[0]!.nextElementSibling?.textContent).toBe('first para');
+    expect(rows[0]!.querySelector('.vn-mark-count')?.textContent).toBe('2');
+    expect(rows[1]!.nextElementSibling?.textContent).toBe('second para');
+    expect(el.querySelector('.vn-callout')).toBeNull();
+
+    click(rows[0]!.querySelector('.vn-mark')!);
+    const callout = el.querySelector('.vn-callout')!;
+    expect(callout.previousElementSibling?.textContent).toBe('first para');
+    const texts = [...callout.querySelectorAll('.vn-note-text')].map((n) => n.textContent);
+    expect(texts).toEqual(['Tighten <this> up', 'and this']); // user text, never HTML
+    expect(el.querySelector('.vn-mark')?.getAttribute('aria-expanded')).toBe('true');
+
+    click(callout.querySelector('[data-vn-open]')!);
+    expect(onOpenNotes).toHaveBeenCalledWith(4);
+
+    // A second tap folds it; the text itself never moved.
+    click(el.querySelector('.vn-mark')!);
+    expect(el.querySelector('.vn-callout')).toBeNull();
+    expect(el.querySelectorAll('p')).toHaveLength(2);
+  });
+
+  test('an open callout survives a re-render; an empty list clears everything', async () => {
+    const el = host();
+    const model = createDocModel(text);
+    const pane = attachPreviewPane(el, model, { dark: false, onHoldLine: () => {} });
+    await vi.runAllTimersAsync();
+    pane.setNotes(notes);
+    click(el.querySelector('.vn-mark')!);
+    expect(el.querySelector('.vn-callout')).not.toBeNull();
+
+    model.pushText(text + '\nthird para\n', 'cm6');
+    await vi.runAllTimersAsync();
+    expect(el.querySelectorAll('.vn-mark-row')).toHaveLength(2);
+    expect(el.querySelector('.vn-callout')).not.toBeNull();
+    // Without onOpenNotes the callout has nothing to open.
+    expect(el.querySelector('[data-vn-open]')).toBeNull();
+
+    pane.setNotes([]);
+    expect(el.querySelector('.vn-mark-row, .vn-callout')).toBeNull();
+  });
+
+  test('a followed link shows no markers — its lines are not the document’s', async () => {
+    const el = host();
+    readTextFileMock.mockResolvedValue({ text: 'linked page', mtimeMs: 0 });
+    const pane = attachPreviewPane(el, createDocModel('[go](other.md)\n\nfirst para\n'), {
+      dark: false,
+      docPath: 'C:/docs/a.md',
+      onHoldLine: () => {},
+    });
+    await vi.runAllTimersAsync();
+    pane.setNotes([notes[2]!]);
+    expect(el.querySelectorAll('.vn-mark-row')).toHaveLength(1);
+    click(el.querySelector('a')!);
+    await vi.runAllTimersAsync();
+    expect(el.textContent).toContain('linked page');
+    expect(el.querySelector('.vn-mark-row')).toBeNull();
+    pane.goBack();
+    await vi.runAllTimersAsync();
+    expect(el.querySelectorAll('.vn-mark-row')).toHaveLength(1);
+  });
+});
