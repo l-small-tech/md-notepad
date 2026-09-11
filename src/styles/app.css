@@ -3488,11 +3488,11 @@ body.explorer-dragging * {
 
 /* ---- Live Edit (shared cloud folder) ------------------------------------ */
 
-/* Checkable context-menu row: a fixed glyph column so the label lines up
-   whether or not the check is showing. */
+/* Checkable context-menu row: the check floats to the right edge so the
+   label lines up with every other menu item. */
 .context-menu-check {
-  display: inline-block;
-  width: 1.2em;
+  float: right;
+  margin-left: 12px;
   color: var(--accent);
 }
 

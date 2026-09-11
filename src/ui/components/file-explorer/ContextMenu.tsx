@@ -430,7 +430,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           <span className="context-menu-check" aria-hidden="true">
             {wsLiveEdit ? '✓' : ''}
           </span>
-          Live edit (shared folder)
+          Live Edit
         </button>
       )}
       {/* List every file here and in subfolders, not just notes/images/docs;
@@ -458,7 +458,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           <span className="context-menu-check" aria-hidden="true">
             {showAll.show ? '✓' : ''}
           </span>
-          Show unsupported files
+          Unsupported Files
         </button>
       )}
       {/* Everything created here — files, folders, drawings, terminal and AI
