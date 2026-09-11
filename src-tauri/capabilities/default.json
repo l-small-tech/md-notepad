@@ -2,7 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for every app window — 'main', torn-off tab windows (label 'w-*'), and the transient tab-drag ghost windows ('ghost-*'). Custom commands in src/commands/ need no entries here — only core/plugin permissions do.",
-  "windows": ["main", "w-*", "ghost-*"],
+  "windows": [
+    "main",
+    "w-*",
+    "ghost-*"
+  ],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",
@@ -31,10 +35,9 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "ms-settings:privacy-speech" },
-        { "url": "ms-settings:privacy-microphone" },
-        { "url": "ms-settings:speech" },
-        { "url": "ms-settings:sound" }
+        {
+          "url": "ms-settings:privacy-speech"
+        }
       ]
     },
     "log:default",

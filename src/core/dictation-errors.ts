@@ -1,9 +1,9 @@
 /**
  * dictation-errors.ts — what to tell the user when voice-note dictation fails.
  *
- * The speech bridges (Android SpeechRecognizer, Windows dictation — see
- * src-tauri commands/android.rs and commands/dictation.rs) reject with short
- * codes. This module turns a code into something the voice-note sheet can show
+ * Capture failures arrive as short codes — from the Android SpeechRecognizer
+ * bridge (src-tauri commands/android.rs) or the Windows voice-typing flow
+ * (ui/voice-comments.ts). This module turns a code into something the voice-note sheet can show
  * IN PLACE, under the microphone: a title, numbered steps to fix it, an
  * optional note, and — on Windows — the exact Settings page to open. A status
  * bar notice was too easy to miss: the sheet dims everything behind it.
@@ -34,85 +34,33 @@ export interface CaptureError {
 /** The `ms-settings:` pages this module may link to (mirrored in capabilities). */
 export const SETTINGS_URIS = {
   speechPrivacy: 'ms-settings:privacy-speech',
-  microphonePrivacy: 'ms-settings:privacy-microphone',
-  speechLanguage: 'ms-settings:speech',
-  sound: 'ms-settings:sound',
 } as const;
 
 const RETRY = 'Come back here and tap the microphone again.';
 
-/** Windows: the fix for each bridge code. */
+/** Windows: voice notes are typed by Windows voice typing (Win+H). */
 function windowsError(code: string): Omit<CaptureError, 'code'> {
-  if (code.includes('STT_PRIVACY')) {
+  if (code.includes('VOICE_TYPING_EMPTY')) {
     return {
-      title: 'Windows dictation is turned off',
+      title: 'Nothing was typed',
       steps: [
-        'Open Windows Settings > Privacy & security > Speech.',
-        'Turn on "Online speech recognition".',
+        'Check that Windows voice typing works: click in any text box, press Win+H and speak.',
+        'If voice typing asks for it, turn on "Online speech recognition" in Windows Settings > Privacy & security > Speech.',
         RETRY,
       ],
       note:
-        'Windows dictation only works with this setting on. While you dictate, ' +
-        'Windows sends your voice to Microsoft to turn it into text. md-notepad ' +
-        'never records or keeps audio.',
+        'Voice notes on Windows use Windows voice typing, which sends your voice to ' +
+        'Microsoft to turn it into text. md-notepad never records or keeps audio.',
       settings: { label: 'Open speech settings', uri: SETTINGS_URIS.speechPrivacy },
     };
   }
-  if (code.includes('PERMISSION_DENIED')) {
+  if (code.includes('VOICE_TYPING_FAILED')) {
     return {
-      title: 'Microphone access is blocked',
+      title: "Couldn't start Windows voice typing",
       steps: [
-        'Open Windows Settings > Privacy & security > Microphone.',
-        'Turn on "Microphone access".',
-        'Turn on "Let desktop apps access your microphone".',
-        RETRY,
+        'Make sure the md-notepad window is in front, then tap the microphone again.',
+        'If it keeps failing, close md-notepad and open it again.',
       ],
-      settings: { label: 'Open microphone settings', uri: SETTINGS_URIS.microphonePrivacy },
-    };
-  }
-  if (code.includes('STT_NO_MIC')) {
-    return {
-      title: 'No microphone found',
-      steps: [
-        'Connect a microphone or headset.',
-        'Check that it is selected under Windows Settings > System > Sound > Input.',
-        RETRY,
-      ],
-      settings: { label: 'Open sound settings', uri: SETTINGS_URIS.sound },
-    };
-  }
-  if (code.includes('STT_LANGUAGE')) {
-    return {
-      title: "Windows dictation doesn't support your speech language",
-      steps: [
-        'Open Windows Settings > Time & language > Speech.',
-        'Choose a supported speech language, and install its speech pack if asked.',
-        RETRY,
-      ],
-      settings: { label: 'Open speech language settings', uri: SETTINGS_URIS.speechLanguage },
-    };
-  }
-  if (code.includes('STT_UNAVAILABLE')) {
-    return {
-      title: "Windows speech recognition isn't available on this PC",
-      steps: [
-        'Make sure Windows is up to date.',
-        'Check Windows Settings > Time & language > Speech.',
-        RETRY,
-      ],
-      settings: { label: 'Open speech language settings', uri: SETTINGS_URIS.speechLanguage },
-    };
-  }
-  if (code.includes('STT_NETWORK')) {
-    return {
-      title: 'Lost the connection to Windows dictation',
-      steps: ['Windows dictation needs an internet connection. Check that you are online.', RETRY],
-    };
-  }
-  if (code.includes('STT_AUDIO_QUALITY')) {
-    return {
-      title: "Couldn't hear you clearly",
-      steps: ['Move closer to the microphone, or somewhere quieter.', RETRY],
     };
   }
   return sharedError(code);
@@ -183,15 +131,6 @@ function sharedError(code: string): Omit<CaptureError, 'code'> {
     return {
       title: 'Still finishing the last recording',
       steps: ['Wait a moment, then tap the microphone again.'],
-    };
-  }
-  if (code.includes('STT_START_TIMEOUT')) {
-    return {
-      title: "Dictation didn't start",
-      steps: [
-        'Wait a few seconds, then tap the microphone again.',
-        'If it keeps happening, close md-notepad and open it again.',
-      ],
     };
   }
   if (code.includes('STT_STOP_TIMEOUT')) {

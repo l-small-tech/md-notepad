@@ -193,7 +193,7 @@ const SaveAutoIcon = (
  * a finished document, and the rendered view is where a line is held.
  *
  * Offered only where there is a dictation engine (`dictationEngine()`):
- * Android's on-device recognizer and Windows' built-in dictation. macOS and
+ * Android's on-device recognizer and Windows voice typing. macOS and
  * Linux have none yet, and recording audio files instead is not wanted, so
  * the button isn't shown there.
  */

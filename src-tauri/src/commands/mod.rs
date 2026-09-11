@@ -1,7 +1,5 @@
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(target_os = "windows")]
-pub mod dictation;
 pub mod fs;
 #[cfg(target_os = "windows")]
 pub mod ocr;
@@ -14,6 +12,8 @@ pub mod programs;
 #[cfg(desktop)]
 pub mod pty;
 pub mod search;
+#[cfg(target_os = "windows")]
+pub mod voice_typing;
 #[cfg(desktop)]
 pub mod watch;
 #[cfg(desktop)]

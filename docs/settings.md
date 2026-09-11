@@ -100,9 +100,14 @@ transcript and may contain small recognition errors, so an agent reading it
 knows to read for intent.
 
 - **Android** turns speech into text on the phone.
-- **Windows** uses its built-in dictation. It only works with **Online speech
-  recognition** turned on in Windows Settings > Privacy & security > Speech,
-  and while you dictate your voice is sent to Microsoft to be transcribed.
+- **Windows** uses Windows voice typing (the Win+H feature). When you tap the
+  microphone, md-notepad starts it and your words appear in a box under the
+  microphone, where you can fix them. The note saves by itself a few seconds
+  after voice typing stops (when you stop talking, or click its own
+  microphone button), or tap the microphone again to finish sooner. Voice typing
+  may need **Online speech recognition** turned on in Windows Settings >
+  Privacy & security > Speech, and while you speak your voice is sent to
+  Microsoft to be transcribed.
 - **macOS and Linux** have no voice-notes button yet, but they read and list
   the notes files like any other.
 

@@ -364,18 +364,9 @@ pub fn run() {
             commands::ocr::ocr_image_available,
             #[cfg(target_os = "windows")]
             commands::ocr::ocr_image_recognize,
-            // Voice-note dictation: the same five `stt_*` commands as the
-            // Android bridge, backed by Windows.Media.SpeechRecognition.
+            // Voice notes on Windows: Win+H toggles Windows voice typing.
             #[cfg(target_os = "windows")]
-            commands::dictation::stt_available,
-            #[cfg(target_os = "windows")]
-            commands::dictation::stt_permission,
-            #[cfg(target_os = "windows")]
-            commands::dictation::stt_request_permission,
-            #[cfg(target_os = "windows")]
-            commands::dictation::stt_start,
-            #[cfg(target_os = "windows")]
-            commands::dictation::stt_stop,
+            commands::voice_typing::voice_typing_toggle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

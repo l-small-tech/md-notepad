@@ -224,15 +224,14 @@ export const ipc = {
     }),
   releaseSyncedTree: (treeUri: string) => call<void>('release_synced_tree', { treeUri }),
   /**
-   * Speech-to-text for voice notes — Android (SpeechRecognizer, on-device) and
-   * Windows (Windows.Media.SpeechRecognition dictation; src-tauri
-   * commands/dictation.rs) register the same five commands. Native bridges,
+   * Speech-to-text for voice notes — Android only (SpeechRecognizer,
+   * on-device; src-tauri commands/android.rs). Windows uses voice typing
+   * instead (`voiceTypingToggle` below). Native bridges,
    * not storage ops, so they're called directly behind the
    * `dictationEngine()` check in ui/voice-comments.ts, never through a
-   * StorageProvider. Not registered on macOS/Linux.
+   * StorageProvider. Not registered on desktop.
    *   - sttAvailable: can the platform's recognizer run on this device?
-   *   - sttPermission: current microphone grant, no prompt (always true on
-   *     Windows, which has no runtime prompt; a denial surfaces at sttStart).
+   *   - sttPermission: current microphone grant, no prompt.
    *   - sttRequestPermission: prompt if needed; resolves the resulting grant.
    *   - sttStart: begin listening; resolves the final transcript text.
    *   - sttStop: stop listening (the final transcript still resolves sttStart).
@@ -242,6 +241,13 @@ export const ipc = {
   sttRequestPermission: () => call<boolean>('stt_request_permission'),
   sttStart: () => call<string>('stt_start'),
   sttStop: () => call<void>('stt_stop'),
+  /**
+   * Windows only — press Win+H, which opens or closes Windows voice typing in
+   * the focused text field (the voice-note sheet's draft box). Called behind
+   * the `dictationEngine()` check in ui/voice-comments.ts; not registered on
+   * other platforms. Rejects `VOICE_TYPING_FAILED:<reason>`.
+   */
+  voiceTypingToggle: () => call<void>('voice_typing_toggle'),
   /**
    * Android only — take a photo with the system camera (whiteboard scan, S0).
    * Same native-bridge shape as the `stt_*` commands: called directly behind an

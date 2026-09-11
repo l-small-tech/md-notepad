@@ -4,12 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { captureErrorFor, SETTINGS_URIS } from '../dictation-errors';
 
-describe('captureErrorFor — Windows', () => {
-  test('dictation off: how to turn on Online speech recognition, with a settings link', () => {
-    const e = captureErrorFor('STT_PRIVACY', 'windows');
-    expect(e.code).toBe('STT_PRIVACY');
-    expect(e.title).toMatch(/turned off/i);
-    expect(e.steps.join(' ')).toMatch(/Privacy & security > Speech/);
+describe('captureErrorFor — Windows (voice typing)', () => {
+  test('nothing typed: how to check voice typing, with a speech settings link', () => {
+    const e = captureErrorFor('VOICE_TYPING_EMPTY', 'windows');
+    expect(e.title).toBe('Nothing was typed');
+    expect(e.steps.join(' ')).toMatch(/Win\+H/);
     expect(e.steps.join(' ')).toMatch(/Online speech recognition/);
     expect(e.steps.at(-1)).toMatch(/tap the microphone again/i);
     expect(e.note).toMatch(/Microsoft/);
@@ -19,17 +18,10 @@ describe('captureErrorFor — Windows', () => {
     });
   });
 
-  test('microphone blocked points at the desktop-apps toggle', () => {
-    const e = captureErrorFor('PERMISSION_DENIED', 'windows');
-    expect(e.steps.join(' ')).toMatch(/Let desktop apps access your microphone/);
-    expect(e.settings?.uri).toBe('ms-settings:privacy-microphone');
-  });
-
-  test('each Windows-specific code gets its own fix', () => {
-    expect(captureErrorFor('STT_NO_MIC', 'windows').settings?.uri).toBe('ms-settings:sound');
-    expect(captureErrorFor('STT_LANGUAGE', 'windows').settings?.uri).toBe('ms-settings:speech');
-    expect(captureErrorFor('STT_NETWORK', 'windows').title).toMatch(/connection/i);
-    expect(captureErrorFor('STT_AUDIO_QUALITY', 'windows').title).toMatch(/hear/i);
+  test('Win+H could not be pressed: says so, keeps the raw reason', () => {
+    const e = captureErrorFor('VOICE_TYPING_FAILED:Access is denied.', 'windows');
+    expect(e.title).toMatch(/voice typing/);
+    expect(e.code).toBe('VOICE_TYPING_FAILED:Access is denied.');
   });
 });
 
@@ -59,9 +51,8 @@ describe('captureErrorFor — shared', () => {
     expect(e.steps.length).toBeGreaterThan(0);
   });
 
-  test('a dictation that never starts or never finishes says so, on both engines', () => {
+  test('a dictation that never finishes says so, on both engines', () => {
     for (const engine of ['android', 'windows'] as const) {
-      expect(captureErrorFor('STT_START_TIMEOUT', engine).title).toMatch(/didn't start/);
       expect(captureErrorFor('STT_STOP_TIMEOUT', engine).title).toMatch(/didn't finish/);
     }
   });
@@ -82,7 +73,8 @@ describe('captureErrorFor — shared', () => {
       'STT_LANGUAGE',
       'STT_AUDIO_QUALITY',
       'STT_NO_MATCH',
-      'STT_START_TIMEOUT',
+      'VOICE_TYPING_EMPTY',
+      'VOICE_TYPING_FAILED',
       'STT_STOP_TIMEOUT',
       'STT_ERROR:1',
       'STT_ERROR:12',

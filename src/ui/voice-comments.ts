@@ -21,13 +21,20 @@
  * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
  * resolves it through the session's workspace lookup.
  *
- * Capture is speech-to-text through the `ipc.stt*` bridges, which return a
- * transcript directly; nothing is ever recorded to an audio file. The engine
- * per platform is `dictationEngine()`: Android's on-device SpeechRecognizer,
- * or Windows' built-in dictation (the desktop default). macOS/Linux have no
- * engine yet, so the ribbon doesn't offer the feature there and
- * `startCapture` refuses as a second guard. A future opt-in engine (a local
- * Whisper model) plugs in at `dictationEngine()`.
+ * Capture never records an audio file. The engine per platform is
+ * `dictationEngine()`:
+ *   - Android: the on-device SpeechRecognizer through the `ipc.stt*` bridge,
+ *     which returns the transcript directly.
+ *   - Windows: Windows voice typing. The sheet focuses a draft box and
+ *     `ipc.voiceTypingToggle()` presses Win+H, so the shell types what the
+ *     user says into it. The note finishes by itself once the draft has
+ *     gone quiet for `VOICE_TYPING_IDLE_MS` (voice typing stopped: its own
+ *     mic button, or silence), or on a second tap; either way Win+H is
+ *     pressed again and the draft becomes the note. (Windows.Media.SpeechRecognition can't be used: an
+ *     app without package identity only ever hears silence through it.)
+ * macOS/Linux have no engine yet, so the ribbon doesn't offer the feature
+ * there and `startCapture` refuses as a second guard. A future opt-in engine
+ * (a local Whisper model) plugs in at `dictationEngine()`.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -84,6 +91,11 @@ export interface VoiceCommentsState {
    * watchdog fails the capture if the engine never answers.
    */
   stopping: boolean;
+  /**
+   * Windows: what voice typing has typed into the sheet's draft box so far
+   * (capturing phase). Becomes the note's transcript on the second tap.
+   */
+  draft: string;
 }
 
 const initial: VoiceCommentsState = {
@@ -98,6 +110,7 @@ const initial: VoiceCommentsState = {
   quote: '',
   error: null,
   stopping: false,
+  draft: '',
 };
 
 export const voiceStore = createStore<VoiceCommentsState>()(() => initial);
@@ -109,9 +122,8 @@ export const useVoiceStore = <T>(selector: (s: VoiceCommentsState) => T): T =>
 
 /**
  * Which engine this platform dictates with. Android: the on-device
- * SpeechRecognizer. Windows: built-in Windows dictation, the desktop default.
- * Both sit behind the same `ipc.stt*` bridge. Null = voice notes can't be
- * captured here (macOS/Linux today).
+ * SpeechRecognizer (`ipc.stt*`). Windows: Windows voice typing (Win+H).
+ * Null = voice notes can't be captured here (macOS/Linux today).
  */
 export function dictationEngine(): DictationEngine | null {
   if (isAndroid()) {
@@ -201,9 +213,9 @@ let captureId: string | null = null;
 
 /**
  * How long after the second tap the engine has to hand back the transcript
- * before the capture is failed with STT_STOP_TIMEOUT. The Windows bridge
- * settles within ~4 s of a stop; this only guards against a bridge that never
- * answers, so the mic can't stay stuck on "Finishing…".
+ * before the capture is failed with STT_STOP_TIMEOUT (Android). It only
+ * guards against a bridge that never answers, so the mic can't stay stuck on
+ * "Finishing…".
  */
 export const STOP_WATCHDOG_MS = 10_000;
 let stopWatchdog: ReturnType<typeof setTimeout> | null = null;
@@ -212,6 +224,37 @@ function clearStopWatchdog(): void {
   if (stopWatchdog !== null) {
     clearTimeout(stopWatchdog);
     stopWatchdog = null;
+  }
+}
+
+/**
+ * Windows: after the second tap, how long voice typing gets to type the
+ * phrase in flight into the draft before the draft is saved.
+ */
+export const VOICE_TYPING_SETTLE_MS = 1200;
+// Whether this app pressed Win+H to open voice typing and hasn't closed it.
+let voiceTypingOn = false;
+
+/**
+ * Windows: once voice typing has typed something, this long without a change
+ * to the draft finishes the note — voice typing has stopped (its own mic
+ * button, or silence), so the user needn't tap again.
+ */
+export const VOICE_TYPING_IDLE_MS = 3000;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearIdleTimer(): void {
+  if (idleTimer !== null) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+/** Press Win+H again to close voice typing, if this app opened it. */
+function closeVoiceTyping(): void {
+  if (voiceTypingOn) {
+    voiceTypingOn = false;
+    void ipc.voiceTypingToggle().catch(() => {});
   }
 }
 
@@ -320,8 +363,49 @@ function startCapture(): void {
     return;
   }
   captureId = newCommentId(new Set(comments.map((c) => c.id)));
-  voiceStore.setState({ phase: 'capturing', error: null, stopping: false });
+  voiceStore.setState({ phase: 'capturing', error: null, stopping: false, draft: '' });
+  if (dictationEngine() === 'windows') {
+    return; // the draft box calls voiceTypingFieldReady() once it has focus
+  }
   void captureDictation(captureId);
+}
+
+/**
+ * Windows: the sheet's draft box is on screen and focused — press Win+H so
+ * voice typing types into it. Once per capture.
+ */
+export function voiceTypingFieldReady(): void {
+  if (voiceStore.getState().phase !== 'capturing' || voiceTypingOn || captureId === null) {
+    return;
+  }
+  voiceTypingOn = true;
+  const id = captureId;
+  void ipc.voiceTypingToggle().catch((e: unknown) => {
+    voiceTypingOn = false;
+    if (captureId === id && voiceStore.getState().phase === 'capturing') {
+      const reason = e instanceof Error ? e.message : String(e);
+      failCapture(
+        reason.includes('VOICE_TYPING_FAILED') ? reason : `VOICE_TYPING_FAILED:${reason}`,
+      );
+    }
+  });
+}
+
+/**
+ * Windows: voice typing (or the user) changed the draft box. Restarts the
+ * quiet timer that finishes the note by itself.
+ */
+export function updateDraft(draft: string): void {
+  voiceStore.setState({ draft });
+  clearIdleTimer();
+  const { phase, stopping } = voiceStore.getState();
+  if (phase !== 'capturing' || stopping || !draft.trim()) {
+    return;
+  }
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    stopCapture();
+  }, VOICE_TYPING_IDLE_MS);
 }
 
 /** Permission → availability → dictation, through the platform's `stt*` bridge. */
@@ -374,6 +458,7 @@ async function finishCapture(transcript: string): Promise<void> {
   const id = captureId;
   captureId = null;
   clearStopWatchdog();
+  clearIdleTimer();
   const comment: VoiceComment = {
     id,
     file: noteRefFor(commentsPath, notePath),
@@ -401,6 +486,8 @@ async function finishCapture(transcript: string): Promise<void> {
 function failCapture(raw: string): void {
   captureId = null;
   clearStopWatchdog();
+  clearIdleTimer();
+  closeVoiceTyping();
   if (voiceStore.getState().phase === 'capturing') {
     voiceStore.setState({
       phase: 'ready',
@@ -430,10 +517,27 @@ export function stopCapture(): void {
     return;
   }
   voiceStore.setState({ stopping: true });
+  clearIdleTimer();
+  const id = captureId;
+  if (dictationEngine() === 'windows') {
+    // Close voice typing; the phrase in flight lands in the draft as it closes.
+    closeVoiceTyping();
+    setTimeout(() => {
+      if (captureId !== id || voiceStore.getState().phase !== 'capturing') {
+        return;
+      }
+      const text = voiceStore.getState().draft.trim();
+      if (text) {
+        void finishCapture(text);
+      } else {
+        failCapture('VOICE_TYPING_EMPTY');
+      }
+    }, VOICE_TYPING_SETTLE_MS);
+    return;
+  }
   void ipc.sttStop().catch(() => {
     // The watchdog below covers a stop that never reaches the engine.
   });
-  const id = captureId;
   clearStopWatchdog();
   stopWatchdog = setTimeout(() => {
     stopWatchdog = null;
@@ -465,10 +569,15 @@ export function closePanel(): void {
   if (voiceStore.getState().phase === 'capturing') {
     // Flip phase first so the capture completion guard bails out.
     voiceStore.setState({ phase: 'closed' });
-    void ipc.sttStop().catch(() => {});
+    if (dictationEngine() === 'windows') {
+      closeVoiceTyping();
+    } else {
+      void ipc.sttStop().catch(() => {});
+    }
     captureId = null;
   }
   clearStopWatchdog();
+  clearIdleTimer();
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
@@ -484,5 +593,6 @@ function initialTail() {
     quote: '',
     error: null,
     stopping: false,
+    draft: '',
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }

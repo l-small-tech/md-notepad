@@ -8,7 +8,9 @@ const ipc = vi.hoisted(() => ({
   sttAvailable: vi.fn(),
   sttStart: vi.fn(),
   sttStop: vi.fn(),
+  voiceTypingToggle: vi.fn(),
 }));
+const platform = vi.hoisted(() => ({ windows: false }));
 const writes = vi.hoisted(() => [] as { path: string; text: string }[]);
 
 vi.mock('../../ipc/commands', () => ({ ipc, IpcError: class extends Error {} }));
@@ -21,7 +23,10 @@ vi.mock('../../ipc/provider', () => ({
   }),
 }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }));
-vi.mock('../platform', () => ({ isAndroid: () => false, isWindows: () => true }));
+vi.mock('../platform', () => ({
+  isAndroid: () => !platform.windows,
+  isWindows: () => platform.windows,
+}));
 vi.mock('../session/facade', () => ({ workspaceRootFor: () => null }));
 vi.mock('../stores/settings', () => ({
   settingsStore: {
@@ -33,7 +38,16 @@ vi.mock('../stores/settings', () => ({
 vi.mock('../stores/tabs', () => ({ tabsStore: { getState: () => ({ tabs: [] }) } }));
 vi.mock('../stores/ui', () => ({ uiStore: { getState: () => ({ showNotice: vi.fn() }) } }));
 
-import { closePanel, STOP_WATCHDOG_MS, toggleMic, voiceStore } from '../voice-comments';
+import {
+  closePanel,
+  STOP_WATCHDOG_MS,
+  toggleMic,
+  updateDraft,
+  voiceStore,
+  VOICE_TYPING_IDLE_MS,
+  VOICE_TYPING_SETTLE_MS,
+  voiceTypingFieldReady,
+} from '../voice-comments';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -65,6 +79,7 @@ function openReady(): void {
     quote: 'The new pricing goes live on Friday.',
     error: null,
     stopping: false,
+    draft: '',
   });
 }
 
@@ -78,6 +93,8 @@ beforeEach(() => {
   ipc.sttStart.mockReset();
   ipc.sttStop.mockReset().mockResolvedValue(undefined);
   writes.length = 0;
+  platform.windows = false;
+  ipc.voiceTypingToggle.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -85,7 +102,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('voice-note capture: two taps', () => {
+describe('voice-note capture on Android: two taps', () => {
   test('the second tap asks the engine to finish once; more taps wait for it', async () => {
     const start = deferred<string>();
     ipc.sttStart.mockReturnValue(start.promise);
@@ -197,5 +214,108 @@ describe('voice-note capture: two taps', () => {
     ipc.sttStart.mockReturnValue(new Promise<string>(() => {}));
     toggleMic();
     expect(state().error).toBeNull();
+  });
+});
+
+describe('voice-note capture on Windows: voice typing', () => {
+  beforeEach(() => {
+    platform.windows = true;
+  });
+
+  test('the first tap opens the draft box; voice typing starts once it has focus', async () => {
+    openReady();
+    toggleMic();
+    await settle();
+    expect(state().phase).toBe('capturing');
+    expect(ipc.sttStart).not.toHaveBeenCalled();
+    expect(ipc.voiceTypingToggle).not.toHaveBeenCalled();
+
+    voiceTypingFieldReady();
+    voiceTypingFieldReady(); // a re-render must not press Win+H twice
+    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(1);
+  });
+
+  test('the second tap closes voice typing and saves what it typed', async () => {
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    updateDraft('Move the tax column');
+    toggleMic();
+    expect(state().stopping).toBe(true);
+    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2);
+
+    // The phrase in flight still lands while voice typing closes.
+    updateDraft('Move the tax column before the demo. ');
+    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
+    await settle();
+    expect(state().phase).toBe('viewing');
+    expect(state().comments.map((c) => c.transcript)).toEqual([
+      'Move the tax column before the demo.',
+    ]);
+    expect(writes).toHaveLength(1);
+  });
+
+  test('nothing typed: the sheet says how to check voice typing', async () => {
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    toggleMic();
+    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
+    await settle();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toBe('VOICE_TYPING_EMPTY');
+    expect(writes).toEqual([]);
+  });
+
+  test('Win+H failing shows an error instead of a dead mic', async () => {
+    ipc.voiceTypingToggle.mockRejectedValueOnce(new Error('VOICE_TYPING_FAILED:Access is denied.'));
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    await settle();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toContain('VOICE_TYPING_FAILED');
+  });
+
+  test('closing mid-capture closes voice typing and saves nothing', async () => {
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    updateDraft('half a thought');
+    closePanel();
+    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
+    await settle();
+    expect(state().phase).toBe('closed');
+    expect(writes).toEqual([]);
+  });
+
+  test('the note finishes by itself once voice typing goes quiet', async () => {
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    updateDraft('Ship it');
+    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS - 1);
+    updateDraft('Ship it on Friday.'); // still talking: the timer restarts
+    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS - 1);
+    expect(state().phase).toBe('capturing');
+    expect(state().stopping).toBe(false);
+
+    vi.advanceTimersByTime(1);
+    expect(state().stopping).toBe(true);
+    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(2); // voice typing closed
+    vi.advanceTimersByTime(VOICE_TYPING_SETTLE_MS);
+    await settle();
+    expect(state().phase).toBe('viewing');
+    expect(state().comments.map((c) => c.transcript)).toEqual(['Ship it on Friday.']);
+  });
+
+  test('before anything is typed, it waits for the user', () => {
+    openReady();
+    toggleMic();
+    voiceTypingFieldReady();
+    vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS * 10);
+    expect(state().phase).toBe('capturing');
+    expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(1);
   });
 });

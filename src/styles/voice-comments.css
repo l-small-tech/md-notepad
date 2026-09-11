@@ -261,3 +261,9 @@
   opacity: 0.6;
   cursor: progress;
 }
+
+/* Windows: the draft box Windows voice typing types into while capturing. */
+.vc-draft {
+  align-self: stretch;
+  min-height: 5em;
+}

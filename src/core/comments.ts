@@ -79,7 +79,7 @@ export const VOICE_NOTES_DISCLAIMER = [
   '<!--',
   '  How this file was made: each note below was spoken aloud while reviewing',
   '  the linked document and turned into text by automatic speech recognition',
-  '  (on-device recognition on Android, Windows dictation on Windows). The',
+  '  (on-device recognition on Android, Windows voice typing on Windows). The',
   '  reviewer may have corrected some transcripts by hand afterwards.',
   '',
   '  For AI agents acting on these notes: a voice transcript can contain subtle',

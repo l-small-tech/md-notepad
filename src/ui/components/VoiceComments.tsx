@@ -7,14 +7,18 @@
  * notes. Mounted once at the app root; it renders nothing while closed.
  */
 
+import { useEffect, useRef } from 'react';
 import {
   closePanel,
   deleteComment,
+  dictationEngine,
   openCaptureSettings,
   showNotes,
   toggleMic,
+  updateDraft,
   updateTranscript,
   useVoiceStore,
+  voiceTypingFieldReady,
   type VoiceCommentsState,
 } from '../voice-comments';
 import { isAndroid } from '../platform';
@@ -107,20 +111,29 @@ export function VoiceComments() {
 function CaptureView({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
   const finishing = capturing && state.stopping;
+  // Windows: Windows voice typing types into a draft box under the mic.
+  const typing = capturing && dictationEngine() === 'windows';
   const error = capturing ? null : state.error;
   const label = finishing
     ? 'Finishing…'
-    : capturing
-      ? 'Listening… tap again to finish'
-      : error
-        ? 'Tap to try again'
-        : 'Tap to start';
+    : typing
+      ? 'Listening… the note saves when you stop talking'
+      : capturing
+        ? 'Listening… tap again to finish'
+        : error
+          ? 'Tap to try again'
+          : 'Tap to start';
   return (
     <div className="vc-capturing">
       {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
       <button
         className={`vc-mic${capturing && !finishing ? ' vc-mic-live' : ''}${finishing ? ' vc-mic-finishing' : ''}`}
         onClick={toggleMic}
+        onMouseDown={(e) => {
+          // Keep focus in the draft box, so voice typing keeps typing into it
+          // until the second tap closes it.
+          if (typing) e.preventDefault();
+        }}
         aria-pressed={capturing}
         aria-busy={finishing}
         aria-label={finishing ? 'Finishing' : capturing ? 'Finish recording' : 'Start recording'}
@@ -140,6 +153,7 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
         </svg>
       </button>
       <div className="vc-capture-label">{label}</div>
+      {typing && <DraftBox draft={state.draft} />}
       {error && (
         <div className="vc-error" role="alert">
           <div className="vc-error-title">{error.title}</div>
@@ -161,6 +175,28 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Windows: the box Windows voice typing types into. Focused on mount; then
+ * the controller presses Win+H (`voiceTypingFieldReady`).
+ */
+function DraftBox({ draft }: { draft: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    voiceTypingFieldReady();
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      className="vc-transcript vc-draft"
+      value={draft}
+      placeholder="Start speaking. Windows voice typing writes here."
+      aria-label="Voice note text"
+      onChange={(e) => updateDraft(e.target.value)}
+    />
   );
 }
 

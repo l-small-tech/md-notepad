@@ -44,20 +44,15 @@ session concepts in Rust, stop and move it to `src/core`.
   registry's user/machine `PATH` on Windows, the user-space bin dirs a
   desktop launch lacks on unix) and `find_program` (a `which` honoring
   `PATHEXT`) — used by the pty spawn and by `commands/programs.rs`.
-- `src/commands/dictation.rs` — **Windows only**: voice-note dictation via
-  `Windows.Media.SpeechRecognition`, exposing the same `stt_available`,
-  `stt_permission`, `stt_request_permission`, `stt_start`, `stt_stop`
-  commands as the Android bridge (`android.rs`), so the frontend runs one
-  capture flow. Free dictation is Microsoft's online recognizer: it needs
-  "Online speech recognition" on in Windows privacy settings (`STT_PRIVACY`
-  otherwise). No audio is written anywhere. Every wait is bounded:
-  `stt_stop` only messages the dictation thread, which cancels the session
-  if Windows hasn't reported back within a few seconds, and a new
-  `stt_start` ends a leftover session instead of refusing it.
 - `src/commands/programs.rs` — `find_programs(names)` (**desktop only**):
   each name → its resolved path or null, so the Settings dialog can dim the
   harnesses that are not installed and offer to install them. Policy-free:
   which names to ask about lives in `src/ui/stores/harness-availability.ts`.
+- `src/commands/voice_typing.rs` — **Windows only**: `voice_typing_toggle`
+  presses Win+H, which opens or closes Windows voice typing in the focused
+  text field (the voice-note sheet's draft box). Voice notes don't use
+  `Windows.Media.SpeechRecognition`: for an app without package identity,
+  Windows hands that recognizer silence. No audio is touched.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and
