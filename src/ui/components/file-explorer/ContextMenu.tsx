@@ -27,8 +27,8 @@ import {
   openFileInNewWindow,
   removeWorkspace,
   setWorkspaceColor,
-  setShowAllFiles,
   setWorkspaceLiveEdit,
+  toggleShowAllFilesFor,
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
@@ -70,7 +70,7 @@ interface DirMenuProps extends CommonProps {
    * "Show unsupported files" state of this dir (core/text-files
    * showAllFilesState); undefined = not offered (read-only workspace).
    */
-  showAll?: 'on' | 'inherited' | 'off';
+  showAll?: { show: boolean; explicit: boolean };
   renameTarget?: ExplorerEntry;
   removableWs?: boolean;
   readOnly?: boolean;
@@ -434,26 +434,29 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
         </button>
       )}
       {/* List every file here and in subfolders, not just notes/images/docs;
-          they open as plain source text. Inherited from a parent that is on:
-          shown checked but disabled — turn it off where it was turned on. */}
+          they open as plain source text. The check shows what this folder
+          does, inherited or not; toggling always works — a subfolder can hide
+          what its workspace shows — and resets the subfolders below it. */}
       {showAll !== undefined && (
         <button
           className="context-menu-item"
           role="menuitemcheckbox"
-          aria-checked={showAll !== 'off'}
-          disabled={showAll === 'inherited'}
+          aria-checked={showAll.show}
           title={
-            showAll === 'inherited'
-              ? 'Turned on for a parent folder — turn it off there'
-              : 'List every file in this folder and its subfolders; other files open as plain text'
+            (showAll.explicit
+              ? 'Set on this folder'
+              : showAll.show
+                ? 'Following a parent folder'
+                : 'Off') +
+            ' — list every file here and in subfolders; other files open as plain text. Changing it resets the subfolders to follow this one.'
           }
           onClick={() => {
             onClose();
-            setShowAllFiles(dir, showAll === 'off');
+            toggleShowAllFilesFor(dir);
           }}
         >
           <span className="context-menu-check" aria-hidden="true">
-            {showAll !== 'off' ? '✓' : ''}
+            {showAll.show ? '✓' : ''}
           </span>
           Show unsupported files
         </button>

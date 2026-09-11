@@ -125,7 +125,8 @@ export function FileExplorer() {
   const notesDirSetting = useSettingsStore((s) => s.settings.notesDir);
   // Folders listing every file ("Show unsupported files"); a change re-lists.
   const showAllDirs = useSettingsStore((s) => s.settings.showAllFilesDirs);
-  const showAllSignature = JSON.stringify(showAllDirs);
+  const hideAllDirs = useSettingsStore((s) => s.settings.hideUnsupportedDirs);
+  const showAllSignature = JSON.stringify([showAllDirs, hideAllDirs]);
   // Missing key = not yet loaded (show "Loading…"); an array = the listing.
   const [entriesByDir, setEntriesByDir] = useState<Record<string, ExplorerEntry[]>>({});
   // Dirs whose last listing failed or timed out — a never-loaded one (no entry
@@ -251,7 +252,7 @@ export function FileExplorer() {
               void ipc
                 .dirHasRelevantFiles(
                   e.path,
-                  showsAllFiles(e.path, JSON.parse(showAllSignature) as string[]),
+                  showsAllFiles(e.path, ...(JSON.parse(showAllSignature) as [string[], string[]])),
                 )
                 .then((has) => {
                   if (cancelled) {
@@ -547,7 +548,7 @@ export function FileExplorer() {
             {menuFor === entry.path && (
               <ExplorerContextMenu
                 dir={entry.path}
-                showAll={showAllFilesState(entry.path, showAllDirs)}
+                showAll={showAllFilesState(entry.path, showAllDirs, hideAllDirs)}
                 renameTarget={entry}
                 onClose={() => setMenuFor(null)}
                 onRename={setRenaming}
@@ -880,7 +881,11 @@ export function FileExplorer() {
                       dir={ws.path}
                       wsColor={ws.color}
                       wsLiveEdit={ws.liveEdit}
-                      showAll={ws.readOnly ? undefined : showAllFilesState(ws.path, showAllDirs)}
+                      showAll={
+                        ws.readOnly
+                          ? undefined
+                          : showAllFilesState(ws.path, showAllDirs, hideAllDirs)
+                      }
                       removableWs={ws.removable}
                       readOnly={ws.readOnly}
                       onClose={() => setMenuFor(null)}

@@ -459,6 +459,11 @@ export interface Settings {
    */
   showAllFilesDirs: string[];
   /**
+   * Folders that switch "Show unsupported files" back OFF under a parent that
+   * shows them. The nearest switch wins (see `showAllFilesState`). Default [].
+   */
+  hideUnsupportedDirs: string[];
+  /**
    * Whiteboard-scan panel: last-used quality preset and trace smoothing.
    * Not dialog fields — the scan panel's own selects write them, so the next
    * scan opens the way the previous one was tuned.
