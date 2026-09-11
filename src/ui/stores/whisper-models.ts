@@ -1,15 +1,14 @@
 /**
  * The Whisper model list behind Settings ▸ Voice notes: what is installed,
- * the one download in flight (with progress), and the folder it all lives in.
+ * the one download in flight (with progress), the folder it all lives in,
+ * what an earlier version left behind, and which accelerator the machine has.
  *
  * A thin projection over the `whisper_*` commands: the manifest and the
  * on-disk truth are Rust's, the download state machine is core's
  * (`downloadReducer`), and this store only sequences the calls so the
  * dialog stays a projection. `refresh()` is fire-and-forget and cheap — the
- * dialog calls it on open and after every download or delete.
- *
- * Desktop only: on Android the section is not rendered and nothing here is
- * called (the commands are not registered there).
+ * dialog calls it on open and after every download or delete, and the
+ * first-launch offer (`whisper-setup.ts`) calls it once at boot.
  */
 
 import { createStore } from 'zustand/vanilla';
@@ -19,6 +18,7 @@ import {
   IDLE_DOWNLOAD,
   type DownloadAction,
   type DownloadState,
+  type WhisperAccelerator,
   type WhisperModelStatus,
 } from '../../core/whisper-models';
 import { createWhisperChannel, ipc, IpcError } from '../../ipc/commands';
@@ -31,8 +31,14 @@ export interface WhisperModelsState {
   loaded: boolean;
   /** `<appData>/whisper`, once asked for. */
   dir: string | null;
+  /** Bytes of model files an earlier version downloaded that are no longer offered. */
+  strayBytes: number;
+  /** What the machine can run the model on; null until the first refresh answers. */
+  accelerator: WhisperAccelerator | null;
   download: DownloadState;
   refresh: () => Promise<void>;
+  /** Delete the stray files. */
+  prune: () => Promise<void>;
   /** Download (or resume) one model. A no-op while another download runs. */
   startDownload: (id: string) => Promise<void>;
   cancelDownload: () => void;
@@ -52,6 +58,8 @@ export const whisperModelsStore = createStore<WhisperModelsState>()((set, get) =
     models: [],
     loaded: false,
     dir: null,
+    strayBytes: 0,
+    accelerator: null,
     download: IDLE_DOWNLOAD,
 
     async refresh() {
@@ -59,8 +67,26 @@ export const whisperModelsStore = createStore<WhisperModelsState>()((set, get) =
         const models = await ipc.whisperModelsList();
         set({ models, loaded: true });
       } catch {
-        // Not registered (Android) or a transient failure: keep what we have.
+        // A transient failure: keep what we have.
+        return;
       }
+      // Both are informational; a failure leaves the last answer.
+      const [stray, accelerator] = await Promise.all([
+        ipc.whisperModelsStray().catch(() => get().strayBytes),
+        get().accelerator
+          ? Promise.resolve(get().accelerator)
+          : ipc.whisperAccelerator().catch(() => null),
+      ]);
+      set({ strayBytes: stray, accelerator });
+    },
+
+    async prune() {
+      try {
+        await ipc.whisperModelsPrune();
+      } catch {
+        uiStore.getState().showNotice('Could not remove the old model files.');
+      }
+      await get().refresh();
     },
 
     async startDownload(id) {

@@ -18,7 +18,9 @@ const settings = vi.hoisted(() => ({
   voiceNotesLocation: 'nextToFile',
   voiceNotesFolderName: 'Voice Notes',
   desktopDictationEngine: 'auto',
-  whisperModel: 'small.en',
+  androidDictationEngine: 'system',
+  whisperModel: 'small.en-q5_1',
+  whisperUseGpu: true,
 }));
 const notices = vi.hoisted(() => [] as string[]);
 const opened = vi.hoisted(() => [] as (string | undefined)[]);
@@ -142,7 +144,9 @@ beforeEach(() => {
   platform.windows = false;
   platform.android = true;
   settings.desktopDictationEngine = 'auto';
-  settings.whisperModel = 'small.en';
+  settings.androidDictationEngine = 'system';
+  settings.whisperModel = 'small.en-q5_1';
+  settings.whisperUseGpu = true;
   ipc.voiceTypingToggle.mockReset().mockResolvedValue(undefined);
   ipc.whisperPrepare.mockReset().mockResolvedValue(undefined);
   ipc.whisperTranscribe.mockReset();
@@ -381,9 +385,11 @@ describe('voice-note capture on Windows: voice typing', () => {
 });
 
 describe('dictationEngine: the desktop engine setting', () => {
-  test('Android always dictates with the on-device recognizer', () => {
-    settings.desktopDictationEngine = 'whisper';
+  test('Android dictates with the on-device recognizer unless Whisper is chosen there', () => {
+    settings.desktopDictationEngine = 'whisper'; // the desktop setting means nothing here
     expect(dictationEngine()).toBe('android');
+    settings.androidDictationEngine = 'whisper';
+    expect(dictationEngine()).toBe('whisper');
   });
 
   test('auto is Windows voice typing on Windows and Whisper elsewhere', () => {
@@ -430,7 +436,7 @@ describe('voice-note capture with Whisper (offline)', () => {
     await settle();
     expect(state().phase).toBe('capturing');
     expect(mic.start).toHaveBeenCalledTimes(1);
-    expect(ipc.whisperPrepare).toHaveBeenCalledWith('small.en');
+    expect(ipc.whisperPrepare).toHaveBeenCalledWith('small.en-q5_1', true);
     expect(ipc.sttStart).not.toHaveBeenCalled();
 
     toggleMic();
@@ -438,14 +444,16 @@ describe('voice-note capture with Whisper (offline)', () => {
     expect(state().phase).toBe('transcribing');
     expect(state().stopping).toBe(false);
     expect(ipc.whisperTranscribe).toHaveBeenCalledTimes(1);
-    const [pcm, rate, model] = ipc.whisperTranscribe.mock.calls[0] as [
+    const [pcm, rate, model, gpu] = ipc.whisperTranscribe.mock.calls[0] as [
       Float32Array,
       number,
       string,
+      boolean,
     ];
     expect(Array.from(pcm)).toEqual([0.1, -0.1, 0.2].map((v) => Math.fround(v)));
     expect(rate).toBe(16_000);
-    expect(model).toBe('small.en');
+    expect(model).toBe('small.en-q5_1');
+    expect(gpu).toBe(true);
 
     toggleMic(); // taps while transcribing do nothing
     expect(ipc.whisperTranscribe).toHaveBeenCalledTimes(1);
@@ -459,16 +467,32 @@ describe('voice-note capture with Whisper (offline)', () => {
     expect(writes).toHaveLength(1);
   });
 
-  test('the chosen model is the one transcribed with', async () => {
+  test('the chosen model and the GPU switch are what is transcribed with', async () => {
     settings.whisperModel = 'base.en-q5_1';
+    settings.whisperUseGpu = false;
     ipc.whisperTranscribe.mockResolvedValue('ok');
     openReady();
     toggleMic();
     await settle();
-    expect(ipc.whisperPrepare).toHaveBeenCalledWith('base.en-q5_1');
+    expect(ipc.whisperPrepare).toHaveBeenCalledWith('base.en-q5_1', false);
     toggleMic();
     await settle();
     expect(ipc.whisperTranscribe.mock.calls[0]?.[2]).toBe('base.en-q5_1');
+    expect(ipc.whisperTranscribe.mock.calls[0]?.[3]).toBe(false);
+  });
+
+  test('Android with Whisper chosen captures PCM like a desktop, not the recognizer', async () => {
+    platform.android = true;
+    settings.androidDictationEngine = 'whisper';
+    ipc.whisperTranscribe.mockResolvedValue('ok');
+    openReady();
+    toggleMic();
+    await settle();
+    expect(mic.start).toHaveBeenCalledTimes(1);
+    expect(ipc.sttStart).not.toHaveBeenCalled();
+    toggleMic();
+    await settle();
+    expect(ipc.whisperTranscribe).toHaveBeenCalledTimes(1);
   });
 
   test('a missing model fails the capture before anything is said, with the settings button', async () => {
@@ -665,7 +689,7 @@ describe('reviewing a code file: unit, whisper hint, snapped names', () => {
     toggleMic();
     await settle();
 
-    expect(ipc.whisperTranscribe.mock.calls[0]?.[3]).toBe('show all files state');
+    expect(ipc.whisperTranscribe.mock.calls[0]?.[4]).toBe('show all files state');
     expect(state().comments.map((c) => c.transcript)).toEqual([
       '`showAllFilesState` misses the hidden dirs',
     ]);

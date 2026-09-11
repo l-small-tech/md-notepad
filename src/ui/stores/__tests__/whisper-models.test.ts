@@ -12,6 +12,9 @@ const ipc = vi.hoisted(() => ({
   whisperModelCancel: vi.fn(),
   whisperModelDelete: vi.fn(),
   whisperModelDir: vi.fn(),
+  whisperModelsStray: vi.fn(),
+  whisperModelsPrune: vi.fn(),
+  whisperAccelerator: vi.fn(),
 }));
 const channels = vi.hoisted(() => [] as { onmessage: (event: unknown) => void }[]);
 const opener = vi.hoisted(() => ({ openPath: vi.fn() }));
@@ -47,7 +50,6 @@ function model(id: string, installed: boolean): WhisperModelStatus {
     label: id,
     bytes: 100,
     multilingual: false,
-    quantized: false,
     installed,
     partialBytes: 0,
   };
@@ -72,7 +74,14 @@ async function settle(): Promise<void> {
 const state = () => whisperModelsStore.getState();
 
 beforeEach(() => {
-  whisperModelsStore.setState({ models: [], loaded: false, dir: null, download: { kind: 'idle' } });
+  whisperModelsStore.setState({
+    models: [],
+    loaded: false,
+    dir: null,
+    strayBytes: 0,
+    accelerator: null,
+    download: { kind: 'idle' },
+  });
   channels.length = 0;
   notices.length = 0;
   ipc.whisperModelsList.mockReset().mockResolvedValue([model('small.en', false)]);
@@ -80,6 +89,9 @@ beforeEach(() => {
   ipc.whisperModelCancel.mockReset().mockResolvedValue(undefined);
   ipc.whisperModelDelete.mockReset().mockResolvedValue(undefined);
   ipc.whisperModelDir.mockReset().mockResolvedValue('C:/app/whisper');
+  ipc.whisperModelsStray.mockReset().mockResolvedValue(0);
+  ipc.whisperModelsPrune.mockReset().mockResolvedValue(undefined);
+  ipc.whisperAccelerator.mockReset().mockResolvedValue('vulkan');
   opener.openPath.mockReset().mockResolvedValue(undefined);
 });
 
@@ -92,6 +104,36 @@ describe('refresh', () => {
     ipc.whisperModelsList.mockRejectedValueOnce(new Error('not registered'));
     await state().refresh();
     expect(state().models.map((m) => m.id)).toEqual(['small.en']);
+  });
+
+  test('also learns the stray bytes and, once, the accelerator', async () => {
+    ipc.whisperModelsStray.mockResolvedValue(487_614_201);
+    await state().refresh();
+    expect(state().strayBytes).toBe(487_614_201);
+    expect(state().accelerator).toBe('vulkan');
+    expect(ipc.whisperAccelerator).toHaveBeenCalledTimes(1);
+    await state().refresh();
+    expect(ipc.whisperAccelerator).toHaveBeenCalledTimes(1);
+
+    // A failure of either keeps the last answer.
+    ipc.whisperModelsStray.mockRejectedValueOnce(new Error('io'));
+    await state().refresh();
+    expect(state().strayBytes).toBe(487_614_201);
+  });
+});
+
+describe('prune', () => {
+  test('deletes the stray files and refreshes; a failure is a notice', async () => {
+    ipc.whisperModelsStray.mockResolvedValueOnce(10).mockResolvedValue(0);
+    await state().refresh();
+    expect(state().strayBytes).toBe(10);
+    await state().prune();
+    expect(ipc.whisperModelsPrune).toHaveBeenCalledTimes(1);
+    expect(state().strayBytes).toBe(0);
+
+    ipc.whisperModelsPrune.mockRejectedValueOnce(new Error('locked'));
+    await state().prune();
+    expect(notices).toEqual(['Could not remove the old model files.']);
   });
 });
 

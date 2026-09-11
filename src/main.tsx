@@ -88,6 +88,7 @@ import { renderOsGhostPage } from './ui/tab-drag-ghost';
 import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
+import { whisperSetupStore } from './ui/stores/whisper-setup';
 
 const MARKDOWN_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
@@ -1090,6 +1091,14 @@ async function boot(): Promise<void> {
   // identifier) and a "restart to update" prompt makes no sense for `cargo run`.
   if (IS_MAIN_WINDOW && !isAndroid() && !import.meta.env.DEV) {
     setTimeout(() => startAutoUpdateChecks(), 3000);
+  }
+
+  // First launch: offer to download the recommended Whisper model, so
+  // offline dictation is ready before it is first needed. Once per install
+  // (stores/whisper-setup.ts decides), main window only, and deferred like
+  // the update check so it never delays first paint.
+  if (IS_MAIN_WINDOW) {
+    setTimeout(() => void whisperSetupStore.getState().consider(), 2000);
   }
 
   /**

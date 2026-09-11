@@ -22,7 +22,7 @@ pub mod voice_typing;
 pub mod watch;
 #[cfg(desktop)]
 pub mod webview;
-// Offline voice-note transcription (whisper.cpp). Desktop-only: Android has
-// its own on-device recognizer, and whisper-rs stays out of the mobile graph.
-#[cfg(desktop)]
+// Offline voice-note transcription (whisper.cpp), every platform. On Android
+// it sits beside the on-device recognizer (the `androidDictationEngine`
+// setting picks); the manage()/register calls in lib.rs are unconditional.
 pub mod whisper;

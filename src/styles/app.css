@@ -3432,6 +3432,21 @@ body.explorer-dragging * {
   border-color: var(--accent, var(--border));
 }
 
+/* The first-launch Whisper offer reuses the bar; its second line may wrap
+   (it explains a 190 MB download) and its progress bar sits under it. */
+.whisper-setup-prompt {
+  max-width: min(720px, calc(100vw - 32px));
+}
+
+.whisper-setup-prompt-detail {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-setup-progress {
+  margin-top: 4px;
+}
+
 /* ---- Settings tabs ------------------------------------------------------
    One strip under the header; the body shows a single section at a time. A
    fixed minimum height keeps the dialog from jumping between short and tall

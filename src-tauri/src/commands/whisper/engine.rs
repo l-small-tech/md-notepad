@@ -27,10 +27,48 @@ use super::{WhisperError, WhisperResult};
 /// What whisper.cpp expects.
 pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 
-/// The loaded model, keyed by the file it came from.
+/// The loaded model, keyed by the file it came from and whether it was
+/// laid out for the GPU (flipping the setting reloads).
 struct Loaded {
     path: PathBuf,
+    gpu: bool,
     ctx: WhisperContext,
+}
+
+/// Which accelerator this build can hand the model to: "vulkan" (Windows,
+/// Linux), "metal" (macOS) or "none" (Android, or a Windows machine without
+/// a Vulkan loader — see `vulkan_delayload.cpp`). Compile-time apart from
+/// that one runtime check; whether the GPU is actually used is still
+/// whisper.cpp's call at load (it falls back to the CPU on its own).
+pub fn accelerator() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "metal"
+    } else if cfg!(any(target_os = "windows", target_os = "linux")) {
+        if vulkan_loader_present() {
+            "vulkan"
+        } else {
+            "none"
+        }
+    } else {
+        "none"
+    }
+}
+
+/// Windows links `vulkan-1.dll` delay-loaded (build.rs), so a machine
+/// without a Vulkan driver still starts the app; this is the same question
+/// asked up front, so the Settings dialog can say so.
+#[cfg(target_os = "windows")]
+fn vulkan_loader_present() -> bool {
+    use windows::core::w;
+    use windows::Win32::System::LibraryLoader::LoadLibraryW;
+    // SAFETY: LoadLibraryW with a literal name; the handle is not freed on
+    // purpose (the loader keeps it once ggml needs it anyway).
+    unsafe { LoadLibraryW(w!("vulkan-1.dll")).is_ok() }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn vulkan_loader_present() -> bool {
+    true
 }
 
 /// App-wide: the one loaded context. The lock is held for the whole of a
@@ -45,9 +83,12 @@ impl EngineState {
     /// the manifest size: a file of any other length is corrupt (a download
     /// only ever renames a verified file into place, so this catches a file
     /// truncated or swapped afterwards), and says so instead of "load failed".
-    fn load(&self, path: &Path, expected_bytes: Option<u64>) -> WhisperResult<()> {
+    fn load(&self, path: &Path, expected_bytes: Option<u64>, gpu: bool) -> WhisperResult<()> {
         let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if slot.as_ref().is_some_and(|l| l.path == path) {
+        if slot
+            .as_ref()
+            .is_some_and(|l| l.path == path && l.gpu == gpu)
+        {
             return Ok(());
         }
         // A file that is not there is "not downloaded", not "failed to load".
@@ -68,10 +109,17 @@ impl EngineState {
         // Drop the old model before loading the next — two large models at
         // once is how a machine runs out of memory.
         *slot = None;
-        let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())
+        let mut params = WhisperContextParameters::default();
+        // whisper-rs defaults use_gpu to "was a GPU backend compiled in";
+        // the setting can only turn it off. Flash attention is the faster
+        // kernel on a GPU and a no-op for the CPU path.
+        let gpu = gpu && params.use_gpu;
+        params.use_gpu(gpu).flash_attn(gpu);
+        let ctx = WhisperContext::new_with_params(path, params)
             .map_err(|e| WhisperError::LoadFailed(e.to_string()))?;
         *slot = Some(Loaded {
             path: path.to_path_buf(),
+            gpu,
             ctx,
         });
         Ok(())
@@ -90,11 +138,12 @@ impl EngineState {
         &self,
         path: &Path,
         expected_bytes: Option<u64>,
+        gpu: bool,
         pcm: &[f32],
         language: Option<&str>,
         hint: Option<&str>,
     ) -> WhisperResult<String> {
-        self.load(path, expected_bytes)?;
+        self.load(path, expected_bytes, gpu)?;
         let slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let loaded = slot
             .as_ref()
@@ -197,22 +246,31 @@ pub fn resample(pcm: &[f32], from: u32, to: u32) -> Vec<f32> {
         .collect()
 }
 
+/// Which accelerator this build and machine offer (see `accelerator`).
+#[tauri::command]
+pub fn whisper_accelerator() -> &'static str {
+    accelerator()
+}
+
 /// Load the chosen model now (the frontend calls this as the capture starts,
 /// so the load overlaps the talking). Also the cheap way to learn that the
 /// model is missing BEFORE the user has dictated a note into the void.
+/// `use_gpu` mirrors the setting; it is ignored by a build with no GPU backend.
 #[tauri::command]
-pub async fn whisper_prepare(app: AppHandle, model_id: String) -> WhisperResult<()> {
+pub async fn whisper_prepare(app: AppHandle, model_id: String, use_gpu: bool) -> WhisperResult<()> {
     let model = spec(&model_id)?;
     let path = model_path(&model_dir(&app)?, model);
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<EngineState>().load(&path, Some(model.bytes))
+        app.state::<EngineState>()
+            .load(&path, Some(model.bytes), use_gpu)
     })
     .await
     .map_err(|e| WhisperError::Failed(e.to_string()))?
 }
 
 /// Raw body: little-endian f32 mono PCM. Headers: `sample-rate` (Hz),
-/// `model-id` (manifest id), and the optional `hint` — whisper.cpp's initial
+/// `model-id` (manifest id), `use-gpu` ("true"/"false", the setting; absent
+/// means true), and the optional `hint` — whisper.cpp's initial
 /// prompt, the words to expect (Review mode sends the file's identifiers).
 /// Resolves with the transcript ("" for silence).
 #[tauri::command]
@@ -229,6 +287,7 @@ pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Whisper
         .parse()
         .map_err(|_| WhisperError::InvalidData("bad sample-rate header".into()))?;
     let model = spec(&header("model-id")?)?;
+    let use_gpu = header("use-gpu").map_or(true, |v| v != "false");
     // Optional: a missing hint is not an error, it is the ordinary case.
     let hint: Option<String> = request
         .headers()
@@ -251,6 +310,7 @@ pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Whisper
         engine.transcribe(
             &path,
             Some(model.bytes),
+            use_gpu,
             &pcm,
             model.language(),
             hint.as_deref(),
@@ -311,6 +371,7 @@ mod tests {
             .transcribe(
                 Path::new("Z:/nowhere/ggml-small.en.bin"),
                 None,
+                true,
                 &[0.0; 16_000],
                 Some("en"),
                 None,
@@ -326,15 +387,27 @@ mod tests {
         std::fs::write(&path, b"this is not a ggml file").unwrap();
         let engine = EngineState::default();
         let err = engine
-            .transcribe(&path, None, &[0.0; 16_000], Some("en"), None)
+            .transcribe(&path, None, true, &[0.0; 16_000], Some("en"), None)
             .unwrap_err();
         assert!(matches!(err, WhisperError::LoadFailed(_)), "{err:?}");
         // With the manifest size known, a wrong length is reported as corrupt
         // before whisper.cpp ever opens it.
         let err = engine
-            .transcribe(&path, Some(77_704_715), &[0.0; 16_000], Some("en"), None)
+            .transcribe(
+                &path,
+                Some(77_704_715),
+                true,
+                &[0.0; 16_000],
+                Some("en"),
+                None,
+            )
             .unwrap_err();
         assert!(matches!(err, WhisperError::ModelCorrupt(_)), "{err:?}");
+    }
+
+    #[test]
+    fn accelerator_is_one_of_the_known_names() {
+        assert!(["vulkan", "metal", "none"].contains(&accelerator()));
     }
 
     #[test]
@@ -344,18 +417,38 @@ mod tests {
         assert!(engine.0.lock().unwrap().is_none());
     }
 
+    /// whisper.cpp's own log lines (which backend it picked, the device
+    /// name) on stderr, for the real-model test below: `--nocapture` shows
+    /// "using Vulkan backend" / "no GPU found".
+    struct StderrLogger;
+
+    impl log::Log for StderrLogger {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            eprintln!("[{}] {}", record.level(), record.args());
+        }
+        fn flush(&self) {}
+    }
+
     /// Needs a real model: `MD_NOTEPAD_WHISPER_MODEL=<path to ggml-*.bin>
-    /// cargo test -- --ignored real_model`. A second of silence must come
-    /// back as text without an error (usually empty).
+    /// cargo test -- --ignored --nocapture real_model`. A second of silence
+    /// must come back as text without an error (usually empty). With
+    /// `MD_NOTEPAD_NO_VULKAN=1` as well (Windows) it exercises the
+    /// delay-load failure path: the log must say no GPU, and nothing crashes.
     #[test]
     #[ignore]
     fn real_model_transcribes_silence() {
         let path = std::env::var("MD_NOTEPAD_WHISPER_MODEL").expect("MD_NOTEPAD_WHISPER_MODEL");
+        let _ = log::set_logger(&StderrLogger).map(|()| log::set_max_level(log::LevelFilter::Info));
+        eprintln!("accelerator() = {}", accelerator());
         let engine = EngineState::default();
         let text = engine
             .transcribe(
                 Path::new(&path),
                 None,
+                true,
                 &[0.0; 16_000],
                 Some("en"),
                 Some("show all files state, is markdown path"),
@@ -365,9 +458,28 @@ mod tests {
             text.len() < 64,
             "unexpected transcript for silence: {text:?}"
         );
-        // The second call reuses the loaded context.
+        // The second call reuses the loaded context; the CPU-forced third
+        // reloads it without the GPU.
         engine
-            .transcribe(Path::new(&path), None, &[0.0; 16_000], Some("en"), None)
+            .transcribe(
+                Path::new(&path),
+                None,
+                true,
+                &[0.0; 16_000],
+                Some("en"),
+                None,
+            )
             .unwrap();
+        engine
+            .transcribe(
+                Path::new(&path),
+                None,
+                false,
+                &[0.0; 16_000],
+                Some("en"),
+                None,
+            )
+            .unwrap();
+        assert!(!engine.0.lock().unwrap().as_ref().unwrap().gpu);
     }
 }

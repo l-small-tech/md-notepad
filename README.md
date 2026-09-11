@@ -252,7 +252,7 @@ Prefer raw or split mode when you need byte-exact control over markdown.
 | Markdown pipeline | [unified](https://unifiedjs.com) (remark-gfm → rehype-sanitize) |
 | Diagrams | [Mermaid](https://mermaid.js.org) |
 | Code review | [Lezer](https://lezer.codemirror.net) parsers (TypeScript, Rust) → language-neutral model → plain-English rules, call graph, flowcharts; `git` via the CLI for *What changed* |
-| Voice | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) via `whisper-rs` (offline, desktop); Windows voice typing; Android SpeechRecognizer |
+| Voice | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) via `whisper-rs` (offline, every platform; Vulkan / Metal on the GPU); Windows voice typing; Android SpeechRecognizer |
 | Drawing | hand-written SVG whiteboard editor + camera-scan pipeline (raster clean-up → vectorized strokes → OCR) |
 | Terminal | hand-written VT/xterm engine + canvas renderer (no xterm.js), [portable-pty](https://crates.io/crates/portable-pty) on the Rust side |
 | Build / test | [Vite](https://vite.dev) + [Vitest](https://vitest.dev), cargo for the shell |
@@ -266,6 +266,19 @@ Whisper engine), plus per-OS Tauri deps — Windows: MSVC Build Tools +
 WebView2 (in Windows 11); macOS: Xcode CLT; Linux: `libwebkit2gtk-4.1-dev
 build-essential curl wget file libxdo-dev libssl-dev
 libayatana-appindicator3-dev librsvg2-dev`.
+
+Whisper runs on the GPU where it can — Vulkan on Windows and Linux, Metal
+on macOS — and building that backend needs the shader compiler from the
+[Vulkan SDK](https://vulkan.lunarg.com/sdk/home) (Windows: the installer,
+which sets `VULKAN_SDK`; Linux: `libvulkan-dev glslc`). Users need nothing:
+the app only wants the Vulkan loader that ships with any GPU driver, and on
+Windows it is delay-loaded so a machine without one still starts and
+transcribes on the CPU. **Windows, one more thing:** the shader generator
+is a nested CMake project ~150 characters deep inside the target dir and
+MSVC's build tooling still stops at MAX_PATH, so build from a short target
+dir — `$env:CARGO_TARGET_DIR = "C:\t"` (or any path a few characters
+long) before `pnpm run tauri dev`; `src-tauri/.cargo` is deliberately not
+pinning one for you.
 
 ```sh
 pnpm install

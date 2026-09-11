@@ -20,11 +20,38 @@ export const WHISPER_SAMPLE_RATE = 16_000;
  */
 export const MAX_CAPTURE_SECONDS = 600;
 
-/** The model a fresh install is pointed at: the accuracy/speed sweet spot on a CPU. */
-export const RECOMMENDED_WHISPER_MODEL = 'small.en';
+/**
+ * The model a fresh install is pointed at: Small, quantized — 190 MB, the
+ * accuracy/speed sweet spot on a CPU and near-instant on a GPU. Every
+ * offered model is the q5 quantized file: 2.5-3x smaller than full precision
+ * for an accuracy difference no dictation user will notice, so the choice is
+ * not offered.
+ */
+export const RECOMMENDED_WHISPER_MODEL = 'small.en-q5_1';
 
 export function recommendedModel(): string {
   return RECOMMENDED_WHISPER_MODEL;
+}
+
+/**
+ * Ids an earlier version offered that the manifest no longer has (the
+ * full-precision files, and Medium — Large v3 Turbo is the same size,
+ * faster and better), mapped to what a setting pointing at one now means.
+ * The old files themselves become "stray" (`whisper_models_stray`) and the
+ * Settings dialog offers to remove them.
+ */
+export const LEGACY_MODEL_IDS: Readonly<Record<string, string>> = {
+  'tiny.en': 'tiny.en-q5_1',
+  'base.en': 'base.en-q5_1',
+  'small.en': 'small.en-q5_1',
+  'medium.en': 'large-v3-turbo-q5_0',
+  'medium.en-q5_0': 'large-v3-turbo-q5_0',
+  'large-v3-turbo': 'large-v3-turbo-q5_0',
+};
+
+/** The current id for a persisted `whisperModel` (an unknown id is left alone). */
+export function migrateModelId(id: string): string {
+  return LEGACY_MODEL_IDS[id] ?? id;
 }
 
 /** One manifest entry joined with its on-disk state (mirrors `ModelStatus` in Rust). */
@@ -39,8 +66,6 @@ export interface WhisperModelStatus {
   bytes: number;
   /** Detects the spoken language itself; `.en` models are English-only. */
   multilingual: boolean;
-  /** A q5 quantized variant: smaller and a little faster, slightly less accurate. */
-  quantized: boolean;
   /** The verified file is present. */
   installed: boolean;
   /** Bytes of a partial download waiting to be resumed, or 0. */
@@ -73,26 +98,64 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * A rough speed hint per model family, for a 4-core CPU with no GPU: how long
- * a 30-second note takes. Informational only — it sets expectations before a
- * 1.5 GB download, nothing depends on the numbers.
+ * A rough speed hint per model family: how long a 30-second note takes on a
+ * 4-core CPU with no GPU, and on an ordinary laptop GPU when one is in use.
+ * Informational only — it sets expectations before a 570 MB download,
+ * nothing depends on the numbers.
  */
-export function speedHint(id: string): string {
+export function speedHint(id: string, gpu = false): string {
   const family = id.split('-q')[0] ?? id;
   switch (family) {
     case 'tiny.en':
-      return '~2 s per 30 s of speech';
+      return gpu ? '~1 s per 30 s of speech' : '~2 s per 30 s of speech';
     case 'base.en':
-      return '~4 s per 30 s of speech';
+      return gpu ? '~1 s per 30 s of speech' : '~4 s per 30 s of speech';
     case 'small.en':
-      return '~12 s per 30 s of speech';
+      return gpu ? '~2 s per 30 s of speech' : '~10 s per 30 s of speech';
     case 'medium.en':
-      return '~40 s per 30 s of speech';
+      return gpu ? '~6 s per 30 s of speech' : '~40 s per 30 s of speech';
     case 'large-v3-turbo':
-      return '~30 s per 30 s of speech';
+      return gpu ? '~5 s per 30 s of speech' : '~30 s per 30 s of speech';
     default:
       return '';
   }
+}
+
+/**
+ * The accelerator names `whisper_accelerator` answers with. "none" is a
+ * build without a GPU backend (Android) or a Windows machine without a
+ * Vulkan driver.
+ */
+export type WhisperAccelerator = 'vulkan' | 'metal' | 'none';
+
+/** "GPU (Vulkan)", "GPU (Metal)" or "CPU only" — what the Settings row says. */
+export function acceleratorLabel(accelerator: WhisperAccelerator, useGpu: boolean): string {
+  if (accelerator === 'none') {
+    return 'CPU only (no GPU driver found)';
+  }
+  const name = accelerator === 'vulkan' ? 'Vulkan' : 'Metal';
+  return useGpu ? `GPU (${name})` : `CPU (GPU off — ${name} available)`;
+}
+
+/* ---- first-launch offer ------------------------------------------------ */
+
+/**
+ * Should the first-launch bar offer to download the recommended model? Once
+ * only (`offered` is the persisted flag, set whatever the answer), never
+ * while anything is already installed (an upgrade from a version that had
+ * models, or a folder restored from a backup), and never on Android — its
+ * default engine needs no download.
+ */
+export function shouldOfferSetup(input: {
+  offered: boolean;
+  android: boolean;
+  loaded: boolean;
+  models: readonly WhisperModelStatus[];
+}): boolean {
+  if (input.offered || input.android || !input.loaded) {
+    return false;
+  }
+  return !input.models.some((m) => m.installed);
 }
 
 /* ---- download state machine ------------------------------------------- */

@@ -1,4 +1,4 @@
-//! Offline voice-note transcription with whisper.cpp (desktop only).
+//! Offline voice-note transcription with whisper.cpp (every platform).
 //!
 //! Two halves, each its own file:
 //! - `models` — the pinned model manifest (Hugging Face files + SHA-256

@@ -15,6 +15,7 @@ import {
   LEGACY_HARNESS_PROFILE_ID,
   CURSOR_STYLES,
   DEFAULT_COLOR_SCHEME,
+  ANDROID_DICTATION_ENGINES,
   DESKTOP_DICTATION_ENGINES,
   EDITOR_FONT_IDS,
   SHELL_PROFILE_ID,
@@ -26,7 +27,7 @@ import {
   WORKSPACE_COLORS,
 } from './types';
 import { AUTO_SHELL, normalizeShell } from './terminal-shells';
-import { RECOMMENDED_WHISPER_MODEL } from './whisper-models';
+import { migrateModelId, RECOMMENDED_WHISPER_MODEL } from './whisper-models';
 import {
   DEFAULT_SCAN_PRESET,
   DEFAULT_SCAN_SMOOTHING,
@@ -36,6 +37,7 @@ import {
   type ScanSmoothing,
 } from './whiteboard/scan/types';
 import type {
+  AndroidDictationEngine,
   CursorStyle,
   DesktopDictationEngine,
   HarnessChoice,
@@ -250,7 +252,10 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceNotesLocation: 'workspaceFolder',
   voiceNotesFolderName: 'Voice Notes',
   desktopDictationEngine: 'auto',
+  androidDictationEngine: 'system',
   whisperModel: RECOMMENDED_WHISPER_MODEL,
+  whisperUseGpu: true,
+  whisperSetupOffered: false,
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
   showAllFilesDirs: [],
@@ -623,10 +628,20 @@ export function normalizeSettings(raw: unknown): Settings {
     )
       ? (r.desktopDictationEngine as DesktopDictationEngine)
       : d.desktopDictationEngine,
+    androidDictationEngine: (ANDROID_DICTATION_ENGINES as readonly unknown[]).includes(
+      r.androidDictationEngine,
+    )
+      ? (r.androidDictationEngine as AndroidDictationEngine)
+      : d.androidDictationEngine,
+    // An id from an earlier manifest (full-precision, or Medium) becomes the
+    // model that replaced it.
     whisperModel:
       typeof r.whisperModel === 'string' && r.whisperModel.trim().length > 0
-        ? r.whisperModel.trim()
+        ? migrateModelId(r.whisperModel.trim())
         : d.whisperModel,
+    whisperUseGpu: typeof r.whisperUseGpu === 'boolean' ? r.whisperUseGpu : d.whisperUseGpu,
+    whisperSetupOffered:
+      typeof r.whisperSetupOffered === 'boolean' ? r.whisperSetupOffered : d.whisperSetupOffered,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
     showAllFilesDirs: normalizePathList(r.showAllFilesDirs),

@@ -117,6 +117,11 @@ export const DESKTOP_DICTATION_ENGINES = ['auto', 'windowsVoiceTyping', 'whisper
 
 export type DesktopDictationEngine = (typeof DESKTOP_DICTATION_ENGINES)[number];
 
+/** How Android voice notes are dictated (see `Settings.androidDictationEngine`). */
+export const ANDROID_DICTATION_ENGINES = ['system', 'whisper'] as const;
+
+export type AndroidDictationEngine = (typeof ANDROID_DICTATION_ENGINES)[number];
+
 /**
  * Editor color scheme — the palette family id, chosen independently of light/dark
  * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
@@ -454,8 +459,29 @@ export interface Settings {
    * Default 'auto'.
    */
   desktopDictationEngine: DesktopDictationEngine;
-  /** Manifest id of the Whisper model to transcribe with. Default 'small.en'. */
+  /**
+   * Android dictation engine for voice notes. 'system' = the on-device
+   * SpeechRecognizer (no download, needs whatever the device's recognizer
+   * needs); 'whisper' = the offline Whisper model. Desktop ignores it.
+   * Default 'system'.
+   */
+  androidDictationEngine: AndroidDictationEngine;
+  /**
+   * Manifest id of the Whisper model to transcribe with. Default
+   * 'small.en-q5_1'; ids from earlier versions are migrated on load.
+   */
   whisperModel: string;
+  /**
+   * Let whisper.cpp run the model on the GPU (Vulkan on Windows/Linux, Metal
+   * on macOS) when the build has one. Off forces the CPU — the escape hatch
+   * for a broken driver. Default true.
+   */
+  whisperUseGpu: boolean;
+  /**
+   * The first-launch "download the recommended model?" bar has been shown
+   * (whatever was answered), so it never is again. Default false.
+   */
+  whisperSetupOffered: boolean;
   /**
    * Explorer tree shape, persisted so the drawer reopens (and the app relaunches)
    * looking exactly as it was left. Not user-facing settings — no dialog field —

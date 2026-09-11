@@ -38,8 +38,6 @@ pub struct ModelSpec {
     pub sha256: &'static str,
     /// Detects the spoken language itself; `.en` models are English-only.
     pub multilingual: bool,
-    /// A q5 quantized variant.
-    pub quantized: bool,
 }
 
 impl ModelSpec {
@@ -64,88 +62,40 @@ impl ModelSpec {
     }
 }
 
-/// The models the Settings dialog offers. Digests are from the Hugging Face
-/// LFS pointers (`…/raw/main/<file>`) as of 2026-09-10.
+/// The models the Settings dialog offers: one size per row, every one the
+/// q5 quantized file. The full-precision files are 2.5-3x bigger for an
+/// accuracy difference no dictation user will notice, so the choice is not
+/// offered (see `LEGACY_IDS` in src/core/whisper-models.ts for how an
+/// earlier install's full-precision pick is migrated). Digests are from the
+/// Hugging Face LFS pointers (`.../raw/main/<file>`) as of 2026-09-10.
 pub const MANIFEST: &[ModelSpec] = &[
     ModelSpec {
-        id: "tiny.en",
-        label: "Tiny (English)",
-        bytes: 77_704_715,
-        sha256: "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
-        multilingual: false,
-        quantized: false,
-    },
-    ModelSpec {
         id: "tiny.en-q5_1",
-        label: "Tiny (English, quantized)",
+        label: "Tiny (English)",
         bytes: 32_166_155,
         sha256: "c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b",
         multilingual: false,
-        quantized: true,
-    },
-    ModelSpec {
-        id: "base.en",
-        label: "Base (English)",
-        bytes: 147_964_211,
-        sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
-        multilingual: false,
-        quantized: false,
     },
     ModelSpec {
         id: "base.en-q5_1",
-        label: "Base (English, quantized)",
+        label: "Base (English)",
         bytes: 59_721_011,
         sha256: "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
         multilingual: false,
-        quantized: true,
-    },
-    ModelSpec {
-        id: "small.en",
-        label: "Small (English)",
-        bytes: 487_614_201,
-        sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
-        multilingual: false,
-        quantized: false,
     },
     ModelSpec {
         id: "small.en-q5_1",
-        label: "Small (English, quantized)",
+        label: "Small (English)",
         bytes: 190_098_681,
         sha256: "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
         multilingual: false,
-        quantized: true,
-    },
-    ModelSpec {
-        id: "medium.en",
-        label: "Medium (English)",
-        bytes: 1_533_774_781,
-        sha256: "cc37e93478338ec7700281a7ac30a10128929eb8f427dda2e865faa8f6da4356",
-        multilingual: false,
-        quantized: false,
-    },
-    ModelSpec {
-        id: "medium.en-q5_0",
-        label: "Medium (English, quantized)",
-        bytes: 539_225_533,
-        sha256: "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0",
-        multilingual: false,
-        quantized: true,
-    },
-    ModelSpec {
-        id: "large-v3-turbo",
-        label: "Large v3 Turbo (any language)",
-        bytes: 1_624_555_275,
-        sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-        multilingual: true,
-        quantized: false,
     },
     ModelSpec {
         id: "large-v3-turbo-q5_0",
-        label: "Large v3 Turbo (any language, quantized)",
+        label: "Large v3 Turbo (any language)",
         bytes: 574_041_195,
         sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
         multilingual: true,
-        quantized: true,
     },
 ];
 
@@ -183,7 +133,6 @@ pub struct ModelStatus {
     pub label: &'static str,
     pub bytes: u64,
     pub multilingual: bool,
-    pub quantized: bool,
     pub installed: bool,
     pub partial_bytes: u64,
 }
@@ -199,13 +148,47 @@ pub fn statuses(dir: &Path) -> Vec<ModelStatus> {
             label: m.label,
             bytes: m.bytes,
             multilingual: m.multilingual,
-            quantized: m.quantized,
             installed: model_path(dir, m).is_file(),
             partial_bytes: fs::metadata(part_path(dir, m))
                 .map(|meta| meta.len())
                 .unwrap_or(0),
         })
         .collect()
+}
+
+/// Model files in `dir` that no manifest entry claims: the full-precision
+/// `ggml-*.bin` an earlier version offered, and their leftover `.part`s.
+/// Nothing can use them any more; they are only reported (as a total) and
+/// deleted on request.
+pub fn stray_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let claimed: Vec<String> = MANIFEST
+        .iter()
+        .flat_map(|m| [m.file(), format!("{}.part", m.file())])
+        .collect();
+    let mut stray: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .filter(|p| {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            name.starts_with("ggml-")
+                && (name.ends_with(".bin") || name.ends_with(".bin.part"))
+                && !claimed.iter().any(|c| c == name)
+        })
+        .collect();
+    stray.sort();
+    stray
+}
+
+pub fn stray_bytes(dir: &Path) -> u64 {
+    stray_files(dir)
+        .iter()
+        .filter_map(|p| fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 /* ---- the part writer (testable without HTTP) --------------------------- */
@@ -331,6 +314,25 @@ pub enum DownloadEvent {
 pub async fn whisper_models_list(app: AppHandle) -> WhisperResult<Vec<ModelStatus>> {
     let dir = model_dir(&app)?;
     Ok(statuses(&dir))
+}
+
+/// Bytes of model files an earlier version downloaded that this one no
+/// longer offers (see `stray_files`). 0 when there are none.
+#[tauri::command]
+pub async fn whisper_models_stray(app: AppHandle) -> WhisperResult<u64> {
+    let dir = model_dir(&app)?;
+    Ok(stray_bytes(&dir))
+}
+
+/// Delete every stray model file. The loaded model can only ever be a
+/// manifest file, so nothing here needs unloading.
+#[tauri::command]
+pub async fn whisper_models_prune(app: AppHandle) -> WhisperResult<()> {
+    let dir = model_dir(&app)?;
+    for path in stray_files(&dir) {
+        remove_if_exists(&path)?;
+    }
+    Ok(())
 }
 
 /// Where the model files live, for the Settings dialog's "Open folder".
@@ -503,16 +505,40 @@ mod tests {
             assert!(m.bytes > 1_000_000, "{}: size", m.id);
             assert_eq!(m.file(), format!("ggml-{}.bin", m.id));
             assert!(m.url().ends_with(&m.file()));
-            assert_eq!(m.quantized, m.id.contains("-q"), "{}: quantized flag", m.id);
+            assert!(
+                m.id.contains("-q5_"),
+                "{}: every offered file is quantized",
+                m.id
+            );
             assert_eq!(m.multilingual, !m.id.contains(".en"), "{}: language", m.id);
         }
-        assert!(spec("small.en").is_ok());
+        assert!(spec("small.en-q5_1").is_ok());
+        // The full-precision ids an earlier version offered are gone.
+        assert!(spec("small.en").is_err());
         assert!(matches!(
             spec("huge.xx"),
             Err(WhisperError::UnknownModel(id)) if id == "huge.xx"
         ));
-        assert_eq!(spec("small.en").unwrap().language(), Some("en"));
-        assert_eq!(spec("large-v3-turbo").unwrap().language(), None);
+        assert_eq!(spec("small.en-q5_1").unwrap().language(), Some("en"));
+        assert_eq!(spec("large-v3-turbo-q5_0").unwrap().language(), None);
+    }
+
+    #[test]
+    fn stray_files_are_the_unclaimed_model_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ggml-small.en.bin"), b"old full-precision").unwrap();
+        fs::write(d.join("ggml-medium.en-q5_0.bin.part"), b"old part").unwrap();
+        fs::write(d.join("ggml-small.en-q5_1.bin"), b"current").unwrap();
+        fs::write(d.join("ggml-tiny.en-q5_1.bin.part"), b"current part").unwrap();
+        fs::write(d.join("notes.txt"), b"not a model").unwrap();
+        let names: Vec<String> = stray_files(d)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["ggml-medium.en-q5_0.bin.part", "ggml-small.en.bin"]);
+        assert_eq!(stray_bytes(d), 18 + 8);
+        assert!(stray_files(&d.join("missing")).is_empty());
     }
 
     #[test]
@@ -591,19 +617,23 @@ mod tests {
     #[test]
     fn statuses_reflect_the_directory() {
         let dir = tempfile::tempdir().unwrap();
-        let small = spec("small.en").unwrap();
+        let small = spec("small.en-q5_1").unwrap();
         fs::write(model_path(dir.path(), small), b"x").unwrap();
-        fs::write(part_path(dir.path(), spec("base.en").unwrap()), b"12345").unwrap();
+        fs::write(
+            part_path(dir.path(), spec("base.en-q5_1").unwrap()),
+            b"12345",
+        )
+        .unwrap();
 
         let list = statuses(dir.path());
         assert_eq!(list.len(), MANIFEST.len());
         let by_id = |id: &str| list.iter().find(|s| s.id == id).unwrap();
-        assert!(by_id("small.en").installed);
-        assert_eq!(by_id("small.en").partial_bytes, 0);
-        assert!(!by_id("base.en").installed);
-        assert_eq!(by_id("base.en").partial_bytes, 5);
-        assert!(!by_id("tiny.en").installed);
-        assert_eq!(by_id("tiny.en").file, "ggml-tiny.en.bin");
+        assert!(by_id("small.en-q5_1").installed);
+        assert_eq!(by_id("small.en-q5_1").partial_bytes, 0);
+        assert!(!by_id("base.en-q5_1").installed);
+        assert_eq!(by_id("base.en-q5_1").partial_bytes, 5);
+        assert!(!by_id("tiny.en-q5_1").installed);
+        assert_eq!(by_id("tiny.en-q5_1").file, "ggml-tiny.en-q5_1.bin");
     }
 
     #[test]

@@ -10,6 +10,13 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Whisper everywhere, and faster.** Offline dictation now runs on the GPU
+  (Vulkan on Windows and Linux, Metal on macOS — several times faster, with
+  a switch in Settings to force the CPU), works on Android as an alternative
+  to the device's recognizer, and offers to download its model on first
+  launch so it is ready before the first voice note. The model list is four
+  compact files (Tiny, Base, Small, Large v3 Turbo); an earlier version's
+  full-precision downloads are migrated and can be removed from Settings.
 - **Review mode for code files.** Open a `.ts`, `.tsx`, `.js` or `.rs` file
   and press Ctrl+4 to see it as plain-English cards instead of syntax: one
   card per declaration, forms for types, an x-ray-folded Code expander,

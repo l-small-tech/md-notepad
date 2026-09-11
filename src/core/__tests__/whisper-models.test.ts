@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  acceleratorLabel,
   captureLimitReached,
   concatPcm,
   downloadPercent,
@@ -7,9 +8,12 @@ import {
   formatBytes,
   IDLE_DOWNLOAD,
   isInstalled,
+  LEGACY_MODEL_IDS,
   MAX_CAPTURE_SECONDS,
+  migrateModelId,
   pcmSeconds,
   recommendedModel,
+  shouldOfferSetup,
   speedHint,
   WHISPER_SAMPLE_RATE,
   type DownloadState,
@@ -23,15 +27,26 @@ function model(id: string, installed: boolean): WhisperModelStatus {
     label: id,
     bytes: 1,
     multilingual: false,
-    quantized: false,
     installed,
     partialBytes: 0,
   };
 }
 
 describe('recommended model and install state', () => {
-  test('a fresh install points at small.en', () => {
-    expect(recommendedModel()).toBe('small.en');
+  test('a fresh install points at the quantized Small model', () => {
+    expect(recommendedModel()).toBe('small.en-q5_1');
+  });
+
+  test('ids from the earlier manifest migrate to their replacement; others pass through', () => {
+    expect(migrateModelId('small.en')).toBe('small.en-q5_1');
+    expect(migrateModelId('tiny.en')).toBe('tiny.en-q5_1');
+    expect(migrateModelId('medium.en-q5_0')).toBe('large-v3-turbo-q5_0');
+    expect(migrateModelId('large-v3-turbo')).toBe('large-v3-turbo-q5_0');
+    expect(migrateModelId('small.en-q5_1')).toBe('small.en-q5_1');
+    expect(migrateModelId('mystery')).toBe('mystery');
+    for (const id of Object.keys(LEGACY_MODEL_IDS)) {
+      expect(LEGACY_MODEL_IDS[id]).toMatch(/-q5_/);
+    }
   });
 
   test('isInstalled is per id and only true for a verified file', () => {
@@ -41,11 +56,45 @@ describe('recommended model and install state', () => {
     expect(isInstalled(models, 'nope')).toBe(false);
   });
 
-  test('every model family has a speed hint; unknown ids get none', () => {
-    for (const id of ['tiny.en', 'base.en-q5_1', 'small.en', 'medium.en-q5_0', 'large-v3-turbo']) {
+  test('every model family has a speed hint, faster on a GPU; unknown ids get none', () => {
+    for (const id of ['tiny.en-q5_1', 'base.en-q5_1', 'small.en-q5_1', 'large-v3-turbo-q5_0']) {
       expect(speedHint(id)).toMatch(/per 30 s/);
+      expect(speedHint(id, true)).toMatch(/per 30 s/);
+      expect(speedHint(id, true)).not.toBe(speedHint(id));
     }
     expect(speedHint('mystery')).toBe('');
+  });
+
+  test('the accelerator row names the GPU, or says why there is none', () => {
+    expect(acceleratorLabel('vulkan', true)).toBe('GPU (Vulkan)');
+    expect(acceleratorLabel('metal', true)).toBe('GPU (Metal)');
+    expect(acceleratorLabel('vulkan', false)).toMatch(/GPU off/);
+    expect(acceleratorLabel('none', true)).toMatch(/CPU only/);
+  });
+});
+
+describe('shouldOfferSetup: the first-launch download offer', () => {
+  const none = [model('small.en-q5_1', false)];
+  test('offers once, on desktop, once the list is known and nothing is installed', () => {
+    expect(shouldOfferSetup({ offered: false, android: false, loaded: true, models: none })).toBe(
+      true,
+    );
+    expect(shouldOfferSetup({ offered: true, android: false, loaded: true, models: none })).toBe(
+      false,
+    );
+    expect(shouldOfferSetup({ offered: false, android: true, loaded: true, models: none })).toBe(
+      false,
+    );
+    expect(shouldOfferSetup({ offered: false, android: false, loaded: false, models: [] })).toBe(
+      false,
+    );
+  });
+
+  test('never when any model is already installed (an upgrade, a restored folder)', () => {
+    const some = [model('tiny.en-q5_1', true), model('small.en-q5_1', false)];
+    expect(shouldOfferSetup({ offered: false, android: false, loaded: true, models: some })).toBe(
+      false,
+    );
   });
 });
 

@@ -62,6 +62,7 @@ import { installHarness } from '../harness-install';
 import { checkForUpdate, downloadAndInstall, useUpdateStore } from '../update';
 import { whisperModelsStore, useWhisperModels } from '../stores/whisper-models';
 import {
+  acceleratorLabel,
   downloadPercent,
   formatBytes,
   recommendedModel,
@@ -127,14 +128,20 @@ function dictationEngineOptions(): { value: Settings['desktopDictationEngine']; 
   ];
 }
 
+/** The Android dictation engines. */
+const ANDROID_ENGINE_OPTIONS: { value: Settings['androidDictationEngine']; label: string }[] = [
+  { value: 'system', label: "This device's speech recognizer" },
+  { value: 'whisper', label: 'Whisper (offline, on this device)' },
+];
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
 }
 
 /**
- * Voice notes: where the sidecar files go, and — on desktop — which engine
- * dictates them, with the Whisper model list. Android has one engine (the
- * on-device recognizer) and no models, so it sees the location rows only.
+ * Voice notes: where the sidecar files go, which engine dictates them, and
+ * the Whisper model list. Desktop picks between the platform's own engine
+ * and Whisper; Android between the device's recognizer and Whisper.
  */
 function VoiceNotesSection({ settings }: { settings: Settings }) {
   const desktop = !isAndroid();
@@ -203,9 +210,40 @@ function VoiceNotesSection({ settings }: { settings: Settings }) {
               model download. Windows voice typing sends your voice to Microsoft.
             </span>
           </div>
-          <WhisperModelsSection chosen={settings.whisperModel} />
         </>
       )}
+
+      {!desktop && (
+        <>
+          <label className="settings-row">
+            <span className="settings-label">Transcription engine</span>
+            <select
+              className="settings-control"
+              value={settings.androidDictationEngine}
+              onChange={(e) =>
+                update({
+                  androidDictationEngine: e.target.value as Settings['androidDictationEngine'],
+                })
+              }
+            >
+              {ANDROID_ENGINE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="settings-row settings-row-hint">
+            <span className="settings-label" />
+            <span className="settings-hint">
+              The device's recognizer needs no download and may send audio to its maker. Whisper
+              runs on this device after a one-time model download; Tiny or Base suit a phone.
+            </span>
+          </div>
+        </>
+      )}
+
+      <WhisperModelsSection chosen={settings.whisperModel} useGpu={settings.whisperUseGpu} />
     </>
   );
 }
@@ -213,27 +251,53 @@ function VoiceNotesSection({ settings }: { settings: Settings }) {
 /**
  * The Whisper model list: every manifest entry with its size and a speed
  * hint, the active one marked, Download / Cancel / Delete / Use per row, and
- * one progress bar for the download in flight. A projection of the
- * whisper-models store; the list is fetched when the section mounts.
+ * one progress bar for the download in flight; above it the accelerator row
+ * (which GPU, and the switch to force the CPU), below it the offer to clear
+ * files an earlier version downloaded. A projection of the whisper-models
+ * store; the list is fetched when the section mounts.
  */
-function WhisperModelsSection({ chosen }: { chosen: string }) {
+function WhisperModelsSection({ chosen, useGpu }: { chosen: string; useGpu: boolean }) {
   const models = useWhisperModels((s) => s.models);
   const loaded = useWhisperModels((s) => s.loaded);
   const download = useWhisperModels((s) => s.download);
+  const strayBytes = useWhisperModels((s) => s.strayBytes);
+  const accelerator = useWhisperModels((s) => s.accelerator);
   useEffect(() => {
     void whisperModelsStore.getState().refresh();
   }, []);
   const store = () => whisperModelsStore.getState();
   const active = download.kind === 'downloading' || download.kind === 'verifying';
   const chosenInstalled = models.some((m) => m.id === chosen && m.installed);
+  const recommended = models.find((m) => m.id === recommendedModel());
+  const gpu = accelerator !== null && accelerator !== 'none' && useGpu;
   return (
     <>
       <div className="settings-heading">Whisper models</div>
+      {accelerator !== null && accelerator !== 'none' && (
+        <>
+          <label className="settings-row">
+            <span className="settings-label">Run on the GPU</span>
+            <input
+              className="settings-control settings-checkbox"
+              type="checkbox"
+              checked={useGpu}
+              onChange={(e) => update({ whisperUseGpu: e.target.checked })}
+            />
+          </label>
+          <div className="settings-row settings-row-hint">
+            <span className="settings-label" />
+            <span className="settings-hint">
+              {acceleratorLabel(accelerator, useGpu)}. Several times faster on the GPU; turn it off
+              only if transcription fails or the driver misbehaves.
+            </span>
+          </div>
+        </>
+      )}
       <div className="settings-row settings-row-hint">
         <span className="settings-hint">
           {loaded && !chosenInstalled
-            ? `Download a model to dictate with Whisper — ${recommendedModel()} is the recommended one.`
-            : 'Bigger models are more accurate and slower. Quantized ones are smaller and a little faster.'}
+            ? `Download a model to dictate with Whisper — ${recommended?.label ?? recommendedModel()} is the recommended one.`
+            : 'Bigger models are more accurate and slower. All are compact (quantized) files.'}
         </span>
         <button className="settings-button" onClick={() => void store().openFolder()}>
           Open folder
@@ -245,11 +309,22 @@ function WhisperModelsSection({ chosen }: { chosen: string }) {
             key={m.id}
             model={m}
             chosen={m.id === chosen}
+            gpu={gpu}
             downloadBusy={active}
             download={download.kind !== 'idle' && download.id === m.id ? download : null}
           />
         ))}
       </div>
+      {strayBytes > 0 && (
+        <div className="settings-row settings-row-hint">
+          <span className="settings-hint">
+            {formatBytes(strayBytes)} of model files from an earlier version are no longer used.
+          </span>
+          <button className="settings-button" onClick={() => void store().prune()}>
+            Remove
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -257,11 +332,14 @@ function WhisperModelsSection({ chosen }: { chosen: string }) {
 function WhisperModelRow({
   model,
   chosen,
+  gpu,
   downloadBusy,
   download,
 }: {
   model: WhisperModelStatus;
   chosen: boolean;
+  /** The speed hint should be the GPU one. */
+  gpu: boolean;
   /** Any download is running (only one at a time). */
   downloadBusy: boolean;
   /** This row's own download state, when it has one. */
@@ -287,7 +365,7 @@ function WhisperModelRow({
           : model.partialBytes > 0
             ? `${formatBytes(model.partialBytes)} of ${formatBytes(model.bytes)} downloaded — resume`
             : formatBytes(model.bytes);
-  const hint = speedHint(model.id);
+  const hint = speedHint(model.id, gpu);
   return (
     <div
       className={`settings-model-row${chosen ? ' settings-model-row-chosen' : ''}${model.installed ? '' : ' settings-model-row-absent'}`}

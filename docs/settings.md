@@ -103,7 +103,8 @@ to act on. Each file opens with a hidden note saying it came from a voice
 transcript and may contain small recognition errors, so an agent reading it
 knows to read for intent.
 
-- **Android** turns speech into text on the phone.
+- **Android** turns speech into text on the phone with the device's own
+  recognizer, or with Whisper if you choose it below.
 - **Windows** uses Windows voice typing (the Win+H feature) unless you pick
   Whisper below. When you tap the microphone, md-notepad starts it and your
   words appear in a box under the microphone, where you can fix them. The
@@ -112,10 +113,12 @@ knows to read for intent.
   to finish sooner. Voice typing may need **Online speech recognition**
   turned on in Windows Settings > Privacy & security > Speech, and while you
   speak your voice is sent to Microsoft to be transcribed.
-- **macOS and Linux** (and Windows, if you choose it) use **Whisper**: an
-  open speech model that runs on your own computer, offline. Tap the
-  microphone, talk, tap again, and the note appears after a moment of
-  transcribing. It needs a model file, downloaded once from this section.
+- **macOS and Linux** (and Windows or Android, if you choose it) use
+  **Whisper**: an open speech model that runs on your own computer, offline.
+  Tap the microphone, talk, tap again, and the note appears after a moment
+  of transcribing. It needs a model file, downloaded once — the first time
+  the app opens it offers to fetch the recommended one, and this section
+  can do it any time.
 
 - **Keep voice notes** — where the notes files are kept. **Shared folder at
   workspace root** (the default) collects them in one folder at the top of
@@ -123,19 +126,30 @@ knows to read for intent.
   the file** keeps each one beside its document, hidden from the sidebar.
 - **Voice notes folder name** — the shared folder's name. Default
   `Voice Notes`.
-- **Transcription engine** (desktop only) — **Automatic** is Windows voice
+- **Transcription engine** — on desktop, **Automatic** is Windows voice
   typing on Windows and Whisper elsewhere; **Windows voice typing** (Windows
-  only) and **Whisper (offline)** choose one outright.
-- **Whisper models** (desktop only) — the models you can download, with
-  their size and a rough speed. **Small (English)** is the recommended
-  balance (about 490 MB; a 30-second note takes roughly ten seconds on a
-  laptop). Bigger models are more accurate and slower; the quantized
-  variants are smaller and a little faster. **Download** fetches a model
-  from Hugging Face and verifies it; a download can be cancelled and resumed
-  later. **Use** makes an installed model the one that transcribes;
+  only) and **Whisper (offline)** choose one outright. On Android, **This
+  device's speech recognizer** (the default, no download) or **Whisper
+  (offline)**.
+- **Run on the GPU** — shown when the app can use one (Vulkan on Windows and
+  Linux, Metal on macOS). On, Whisper transcribes several times faster; turn
+  it off only if transcription fails or a graphics driver misbehaves.
+  Setting the environment variable `MD_NOTEPAD_NO_VULKAN` before starting
+  the app (Windows) keeps it from loading Vulkan at all.
+- **Whisper models** — the models you can download, with their size and a
+  rough speed. **Small (English)** is the recommended balance (190 MB; a
+  30-second note takes about ten seconds on a laptop's CPU, a couple on its
+  GPU). Tiny and Base are faster and less accurate — good on a phone; Large
+  v3 Turbo (570 MB) is the most accurate and understands any language.
+  Every file is the compact ("quantized") version of its model: a fraction
+  of the size for a difference you will not hear. **Download** fetches a
+  model from Hugging Face and verifies it; a download can be cancelled and
+  resumed later. **Use** makes an installed model the one that transcribes;
   **Delete** removes its file. **Open folder** shows where the files live
-  (`whisper` inside the app's data folder). No audio is ever saved, and
-  nothing about your notes leaves the computer.
+  (`whisper` inside the app's data folder). If an earlier version left
+  larger model files behind, a **Remove** button under the list clears
+  them. No audio is ever saved, and nothing about your notes leaves the
+  computer.
 
 ## Terminal (desktop only)
 

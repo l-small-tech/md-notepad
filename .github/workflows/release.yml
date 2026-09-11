@@ -88,6 +88,26 @@ jobs:
       - name: Point bindgen at LLVM (macOS)
         if: startsWith(matrix.os, 'macos')
         run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      # The Vulkan backend (Windows/Linux) compiles its shaders with glslc
+      # from the Vulkan SDK at build time; the app itself needs only the
+      # platform's Vulkan loader (delay-loaded on Windows). macOS uses Metal
+      # and needs nothing extra.
+      - name: Install Vulkan SDK (Windows)
+        if: startsWith(matrix.os, 'windows')
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
+        with:
+          version: latest
+          cache: true
+      - name: Install Vulkan headers + glslc (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get install -y libvulkan-dev glslc
+      # The shader generator is a nested CMake project ~150 characters deep
+      # inside the target dir; MSVC's build tooling still stops at MAX_PATH,
+      # so Windows builds from a short target dir (see README "Build notes").
+      - name: Short target dir (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: echo "CARGO_TARGET_DIR=D:\t" >> "$GITHUB_ENV"
+        shell: bash
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:

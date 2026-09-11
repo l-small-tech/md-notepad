@@ -12,6 +12,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Compiles src/vulkan_delayload.cpp (Windows only; see build.rs). Already in
+# the graph via whisper-rs-sys.
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -27,6 +30,17 @@ tauri-plugin-log = "2"
 # The SYSTEM clipboard. WebKitGTK gates navigator.clipboard.readText() behind a
 # permission a packaged app cannot grant itself, so terminal paste needs this.
 tauri-plugin-clipboard-manager = "2"
+# The Whisper model downloads (commands/whisper/models.rs): reqwest is
+# already in the tree via the updater; `stream` lets a 500 MB file flow to
+# disk chunk by chunk, sha2 verifies it against the pinned digest. The same
+# rustls + ring pairing the updater uses; `rustls-no-provider` means a
+# process-wide provider must be installed before a client is built, which
+# models.rs does (the updater only does so when IT runs).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sha2 = "0.10"
+futures-util = "0.3"
+log = "0.4"
 
 # Windows-only: the on-device Windows.Media.Ocr engine behind the whiteboard
 # scan's text recognition, and the shell's virtual-desktop query (src/vdesk.rs).
@@ -44,6 +58,8 @@ windows = { version = "0.61", features = [
   "Media_Ocr",
   "Storage_Streams",
   "Win32_System_WinRT",
+  # LoadLibraryW (commands/whisper/engine.rs): is vulkan-1.dll on this machine?
+  "Win32_System_LibraryLoader",
   # SendInput (src/commands/voice_typing.rs): Win+H starts Windows voice typing.
   "Win32_UI_Input_KeyboardAndMouse",
   # IVirtualDesktopManager (src/vdesk.rs): which virtual desktop a window is on,
@@ -69,20 +85,28 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
 # Offline voice-note transcription (commands/whisper): whisper.cpp through
-# whisper-rs, CPU only. Building it needs CMake and libclang (bindgen) — see
-# README.md "Build notes". The model files are downloaded on demand with
-# reqwest (already in the tree via the updater; `stream` lets a 1.5 GB file
-# flow to disk chunk by chunk) and verified with sha2 against pinned digests.
-whisper-rs = { version = "0.16", features = ["log_backend"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
-# The same rustls + ring pairing the updater uses; `rustls-no-provider` means
-# a process-wide provider must be installed before a client is built, which
-# commands/whisper/models.rs does (the updater only does so when IT runs).
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-sha2 = "0.10"
-futures-util = "0.3"
-log = "0.4"
+# whisper-rs, on every platform. Building it needs CMake and libclang
+# (bindgen) — see README.md "Build notes". The model files are downloaded on
+# demand with reqwest (already in the tree via the updater; `stream` lets a
+# 500 MB file flow to disk chunk by chunk) and verified with sha2 against
+# pinned digests.
+#
+# The GPU backend is per platform, so whisper-rs is declared once per target
+# block below: Vulkan on Windows and Linux (needs the Vulkan SDK to build —
+# glslc compiles the shaders; the app itself only needs the platform's Vulkan
+# loader, and on Windows even that is delay-loaded, see build.rs), Metal on
+# macOS, CPU only on Android for now. whisper.cpp picks the GPU at load and
+# falls back to the CPU by itself; the `whisperUseGpu` setting can force CPU.
+# (reqwest, rustls, sha2, futures-util and log — the download side — are in
+# the main [dependencies] table above.)
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+whisper-rs = { version = "0.16", features = ["log_backend", "vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["log_backend", "metal"] }
+
 
 # WebKitGTK's own settings object (commands/webview.rs flips its
 # enable-smooth-scrolling). Same crate+version wry already pulls in — this
@@ -97,3 +121,5 @@ webkit2gtk = "2.0"
 # plugins/tauri-plugin-androidfs.
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-androidfs = { path = "plugins/tauri-plugin-androidfs" }
+# CPU-only whisper.cpp for now (see the per-platform note above).
+whisper-rs = { version = "0.16", features = ["log_backend"] }

@@ -732,8 +732,9 @@ declarative and thin.
 sheet. `dictationEngine()` picks the engine: Android's recognizer, Windows
 voice typing (Win+H into the sheet's draft box), or **Whisper** — the
 `desktopDictationEngine` setting decides on desktop ('auto' = voice typing
-on Windows, Whisper elsewhere). The ribbon's Read-mode button appears
-whenever an engine exists.
+on Windows, Whisper elsewhere), `androidDictationEngine` on Android
+('system' or 'whisper'). The ribbon's Read-mode button appears whenever an
+engine exists.
 
 Whisper's flow: the first tap opens the mic through `pcm-capture.ts` (an
 `AudioWorkletNode` collecting 16 kHz f32 frames in memory — nothing touches
@@ -745,5 +746,13 @@ cancels the mic or drops the pending words. At `MAX_CAPTURE_SECONDS` the
 capture stops itself and transcribes what it has. Models are downloaded from
 Settings ▸ Voice notes through `stores/whisper-models.ts`, which sequences
 the `whisper_model_*` commands and projects `core/whisper-models.ts`'s
-`downloadReducer`. `pcm-capture.ts` is DOM plumbing and untested by policy;
-everything with a decision in it lives in core or the stores.
+`downloadReducer`; the same store learns the machine's accelerator
+(`whisper_accelerator`) for the "Run on the GPU" row and what an earlier
+version left behind (`whisper_models_stray`). `stores/whisper-setup.ts` is
+the first-launch offer: `main.tsx` calls `consider()` once after boot, core's
+`shouldOfferSetup` decides (never twice, never with a model installed, never
+on Android), and `components/WhisperSetupPrompt.tsx` — the ExternalLinkPrompt
+bar shape — starts the recommended download through the models store or
+sends the offer away for good (`whisperSetupOffered`). `pcm-capture.ts` is
+DOM plumbing and untested by policy; everything with a decision in it lives
+in core or the stores.

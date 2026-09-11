@@ -40,6 +40,10 @@
     ],
     "createUpdaterArtifacts": true,
     "licenseFile": "../LICENSE",
+    "linux": {
+      "deb": { "depends": ["libvulkan1"] },
+      "rpm": { "depends": ["vulkan-loader"] }
+    },
     "resources": {
       "../LICENSE": "LICENSE.txt",
       "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",

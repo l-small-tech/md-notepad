@@ -69,6 +69,26 @@ jobs:
       - name: Point bindgen at LLVM (macOS)
         if: startsWith(matrix.os, 'macos')
         run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      # The Vulkan backend (Windows/Linux) compiles its shaders with glslc
+      # from the Vulkan SDK at build time; the app itself needs only the
+      # platform's Vulkan loader (delay-loaded on Windows). macOS uses Metal
+      # and needs nothing extra.
+      - name: Install Vulkan SDK (Windows)
+        if: startsWith(matrix.os, 'windows')
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
+        with:
+          version: latest
+          cache: true
+      - name: Install Vulkan headers + glslc (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get install -y libvulkan-dev glslc
+      # The shader generator is a nested CMake project ~150 characters deep
+      # inside the target dir; MSVC's build tooling still stops at MAX_PATH,
+      # so Windows builds from a short target dir (see README "Build notes").
+      - name: Short target dir (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: echo "CARGO_TARGET_DIR=D:\t" >> "$GITHUB_ENV"
+        shell: bash
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -99,6 +119,8 @@ jobs:
 
   # Compiles the #[cfg(target_os = "android")] half of the crate (saf_*/stt_*
   # commands, tauri-plugin-androidfs) — nothing else in CI touches that code.
+  # whisper-rs is in the Android graph too (CPU only), so this job also needs
+  # CMake + libclang and a C/C++ cross-compiler the cmake crate can find.
   android-check:
     runs-on: ubuntu-latest
     steps:
@@ -121,17 +143,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Install cmake + libclang (whisper-rs bindings)
+        run: sudo apt-get install -y cmake libclang-dev
+
       # generate_context! embeds ../dist even for `cargo check`.
       - run: pnpm run build
 
-      # cargo check rarely links, but cc-based build scripts probe these;
-      # pointing them at the runner's preinstalled NDK prevents flake.
+      # whisper-rs-sys builds whisper.cpp with CMake even for `cargo check`,
+      # so the NDK compilers are needed for real here, not just as a probe.
+      # The cmake crate takes CC/CXX/AR per target and, for Android targets,
+      # the NDK's own toolchain file.
       - name: Export NDK toolchain env
         run: |
           TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang++" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "CMAKE_TOOLCHAIN_FILE_aarch64_linux_android=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" >> "$GITHUB_ENV"
 
       - name: cargo check (aarch64-linux-android)
         run: cargo check --target aarch64-linux-android
@@ -160,10 +191,19 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      # whisper-rs needs libclang for its bindings (see rust-and-build).
+      # whisper-rs needs libclang for its bindings and the Vulkan SDK for its
+      # shaders (see rust-and-build). The debug exe must land where
+      # e2e/wdio.conf.ts looks (src-tauri/target), so no short target dir
+      # here — this job is non-gating, and the path is a few characters
+      # inside MAX_PATH on the hosted runner.
       - name: Point bindgen at LLVM
         run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
         shell: bash
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
+        with:
+          version: latest
+          cache: true
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:

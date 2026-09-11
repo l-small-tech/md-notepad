@@ -187,7 +187,6 @@ export interface WhisperModelStatusWire {
   label: string;
   bytes: number;
   multilingual: boolean;
-  quantized: boolean;
   installed: boolean;
   partialBytes: number;
 }
@@ -435,13 +434,17 @@ export const ipc = {
     }>('ocr_image_recognize', { pngBase64 }),
 
   /* --------------------------- whisper models --------------------------- */
-  /* Desktop only (src-tauri commands/whisper): offline voice-note
-     transcription. Not registered on Android — only call behind the
-     `dictationEngine() === 'whisper'` check in ui/voice-comments.ts or from
-     the Settings dialog's desktop-only section. */
+  /* Every platform (src-tauri commands/whisper): offline voice-note
+     transcription. */
 
   /** The model manifest joined with what is on disk. */
   whisperModelsList: () => call<WhisperModelStatusWire[]>('whisper_models_list'),
+  /** Bytes of model files an earlier version downloaded that are no longer offered. */
+  whisperModelsStray: () => call<number>('whisper_models_stray'),
+  /** Delete those files. */
+  whisperModelsPrune: () => call<void>('whisper_models_prune'),
+  /** "vulkan" / "metal" / "none": what this build on this machine can hand the model to. */
+  whisperAccelerator: () => call<'vulkan' | 'metal' | 'none'>('whisper_accelerator'),
   /** Where model files live (`<appData>/whisper`), created if missing. */
   whisperModelDir: () => call<string>('whisper_model_dir'),
   /**
@@ -457,7 +460,8 @@ export const ipc = {
    * Load the model into memory now, so the load overlaps the talking. Rejects
    * `WHISPER_NO_MODEL` / `WHISPER_LOAD_FAILED` — the capture fails early.
    */
-  whisperPrepare: (modelId: string) => call<void>('whisper_prepare', { modelId }),
+  whisperPrepare: (modelId: string, useGpu: boolean) =>
+    call<void>('whisper_prepare', { modelId, useGpu }),
   /**
    * Transcribe a capture. The PCM goes as the raw request body (f32 LE mono —
    * no JSON, no base64; ten minutes is ≈ 38 MB) with the rate and model in
@@ -472,6 +476,7 @@ export const ipc = {
     pcm: Float32Array,
     sampleRate: number,
     modelId: string,
+    useGpu: boolean,
     hint?: string,
   ) => {
     const prompt = hint ? headerText(hint) : '';
@@ -483,6 +488,7 @@ export const ipc = {
           headers: {
             'sample-rate': String(sampleRate),
             'model-id': modelId,
+            'use-gpu': useGpu ? 'true' : 'false',
             ...(prompt ? { hint: prompt } : {}),
           },
         },

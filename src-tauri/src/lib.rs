@@ -326,20 +326,16 @@ pub fn run() {
             commands::pty::pty_attach,
             #[cfg(desktop)]
             commands::pty::pty_detach,
-            // Whisper voice notes (offline transcription), desktop only.
-            #[cfg(desktop)]
+            // Whisper voice notes (offline transcription), every platform.
             commands::whisper::models::whisper_models_list,
-            #[cfg(desktop)]
+            commands::whisper::models::whisper_models_stray,
+            commands::whisper::models::whisper_models_prune,
             commands::whisper::models::whisper_model_dir,
-            #[cfg(desktop)]
             commands::whisper::models::whisper_model_download,
-            #[cfg(desktop)]
             commands::whisper::models::whisper_model_cancel,
-            #[cfg(desktop)]
             commands::whisper::models::whisper_model_delete,
-            #[cfg(desktop)]
+            commands::whisper::engine::whisper_accelerator,
             commands::whisper::engine::whisper_prepare,
-            #[cfg(desktop)]
             commands::whisper::engine::whisper_transcribe,
             #[cfg(target_os = "android")]
             commands::android::extract_docs_dir,

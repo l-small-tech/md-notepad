@@ -23,6 +23,7 @@ import { BoardColorMenu } from './components/BoardColorMenu';
 import { DiagramViewer } from './components/DiagramViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
+import { WhisperSetupPrompt } from './components/WhisperSetupPrompt';
 import { SearchPanel } from './components/SearchPanel';
 import { VoiceComments } from './components/VoiceComments';
 import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
@@ -109,6 +110,7 @@ export function App() {
       <BoardColorMenu />
       <CommandPalette />
       <ExternalLinkPrompt />
+      <WhisperSetupPrompt />
       <SearchPanel />
       <VoiceComments />
       {/* Desktop keeps the hover-revealed cluster; Android's way out is the

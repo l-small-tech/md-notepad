@@ -105,7 +105,10 @@ describe('normalizeSettings', () => {
       voiceNotesLocation: 'nextToFile',
       voiceNotesFolderName: 'Review Notes',
       desktopDictationEngine: 'auto',
-      whisperModel: 'small.en',
+      androidDictationEngine: 'system',
+      whisperModel: 'small.en-q5_1',
+      whisperUseGpu: true,
+      whisperSetupOffered: false,
       explorerCollapsedWorkspaces: [],
       explorerExpandedDirs: [],
       showAllFilesDirs: ['C:/work/proj'],
@@ -291,15 +294,33 @@ describe('normalizeSettings', () => {
     expect(DEFAULT_SETTINGS.voiceNotesLocation).toBe('workspaceFolder');
     expect(DEFAULT_SETTINGS.voiceNotesFolderName).toBe('Voice Notes');
     expect(DEFAULT_SETTINGS.desktopDictationEngine).toBe('auto');
-    expect(DEFAULT_SETTINGS.whisperModel).toBe('small.en');
+    expect(DEFAULT_SETTINGS.whisperModel).toBe('small.en-q5_1');
+    expect(DEFAULT_SETTINGS.androidDictationEngine).toBe('system');
+    expect(DEFAULT_SETTINGS.whisperUseGpu).toBe(true);
+    expect(DEFAULT_SETTINGS.whisperSetupOffered).toBe(false);
+    expect(normalizeSettings({ androidDictationEngine: 'whisper' }).androidDictationEngine).toBe(
+      'whisper',
+    );
+    expect(normalizeSettings({ androidDictationEngine: 'siri' }).androidDictationEngine).toBe(
+      'system',
+    );
+    expect(normalizeSettings({ whisperUseGpu: false }).whisperUseGpu).toBe(false);
+    expect(normalizeSettings({ whisperUseGpu: 'no' }).whisperUseGpu).toBe(true);
+    expect(normalizeSettings({ whisperSetupOffered: true }).whisperSetupOffered).toBe(true);
     expect(normalizeSettings({ desktopDictationEngine: 'whisper' }).desktopDictationEngine).toBe(
       'whisper',
     );
     expect(normalizeSettings({ desktopDictationEngine: 'siri' }).desktopDictationEngine).toBe(
       'auto',
     );
-    expect(normalizeSettings({ whisperModel: ' base.en ' }).whisperModel).toBe('base.en');
-    expect(normalizeSettings({ whisperModel: '' }).whisperModel).toBe('small.en');
+    expect(normalizeSettings({ whisperModel: ' base.en-q5_1 ' }).whisperModel).toBe('base.en-q5_1');
+    expect(normalizeSettings({ whisperModel: '' }).whisperModel).toBe('small.en-q5_1');
+    // A pick from the earlier, full-precision manifest lands on its replacement.
+    expect(normalizeSettings({ whisperModel: 'small.en' }).whisperModel).toBe('small.en-q5_1');
+    expect(normalizeSettings({ whisperModel: 'medium.en' }).whisperModel).toBe(
+      'large-v3-turbo-q5_0',
+    );
+    expect(normalizeSettings({ whisperModel: 'custom' }).whisperModel).toBe('custom');
     expect(normalizeSettings({ voiceNotesFolderName: '  Notes  ' }).voiceNotesFolderName).toBe(
       'Notes',
     );

@@ -169,16 +169,18 @@ export const useVoiceStore = <T>(selector: (s: VoiceCommentsState) => T): T =>
 /* ---- helpers ----------------------------------------------------------- */
 
 /**
- * Which engine this platform dictates with. Android: the on-device
- * SpeechRecognizer (`ipc.stt*`). Desktop: the `desktopDictationEngine`
- * setting — 'auto' is Windows voice typing on Windows and Whisper elsewhere.
- * Null only when Windows voice typing is chosen on a non-Windows desktop.
+ * Which engine this platform dictates with. Android: the
+ * `androidDictationEngine` setting — the on-device SpeechRecognizer
+ * (`ipc.stt*`) or Whisper. Desktop: the `desktopDictationEngine` setting —
+ * 'auto' is Windows voice typing on Windows and Whisper elsewhere. Null only
+ * when Windows voice typing is chosen on a non-Windows desktop.
  */
 export function dictationEngine(): DictationEngine | null {
+  const { settings } = settingsStore.getState();
   if (isAndroid()) {
-    return 'android';
+    return settings.androidDictationEngine === 'whisper' ? 'whisper' : 'android';
   }
-  const choice = settingsStore.getState().settings.desktopDictationEngine;
+  const choice = settings.desktopDictationEngine;
   if (choice === 'whisper') {
     return 'whisper';
   }
@@ -487,7 +489,8 @@ function rejectionCode(e: unknown): string {
  */
 async function captureWhisper(id: string): Promise<void> {
   const current = () => captureId === id && voiceStore.getState().phase === 'capturing';
-  const prepared = ipc.whisperPrepare(settingsStore.getState().settings.whisperModel);
+  const { whisperModel, whisperUseGpu } = settingsStore.getState().settings;
+  const prepared = ipc.whisperPrepare(whisperModel, whisperUseGpu);
   prepared.catch(() => {}); // awaited below; this only keeps it from being unhandled
   let capture: PcmCapture;
   try {
@@ -533,11 +536,13 @@ async function transcribeCapture(id: string, pcm: Float32Array, sampleRate: numb
     return;
   }
   try {
-    const modelId = settingsStore.getState().settings.whisperModel;
+    const { whisperModel, whisperUseGpu } = settingsStore.getState().settings;
     // Review mode's identifier hint (if any) primes the decoder — see
     // core/code/vocab.ts.
     const hint = voiceStore.getState().hint ?? undefined;
-    const text = (await ipc.whisperTranscribe(pcm, sampleRate, modelId, hint)).trim();
+    const text = (
+      await ipc.whisperTranscribe(pcm, sampleRate, whisperModel, whisperUseGpu, hint)
+    ).trim();
     if (!current()) {
       return; // closed while transcribing: the words are dropped, as cancelled
     }

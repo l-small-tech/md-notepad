@@ -70,19 +70,29 @@ session concepts in Rust, stop and move it to `src/core`.
   text field (the voice-note sheet's draft box). Voice notes don't use
   `Windows.Media.SpeechRecognition`: for an app without package identity,
   Windows hands that recognizer silence. No audio is touched.
-- `src/commands/whisper/` — **desktop only**: offline voice-note
-  transcription with whisper.cpp (`whisper-rs`, CPU). `models.rs` owns the
-  pinned manifest (Hugging Face `ggerganov/whisper.cpp` files with sizes and
-  SHA-256 digests), the model folder (`<app_data_dir>/whisper`), and the
-  download commands: `whisper_models_list`, `whisper_model_dir`,
-  `whisper_model_download` (streams to `<file>.part` while hashing, resumes
-  with `Range`, renames into place only on a matching digest, reports
-  progress on a `Channel`), `whisper_model_cancel`, `whisper_model_delete`.
-  `engine.rs` caches one loaded `WhisperContext` per session and runs
-  `whisper_prepare` (warm the model) and `whisper_transcribe` — raw f32 PCM
-  as the request body (`tauri::ipc::Request`, no JSON/base64) with
-  `sample-rate` and `model-id` headers, resampled to 16 kHz if needed, on
-  the blocking pool. An optional `hint` header is whisper.cpp's initial
+- `src/commands/whisper/` — every platform: offline voice-note
+  transcription with whisper.cpp (`whisper-rs`). The GPU backend is chosen
+  per target in Cargo.toml — Vulkan on Windows/Linux, Metal on macOS, CPU
+  only on Android — and whisper.cpp falls back to the CPU on its own when
+  no device works. On Windows `vulkan-1.dll` is delay-loaded (build.rs +
+  `src/vulkan_delayload.cpp`): the failure hook turns a missing DLL into the
+  C++ exception ggml's Vulkan registration catches, so a driverless machine
+  starts and transcribes on the CPU; `MD_NOTEPAD_NO_VULKAN=1` forces the
+  same path. `models.rs` owns the pinned manifest (four q5 quantized Hugging
+  Face `ggerganov/whisper.cpp` files with sizes and SHA-256 digests), the
+  model folder (`<app_data_dir>/whisper`), and the download commands:
+  `whisper_models_list`, `whisper_models_stray` / `whisper_models_prune`
+  (files an earlier manifest downloaded — reported as a total, deleted on
+  request), `whisper_model_dir`, `whisper_model_download` (streams to
+  `<file>.part` while hashing, resumes with `Range`, renames into place only
+  on a matching digest, reports progress on a `Channel`),
+  `whisper_model_cancel`, `whisper_model_delete`. `engine.rs` caches one
+  loaded `WhisperContext` per session (keyed by file and GPU flag) and runs
+  `whisper_accelerator` ("vulkan" / "metal" / "none"), `whisper_prepare`
+  (warm the model; `use_gpu` mirrors the setting) and `whisper_transcribe` —
+  raw f32 PCM as the request body (`tauri::ipc::Request`, no JSON/base64)
+  with `sample-rate`, `model-id` and `use-gpu` headers, resampled to 16 kHz
+  if needed, on the blocking pool. An optional `hint` header is whisper.cpp's initial
   prompt (`FullParams::set_initial_prompt`): words the decoder should expect,
   which Review mode fills with the reviewed file's identifiers as spoken
   words (`src/core/code/vocab.ts` `identifierHint`) — without it the decode
