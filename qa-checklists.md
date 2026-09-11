@@ -261,7 +261,7 @@ sibling `session/` folder).
 - [ ] Ctrl+Shift+O toggles the outline panel; headings indent by level;
       headings inside ``` fences and YAML frontmatter do NOT appear.
 - [ ] Outline click in raw/split → editor scrolls to the heading line
-      (centered, focused). In read mode → preview scrolls. In wysiwyg →
+      (centered, focused). In Review mode → preview scrolls. In wysiwyg →
       rendered heading scrolls. Editing a heading updates the outline
       ≤ ~300ms after the pause.
 - [ ] Ctrl+Shift+F opens workspace search (Ctrl+F still opens CM6's

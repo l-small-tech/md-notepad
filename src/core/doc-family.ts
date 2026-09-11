@@ -31,7 +31,7 @@ const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
  * family is *Review* — the structural, read-only view of a code file
  * (`preview/code-review.ts`; review_plan.md §1). The mode VALUE stays `read`
  * so session manifests, the mode picker, mod+4 and `isModeAllowed` all work
- * unchanged; only the label differs (`modeLabel`).
+ * unchanged; only the label is *Review* (`modeLabel`).
  */
 const CODE_MODES: readonly EditorMode[] = ['raw', 'read'];
 /**
@@ -91,7 +91,7 @@ const MODE_LABELS: Record<EditorMode, string> = {
   raw: 'Raw',
   split: 'Split',
   wysiwyg: 'Rich',
-  read: 'Read',
+  read: 'Review',
   draw: 'Draw',
   term: 'Terminal',
 };
@@ -99,13 +99,10 @@ const MODE_LABELS: Record<EditorMode, string> = {
 /**
  * The name a mode is shown under for a document family — the ONE place the
  * label is decided, so the status bar, the palette and any tooltip agree.
- * `read` is *Read* for markdown and *Review* for the code family (the same
- * mode value renders a code file's structure instead of markdown).
+ * `read` is *Review* for every family (for code, the same mode value renders
+ * the file's structure instead of markdown).
  */
-export function modeLabel(mode: EditorMode, family: DocFamily): string {
-  if (mode === 'read' && family === 'code') {
-    return 'Review';
-  }
+export function modeLabel(mode: EditorMode, _family: DocFamily): string {
   return MODE_LABELS[mode];
 }
 

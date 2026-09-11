@@ -33,7 +33,7 @@ describe('docFamilyFor', () => {
 });
 
 describe('the code family', () => {
-  it('offers the source editor and Review (the read mode), and self-heals the rest to Raw', () => {
+  it('offers the source editor and Review (the Review mode), and self-heals the rest to Raw', () => {
     expect(allowedModesFor('code')).toEqual(['raw', 'read']);
     expect(defaultModeFor('code', 'wysiwyg')).toBe('raw');
     expect(defaultModeFor('code', 'read')).toBe('read');
@@ -44,10 +44,10 @@ describe('the code family', () => {
 });
 
 describe('modeLabel', () => {
-  it('calls the read mode Review for code and Read for everything else', () => {
+  it('calls the Review mode Review for code and Read for everything else', () => {
     expect(modeLabel('read', 'code')).toBe('Review');
-    expect(modeLabel('read', 'markdown')).toBe('Read');
-    expect(modeLabel('read', 'svg')).toBe('Read');
+    expect(modeLabel('read', 'markdown')).toBe('Review');
+    expect(modeLabel('read', 'svg')).toBe('Review');
   });
 
   it('leaves the other modes named as before, whatever the family', () => {

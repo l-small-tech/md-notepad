@@ -17,7 +17,7 @@ import type { ScanPreset, ScanSmoothing } from './whiteboard/scan/types';
  *
  * 'draw' is the whiteboard editor over a `.svg` file. Which modes a given tab
  * may actually use depends on its document family (core/doc-family.ts): a
- * markdown tab offers Raw/Split/Rich/Read, an SVG tab offers Draw/Raw.
+ * markdown tab offers Raw/Split/Rich/Review, an SVG tab offers Draw/Raw.
  *
  * 'term' is the sentinel mode of a terminal tab — the one mode its family
  * allows. It exists so a terminal tab's `mode` is a real value every switch
@@ -73,7 +73,7 @@ export interface TabState {
 }
 
 /**
- * Read-mode side margins. Named modes instead of pixels — each maps to a
+ * Review-mode side margins. Named modes instead of pixels — each maps to a
  * responsive gutter in preview.css (narrow ≈ near-full-width text, wide ≈ a
  * book-like centered column).
  */
@@ -220,7 +220,7 @@ export interface WorkspaceEntry {
   liveEdit?: boolean;
   /**
    * Read-only workspace (the bundled documentation): files open pinned to
-   * read mode and the explorer offers no create/rename/move/delete for it.
+   * Review mode and the explorer offers no create/rename/move/delete for it.
    */
   readOnly?: boolean;
   /**

@@ -8,16 +8,16 @@
  * unset key looks exactly as before. Per-level headings cascade
  * `--md-heading{n}` → `--md-heading` → `--fg`; the base `tags.heading` rule
  * keeps the bold weight and colors the `#` marker. Every fallback here matches
- * the Read pane's (preview.css) so raw and read stay the same colors even for
+ * the Review pane's (preview.css) so raw and read stay the same colors even for
  * a theme with no `syntax` block.
  *
  * Two @lezer/markdown tags are deliberately NOT colored, because they cover
- * whole subtrees where Read colors nothing:
+ * whole subtrees where Review colors nothing:
  *  - `tags.content` is every Paragraph — coloring it painted ALL body text
  *    with the theme's code color;
  *  - `tags.list` is the entire BulletList/OrderedList subtree, text included —
  *    coloring it painted every list line with the theme's list color.
- * Read colors only the bullet/number glyph (`li::marker`), so raw mirrors
+ * Review colors only the bullet/number glyph (`li::marker`), so raw mirrors
  * that with `LIST_MARK_TAG`, a custom tag pinned to just the ListMark node.
  */
 
@@ -62,7 +62,7 @@ export const highlightStyle = HighlightStyle.define([
   { tag: [tags.processingInstruction, tags.meta], color: 'var(--fg-muted)' },
   // AFTER processingInstruction: a ListMark span carries both classes (the
   // stock tag plus ours), and the later stylesheet rule must win. Fallback
-  // matches Read's `li::marker` (inherits the text color).
+  // matches Review's `li::marker` (inherits the text color).
   { tag: LIST_MARK_TAG, color: 'var(--md-list, var(--fg))' },
   { tag: tags.keyword, color: 'var(--accent)' },
 ]);

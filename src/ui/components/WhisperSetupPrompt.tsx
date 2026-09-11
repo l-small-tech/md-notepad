@@ -37,7 +37,7 @@ export function WhisperSetupPrompt() {
           : `${percent}% of ${formatBytes(model.bytes)}`;
   } else if (own?.kind === 'done') {
     text = 'Offline dictation is ready.';
-    detail = 'In Read mode, press and hold on a line and talk.';
+    detail = 'In Review mode, press and hold on a line and talk.';
   } else if (own?.kind === 'failed' || own?.kind === 'cancelled') {
     text = own.kind === 'failed' ? 'The download did not finish.' : 'Download paused.';
     detail = 'Settings › Voice notes can resume it any time.';

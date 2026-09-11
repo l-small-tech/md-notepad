@@ -21,7 +21,7 @@
  * state and the stage can never drift apart.
  *
  * The stage is a global view state, independent of the active tab: switching
- * mode (Read → Split), switching tabs, or closing a tab all keep the current
+ * mode (Review → Split), switching tabs, or closing a tab all keep the current
  * stage. There is never a fullscreen tab with no way out: desktop gets the
  * floating cluster (App.tsx) plus F11/Esc, and touch/pen get the tap-and-hold
  * menu (components/FullscreenMenu), which works in every mode — including on a

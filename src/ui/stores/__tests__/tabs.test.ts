@@ -291,7 +291,7 @@ describe('openFileTab (M3)', () => {
     const first = state().openFileTab({ filePath: '/docs/a.md', text: 'a', savedMtimeMs: 1 });
     expect(state().tabs.find((t) => t.id === first)!.mode).toBe('raw');
 
-    // Switch this file to read mode, then open another — it inherits read mode.
+    // Switch this file to Review mode, then open another — it inherits Review mode.
     state().setMode(first, 'read');
     const second = state().openFileTab({ filePath: '/docs/b.md', text: 'b', savedMtimeMs: 2 });
     expect(state().tabs.find((t) => t.id === second)!.mode).toBe('read');

@@ -45,7 +45,7 @@ Tab leaves it where it is.
 | Ctrl+1 | Raw — plain markdown text |
 | Ctrl+2 | Split — text and preview side by side |
 | Ctrl+3 | Rich — word-processor style |
-| Ctrl+4 | Read — read-only, full-width |
+| Ctrl+4 | Review — read-only, full-width |
 
 ## Display
 
@@ -54,7 +54,7 @@ Tab leaves it where it is.
 | Ctrl+= | Larger text |
 | Ctrl+- | Smaller text |
 | Ctrl+0 | Reset text size |
-| F11 (Mac: Ctrl+Cmd+F) | Full screen in Read mode — press again for more, Esc to step back |
+| F11 (Mac: Ctrl+Cmd+F) | Full screen in Review mode — press again for more, Esc to step back |
 
 ## Terminal tabs (desktop only)
 

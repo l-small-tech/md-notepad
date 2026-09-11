@@ -32,7 +32,7 @@ remembered. Press Esc or click outside the panel to close it.
   the next launch it follows the shared theme again.
 - **Font size** — the size of text in the editor and previews. You can also
   change it any time with **Ctrl+=** / **Ctrl+-** (and **Ctrl+0** to
-  reset), which is especially handy in Read mode.
+  reset), which is especially handy in Review mode.
 - **Editor font** — the typeface for your notes, in the editor and in
   previews. Seven open-source coding fonts ship with the app: **Fira Code**
   (the default, and our recommendation), JetBrains Mono, Cascadia Code,
@@ -52,7 +52,7 @@ remembered. Press Esc or click outside the panel to close it.
   **Underscore** (an underline beneath the character).
 - **Word wrap** — when on (the default), long lines wrap to fit the window.
   When off, long lines run sideways and you scroll horizontally.
-- **Read mode margins** — how wide the text column is in Read mode:
+- **Review mode margins** — how wide the text column is in Review mode:
   **Narrow** margins put more text on screen; **Wide** margins give a
   centered, book-like column.
 
@@ -60,7 +60,7 @@ remembered. Press Esc or click outside the panel to close it.
 
 - **Default mode (new tabs)** — which of the four viewing modes
   ([explained here](editing-modes.md)) a new tab starts in: Raw, Split,
-  Rich, or Read.
+  Rich, or Review.
 - **Live save** — when on, files you've opened save themselves as you type,
   just like notes do. When off (the default), files wait for Ctrl+S. You can
   also flip it without opening Settings: press and hold the toolbar's save
@@ -93,7 +93,7 @@ remembered. Press Esc or click outside the panel to close it.
 
 ## Voice notes
 
-Voice notes are dictated comments about a line of a document, made in Read
+Voice notes are dictated comments about a line of a document, made in Review
 mode: turn on the toolbar's voice-notes button, press and hold a line, then
 tap the microphone to start and again to finish. Your speech is turned into
 text and no audio is kept. The document itself is never changed; each note

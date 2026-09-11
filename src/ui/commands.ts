@@ -207,7 +207,7 @@ const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key: string }
   { id: 'mode-raw', title: 'Mode: Raw', mode: 'raw', key: '1' },
   { id: 'mode-split', title: 'Mode: Split', mode: 'split', key: '2' },
   { id: 'mode-rich', title: 'Mode: Rich', mode: 'wysiwyg', key: '3' },
-  { id: 'mode-read', title: 'Mode: Read / Review', mode: 'read', key: '4' },
+  { id: 'mode-read', title: 'Mode: Review', mode: 'read', key: '4' },
 ];
 
 export function buildCommands(): AppCommand[] {

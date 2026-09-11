@@ -31,16 +31,16 @@ Two honest caveats about Rich mode:
   shows a one-time reminder when this could happen. If the exact symbols
   matter to you, edit in Raw or Split mode.
 - **Diagrams show as code.** Mermaid diagrams (see
-  [Writing markdown](writing-markdown.md)) only render in Split and Read
+  [Writing markdown](writing-markdown.md)) only render in Split and Review
   modes.
 
 Also note: undo history doesn't carry across a switch between Rich and the
 other modes.
 
-## Read (Ctrl+4)
+## Review (Ctrl+4)
 
 The polished result, full-width, with nothing editable — ideal for actually
-*reading* a finished note. In Read mode the toolbar swaps to reading tools:
+*reading* a finished note. In Review mode the toolbar swaps to reading tools:
 
 - **A− / A+** — text size (also Ctrl+`-` / Ctrl+`=` anywhere, Ctrl+0 to
   reset).
@@ -57,13 +57,14 @@ hidden, there are two ways back:
   appears with **Exit full screen**, **Workspaces** and **Outline**. On a
   drawing, the hold that opens the menu doesn't leave a mark.
 
-How wide the text column is in Read mode is up to you — see **Read mode
+How wide the text column is in Review mode is up to you — see **Review mode
 margins** in [Settings](settings.md).
 
 ## Review (Ctrl+4, code files)
 
 A code file — `.ts`, `.tsx`, `.js` or `.rs` — offers two modes: **Raw**, the
-plain source with syntax colouring, and **Review**, which takes Read's place.
+plain source with syntax colouring, and **Review**, which here shows structure
+instead of rendered text.
 Review is read-only. It shows the file's *structure* for someone who knows
 what code is but not the syntax, so you can read what an agent did and tell
 it what to change next, by voice.
@@ -114,5 +115,5 @@ they transcribe correctly far more often.
 ## Choosing a default
 
 New tabs open in Raw mode out of the box. Pick a different default —
-including Read, handy if you mostly open notes to look things up — under
+including Review, handy if you mostly open notes to look things up — under
 **Default mode** in [Settings](settings.md).

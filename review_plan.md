@@ -1,7 +1,7 @@
 # Review mode for code files — implementation plan
 
 Status: DONE (built 2026-09-11 on branch feat/code-review). Written 2026-09-10 for execution by Claude Code. Open this
-file in md-notepad's Read mode: every diagram below is mermaid and renders
+file in md-notepad's Review mode: every diagram below is mermaid and renders
 in the app.
 
 ## 0. What this is
@@ -561,7 +561,7 @@ Rust steps add `ppnpm run build` then `cargo fmt`, `cargo clippy
 
 - `doc-family.ts`: `CODE_MODES = ['raw', 'read']`. `Ribbon.tsx`: label
   *Review* when the family is `code`. `commands.ts`: the mod+4 title reads
-  "Mode: Read / Review".
+  "Mode: Review".
 - `src/preview/code-review.ts`: `attachCodeReviewPane(host, model, opts)`
   with the same attach/dispose/setDark/setLineHold shape as `pane.ts`.
   Renders the imports card, the deck, forms, the raw signature, the doc

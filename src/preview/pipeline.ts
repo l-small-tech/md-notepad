@@ -32,7 +32,7 @@ const schema: Schema = {
   attributes: {
     ...defaultSchema.attributes,
     // Every element carries the 1-based source line it was parsed from
-    // (`data-line`, stamped by `rehypeSourceLines` below) so Read mode can map
+    // (`data-line`, stamped by `rehypeSourceLines` below) so Review mode can map
     // a touch on rendered text back to a line of the markdown — the voice-note
     // gesture. A numeric data attribute can't carry script or a URL.
     '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataLine'],
@@ -51,7 +51,7 @@ const schema: Schema = {
   tagNames: [...(defaultSchema.tagNames ?? []), 'input'],
   // `defaultSchema.protocols.src` allows only http(s), so it strips the `src`
   // off a local image whose destination is an absolute Windows path — the
-  // drive letter reads as a protocol (`C:/…` → scheme `c`). That left Read/Split
+  // drive letter reads as a protocol (`C:/…` → scheme `c`). That left Review/Split
   // mode showing broken images (the pane inlines local images off disk AFTER
   // this render — see pane.ts `inlineLocalImages` — but only if the src
   // survives sanitizing to be read). Allow every single-letter scheme, in both

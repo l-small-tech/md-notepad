@@ -50,7 +50,7 @@
 }
 
 .milkdown .ProseMirror {
-  /* Same centered reading column as Read mode (follows the "Read mode
+  /* Same centered reading column as Review mode (follows the "Review mode
      margins" setting via --reading-padding, defined in preview.css). */
   padding: var(--reading-padding);
   min-height: 100%;
@@ -69,11 +69,11 @@
   --prosemirror-virtual-cursor-color: var(--fg);
 }
 
-/* ---- Content parity with Read mode --------------------------------------
+/* ---- Content parity with Review mode --------------------------------------
  * Read and Rich render the same document, so they should read the same.
  * Crepe ships its own content typography (fixed 16px text, 42px
  * regular-weight headings, red inline code, grey pill blockquotes); the
- * rules below restate the Read-mode look. Crepe's reset also zeroes every
+ * rules below restate the Review-mode look. Crepe's reset also zeroes every
  * margin, so `revert` is used to restore the browser defaults that Read
  * mode (plain rendered HTML) gets for free. Keep in sync with preview.css.
  */
@@ -89,7 +89,7 @@
   margin: revert;
 }
 
-/* Tight lists — Read mode's renderer puts bare text in <li>, not <p>. */
+/* Tight lists — Review mode's renderer puts bare text in <li>, not <p>. */
 .milkdown .ProseMirror li p {
   margin: 0;
 }
@@ -170,12 +170,12 @@
   color: var(--md-quote, var(--fg-muted));
 }
 
-/* Crepe's grey pill marker; Read mode uses the accent border above. */
+/* Crepe's grey pill marker; Review mode uses the accent border above. */
 .milkdown .ProseMirror blockquote::before {
   content: none;
 }
 
-/* Code blocks: Crepe's CodeMirror widget on the Read-mode <pre> surface. */
+/* Code blocks: Crepe's CodeMirror widget on the Review-mode <pre> surface. */
 .milkdown .milkdown-code-block,
 .milkdown .milkdown-code-block .cm-editor,
 .milkdown .milkdown-code-block .cm-gutters {

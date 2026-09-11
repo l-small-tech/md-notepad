@@ -206,7 +206,7 @@
   cursor: pointer;
 }
 
-/* While the Read-mode toggle is armed the pane owns the long press: no text
+/* While the Review-mode toggle is armed the pane owns the long press: no text
    selection or callout may start on top of the hold gesture. */
 .preview[data-line-hold] {
   user-select: none;

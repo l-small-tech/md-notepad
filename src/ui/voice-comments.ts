@@ -3,13 +3,13 @@
  *
  * Mirrors the tab-agnostic module-dispatch style of `session.ts`: a single
  * vanilla Zustand store holds the transient state, and the UI
- * (`VoiceComments.tsx`, the ribbon's Read-mode button, the preview pane's hold
+ * (`VoiceComments.tsx`, the ribbon's Review-mode button, the preview pane's hold
  * gesture) is a pure projection of it. All file I/O goes through
  * `currentProvider()` so a note in a synced (SAF) workspace gets its comments
  * file in the same backend.
  *
  * The flow, designed for reviewing a document from the couch:
- *   1. In Read mode, the ribbon's voice-notes button ARMS the feature.
+ *   1. In Review mode, the ribbon's voice-notes button ARMS the feature.
  *   2. While armed, press-and-hold a line of the rendered document. The pane
  *      reports the source line; the panel opens in the `ready` phase, showing
  *      the line's text and a big microphone.
@@ -82,7 +82,7 @@ import { uiStore } from './stores/ui';
 export type Phase = 'closed' | 'ready' | 'capturing' | 'transcribing' | 'viewing';
 
 export interface VoiceCommentsState {
-  /** The Read-mode voice-notes toggle: while true, holding a line opens the panel. */
+  /** The Review-mode voice-notes toggle: while true, holding a line opens the panel. */
   armed: boolean;
   phase: Phase;
   tabId: string | null;
@@ -320,7 +320,7 @@ function closeVoiceTyping(): void {
 
 /* ---- public actions ---------------------------------------------------- */
 
-/** Flip the Read-mode voice-notes toggle. Disarming also closes the panel. */
+/** Flip the Review-mode voice-notes toggle. Disarming also closes the panel. */
 export function toggleArmed(): void {
   const { armed } = voiceStore.getState();
   if (armed) {

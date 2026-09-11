@@ -74,7 +74,7 @@ const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
   { value: 'split', label: 'Split' },
   { value: 'wysiwyg', label: 'Rich' },
-  { value: 'read', label: 'Read' },
+  { value: 'read', label: 'Review' },
 ];
 
 const READER_MARGINS: { value: Settings['readerMargins']; label: string }[] = [
@@ -713,7 +713,7 @@ function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
               </label>
 
               <label className="settings-row">
-                <span className="settings-label">Read mode margins</span>
+                <span className="settings-label">Review mode margins</span>
                 <select
                   className="settings-control"
                   value={settings.readerMargins}

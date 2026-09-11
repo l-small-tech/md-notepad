@@ -126,7 +126,7 @@ Default value for your theme's mode, and a missing trio is derived from your
 The branding colors cover the whole app. If you also want to recolor
 **individual markdown elements** — give headings their own color, tint links,
 make code stand out — add an optional `"syntax"` block. Any key you set applies
-in every view (source, Rich, and Read). Leave the block out entirely, or leave
+in every view (source, Rich, and Review). Leave the block out entirely, or leave
 any key unset, and that element keeps its normal color.
 
 ```json
@@ -276,7 +276,7 @@ in a terminal profile's `env` and md-notepad's hint steps aside.
 
 ### Advanced: the `css` field (optional)
 
-If you want to go beyond colors — say, add letter-spacing in Read mode or tweak
+If you want to go beyond colors — say, add letter-spacing in Review mode or tweak
 a font — you can add an optional `"css"` field with raw CSS. It's applied only
 when your theme is selected. Most people never need this; skip it unless you
 know CSS.

@@ -198,7 +198,7 @@ export function createWorkspaces(
    * Settings "Open docs": register the bundled documentation folder as a
    * read-only workspace (idempotent — an existing entry for that path is
    * upgraded to read-only rather than duplicated), reveal it in the explorer,
-   * and open a page pinned to read mode — the start page, or `page` when a
+   * and open a page pinned to Review mode — the start page, or `page` when a
    * caller wants a specific guide (the Themes menu's Help opens 'themes.md').
    */
   async function openDocsWorkspace(page?: string): Promise<void> {

@@ -155,7 +155,7 @@ export interface TabsState {
    * The mode the user most recently switched to, seeded from
    * settings.defaultMode. Newly opened file tabs adopt it instead of always
    * reverting to the default — so reading in 'read' mode and flipping through
-   * files keeps each new preview in read mode. Session-only (not persisted).
+   * files keeps each new preview in Review mode. Session-only (not persisted).
    */
   lastFileMode: EditorMode;
 
@@ -368,7 +368,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       notePath: init?.notePath ?? null,
       filePath: init?.filePath ?? null,
       customTitle,
-      // A read-only tab is pinned to read mode regardless of what the
+      // A read-only tab is pinned to Review mode regardless of what the
       // manifest recorded (the flag itself is recomputed by the caller).
       // Otherwise the recorded mode is filtered through the document family, so
       // a whiteboard restored from an old manifest opens in Draw rather than
@@ -719,7 +719,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
     setMode(id, mode) {
       const s = get();
       const tab = s.tabs.find((t) => t.id === id);
-      // Read-only tabs are pinned to read mode (the status bar shows a
+      // Read-only tabs are pinned to Review mode (the status bar shows a
       // "Read-only" badge instead of the mode segments).
       if (!tab || tab.mode === mode || tab.readOnly) {
         return;
@@ -767,7 +767,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const active =
         activeTabId && entries.some((e) => e.id === activeTabId) ? activeTabId : entries[0]!.id;
       // Continue flipping in whatever mode the restored active tab was in, so a
-      // read-mode session stays read-mode across a restart. Read-only tabs are
+      // Review-mode session stays Review-mode across a restart. Read-only tabs are
       // pinned to 'read' regardless, so fall back to the default for those.
       // Mobile reads first: every session starts back at 'read' no matter what
       // mode the restored tabs were left in — a phone is primarily a reader,
@@ -817,7 +817,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
           filePath,
           customTitle: null,
           // Adopt the last mode the user switched to, not the static default,
-          // so flipping through files preserves e.g. read mode. A whiteboard
+          // so flipping through files preserves e.g. Review mode. A whiteboard
           // ignores that preference entirely: `lastFileMode` is a MARKDOWN
           // preference, and 'raw' happens to be legal for svg too — inheriting
           // it would open a fresh board as XML source (bit UAT in phase 5, via

@@ -86,7 +86,7 @@ function applyFormat(action: FormatAction): void {
  * Adjust the shared editor/preview font size (the `--editor-font-size` CSS
  * variable both the source editor and the preview read). `'reset'` returns to
  * the default; a numeric step nudges it within the allowed range. This is the
- * read-mode "zoom", and mirrors the mod +/-/0 keyboard shortcuts.
+ * Review-mode "zoom", and mirrors the mod +/-/0 keyboard shortcuts.
  */
 function zoom(step: number | 'reset'): void {
   const current = settingsStore.getState().settings.fontSize;
@@ -187,9 +187,9 @@ const SaveAutoIcon = (
  * directory so the CLI can find them regardless of where it was launched.
  */
 /**
- * The Read-mode voice-notes toggle. While on, pressing and holding a line of
+ * The Review-mode voice-notes toggle. While on, pressing and holding a line of
  * the rendered document opens the voice-note sheet for that line (the pane's
- * hold gesture → `openNoteAtLine`). Read mode only: notes are about reviewing
+ * hold gesture → `openNoteAtLine`). Review mode only: notes are about reviewing
  * a finished document, and the rendered view is where a line is held.
  *
  * Offered only where there is a dictation engine (`dictationEngine()`):

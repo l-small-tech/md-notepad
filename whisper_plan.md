@@ -147,7 +147,7 @@ setting 'windowsVoiceTyping' → isWindows() ? 'windows' : null
 `WHISPER_TOO_LONG`, `WHISPER_LOAD_FAILED`, `WHISPER_FAILED`, and the shared
 `STT_NO_MATCH` when the transcript is empty.
 
-The ribbon's Read-mode voice-notes button shows whenever `dictationEngine()`
+The ribbon's Review-mode voice-notes button shows whenever `dictationEngine()`
 is non-null, which now includes macOS and Linux.
 
 ## 3. Work breakdown (each step ends green)
@@ -235,7 +235,7 @@ editing files in it.
 - `pnpm run build`, `cargo fmt --check`, `cargo clippy --all-targets -- -D
   warnings`, `cargo test`, `cargo check --target aarch64-linux-android`.
 - `pnpm run tauri:dev`: download small.en from Settings, take a voice note in
-  Read mode, confirm the transcript lands in the sidecar, confirm no file
+  Review mode, confirm the transcript lands in the sidecar, confirm no file
   appears anywhere except `<app_data>/whisper/`. Stop the dev server (kill
   the orphan vite on 1420 if needed).
 - Update READMEs, flip this file's status, commit, report the worktree path.

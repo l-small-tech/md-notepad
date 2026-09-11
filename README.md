@@ -73,7 +73,7 @@ The notepad half. Fast, plain, and built to never lose a word.
 - 📄 **Notes are plain `.md` files** in a folder you choose — no database,
   no lock-in. Open and save regular files anywhere, too.
 - 👁️ **Four modes per tab** — raw source (CodeMirror 6), split
-  source+preview, WYSIWYG (Milkdown Crepe), and a distraction-free **Read**
+  source+preview, WYSIWYG (Milkdown Crepe), and a distraction-free **Review**
   mode with zoom. Any mode goes fullscreen (F11) in two stages.
 - 🧜 **Full GFM preview** — tables, task lists, strikethrough, autolinks —
   plus **Mermaid** diagrams rendered in place. Ask an agent for a diagram
@@ -153,7 +153,7 @@ is language-neutral and each one is a single extractor.)
   act on directly. Spoken names snap to the real identifiers; the offline
   Whisper engine is primed with the file's own names.
 
-Voice notes work on markdown too: in Read mode, hold a line and dictate.
+Voice notes work on markdown too: in Review mode, hold a line and dictate.
 Notes never touch the document. Transcription is Windows voice typing on
 Windows, offline **Whisper** on macOS and Linux (or Windows, if you choose),
 and the native recognizer on Android. No audio is ever written to disk.

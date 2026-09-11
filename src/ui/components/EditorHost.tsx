@@ -298,7 +298,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
 
     // Search "jump to line": a reveal parked for this tab's path (the file was
     // opened by search before any editor existed) fires once the initial
-    // attach settles. In wysiwyg/read mode there is no source adapter — the
+    // attach settles. In wysiwyg/Review mode there is no source adapter — the
     // entry is still consumed and the tab just opens (accepted degrade).
     const pendingLine = takePendingReveal(tab.filePath ?? tab.notePath);
     if (pendingLine !== null) {
@@ -345,7 +345,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   }, [tabId]);
 
   // The preview pane is not the source editor (I7 governs that alone) — it's a
-  // plain DOM projection that mounts/unmounts with split OR read mode. In read
+  // plain DOM projection that mounts/unmounts with split OR Review mode. In read
   // mode it fills the row (the source editor is hidden via CSS); in split it
   // shares the row with the editor at the dragged ratio.
   useEffect(() => {
@@ -467,11 +467,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onOpenExternal: (url) => externalLinkStore.getState().request(url),
       // A right-clicked board opens the theme/true colours menu.
       onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
-      // Voice notes: while the Read-mode toggle is armed, holding a line of
+      // Voice notes: while the Review-mode toggle is armed, holding a line of
       // the rendered document opens the capture sheet for that source line.
       onHoldLine: mode === 'read' ? (line) => void openNoteAtLine(tabId, line) : undefined,
     });
-    // The hold gesture follows the voice-notes toggle (Read mode only).
+    // The hold gesture follows the voice-notes toggle (Review mode only).
     const syncLineHold = () => pane.setLineHold(mode === 'read' && voiceStore.getState().armed);
     syncLineHold();
     const unsubscribeVoice = voiceStore.subscribe(syncLineHold);
@@ -500,7 +500,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       const t = tabsStore.getState().tabs.find((t) => t.id === tabId);
       pane.setDocPath(t ? (t.filePath ?? t.notePath) : null);
     });
-    // Read mode: move focus onto the scrollable reading pane so keyboard
+    // Review mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.
     if (mode === 'read' && tabsStore.getState().activeTabId === tabId) {
       host.focus();

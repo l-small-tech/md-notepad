@@ -733,7 +733,7 @@ sheet. `dictationEngine()` picks the engine: Android's recognizer, Windows
 voice typing (Win+H into the sheet's draft box), or **Whisper** — the
 `desktopDictationEngine` setting decides on desktop ('auto' = voice typing
 on Windows, Whisper elsewhere), `androidDictationEngine` on Android
-('system' or 'whisper'). The ribbon's Read-mode button appears whenever an
+('system' or 'whisper'). The ribbon's Review-mode button appears whenever an
 engine exists.
 
 Whisper's flow: the first tap opens the mic through `pcm-capture.ts` (an

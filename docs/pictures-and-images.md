@@ -26,7 +26,7 @@ The reference uses the image's full (absolute) path, so anything you paste
 your note into — an AI assistant, another app — can find the picture
 without guessing where the note lives.
 
-The picture itself displays in **Split**, **Rich**, and **Read** modes.
+The picture itself displays in **Split**, **Rich**, and **Review** modes.
 
 ## Where pasted images are kept
 

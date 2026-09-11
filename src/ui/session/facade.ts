@@ -76,7 +76,7 @@ export { pathKey };
 
 /**
  * Whether `path` lies inside a read-only workspace (the bundled docs). Tabs
- * opened on such files are pinned to read mode and refuse save/rename; the
+ * opened on such files are pinned to Review mode and refuse save/rename; the
  * flag is recomputed from here at every open/restore, never persisted.
  */
 export function isReadOnlyPath(path: string | null): boolean {
@@ -857,7 +857,7 @@ const PENDING_REVEAL_TTL_MS = 10_000;
  * SearchPanel → controller: open a note file and scroll its source editor to
  * `line` (1-based). If the file's tab is already open with a live CM6 adapter
  * (raw/split), the reveal happens immediately; otherwise the line is parked
- * for the mounting editor to pick up. A tab that opens in wysiwyg/read mode
+ * for the mounting editor to pick up. A tab that opens in wysiwyg/Review mode
  * has no source lines to reveal — it just opens (accepted degrade).
  */
 export function openNotePathAtLine(path: string, line: number): void {

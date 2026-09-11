@@ -40,7 +40,7 @@ starts on (from the `position` remark keeps through remark-rehype).
 `renderMarkdownToHtml(text, { sourceLines: true })` selects it. Only the live
 pane asks for it, and only when a host wires `onHoldLine` — the export and
 markup-comparing tests render without stamps. It exists for one consumer: the
-Read-mode voice-note gesture, which maps a press-and-hold on rendered text back
+Review-mode voice-note gesture, which maps a press-and-hold on rendered text back
 to a source line (`closest('[data-line]')`, innermost wins, so a wrapped
 paragraph's inline elements give the more precise line).
 
@@ -152,7 +152,7 @@ followed link (that page isn't the tab's document). Armed, the pane also
 swallows `contextmenu` and marks itself `data-line-hold` (preview.css /
 voice-comments.css turn off selection + touch callout) so Android's long-press
 selection handles don't fight the gesture. `EditorHost` arms it from the
-voice-notes store in Read mode only.
+voice-notes store in Review mode only.
 
 ## Code review pane (`code-review.ts`)
 

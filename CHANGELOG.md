@@ -10,6 +10,9 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Read mode is now Review.** The fourth mode (Ctrl+4) is called Review for
+  every file type, matching the code view.
+
 - **Whisper everywhere, and faster.** Offline dictation now runs on the GPU
   (Vulkan on Windows and Linux, Metal on macOS — several times faster, with
   a switch in Settings to force the CPU), works on Android as an alternative
@@ -22,7 +25,7 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   card per declaration, forms for types, an x-ray-folded Code expander,
   Flow and Calls diagrams, and a *What changed* view against a git
   baseline.
-- **Voice notes.** In Read mode (and on Review cards) press and hold and
+- **Voice notes.** In Review mode (and on code Review cards) press and hold and
   dictate; the note lands in a `.comments.md` sidecar the document never
   sees, ready for an agent to act on. Windows voice typing on Windows,
   offline Whisper on macOS/Linux (downloadable models, no audio saved),

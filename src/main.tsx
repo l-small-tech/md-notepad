@@ -128,7 +128,7 @@ function applyDomSettings(): void {
   } else {
     root.style.setProperty('--font-ui', ui);
   }
-  // Read-mode margins — preview.css maps each value to a responsive gutter.
+  // Review-mode margins — preview.css maps each value to a responsive gutter.
   root.dataset.readerMargins = readerMargins;
   // Editor caret style — base.css maps each value to --caret-width (+ underscore geometry).
   root.dataset.cursor = cursorStyle;

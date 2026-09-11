@@ -121,7 +121,7 @@ export function App() {
       {/* The 'window' stage hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as
           the grab-to-move handle in every mode. It fires only on itself, so content
-          below stays interactive. In Read mode it's tall (~3 lines of top
+          below stays interactive. In Review mode it's tall (~3 lines of top
           whitespace); in edit modes it's titlebar-height so it doesn't swallow the
           first editor lines. Android has no draggable OS window, so it's
           desktop-only. */}

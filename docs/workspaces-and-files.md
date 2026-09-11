@@ -109,6 +109,6 @@ removed.)
 
 This guide appears as a workspace named **Documentation** (Settings →
 **Open docs**). Because it's part of the app, it works a little
-differently: its pages open in Read mode and can't be edited, renamed,
+differently: its pages open in Review mode and can't be edited, renamed,
 moved, or deleted, and you can't add files to it. Everything else — reading,
 searching, copying text out — works as usual.

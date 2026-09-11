@@ -10,7 +10,7 @@
  *
  * Like `markdown-highlight.ts`, every color is a CSS variable from base.css, so
  * light/dark and every theme plugin work with no code here at all. The tags
- * reuse the same `--md-*` vocabulary the markdown style and the Read pane use,
+ * reuse the same `--md-*` vocabulary the markdown style and the Review pane use,
  * so the two modes stay visually of a piece:
  *   tag names → heading color, attribute names → link/accent, values → code.
  */
