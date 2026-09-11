@@ -98,6 +98,23 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
+/** How long a header value may get before it is cut (see `headerText`). */
+const MAX_HEADER_CHARS = 1024;
+
+/**
+ * A string made safe for an HTTP header value: printable ASCII on one line,
+ * collapsed whitespace, capped. Anything else (a non-ASCII identifier, a
+ * newline) would make Tauri reject the whole request, so it is dropped rather
+ * than risking the call it rides on.
+ */
+function headerText(value: string): string {
+  return value
+    .replace(/[^\x20-\x7e]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_HEADER_CHARS);
+}
+
 /* Mirrors of the Rust structs (serde renames snake_case → camelCase). */
 
 export interface FileText {
@@ -445,13 +462,30 @@ export const ipc = {
    * Transcribe a capture. The PCM goes as the raw request body (f32 LE mono —
    * no JSON, no base64; ten minutes is ≈ 38 MB) with the rate and model in
    * headers. Resolves the transcript, "" for silence.
+   *
+   * `hint` is whisper.cpp's initial prompt: words the decoder should expect
+   * (Review mode passes the file's identifiers — `core/code/vocab.ts`
+   * `identifierHint`). It rides in the `hint` header, so it is flattened to
+   * printable ASCII on one line and capped; without it nothing changes.
    */
-  whisperTranscribe: async (pcm: Float32Array, sampleRate: number, modelId: string) => {
+  whisperTranscribe: async (
+    pcm: Float32Array,
+    sampleRate: number,
+    modelId: string,
+    hint?: string,
+  ) => {
+    const prompt = hint ? headerText(hint) : '';
     try {
       return await invoke<string>(
         'whisper_transcribe',
         new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength),
-        { headers: { 'sample-rate': String(sampleRate), 'model-id': modelId } },
+        {
+          headers: {
+            'sample-rate': String(sampleRate),
+            'model-id': modelId,
+            ...(prompt ? { hint: prompt } : {}),
+          },
+        },
       );
     } catch (raw) {
       throw toIpcError(raw);

@@ -285,3 +285,37 @@
   align-self: stretch;
   min-height: 5em;
 }
+
+/* Review mode: the names snapping pulled out of the transcript, each with a
+   one-tap undo (the reviewer can see what was put in their mouth). */
+.vc-snaps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+}
+.vc-snaps-label {
+  color: var(--fg-muted);
+}
+.vc-snap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.vc-snap code {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.vc-snap-undo {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 2px 4px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
