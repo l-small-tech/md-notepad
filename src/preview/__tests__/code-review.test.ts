@@ -191,11 +191,11 @@ describe('attachCodeReviewPane', () => {
     const wrap = document.createElement('div');
     wrap.className = 'mermaid-diagram';
     wrap.innerHTML =
-      '<svg><g class="node" id="flowchart-showAllFilesState-7"><rect></rect></g><rect id="bg"></rect></svg>';
+      '<svg><g class="node" id="mermaid-3-flowchart-showAllFilesState-7"><rect></rect></g><rect id="bg"></rect></svg>';
     pre.replaceWith(wrap);
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
-    click(wrap.querySelector('#flowchart-showAllFilesState-7 rect')!);
+    click(wrap.querySelector('#mermaid-3-flowchart-showAllFilesState-7 rect')!);
     await vi.advanceTimersByTimeAsync(10); // the render lands; the 1.2 s flash timer does not
     expect(state().view).toBe('cards');
     expect(scrollIntoView).toHaveBeenCalled();

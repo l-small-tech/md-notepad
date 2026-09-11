@@ -212,8 +212,9 @@ what it is handed:
 
 - `setGitInfo({ available, hint?, branch?, baseBranch?, baseRef? })` fills
   `#cr-baseline-slot` in place: a `select.cr-baseline-select` with *this
-  branch (vs development)* (only when `baseRef` exists) · *uncommitted* ·
-  *last commit*, or — `available: false` — the hint text (`.cr-git-hint`:
+  branch* (only when `baseRef` exists; the branch, base branch and merge
+  base are the label's tooltip) · *uncommitted* · *last commit*, or —
+  `available: false` — the hint text (`.cr-git-hint`:
   "Git not found" / "Not a git repository"). Picking an option reports a
   plain `{ type: 'baseline' }` action like every other tap; the host turns
   the baseline into a revision.

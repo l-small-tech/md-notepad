@@ -431,15 +431,20 @@ export function attachCodeReviewPane(
     if (!gitInfo.available) {
       return `<span class="cr-git-hint">${esc(gitInfo.hint ?? 'Git is not available')}</span>`;
     }
-    const options_ = BASELINES.filter((b) => b.id !== 'branch' || gitInfo?.baseRef).map((b) => {
-      const label =
-        b.id === 'branch' && gitInfo?.baseBranch
-          ? `${b.label} (vs ${gitInfo.baseBranch})`
-          : b.label;
-      return `<option value="${b.id}"${state.baseline === b.id ? ' selected' : ''}>${esc(label)}</option>`;
-    });
-    const branch = gitInfo.branch ? ` title="on ${esc(gitInfo.branch)}"` : '';
-    return `<label class="cr-baseline"${branch}><span class="cr-baseline-label">vs</span><select class="cr-baseline-select" aria-label="Compare against">${options_.join('')}</select></label>`;
+    const options_ = BASELINES.filter((b) => b.id !== 'branch' || gitInfo?.baseRef).map(
+      (b) =>
+        `<option value="${b.id}"${state.baseline === b.id ? ' selected' : ''}>${b.label}</option>`,
+    );
+    // The long form ("on feat/x · this branch = vs development at 3c77f30")
+    // lives in the tooltip so the picker stays one short phrase wide on a phone.
+    const parts = [
+      gitInfo.branch ? `on ${gitInfo.branch}` : null,
+      gitInfo.baseBranch && gitInfo.baseRef
+        ? `this branch = vs ${gitInfo.baseBranch} at ${gitInfo.baseRef.slice(0, 7)}`
+        : null,
+    ].filter((p): p is string => p !== null);
+    const title = parts.length > 0 ? ` title="${esc(parts.join(' · '))}"` : '';
+    return `<label class="cr-baseline"${title}><span class="cr-baseline-label">vs</span><select class="cr-baseline-select" aria-label="Compare against">${options_.join('')}</select></label>`;
   }
 
   function chipsHtml(): string {
@@ -790,6 +795,12 @@ export function attachCodeReviewPane(
     }
     const card = host.querySelector<HTMLElement>(`.cr-card[data-unit-id="${cssEscape(unitId)}"]`);
     if (!card) {
+      // Filtered out (a Calls-view tap on an unchanged unit under the Changed
+      // chip): widen to All and land on it after that render.
+      if (state.filter !== 'all' && unitsById.has(unitId)) {
+        pendingScroll = unitId;
+        apply({ type: 'filter', filter: 'all' });
+      }
       return;
     }
     card.scrollIntoView({ block: 'start', behavior: 'auto' });
@@ -896,7 +907,10 @@ export function attachCodeReviewPane(
       event.preventDefault();
       const node = el.closest<SVGElement>('g.node');
       if (node && diagram.closest('.cr-calls')) {
-        const hit = callNodes.find((n) => node.id.startsWith(`flowchart-${n.id}-`));
+        // Mermaid names a node `<renderId>-flowchart-<ourId>-<n>` (the render
+        // id prefix is `mermaid-<seq>`); our ids are `[A-Za-z0-9_]` only.
+        const match = /flowchart-([A-Za-z0-9_]+)-\d+$/.exec(node.id);
+        const hit = match ? callNodes.find((n) => n.id === match[1]) : undefined;
         if (hit) {
           scrollToUnit(hit.unitId);
           return;

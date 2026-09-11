@@ -119,10 +119,13 @@ describe('what changed', () => {
     });
     const select = el.querySelector<HTMLSelectElement>('.cr-baseline-select')!;
     expect([...select.options].map((o) => o.textContent)).toEqual([
-      'this branch (vs development)',
+      'this branch',
       'uncommitted',
       'last commit',
     ]);
+    expect(el.querySelector('.cr-baseline')?.getAttribute('title')).toBe(
+      'on feat/x · this branch = vs development at 3c77f30',
+    );
     select.value = 'last-commit';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     expect(actions.at(-1)).toEqual({ type: 'baseline', baseline: 'last-commit' });
@@ -174,6 +177,19 @@ describe('what changed', () => {
       'function:showAllFilesState',
       'function:oldHelper',
     ]);
+
+    // A jump to a card the chip hides widens the filter to All and lands on it.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    pane.scrollToUnit('function:dirKey');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(el.querySelector('.cr-chip-active')?.textContent).toBe('All');
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(
+      el.querySelector('[data-unit-id="function:dirKey"]')?.classList.contains('cr-card-flash'),
+    ).toBe(true);
+    click(chip);
+    await vi.runOnlyPendingTimersAsync();
 
     // The Changes view is the same deck without the chip row.
     click(el.querySelector('.cr-view[data-view="changes"]')!);
