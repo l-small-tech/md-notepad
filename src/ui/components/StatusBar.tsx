@@ -10,7 +10,7 @@
 
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { allowedModesFor, docFamilyFor } from '../../core/doc-family';
+import { allowedModesFor, docFamilyFor, modeLabel, type DocFamily } from '../../core/doc-family';
 import { formatClockTime, isLiveEditTab } from '../../core/live-edit';
 import type { EditorMode } from '../../core/types';
 import { useLiveEditStore } from '../stores/live-edit';
@@ -19,38 +19,43 @@ import { tabsStore, useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { downloadAndInstall, useUpdateStore } from '../update';
 
-/** Label + tooltip per mode; WHICH ones a tab offers comes from its doc family. */
-const MODE_META: Record<EditorMode, { label: string; hint: string }> = {
-  raw: { label: 'Raw', hint: 'Source (Ctrl/Cmd+1)' },
-  split: { label: 'Split', hint: 'Source + preview (Ctrl/Cmd+2)' },
-  wysiwyg: { label: 'Rich', hint: 'WYSIWYG (Ctrl/Cmd+3)' },
-  read: { label: 'Read', hint: 'Reader — read-only (Ctrl/Cmd+4)' },
-  draw: { label: 'Draw', hint: 'Vector graphics (Ctrl/Cmd+1)' },
+/**
+ * Tooltip per mode; the label comes from `modeLabel` (core/doc-family) and
+ * WHICH ones a tab offers from its doc family. `read` on a code file is
+ * Review — the structural view — so its hint differs too.
+ */
+const MODE_HINTS: Record<EditorMode, string> = {
+  raw: 'Source (Ctrl/Cmd+1)',
+  split: 'Source + preview (Ctrl/Cmd+2)',
+  wysiwyg: 'WYSIWYG (Ctrl/Cmd+3)',
+  read: 'Reader — read-only (Ctrl/Cmd+4)',
+  draw: 'Vector graphics (Ctrl/Cmd+1)',
   // Never rendered: the status bar is hidden entirely on a terminal tab, and
   // 'term' is the only mode its family allows so there is nothing to pick.
-  term: { label: 'Terminal', hint: 'Shell' },
+  term: 'Shell',
 };
+const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
 
 function ModeSegments({
   activeMode,
   tabId,
-  modes,
+  family,
 }: {
   activeMode: EditorMode;
   tabId: string;
-  modes: readonly EditorMode[];
+  family: DocFamily;
 }) {
   return (
     <div className="mode-segments" role="group" aria-label="Edit mode">
-      {modes.map((mode) => (
+      {allowedModesFor(family).map((mode) => (
         <button
           key={mode}
           className={`mode-segment${mode === activeMode ? ' mode-segment-active' : ''}`}
           aria-pressed={mode === activeMode}
-          title={MODE_META[mode].hint}
+          title={mode === 'read' && family === 'code' ? REVIEW_HINT : MODE_HINTS[mode]}
           onClick={() => tabsStore.getState().setMode(tabId, mode)}
         >
-          {MODE_META[mode].label}
+          {modeLabel(mode, family)}
         </button>
       ))}
     </div>
@@ -140,7 +145,7 @@ export function StatusBar() {
         <ModeSegments
           activeMode={active.mode}
           tabId={active.id}
-          modes={allowedModesFor(docFamilyFor(active.filePath ?? active.notePath))}
+          family={docFamilyFor(active.filePath ?? active.notePath)}
         />
       )}
       {import.meta.env.DEV && (

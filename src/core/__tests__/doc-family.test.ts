@@ -5,6 +5,7 @@ import {
   docFamilyFor,
   docFamilyForTab,
   isModeAllowed,
+  modeLabel,
 } from '../doc-family';
 
 describe('docFamilyFor', () => {
@@ -32,11 +33,30 @@ describe('docFamilyFor', () => {
 });
 
 describe('the code family', () => {
-  it('offers only the source editor, and self-heals any other mode to it', () => {
-    expect(allowedModesFor('code')).toEqual(['raw']);
+  it('offers the source editor and Review (the read mode), and self-heals the rest to Raw', () => {
+    expect(allowedModesFor('code')).toEqual(['raw', 'read']);
     expect(defaultModeFor('code', 'wysiwyg')).toBe('raw');
-    expect(defaultModeFor('code', 'read')).toBe('raw');
+    expect(defaultModeFor('code', 'read')).toBe('read');
+    expect(defaultModeFor('code', 'draw')).toBe('raw');
     expect(isModeAllowed('code', 'split')).toBe(false);
+    expect(isModeAllowed('code', 'read')).toBe(true);
+  });
+});
+
+describe('modeLabel', () => {
+  it('calls the read mode Review for code and Read for everything else', () => {
+    expect(modeLabel('read', 'code')).toBe('Review');
+    expect(modeLabel('read', 'markdown')).toBe('Read');
+    expect(modeLabel('read', 'svg')).toBe('Read');
+  });
+
+  it('leaves the other modes named as before, whatever the family', () => {
+    expect(modeLabel('raw', 'code')).toBe('Raw');
+    expect(modeLabel('raw', 'markdown')).toBe('Raw');
+    expect(modeLabel('split', 'markdown')).toBe('Split');
+    expect(modeLabel('wysiwyg', 'markdown')).toBe('Rich');
+    expect(modeLabel('draw', 'svg')).toBe('Draw');
+    expect(modeLabel('term', 'terminal')).toBe('Terminal');
   });
 });
 

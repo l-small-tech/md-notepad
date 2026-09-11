@@ -58,6 +58,7 @@ import {
   noteRefFor,
   parseCommentsFile,
   serializeCommentsFile,
+  type ReviewContext,
   type VoiceComment,
 } from '../core/comments';
 import { snapIdentifiers, undoSnap as undoSnapIn, type Snap } from '../core/code/vocab';
@@ -124,6 +125,12 @@ export interface VoiceCommentsState {
   /** Review mode: the file's identifiers, for snapping the transcript. */
   identifiers: string[];
   /**
+   * Review mode: where the review happened (branch, worktree, baseline) —
+   * written into the sidecar's preamble on every save while the sheet is
+   * open on that tab. Null for a markdown note or when git is absent.
+   */
+  context: ReviewContext | null;
+  /**
    * What snapping changed in the last note ("shows all files" →
    * `` `showsAllFiles` ``). The sheet lists them with a per-snap undo; empty
    * whenever there is nothing to show.
@@ -149,6 +156,7 @@ const initial: VoiceCommentsState = {
   unit: null,
   hint: null,
   identifiers: [],
+  context: null,
   snaps: [],
   snapCommentId: null,
 };
@@ -235,14 +243,14 @@ function scheduleSave(): void {
 }
 
 async function flushSave(): Promise<void> {
-  const { commentsPath, comments, notePath } = voiceStore.getState();
+  const { commentsPath, comments, notePath, context } = voiceStore.getState();
   if (!commentsPath || !notePath) {
     return;
   }
   try {
     await currentProvider().atomicWriteText(
       commentsPath,
-      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath)),
+      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath), context ?? undefined),
     );
   } catch {
     uiStore.getState().showNotice('Could not save voice notes.');
@@ -333,6 +341,8 @@ export interface NoteTarget {
   hint?: string;
   /** The file's identifiers: spoken ones snap to the real names. */
   identifiers?: string[];
+  /** Where the review happened — the sidecar's preamble (`ReviewContext`). */
+  context?: ReviewContext;
 }
 
 /**
@@ -375,6 +385,7 @@ export async function openNoteAtLine(
     unit: opts?.unit ?? null,
     hint: opts?.hint ?? null,
     identifiers: opts?.identifiers ?? [],
+    context: opts?.context ?? null,
     snaps: [],
     snapCommentId: null,
   });
@@ -835,6 +846,7 @@ function initialTail() {
     unit: null,
     hint: null,
     identifiers: [],
+    context: null,
     snaps: [],
     snapCommentId: null,
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;

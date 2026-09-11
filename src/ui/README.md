@@ -71,6 +71,43 @@ Rules:
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
 
+### Review mode for code files
+
+A code-family tab's `read` mode (labelled *Review* by `core/doc-family
+modeLabel`; `CODE_MODES = ['raw', 'read']`, so mod+4, the status bar segments
+and session manifests need nothing new) mounts `preview/code-review.ts` in
+the same preview host instead of the markdown pane. `EditorHost` wires:
+`stores/code-review.ts` (one `ReviewState` per tab — `dispatch(tabId,
+action)` from the pane's `onAction`, `pane.setState(reviewStateFor(tabId))`
+on every store tick), dark mode, `onOpenDiagram` → `stores/diagram-viewer`,
+and `onHoldUnit` → `voice-comments.openNoteAtLine(tabId, signatureLine,
+{ unit, quote, hint, identifiers })` armed from the voice store like the
+markdown pane's line hold. The Ribbon's `ReaderControls` (text zoom) apply
+unchanged. `stores/code-review` is transient and never persisted; EditorHost
+clears the tab's entry on unmount.
+
+**What changed** (`code-review-git.ts`, review_plan.md §6) is the git side
+of that wiring, one `createReviewGit({ path, … })` per mounted pane. On
+attach — and whenever the tab becomes active, the window regains focus, or
+the `reviewBaseBranch` setting changes — it calls `ipc.gitRepoInfo`
+(throttled to once per 5 s, `refresh(true)` skips the throttle). The pure
+rules are exported and tested: `defaultBaseline(info)` is *branch* when a
+merge base exists and HEAD is not the base branch (every worktree), else
+*uncommitted*; `baselineRev` maps branch → `info.baseRef`, uncommitted →
+`HEAD`, last-commit → `HEAD~1`; `radarBranches` is every other worktree's
+branch. `modelChanged(model, text)` (from the pane's `onModelChange`) and
+`baselineChanged()` (the store's baseline moved) recompute
+`changeMap(parseCode(baseText), model, diffLines(baseText, text))`, with the
+baseline text and the radar (`ipc.gitFileChanges`, filtered to `differs`)
+cached per revision and dropped when HEAD or the merge base moves. Results
+go to `pane.setChanges` — badges first, the radar when it lands — and repo
+facts to `pane.setGitInfo`; `isGitUnavailable` (or any other git failure)
+becomes `{ available: false, hint }` and clears the badges. Stale answers
+are dropped by sequence number, and nothing ever waits on git before the
+cards render. `context()` is the `ReviewContext` (`core/comments.ts`) the
+hold gesture passes to `openNoteAtLine`, so the sidecar's preamble records
+the branch, the worktree root and the baseline.
+
 ## Tab strip: shrink, then scroll (M9)
 
 Every tab renders at `--tab-width` (its ideal size, not its title's — a
