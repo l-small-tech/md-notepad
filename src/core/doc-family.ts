@@ -26,10 +26,14 @@ const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'
 const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
 /**
  * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
- * unsupported files. It is not markdown, so rendering it (Rich, split preview,
- * Read) would mangle it: only the source editor applies.
+ * unsupported files. It is not markdown, so rendering it (Rich, split preview)
+ * would mangle it: the source editor applies, plus `read`, which for this
+ * family is *Review* — the structural, read-only view of a code file
+ * (`preview/code-review.ts`; review_plan.md §1). The mode VALUE stays `read`
+ * so session manifests, the mode picker, mod+4 and `isModeAllowed` all work
+ * unchanged; only the label differs (`modeLabel`).
  */
-const CODE_MODES: readonly EditorMode[] = ['raw'];
+const CODE_MODES: readonly EditorMode[] = ['raw', 'read'];
 /**
  * A terminal offers exactly one mode. It still goes through this table so the
  * mode picker and the mod+1..4 shortcuts filter it out with the same
@@ -81,6 +85,28 @@ export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
 
 export function isModeAllowed(family: DocFamily, mode: EditorMode): boolean {
   return allowedModesFor(family).includes(mode);
+}
+
+const MODE_LABELS: Record<EditorMode, string> = {
+  raw: 'Raw',
+  split: 'Split',
+  wysiwyg: 'Rich',
+  read: 'Read',
+  draw: 'Draw',
+  term: 'Terminal',
+};
+
+/**
+ * The name a mode is shown under for a document family — the ONE place the
+ * label is decided, so the status bar, the palette and any tooltip agree.
+ * `read` is *Read* for markdown and *Review* for the code family (the same
+ * mode value renders a code file's structure instead of markdown).
+ */
+export function modeLabel(mode: EditorMode, family: DocFamily): string {
+  if (mode === 'read' && family === 'code') {
+    return 'Review';
+  }
+  return MODE_LABELS[mode];
 }
 
 /**
