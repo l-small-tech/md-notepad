@@ -70,7 +70,9 @@ describe('callGraphMermaid', () => {
   test('focus mode above the threshold keeps exported units and their one-hop neighbours', () => {
     const n = CALL_GRAPH_FOCUS_AT + 5;
     const src = Array.from({ length: n }, (_, i) =>
-      i === 0 ? 'export function f0() { f1(); }' : `function f${i}() { f${i + 1 < n ? i + 1 : 0}(); }`,
+      i === 0
+        ? 'export function f0() { f1(); }'
+        : `function f${i}() { f${i + 1 < n ? i + 1 : 0}(); }`,
     ).join('\n');
     const m = parseCode(src, 'x.ts')!;
     const auto = callGraphMermaid(m);
@@ -98,7 +100,9 @@ describe('callGraphMermaid', () => {
 
 describe('flowMermaid', () => {
   test('showAllFilesState matches the §5.2 diagram shape: stadium start/return, subgraph, labelled edges', () => {
-    const text = flowMermaid(flowGraph(textFiles.units.find((u) => u.name === 'showAllFilesState')!));
+    const text = flowMermaid(
+      flowGraph(textFiles.units.find((u) => u.name === 'showAllFilesState')!),
+    );
     expect(text).toBe(
       [
         'flowchart TD',
@@ -109,7 +113,7 @@ describe('flowMermaid', () => {
         '  subgraph sg0["consider (inner)"]',
         '    n2(["for (const d of dirs)"])',
         '    n3["root = dirKey(d)"]',
-        '    n4{"root.length #gt; best.len && isAtOrBelow(k…?"}',
+        '    n4{"root.length #gt; best.len #38;#38; isAtOrBelow(k…?"}',
         '    n5["best = { len: root.length, show, explic…"]',
         '    n6(["end"])',
         '  end',
@@ -138,12 +142,17 @@ describe('flowMermaid', () => {
     const m = parseCode('function f(a: string) { if (a < "#x" || a > "|") { g(); } }', 'x.ts')!;
     const text = flowMermaid(flowGraph(m.units[0]!));
     expect(text).toContain('{"a #lt; #quot;#35;x#quot; #124;#124; a #gt; #quot;#124;#quot;?"}');
+    const rs = parseCode(
+      'fn f(p: &str) -> bool { if p.len() > 0 && g(&p) { true } else { false } }',
+      'x.rs',
+    )!;
+    expect(flowMermaid(flowGraph(rs.units[0]!))).toContain('{"p.len() #gt; 0 #38;#38; g(#38;p)?"}');
   });
 });
 
 describe('helpers', () => {
   test('escapeLabel handles # first so entity codes are not double-escaped', () => {
-    expect(escapeLabel('a#b"c<d>e|f')).toBe('a#35;b#quot;c#lt;d#gt;e#124;f');
+    expect(escapeLabel('a#b"c<d>e|f&g')).toBe('a#35;b#quot;c#lt;d#gt;e#124;f#38;g');
   });
 
   test('safeId never yields a reserved word, a leading digit or a clash', () => {

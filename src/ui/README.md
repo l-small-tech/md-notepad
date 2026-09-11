@@ -71,6 +71,20 @@ Rules:
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
 
+### Review mode for code files
+
+A code-family tab's `read` mode (labelled *Review* by `core/doc-family
+modeLabel`; `CODE_MODES = ['raw', 'read']`, so mod+4, the status bar segments
+and session manifests need nothing new) mounts `preview/code-review.ts` in
+the same preview host instead of the markdown pane. `EditorHost` wires:
+`stores/code-review.ts` (one `ReviewState` per tab — `dispatch(tabId,
+action)` from the pane's `onAction`, `pane.setState(reviewStateFor(tabId))`
+on every store tick), dark mode, `onOpenDiagram` → `stores/diagram-viewer`,
+and `onHoldUnit` → `voice-comments.openNoteAtLine(tabId, signatureLine,
+{ unit, quote, hint, identifiers })` armed from the voice store like the
+markdown pane's line hold. The Ribbon's `ReaderControls` (text zoom) apply
+unchanged. `stores/code-review` is transient and never persisted.
+
 ## Tab strip: shrink, then scroll (M9)
 
 Every tab renders at `--tab-width` (its ideal size, not its title's — a

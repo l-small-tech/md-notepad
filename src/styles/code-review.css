@@ -1,0 +1,545 @@
+/*
+ * Review mode for code files (src/preview/code-review.ts, review_plan.md §5).
+ * Sits inside the same `.preview.reader-preview` host the markdown reader
+ * uses, so text zoom (--editor-font-size), reading margins and the reader's
+ * scroll behaviour all apply. Every colour is a theme variable; the token
+ * classes map onto the same `--md-*` vocabulary editors/code-highlight.ts
+ * uses, so Raw and Review colour code identically.
+ */
+
+.cr-host {
+  /* Cards are wider than prose: relax the reading column's side gutters. */
+  padding-top: 0;
+  padding-bottom: 2.5rem;
+  line-height: 1.5;
+}
+
+.cr-root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ---- header: file name · segmented views · baseline slot ---------------- */
+
+.cr-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 0;
+  background: var(--editor-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.cr-file {
+  font-weight: 700;
+  color: var(--md-heading, var(--fg));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.cr-views {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex: none;
+}
+
+.cr-view {
+  min-height: 36px;
+  padding: 0 14px;
+  border: none;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cr-view + .cr-view {
+  border-left: 1px solid var(--border);
+}
+
+.cr-view-active {
+  background: var(--accent);
+  color: var(--editor-bg);
+  font-weight: 700;
+}
+
+.cr-view:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The What-changed step mounts its baseline picker here. */
+.cr-baseline-slot {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ---- filter chips (scroll sideways, never wrap) --------------------------- */
+
+.cr-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cr-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.cr-chip {
+  flex: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cr-chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--editor-bg);
+  font-weight: 700;
+}
+
+.cr-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- notes -------------------------------------------------------------- */
+
+.cr-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.92em;
+}
+
+.cr-warn {
+  color: var(--danger);
+}
+
+.cr-hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+
+.cr-empty {
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* ---- cards ---------------------------------------------------------------- */
+
+.cr-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cr-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: box-shadow 0.4s ease;
+}
+
+.cr-card-flash {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.cr-card-sub {
+  margin: 0 10px 10px;
+  background: var(--editor-bg);
+}
+
+.cr-children {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The header is one 48 px tap target (toggles the doc body). */
+.cr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cr-card-head-static {
+  cursor: default;
+}
+
+.cr-glyph {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cr-name {
+  font-weight: 700;
+  color: var(--md-heading, var(--fg));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cr-badges {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.cr-kind {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.cr-size {
+  flex: none;
+  letter-spacing: 1px;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+
+.cr-pill-tag,
+.cr-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cr-tag-exported {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+/* Change badges — filled by the What-changed step, styled now. */
+.cr-badge-added {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.cr-badge-changed {
+  background: color-mix(in srgb, #d97706 22%, transparent);
+  color: #b45309;
+}
+
+.cr-badge-removed {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+
+/* A ghost card (a unit removed against the baseline). */
+.cr-card-ghost {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.cr-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+.cr-card-body:empty {
+  display: none;
+}
+
+.cr-sentence {
+  margin: 0;
+  color: var(--fg);
+}
+
+.cr-sentence code,
+.cr-form code {
+  font-size: 0.9em;
+  padding: 0 0.3em;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--md-code, var(--fg-muted));
+}
+
+.cr-signature {
+  display: block;
+  font-size: 0.8em;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The doc comment: three lines by default, the header tap opens it. */
+.cr-doc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--fg);
+}
+
+.cr-doc-open {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.cr-doc > :first-child {
+  margin-top: 0;
+}
+
+.cr-doc > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---- forms (structs, interfaces, enums, classes) -------------------------- */
+
+.cr-form {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.cr-form td {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.cr-form-name {
+  white-space: nowrap;
+}
+
+.cr-form-doc {
+  color: var(--fg-muted);
+}
+
+/* ---- facts row + expander pills -------------------------------------------- */
+
+.cr-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.cr-row:empty {
+  display: none;
+}
+
+.cr-facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 0.9em;
+}
+
+.cr-fact-link {
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--md-link, var(--accent));
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cr-expanders {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cr-pill {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cr-pill-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--editor-bg);
+  font-weight: 700;
+}
+
+/* ---- expanders: Code (x-ray) and Flow -------------------------------------- */
+
+.cr-expander {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.cr-source {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font-size: 0.9em;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.cr-line {
+  white-space: pre;
+  min-height: 1.5em;
+}
+
+.cr-xray-fold {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  margin: 2px 0;
+  padding: 0 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.95em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cr-xray-all {
+  margin-top: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Token colours — the same variables editors/code-highlight.ts resolves. */
+.cr-tok-keyword {
+  color: var(--accent);
+}
+.cr-tok-string,
+.cr-tok-literal {
+  color: var(--md-code, var(--fg-muted));
+}
+.cr-tok-comment {
+  font-style: italic;
+  color: var(--md-quote, var(--fg-muted));
+}
+.cr-tok-type {
+  color: var(--md-link, var(--accent));
+}
+.cr-tok-def {
+  color: var(--md-heading, var(--fg));
+}
+.cr-tok-meta {
+  color: var(--fg-muted);
+}
+
+/* Diagrams (Calls view and Flow expanders): tap-through to the viewer. */
+.cr-calls .mermaid-diagram,
+.cr-flow .mermaid-diagram {
+  cursor: zoom-in;
+  overflow-x: auto;
+}
+
+.cr-calls .mermaid-diagram g.node {
+  cursor: pointer;
+}
+
+.cr-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- voice-note hold: no selection or callout on top of the gesture ------ */
+
+.cr-host[data-line-hold] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ---- tablet / narrow ------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .cr-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .cr-file {
+    flex: 1 1 100%;
+  }
+
+  .cr-baseline-slot {
+    margin-left: 0;
+  }
+
+  .cr-card-head {
+    padding: 6px 10px;
+  }
+
+  .cr-card-body {
+    padding: 0 10px 10px;
+  }
+
+  .cr-kind {
+    display: none;
+  }
+
+  .cr-expanders {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .cr-pill,
+  .cr-xray-all {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+}

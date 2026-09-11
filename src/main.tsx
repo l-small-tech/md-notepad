@@ -43,6 +43,7 @@ import './styles/base.css';
 import './styles/themes.css';
 import './styles/app.css';
 import './styles/preview.css';
+import './styles/code-review.css';
 import './styles/voice-comments.css';
 import { App } from './ui/App';
 import { installLinkGuard } from './ui/link-guard';

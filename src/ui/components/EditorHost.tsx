@@ -14,6 +14,7 @@
 
 import { memo, useEffect, useRef } from 'react';
 import { codeLanguageFor } from '../../core/code/parse';
+import { identifierHint } from '../../core/code/vocab';
 import { docFamilyFor } from '../../core/doc-family';
 import { localImageToInline } from '../../core/images';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
@@ -24,6 +25,7 @@ import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import type { MilkdownAdapter } from '../../editors/milkdown';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
+import { attachCodeReviewPane } from '../../preview/code-review';
 import { attachPreviewPane } from '../../preview/pane';
 import { registerSourceAdapter, unregisterSourceAdapter } from '../editor-registry';
 import {
@@ -39,6 +41,7 @@ import {
   registerImageRefresher,
   unregisterImageRefresher,
 } from '../stores/board-color-menu';
+import { codeReviewStore, reviewStateFor } from '../stores/code-review';
 import { diagramViewerStore } from '../stores/diagram-viewer';
 import { externalLinkStore } from '../stores/external-link';
 import { settingsStore } from '../stores/settings';
@@ -349,6 +352,43 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     if (mode === 'split') {
       editorPane.style.flex = `0 0 ${splitRatio * 100}%`;
+    }
+    // A code file's `read` mode is Review (core/doc-family `modeLabel`): the
+    // structural pane replaces the markdown preview. Same host element, same
+    // dark / voice-hold wiring; its view state lives in `stores/code-review`.
+    if (mode === 'read' && docFamilyFor(tab.filePath ?? tab.notePath) === 'code') {
+      const path = tab.filePath ?? tab.notePath ?? 'untitled';
+      const review = attachCodeReviewPane(host, tab.model, {
+        dark: isDark(),
+        path,
+        state: reviewStateFor(tabId),
+        onAction: (action) => codeReviewStore.getState().dispatch(tabId, action),
+        onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
+        // Voice notes: holding a card opens the sheet on that declaration,
+        // with the file's identifiers priming Whisper and snapping the transcript.
+        onHoldUnit: (unit, model) =>
+          void openNoteAtLine(tabId, unit.signatureLine, {
+            unit: `${unit.name} (${unit.kind})`,
+            quote: unit.signature,
+            hint: identifierHint(model.identifiers),
+            identifiers: model.identifiers,
+          }),
+      });
+      const syncReviewState = () => review.setState(reviewStateFor(tabId));
+      const unsubscribeReview = codeReviewStore.subscribe(syncReviewState);
+      const syncReviewHold = () => review.setLineHold(voiceStore.getState().armed);
+      syncReviewHold();
+      const unsubscribeReviewVoice = voiceStore.subscribe(syncReviewHold);
+      const unsubscribeReviewDark = subscribeDark((dark) => review.setDark(dark));
+      if (tabsStore.getState().activeTabId === tabId) {
+        host.focus();
+      }
+      return () => {
+        unsubscribeReview();
+        unsubscribeReviewVoice();
+        unsubscribeReviewDark();
+        review.dispose();
+      };
     }
     const pane = attachPreviewPane(host, tab.model, {
       dark: isDark(),

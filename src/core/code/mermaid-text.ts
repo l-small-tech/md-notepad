@@ -20,10 +20,11 @@ export const CALL_GRAPH_MAX_NODES = 150;
 /** Units at least this long show their line count under the name. */
 const HEAVY_LINES = 20;
 
-/** Escape text for a `["…"]` label: mermaid entity codes, `#` first. */
+/** Escape text for a `["…"]` label: mermaid entity codes, `#` first (`&` would start an entity). */
 export function escapeLabel(text: string): string {
   return text
     .replace(/#/g, '#35;')
+    .replace(/&/g, '#38;')
     .replace(/"/g, '#quot;')
     .replace(/</g, '#lt;')
     .replace(/>/g, '#gt;')

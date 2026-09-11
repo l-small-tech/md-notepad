@@ -82,7 +82,10 @@ fn free() {}
   });
 
   test('edges are deduped and recursion keeps its self-edge', () => {
-    const m = parseCode('function f(n: number) { f(n); f(n - 1); return g(); }\nfunction g() {}', 'x.ts')!;
+    const m = parseCode(
+      'function f(n: number) { f(n); f(n - 1); return g(); }\nfunction g() {}',
+      'x.ts',
+    )!;
     expect(resolveCalls(m).edges).toEqual([
       { from: 'function:f', to: 'function:f' },
       { from: 'function:f', to: 'function:g' },
@@ -98,12 +101,10 @@ describe('helpers', () => {
   });
 
   test('flattenUnits walks containers depth-first in source order', () => {
-    expect(flattenUnits(fs).map((u) => u.name).slice(0, 5)).toEqual([
-      'FsError',
-      'FsError',
-      'code',
-      'Serialize for FsError',
-      'serialize',
-    ]);
+    expect(
+      flattenUnits(fs)
+        .map((u) => u.name)
+        .slice(0, 5),
+    ).toEqual(['FsError', 'FsError', 'code', 'Serialize for FsError', 'serialize']);
   });
 });

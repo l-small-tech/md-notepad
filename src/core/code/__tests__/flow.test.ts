@@ -79,7 +79,10 @@ describe('flowGraph', () => {
   });
 
   test('a switch without a default keeps an "else" path out', () => {
-    const m = parseCode('function f(x: number) { switch (x) { case 1: return 1; } return 0; }', 'x.ts')!;
+    const m = parseCode(
+      'function f(x: number) { switch (x) { case 1: return 1; } return 0; }',
+      'x.ts',
+    )!;
     const g = flowGraph(m.units[0]!);
     expect(edgesOf(g)).toEqual(['start --> x', 'x -1-> return 1', 'x -else-> return 0']);
   });
