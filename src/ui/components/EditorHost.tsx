@@ -13,6 +13,7 @@
  */
 
 import { memo, useEffect, useRef } from 'react';
+import { codeLanguageFor } from '../../core/code/parse';
 import { docFamilyFor } from '../../core/doc-family';
 import { localImageToInline } from '../../core/images';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
@@ -261,9 +262,15 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             // Android: double-tap the text to dismiss the soft keyboard.
             dismissKeyboardOnDoubleTap: isAndroid(),
             // Raw mode on a whiteboard is an SVG source editor — highlight it
-            // as XML, and drop the markdown-only auto-bullet behaviours. Any
-            // other non-markdown file (unsupported files shown) is plain text.
-            language: family === 'svg' ? 'xml' : family === 'code' ? 'plain' : 'markdown',
+            // as XML, and drop the markdown-only auto-bullet behaviours. A code
+            // file gets its language's grammar when Review can read it
+            // (TypeScript/JavaScript, Rust); any other file is plain text.
+            language:
+              family === 'svg'
+                ? 'xml'
+                : family === 'code'
+                  ? (codeLanguageFor(tab.filePath ?? tab.notePath) ?? 'plain')
+                  : 'markdown',
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);

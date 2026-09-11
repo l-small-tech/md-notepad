@@ -1,0 +1,168 @@
+//! Filesystem commands — the entire custom IPC surface of the app.
+//!
+//! Design rules (see ../../README.md):
+//! - Rust stays thin: no business logic, no knowledge of tabs or sessions.
+//!   Which file to write, when, and what to do on conflict is TS logic.
+//! - Every write of user content is atomic: tempfile in the target's own
+//!   directory → write → fsync → rename over the target.
+//! - Errors cross IPC as `{ code, message }`. The TS mirror of the `code`
+//!   union lives in `src/ipc/commands.ts` — keep both sides in sync.
+//! - Every command is `async`: Tauri runs sync commands on the native
+//!   event-loop thread, so a slow disk (network drive, spun-down HDD) would
+//!   freeze window dragging/resizing. `async` moves them to the thread pool.
+
+use serde::Serialize;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
+
+/// Error contract. `code` is a closed union the frontend switches on;
+/// `message` is for logging/status-bar display only, never for logic.
+#[derive(Debug, thiserror::Error)]
+pub enum FsError {
+    #[error("path not found: {0}")]
+    NotFound(PathBuf),
+    #[error("destination already exists: {0}")]
+    Exists(PathBuf),
+    #[error("invalid path: {0}")]
+    InvalidPath(String),
+    #[error("invalid data: {0}")]
+    InvalidData(String),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+impl FsError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            FsError::NotFound(_) => "NOT_FOUND",
+            FsError::Exists(_) => "EXISTS",
+            FsError::InvalidPath(_) => "INVALID_PATH",
+            FsError::InvalidData(_) => "INVALID_DATA",
+            FsError::Io(_) => "IO",
+        }
+    }
+}
+
+impl Serialize for FsError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("FsError", 2)?;
+        s.serialize_field("code", self.code())?;
+        s.serialize_field("message", &self.to_string())?;
+        s.end()
+    }
+}
+
+pub type FsResult<T> = Result<T, FsError>;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileText {
+    pub text: String,
+    pub mtime_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteMeta {
+    pub path: String,
+    pub mtime_ms: u64,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathStat {
+    pub exists: bool,
+    pub mtime_ms: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntryMeta {
+    pub path: String,
+    pub is_dir: bool,
+    pub mtime_ms: u64,
+    pub size: u64,
+}
+
+/// Extensions the explorer shows besides `.md`. Kept in sync with the TS
+/// mirror in `src/core/images.ts` (both sides filter; Rust is the gatekeeper).
+const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+// Foreign documents the app can offer to import as markdown. Mirrors the TS
+// import registry (src/core/import/registry.ts) — the SAF (Android) listing
+// filters with that registry; this desktop `list_dir` path keeps its own copy.
+const IMPORT_EXTENSIONS: [&str; 2] = ["pdf", "docx"];
+
+/// Editable text notes the explorer lists and the editor opens directly.
+/// Mirrors the TS definition in `src/core/text-files.ts`.
+const TEXT_EXTENSIONS: [&str; 3] = ["md", "markdown", "txt"];
+
+fn has_extension(path: &Path, wanted: &str) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(wanted))
+}
+
+fn is_image_path(path: &Path) -> bool {
+    IMAGE_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+fn is_importable_path(path: &Path) -> bool {
+    IMPORT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+/// Shared with `search.rs` (the workspace-search walker filters on it too).
+pub(crate) fn is_text_path(path: &Path) -> bool {
+    TEXT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
+/// A file the explorer lists by default: text note, image, or importable doc.
+fn is_listed_file(path: &Path) -> bool {
+    is_text_path(path) || is_image_path(path) || is_importable_path(path)
+}
+
+fn mtime_ms(meta: &fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn not_found_or_io(e: std::io::Error, path: &Path) -> FsError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        FsError::NotFound(path.to_path_buf())
+    } else {
+        FsError::Io(e)
+    }
+}
+
+/// Read a UTF-8 text file plus its mtime in one IPC round trip.
+/// The mtime is the baseline for external-change conflict detection (M3).
+/// A file that isn't text — invalid UTF-8, or a NUL byte (which valid UTF-8
+/// binaries still carry) — is `INVALID_DATA`, so the frontend can say "not a
+/// text file" instead of opening a tab of garbage. The explorer lists every
+/// file in folders where unsupported files are shown; this is the gate.
+#[tauri::command]
+pub async fn read_text_file(path: PathBuf) -> FsResult<FileText> {
+    let meta = fs::metadata(&path).map_err(|e| not_found_or_io(e, &path))?;
+    let bytes = fs::read(&path).map_err(|e| not_found_or_io(e, &path))?;
+    let text = match String::from_utf8(bytes) {
+        Ok(text) if !text.contains('\0') => text,
+        _ => {
+            return Err(FsError::InvalidData(format!(
+                "not a text file: {}",
+                path.display()
+            )))
+        }
+    };
+    Ok(FileText {
+        text,
+        mtime_ms: mtime_ms(&meta),
+    })
+}
+
