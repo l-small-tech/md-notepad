@@ -7,6 +7,14 @@
  * (calls · used by) and the Code / Flow expanders. The Calls view draws the
  * in-file call graph.
  *
+ * What changed (§6) is pushed in by the host: `setGitInfo` fills the header's
+ * baseline slot (a picker, or "Git not found"), `setChanges` brings the change
+ * map — added / changed badges with the signature note, ghost cards for
+ * removed units, the Changed chip's count, the amber ring in the Calls view
+ * and the worktree radar ("also changed on: feat/x"). The Changes view is the
+ * deck under the Changed filter. The picker reports a `baseline` action; the
+ * host (`ui/code-review-git.ts`) turns the baseline into a revision.
+ *
  * Same shape as `pane.ts` (attach once, dispose once; `setDark`,
  * `setLineHold`), plus `setState` — the pane is DRIVEN by a `ReviewState`
  * (`core/code/review-state.ts`) and reports every tap as a `ReviewAction`
@@ -23,6 +31,7 @@ import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
 import { parser as jsParser } from '@lezer/javascript';
 import { parser as rustParser } from '@lezer/rust';
 import { flattenUnits, resolveCalls, type CallEdge } from '../core/code/calls';
+import type { ChangeMap } from '../core/code/changes';
 import { flowGraph, flowHasBranches } from '../core/code/flow';
 import { callGraphMermaid, flowMermaid, kindGlyph, lineCount } from '../core/code/mermaid-text';
 import { xrayLines, type CodeModel, type CodeUnit, type Field } from '../core/code/model';
@@ -34,6 +43,7 @@ import {
   XRAY_FULL,
   xrayOpenedMap,
   type ReviewAction,
+  type ReviewBaseline,
   type ReviewExpander,
   type ReviewFilter,
   type ReviewState,
@@ -72,6 +82,31 @@ export interface CodeReviewPaneOptions {
    * from, for the identifier vocabulary.
    */
   onHoldUnit?: (unit: CodeUnit, model: CodeModel) => void;
+  /**
+   * The pane re-parsed the document (first render, and after each 200 ms
+   * debounce on a text change). The What-changed host recomputes its change
+   * map from here; `model` is null for a file Review cannot read.
+   */
+  onModelChange?: (model: CodeModel | null, text: string) => void;
+}
+
+/** What the host knows about git for this file (review_plan.md §6). */
+export interface ReviewGitInfo {
+  /** False hides the baseline picker and shows `hint` in its place. */
+  available: boolean;
+  /** "Git not found" / "Not a git repository" — shown when unavailable. */
+  hint?: string;
+  /** The checked-out branch (null on a detached HEAD). */
+  branch?: string | null;
+  /** The branch "This branch" compares against. */
+  baseBranch?: string | null;
+  /** The merge-base "This branch" compares against; without it that option is hidden. */
+  baseRef?: string | null;
+}
+
+/** A branch of another worktree whose copy of the file differs from the baseline. */
+export interface RadarEntry {
+  branch: string;
 }
 
 export interface CodeReviewPane {
@@ -79,6 +114,15 @@ export interface CodeReviewPane {
   setDark(dark: boolean): void;
   /** The store's state for this tab changed; re-render what differs. */
   setState(state: ReviewState): void;
+  /**
+   * The What-changed result for the current baseline: badges, ghost cards, the
+   * Changed chip's count and the worktree radar. `null` clears them (no git,
+   * or the baseline is still loading). Never blocks: cards render first, and
+   * this re-renders them with badges when it lands.
+   */
+  setChanges(changes: ChangeMap | null, radar: readonly RadarEntry[] | null): void;
+  /** Fill the header's baseline slot: the picker, or the "no git" hint. */
+  setGitInfo(info: ReviewGitInfo | null): void;
   /** Arm/disarm the press-and-hold card gesture (`onHoldUnit`). */
   setLineHold(on: boolean): void;
   /** Bring a unit's card into view (switching to the Cards view first). */
@@ -194,7 +238,12 @@ function sizeDots(units: readonly CodeUnit[]): (unit: CodeUnit) => number {
 const TYPE_KINDS = new Set(['interface', 'type', 'struct', 'enum', 'class', 'trait']);
 const FUNCTION_KINDS = new Set(['function', 'method']);
 
-function matchesFilter(unit: CodeUnit, filter: ReviewFilter): boolean {
+/** `changed` is the set of unit ids the change map badges anything but `same`. */
+function matchesFilter(
+  unit: CodeUnit,
+  filter: ReviewFilter,
+  changed: ReadonlySet<string>,
+): boolean {
   switch (filter) {
     case 'all':
       return true;
@@ -205,9 +254,15 @@ function matchesFilter(unit: CodeUnit, filter: ReviewFilter): boolean {
     case 'types':
       return TYPE_KINDS.has(unit.kind);
     case 'changed':
-      return false; // the What-changed step supplies the change map
+      return changed.has(unit.id);
   }
 }
+
+const BASELINES: { id: ReviewBaseline; label: string }[] = [
+  { id: 'branch', label: 'this branch' },
+  { id: 'uncommitted', label: 'uncommitted' },
+  { id: 'last-commit', label: 'last commit' },
+];
 
 const FILTERS: { id: ReviewFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -256,6 +311,13 @@ export function attachCodeReviewPane(
   let callNodes: { id: string; unitId: string }[] = [];
   // A card to scroll to once the next Cards render lands.
   let pendingScroll: string | null = null;
+  // What-changed inputs, pushed by the host (null until git answers).
+  let changes: ChangeMap | null = null;
+  let changedIds = new Set<string>();
+  let radar: string[] = [];
+  let gitInfo: ReviewGitInfo | null = null;
+  // The text `onModelChange` last reported, so theme/state renders stay quiet.
+  let notifiedText: string | null = null;
 
   host.classList.add('cr-host');
 
@@ -291,6 +353,19 @@ export function attachCodeReviewPane(
       edges = resolveCalls(model).edges;
       dots = sizeDots(all);
     }
+    if (options.onModelChange && notifiedText !== text) {
+      notifiedText = text;
+      options.onModelChange(model, text);
+    }
+  }
+
+  /** The filter the deck applies: the Changes view forces `changed`. */
+  function activeFilter(): ReviewFilter {
+    return state.view === 'changes' ? 'changed' : state.filter;
+  }
+
+  function unitStatus(unit: CodeUnit) {
+    return changes?.units.get(unit.id) ?? null;
   }
 
   function codeLines(): string[] {
@@ -328,18 +403,52 @@ export function attachCodeReviewPane(
 
   /* ---- header / chips ---- */
 
+  /** Why Changes / Changed are disabled right now, or null when they are live. */
+  function changesDisabledReason(): string | null {
+    if (changes !== null) {
+      return null;
+    }
+    if (gitInfo && !gitInfo.available) {
+      return gitInfo.hint ?? 'Git is not available';
+    }
+    return 'Waiting for git';
+  }
+
   function headerHtml(): string {
+    const reason = changesDisabledReason();
     const views = VIEWS.map((v) => {
-      const disabled = v.id === 'changes' && state.baseline === null;
-      return `<button type="button" class="cr-view${state.view === v.id ? ' cr-view-active' : ''}" data-view="${v.id}" aria-pressed="${state.view === v.id}"${disabled ? ' disabled title="Choose a baseline first"' : ''}>${v.label}</button>`;
+      const disabled = v.id === 'changes' && reason !== null;
+      return `<button type="button" class="cr-view${state.view === v.id ? ' cr-view-active' : ''}" data-view="${v.id}" aria-pressed="${state.view === v.id}"${disabled ? ` disabled title="${esc(reason ?? '')}"` : ''}>${v.label}</button>`;
     }).join('');
-    return `<div class="cr-header"><span class="cr-file" title="${esc(options.path)}">${esc(baseName(options.path))}</span><div class="cr-views" role="group" aria-label="Review view">${views}</div><span class="cr-baseline-slot" id="cr-baseline-slot"></span></div>`;
+    return `<div class="cr-header"><span class="cr-file" title="${esc(options.path)}">${esc(baseName(options.path))}</span><div class="cr-views" role="group" aria-label="Review view">${views}</div><span class="cr-baseline-slot" id="cr-baseline-slot">${baselineSlotHtml()}</span></div>`;
+  }
+
+  /** The baseline picker (git present) or the one-line hint (git absent). */
+  function baselineSlotHtml(): string {
+    if (!gitInfo) {
+      return '';
+    }
+    if (!gitInfo.available) {
+      return `<span class="cr-git-hint">${esc(gitInfo.hint ?? 'Git is not available')}</span>`;
+    }
+    const options_ = BASELINES.filter((b) => b.id !== 'branch' || gitInfo?.baseRef).map((b) => {
+      const label =
+        b.id === 'branch' && gitInfo?.baseBranch
+          ? `${b.label} (vs ${gitInfo.baseBranch})`
+          : b.label;
+      return `<option value="${b.id}"${state.baseline === b.id ? ' selected' : ''}>${esc(label)}</option>`;
+    });
+    const branch = gitInfo.branch ? ` title="on ${esc(gitInfo.branch)}"` : '';
+    return `<label class="cr-baseline"${branch}><span class="cr-baseline-label">vs</span><select class="cr-baseline-select" aria-label="Compare against">${options_.join('')}</select></label>`;
   }
 
   function chipsHtml(): string {
+    const reason = changesDisabledReason();
     const chips = FILTERS.map((f) => {
-      const disabled = f.id === 'changed' && state.baseline === null;
-      return `<button type="button" class="cr-chip${state.filter === f.id ? ' cr-chip-active' : ''}" data-filter="${f.id}" aria-pressed="${state.filter === f.id}"${disabled ? ' disabled title="Choose a baseline first"' : ''}>${f.label}</button>`;
+      const disabled = f.id === 'changed' && reason !== null;
+      const label =
+        f.id === 'changed' && changes !== null ? `${f.label} (${changes.changedCount})` : f.label;
+      return `<button type="button" class="cr-chip${state.filter === f.id ? ' cr-chip-active' : ''}" data-filter="${f.id}" aria-pressed="${state.filter === f.id}"${disabled ? ` disabled title="${esc(reason ?? '')}"` : ''}>${label}</button>`;
     }).join('');
     return `<div class="cr-chips" role="group" aria-label="Filter cards">${chips}</div>`;
   }
@@ -401,7 +510,50 @@ export function attachCodeReviewPane(
     if (usedBy.length > 0) {
       parts.push(`used by ${usedBy.join(', ')}`);
     }
+    // The worktree radar: this card changed here AND the file changed on
+    // another worktree's branch — the merge conflict, seen while reading.
+    if (radar.length > 0 && changedIds.has(unit.id)) {
+      parts.push(
+        `<span class="cr-radar">also changed on: ${radar.map((b) => `<code>${esc(b)}</code>`).join(', ')}</span>`,
+      );
+    }
     return parts.length > 0 ? `<span class="cr-facts">${parts.join(' · ')}</span>` : '';
+  }
+
+  /** The added / changed badge for a card head (empty when same or unknown). */
+  function badgesHtml(unit: CodeUnit): string {
+    const info = unitStatus(unit);
+    if (!info || info.status === 'same') {
+      return '';
+    }
+    const label = info.status === 'added' ? 'added' : 'changed';
+    const title = info.signatureNote ? ` title="${esc(info.signatureNote)}"` : '';
+    return `<span class="cr-badge cr-badge-${label}"${title}>${label}</span>`;
+  }
+
+  /** "now also takes hiddenDirs" — under the signature of a signature-changed card. */
+  function changeNoteHtml(unit: CodeUnit): string {
+    const note = unitStatus(unit)?.signatureNote;
+    return note ? `<p class="cr-change-note">${esc(note)}</p>` : '';
+  }
+
+  /** A unit the baseline had and the file no longer does. */
+  function ghostHtml(unit: CodeUnit): string {
+    const children =
+      unit.children.length > 0
+        ? `<p class="cr-note">Took with it: ${unit.children.map((c) => `<code>${esc(c.name)}</code>`).join(', ')}</p>`
+        : '';
+    return [
+      `<article class="cr-card cr-card-ghost" data-ghost-id="${esc(unit.id)}" data-kind="${unit.kind}">`,
+      `<div class="cr-card-head cr-card-head-static">`,
+      `<span class="cr-glyph" aria-hidden="true">${kindGlyph(unit.kind)}</span>`,
+      `<span class="cr-name">Removed: <code>${esc(unit.name)}</code></span>`,
+      `<span class="cr-badges"><span class="cr-badge cr-badge-removed">removed</span></span>`,
+      `<span class="cr-kind">${unit.kind}</span>`,
+      `</div>`,
+      `<div class="cr-card-body"><code class="cr-signature">${esc(unit.signature)}</code>${children}</div>`,
+      `</article>`,
+    ].join('');
   }
 
   function expanderPillsHtml(unit: CodeUnit): string {
@@ -468,6 +620,7 @@ export function attachCodeReviewPane(
     return [
       `<p class="cr-sentence">${sentence}</p>`,
       `<code class="cr-signature">${esc(unit.signature)}</code>`,
+      changeNoteHtml(unit),
       doc ? `<div class="cr-doc${docOpen ? ' cr-doc-open' : ''}">${doc}</div>` : '',
       formHtml(unit, m),
       `<div class="cr-row">${factsHtml(unit)}${expanderPillsHtml(unit)}</div>`,
@@ -487,17 +640,19 @@ export function attachCodeReviewPane(
       ? []
       : await Promise.all(
           unit.children
-            .filter((c) => matchesFilter(c, filter))
+            .filter((c) => matchesFilter(c, filter, changedIds))
             .map((c) => cardHtml(c, m, filter, compact, true)),
         );
     const size = dots(unit);
     const dotsHtml = Array.from({ length: 4 }, (_, i) => (i < size ? '▪' : '▫')).join('');
+    const status = unitStatus(unit)?.status;
+    const statusAttr = status && status !== 'same' ? ` data-status="${status}"` : '';
     return [
-      `<article class="cr-card${sub ? ' cr-card-sub' : ''}" data-unit-id="${esc(unit.id)}" data-line="${unit.signatureLine}" data-kind="${unit.kind}">`,
+      `<article class="cr-card${sub ? ' cr-card-sub' : ''}" data-unit-id="${esc(unit.id)}" data-line="${unit.signatureLine}" data-kind="${unit.kind}"${statusAttr}>`,
       `<button type="button" class="cr-card-head" aria-label="${esc(unit.name)}">`,
       `<span class="cr-glyph" aria-hidden="true">${kindGlyph(unit.kind)}</span>`,
       `<span class="cr-name">${esc(unit.name)}</span>`,
-      `<span class="cr-badges" data-badges="${esc(unit.id)}"></span>`,
+      `<span class="cr-badges" data-badges="${esc(unit.id)}">${badgesHtml(unit)}</span>`,
       unit.exported ? `<span class="cr-pill-tag cr-tag-exported">exported</span>` : '',
       `<span class="cr-kind">${unit.kind}</span>`,
       `<span class="cr-size" title="${lineCount(unit)} lines" aria-label="${lineCount(unit)} lines">${dotsHtml}</span>`,
@@ -510,13 +665,24 @@ export function attachCodeReviewPane(
 
   async function deckHtml(m: CodeModel): Promise<string> {
     const large = sourceLines.length > LARGE_FILE_LINES;
-    const filter = state.filter;
-    const units = m.units.filter(
+    const filter = activeFilter();
+    let units = m.units.filter(
       (u) =>
         (!large || u.exported) &&
-        (matchesFilter(u, filter) || u.children.some((c) => matchesFilter(c, filter))),
+        (matchesFilter(u, filter, changedIds) ||
+          u.children.some((c) => matchesFilter(c, filter, changedIds))),
     );
+    if (filter === 'changed') {
+      // Changed cards float first; containers that only hold a changed method follow.
+      const own = units.filter((u) => changedIds.has(u.id));
+      units = [...own, ...units.filter((u) => !changedIds.has(u.id))];
+    }
     const cards = await Promise.all(units.map((u) => cardHtml(u, m, filter, large, false)));
+    // Ghost cards close the deck whenever the filter would show a removal.
+    const ghosts =
+      changes && (filter === 'all' || filter === 'changed')
+        ? changes.removed.map((u) => ghostHtml(u))
+        : [];
     const notes: string[] = [];
     if (large) {
       notes.push(
@@ -524,12 +690,17 @@ export function attachCodeReviewPane(
       );
     }
     const empty =
-      cards.length === 0 ? `<p class="cr-note cr-empty">Nothing matches this filter.</p>` : '';
-    return `${notes.join('')}${importsHtml(m)}<div class="cr-deck">${cards.join('')}${empty}</div>`;
+      cards.length === 0 && ghosts.length === 0
+        ? `<p class="cr-note cr-empty">${filter === 'changed' ? 'Nothing changed against this baseline.' : 'Nothing matches this filter.'}</p>`
+        : '';
+    return `${notes.join('')}${importsHtml(m)}<div class="cr-deck">${cards.join('')}${ghosts.join('')}${empty}</div>`;
   }
 
   function callsHtml(m: CodeModel): string {
-    const graph = callGraphMermaid(m, { focus: state.showAll ? false : undefined });
+    const graph = callGraphMermaid(m, {
+      focus: state.showAll ? false : undefined,
+      changed: changedIds,
+    });
     callNodes = graph.nodes;
     const notes: string[] = [];
     if (graph.focused) {
@@ -561,7 +732,9 @@ export function attachCodeReviewPane(
           ? `<p class="cr-note cr-warn">Some of this file did not parse cleanly (${m.parseErrors} ${m.parseErrors === 1 ? 'place' : 'places'}) — cards near the problem may be incomplete.</p>`
           : '';
       const body = state.view === 'calls' ? callsHtml(m) : await deckHtml(m);
-      html = `<div class="cr-root">${headerHtml()}${chipsHtml()}${warn}<div class="cr-body" data-view="${state.view}">${body}</div></div>`;
+      // The Changes view IS the deck under the Changed filter — no chip row.
+      const chips = state.view === 'changes' ? '' : chipsHtml();
+      html = `<div class="cr-root">${headerHtml()}${chips}${warn}<div class="cr-body" data-view="${state.view}">${body}</div></div>`;
     }
     if (disposed || !sequence.isCurrent(token)) {
       return;
@@ -787,7 +960,65 @@ export function attachCodeReviewPane(
     }
   }
 
+  /** The baseline picker: reported as a plain `baseline` action like every tap. */
+  function onChange(event: Event): void {
+    const select = event.target;
+    if (select instanceof HTMLSelectElement && select.classList.contains('cr-baseline-select')) {
+      const value = select.value as ReviewBaseline;
+      if (BASELINES.some((b) => b.id === value)) {
+        apply({ type: 'baseline', baseline: value });
+      }
+    }
+  }
+
+  /** Swap the header's baseline slot in place (no re-render of the deck). */
+  function refreshBaselineSlot(): void {
+    const slot = host.querySelector<HTMLElement>('#cr-baseline-slot');
+    if (slot) {
+      slot.innerHTML = baselineSlotHtml();
+    }
+  }
+
+  function setChanges(next: ChangeMap | null, nextRadar: readonly RadarEntry[] | null): void {
+    if (disposed) {
+      return;
+    }
+    const wasNull = changes === null;
+    changes = next;
+    changedIds = new Set<string>();
+    if (next) {
+      for (const [id, info] of next.units) {
+        if (info.status !== 'same') {
+          changedIds.add(id);
+        }
+      }
+    }
+    radar = (nextRadar ?? []).map((r) => r.branch);
+    if (wasNull && next === null) {
+      return; // still nothing to badge — the deck is already right
+    }
+    clearTimer();
+    void render();
+  }
+
+  function setGitInfo(next: ReviewGitInfo | null): void {
+    if (disposed) {
+      return;
+    }
+    gitInfo = next;
+    // The slot is cheap to swap in place; the Changes/Changed enablement only
+    // depends on `changes`, which arrives through setChanges and re-renders.
+    // Unavailable git, though, changes their disabled hint — re-render then.
+    if (next && !next.available) {
+      clearTimer();
+      void render();
+    } else {
+      refreshBaselineSlot();
+    }
+  }
+
   host.addEventListener('click', onClick);
+  host.addEventListener('change', onChange);
   host.addEventListener('contextmenu', onContextMenu);
   host.addEventListener('pointerdown', onPointerDown);
   host.addEventListener('pointermove', onPointerMove);
@@ -807,6 +1038,8 @@ export function attachCodeReviewPane(
       void render();
     },
     setState,
+    setChanges,
+    setGitInfo,
     setLineHold(on) {
       holdArmed = on;
       clearHold();
@@ -826,6 +1059,7 @@ export function attachCodeReviewPane(
       host.classList.remove('cr-host');
       delete host.dataset.lineHold;
       host.removeEventListener('click', onClick);
+      host.removeEventListener('change', onChange);
       host.removeEventListener('contextmenu', onContextMenu);
       host.removeEventListener('pointerdown', onPointerDown);
       host.removeEventListener('pointermove', onPointerMove);

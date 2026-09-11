@@ -78,13 +78,67 @@
   cursor: default;
 }
 
-/* The What-changed step mounts its baseline picker here. */
+/* The baseline picker ("vs: this branch ▾") or the no-git hint. */
 .cr-baseline-slot {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.cr-baseline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 0.92em;
+}
+
+.cr-baseline-select {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  max-width: 14em;
+}
+
+.cr-git-hint {
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* "now also takes hiddenDirs" under a signature-changed card's signature. */
+.cr-change-note {
+  margin: 0;
+  color: #b45309;
+  font-size: 0.9em;
+}
+
+:root[data-theme='dark'] .cr-change-note,
+:root[data-theme='dark'] .cr-badge-changed {
+  color: #fbbf24;
+}
+
+.cr-radar code {
+  font-size: 0.9em;
+  padding: 0 0.3em;
+  border-radius: 4px;
+  background: var(--bg-alt);
+}
+
+.cr-card[data-status='added'] {
+  border-left: 3px solid var(--accent);
+}
+
+.cr-card[data-status='changed'],
+.cr-card[data-status='signature-changed'] {
+  border-left: 3px solid #d97706;
 }
 
 /* ---- filter chips (scroll sideways, never wrap) --------------------------- */
