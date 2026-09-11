@@ -120,6 +120,11 @@ pub(crate) fn is_text_path(path: &Path) -> bool {
     TEXT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
+/// A file the explorer lists by default: text note, image, or importable doc.
+fn is_listed_file(path: &Path) -> bool {
+    is_text_path(path) || is_image_path(path) || is_importable_path(path)
+}
+
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
     meta.modified()
         .ok()
@@ -138,10 +143,23 @@ fn not_found_or_io(e: std::io::Error, path: &Path) -> FsError {
 
 /// Read a UTF-8 text file plus its mtime in one IPC round trip.
 /// The mtime is the baseline for external-change conflict detection (M3).
+/// A file that isn't text — invalid UTF-8, or a NUL byte (which valid UTF-8
+/// binaries still carry) — is `INVALID_DATA`, so the frontend can say "not a
+/// text file" instead of opening a tab of garbage. The explorer lists every
+/// file in folders where unsupported files are shown; this is the gate.
 #[tauri::command]
 pub async fn read_text_file(path: PathBuf) -> FsResult<FileText> {
     let meta = fs::metadata(&path).map_err(|e| not_found_or_io(e, &path))?;
-    let text = fs::read_to_string(&path).map_err(|e| not_found_or_io(e, &path))?;
+    let bytes = fs::read(&path).map_err(|e| not_found_or_io(e, &path))?;
+    let text = match String::from_utf8(bytes) {
+        Ok(text) if !text.contains('\0') => text,
+        _ => {
+            return Err(FsError::InvalidData(format!(
+                "not a text file: {}",
+                path.display()
+            )))
+        }
+    };
     Ok(FileText {
         text,
         mtime_ms: mtime_ms(&meta),
@@ -315,10 +333,14 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
 /// List one directory level for the file explorer: subdirectories plus text
 /// notes (`.md`/`.txt`) and image files (no recursion — the frontend expands
 /// folders lazily).
+/// `all_files` lists every file instead — a folder where the user turned on
+/// "Show unsupported files" (the frontend decides which folders; see
+/// `src/core/text-files.ts`).
 /// Hidden (dot-prefixed) entries are skipped. Order: directories A→Z, then
 /// files newest first (matching `list_notes`). Missing dir = empty list.
 #[tauri::command]
-pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
+pub async fn list_dir(dir: PathBuf, all_files: Option<bool>) -> FsResult<Vec<DirEntryMeta>> {
+    let all_files = all_files.unwrap_or(false);
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -361,9 +383,7 @@ pub async fn list_dir(dir: PathBuf) -> FsResult<Vec<DirEntryMeta>> {
         };
         if is_dir {
             dirs.push(item);
-        } else if is_file
-            && (is_text_path(&path) || is_image_path(&path) || is_importable_path(&path))
-        {
+        } else if is_file && (all_files || is_listed_file(&path)) {
             files.push(item);
         }
     }
@@ -382,8 +402,9 @@ const RELEVANCE_MAX_DEPTH: usize = 16;
 /// text note, image, or importable document — or an extension-less file?
 /// Files are checked before descending, so the common case (a folder with
 /// notes right in it) answers on one `read_dir`. Unreadable dirs count as
-/// empty (best-effort, like the search walk).
-fn subtree_has_relevant_file(dir: &Path, depth: usize) -> bool {
+/// empty (best-effort, like the search walk). `all_files` (unsupported files
+/// shown) makes any non-hidden file count.
+fn subtree_has_relevant_file(dir: &Path, depth: usize, all_files: bool) -> bool {
     if depth > RELEVANCE_MAX_DEPTH {
         return false;
     }
@@ -404,25 +425,22 @@ fn subtree_has_relevant_file(dir: &Path, depth: usize) -> bool {
         if file_type.is_dir() {
             subdirs.push(path);
         } else if file_type.is_file()
-            && (is_text_path(&path)
-                || is_image_path(&path)
-                || is_importable_path(&path)
-                || path.extension().is_none())
+            && (all_files || is_listed_file(&path) || path.extension().is_none())
         {
             return true;
         }
     }
     subdirs
         .iter()
-        .any(|sub| subtree_has_relevant_file(sub, depth + 1))
+        .any(|sub| subtree_has_relevant_file(sub, depth + 1, all_files))
 }
 
 /// Whether the explorer should render `dir` normally (true) or washed out
 /// (false = nothing worth finding anywhere in its subtree). Missing dir =
 /// false, matching `list_dir`'s missing-dir-is-empty policy.
 #[tauri::command]
-pub async fn dir_has_relevant_files(dir: PathBuf) -> bool {
-    subtree_has_relevant_file(&dir, 0)
+pub async fn dir_has_relevant_files(dir: PathBuf, all_files: Option<bool>) -> bool {
+    subtree_has_relevant_file(&dir, 0, all_files.unwrap_or(false))
 }
 
 /// List secondary-window session manifests (`session-<label>.json`) inside
@@ -786,7 +804,10 @@ mod tests {
     fn dir_has_relevant_files_true_for_direct_note() {
         let dir = tmpdir();
         fs::write(dir.path().join("note.md"), "x").unwrap();
-        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
     }
 
     #[test]
@@ -795,14 +816,20 @@ mod tests {
         let deep = dir.path().join("a").join("b");
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("report.pdf"), "x").unwrap();
-        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
     }
 
     #[test]
     fn dir_has_relevant_files_counts_extensionless_files() {
         let dir = tmpdir();
         fs::write(dir.path().join("README"), "x").unwrap();
-        assert!(block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
     }
 
     #[test]
@@ -812,7 +839,72 @@ mod tests {
         fs::create_dir_all(&sub).unwrap();
         fs::write(dir.path().join("data.zip"), "x").unwrap();
         fs::write(sub.join("app.exe"), "x").unwrap();
-        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(!block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
+    }
+
+    #[test]
+    fn dir_has_relevant_files_all_files_counts_anything() {
+        let dir = tmpdir();
+        let sub = dir.path().join("src");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("main.ts"), "x").unwrap();
+        fs::write(dir.path().join(".hidden.ts"), "x").unwrap();
+        assert!(!block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
+        assert!(block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            Some(true)
+        )));
+    }
+
+    #[test]
+    fn list_dir_all_files_lists_every_non_hidden_file() {
+        let dir = tmpdir();
+        fs::write(dir.path().join("note.md"), "1").unwrap();
+        fs::write(dir.path().join("app.ts"), "2").unwrap();
+        fs::write(dir.path().join("Makefile"), "3").unwrap();
+        fs::write(dir.path().join(".env"), "4").unwrap();
+        let names = |all: Option<bool>| {
+            let mut names: Vec<_> = block_on(list_dir(dir.path().to_path_buf(), all))
+                .unwrap()
+                .iter()
+                .map(|e| {
+                    Path::new(&e.path)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(names(None), vec!["note.md"]);
+        assert_eq!(names(Some(true)), vec!["Makefile", "app.ts", "note.md"]);
+    }
+
+    #[test]
+    fn read_text_file_rejects_binary_as_invalid_data() {
+        let dir = tmpdir();
+        let nul = dir.path().join("blob.bin");
+        fs::write(&nul, b"MZ\0\0text").unwrap();
+        let bad_utf8 = dir.path().join("latin1.txt");
+        fs::write(&bad_utf8, [0x63, 0x61, 0x66, 0xE9]).unwrap();
+        for path in [nul, bad_utf8] {
+            let err = block_on(read_text_file(path)).unwrap_err();
+            assert_eq!(err.code(), "INVALID_DATA");
+        }
+        let code = dir.path().join("app.ts");
+        fs::write(&code, "const x = 1;\n").unwrap();
+        assert_eq!(
+            block_on(read_text_file(code)).unwrap().text,
+            "const x = 1;\n"
+        );
     }
 
     #[test]
@@ -822,14 +914,23 @@ mod tests {
         fs::create_dir_all(&hidden).unwrap();
         fs::write(hidden.join("config.md"), "x").unwrap();
         fs::write(dir.path().join(".secret.md"), "x").unwrap();
-        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
+        assert!(!block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
     }
 
     #[test]
     fn dir_has_relevant_files_false_for_missing_or_empty_dir() {
         let dir = tmpdir();
-        assert!(!block_on(dir_has_relevant_files(dir.path().to_path_buf())));
-        assert!(!block_on(dir_has_relevant_files(dir.path().join("nope"))));
+        assert!(!block_on(dir_has_relevant_files(
+            dir.path().to_path_buf(),
+            None
+        )));
+        assert!(!block_on(dir_has_relevant_files(
+            dir.path().join("nope"),
+            None
+        )));
     }
 
     #[test]
@@ -946,7 +1047,7 @@ mod tests {
         fs::write(dir.path().join("report.pdf"), "5").unwrap();
         fs::write(dir.path().join("Memo.DOCX"), "6").unwrap();
 
-        let entries = block_on(list_dir(dir.path().to_path_buf())).unwrap();
+        let entries = block_on(list_dir(dir.path().to_path_buf(), None)).unwrap();
         let names: Vec<_> = entries
             .iter()
             .map(|e| {
@@ -977,7 +1078,7 @@ mod tests {
     #[test]
     fn list_dir_missing_dir_is_empty() {
         let dir = tmpdir();
-        assert!(block_on(list_dir(dir.path().join("nope")))
+        assert!(block_on(list_dir(dir.path().join("nope"), None))
             .unwrap()
             .is_empty());
     }

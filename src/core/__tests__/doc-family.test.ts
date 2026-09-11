@@ -13,12 +13,30 @@ describe('docFamilyFor', () => {
     expect(docFamilyFor('C:\\Users\\me\\Board.SVG')).toBe('svg');
   });
 
-  it('treats everything else — including no path at all — as markdown', () => {
+  it('treats notes, text, images, documents — and no path at all — as markdown', () => {
     expect(docFamilyFor('/notes/todo.md')).toBe('markdown');
-    expect(docFamilyFor('/notes/svg')).toBe('markdown');
     expect(docFamilyFor('/notes/board.svg.md')).toBe('markdown');
+    expect(docFamilyFor('/notes/todo.TXT')).toBe('markdown');
+    expect(docFamilyFor('/notes/photo.png')).toBe('markdown');
+    expect(docFamilyFor('/notes/report.pdf')).toBe('markdown');
     expect(docFamilyFor(null)).toBe('markdown');
     expect(docFamilyFor(undefined)).toBe('markdown');
+  });
+
+  it('treats any other file — extension-less included — as code', () => {
+    expect(docFamilyFor('/src/app.ts')).toBe('code');
+    expect(docFamilyFor('C:\\proj\\app.rc')).toBe('code');
+    expect(docFamilyFor('/notes/svg')).toBe('code');
+    expect(docFamilyFor('/proj/Makefile')).toBe('code');
+  });
+});
+
+describe('the code family', () => {
+  it('offers only the source editor, and self-heals any other mode to it', () => {
+    expect(allowedModesFor('code')).toEqual(['raw']);
+    expect(defaultModeFor('code', 'wysiwyg')).toBe('raw');
+    expect(defaultModeFor('code', 'read')).toBe('raw');
+    expect(isModeAllowed('code', 'split')).toBe(false);
   });
 });
 

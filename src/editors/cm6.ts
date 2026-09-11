@@ -72,9 +72,10 @@ export interface Cm6Options {
    * Which grammar to highlight with. Default 'markdown'. 'xml' is used for the
    * Raw view of an `.svg` whiteboard (core/doc-family decides), and also drops
    * the markdown-only editing behaviours — auto-bullets, list Tab indentation —
-   * which would be actively wrong in SVG source.
+   * which would be actively wrong in SVG source. 'plain' (any other file — a
+   * `.ts`, a config) highlights nothing and drops the same behaviours.
    */
-  language?: 'markdown' | 'xml';
+  language?: 'markdown' | 'xml' | 'plain';
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -533,6 +534,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   const themeCompartment = new Compartment();
   /** Fixed for the adapter's lifetime — a tab's document type never changes. */
   const isXml = options.language === 'xml';
+  const isMarkdown = !isXml && options.language !== 'plain';
 
   let view: EditorView | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -653,14 +655,18 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         // continues a list item — "auto bullets"; Backspace deletes markup)
         // must win over the default keymap's own Enter/Backspace. Neither
         // belongs in XML source, so both are dropped there.
-        ...(isXml ? [] : [bulletIndentKeymap]),
+        ...(isMarkdown ? [bulletIndentKeymap] : []),
         keymap.of([
-          ...(isXml ? [] : markdownKeymap),
+          ...(isMarkdown ? markdownKeymap : []),
           ...defaultKeymap,
           ...historyKeymap,
           ...searchKeymap,
         ]),
-        isXml ? xmlLanguage : markdown({ base: markdownLanguage, extensions: [listMarkStyling] }),
+        isXml
+          ? xmlLanguage
+          : isMarkdown
+            ? markdown({ base: markdownLanguage, extensions: [listMarkStyling] })
+            : [],
         search({ top: true }),
         imagePasteHandler,
         copyEnrichHandler,

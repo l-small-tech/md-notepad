@@ -178,7 +178,16 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
           );
         }
       } catch (error) {
-        uiStore.getState().showNotice(`Could not open "${baseName(path)}".`);
+        // INVALID_DATA from read_text_file = binary / not UTF-8. Listed because
+        // unsupported files are shown; say why it won't open rather than "could not".
+        const notText = (error as { code?: unknown } | null)?.code === 'INVALID_DATA';
+        uiStore
+          .getState()
+          .showNotice(
+            notText
+              ? `"${baseName(path)}" isn't a text file, so it can't be opened here.`
+              : `Could not open "${baseName(path)}".`,
+          );
         ctx.deps.onError?.(error);
       } finally {
         ctx.openingPaths.delete(lower);

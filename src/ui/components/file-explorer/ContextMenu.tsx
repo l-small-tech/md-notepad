@@ -28,6 +28,7 @@ import {
   removeWorkspace,
   setWorkspaceColor,
   setWorkspaceLiveEdit,
+  toggleShowAllFilesFor,
   type ExplorerEntry,
 } from '../../session';
 import { uiStore } from '../../stores/ui';
@@ -65,6 +66,11 @@ interface DirMenuProps extends CommonProps {
    * default notes dir and read-only/synced workspaces leave it undefined).
    */
   wsLiveEdit?: boolean;
+  /**
+   * "Show unsupported files" state of this dir (core/text-files
+   * showAllFilesState); undefined = not offered (read-only workspace).
+   */
+  showAll?: { show: boolean; explicit: boolean };
   renameTarget?: ExplorerEntry;
   removableWs?: boolean;
   readOnly?: boolean;
@@ -211,6 +217,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     dir,
     wsColor,
     wsLiveEdit,
+    showAll,
     renameTarget,
     removableWs,
     readOnly,
@@ -424,6 +431,34 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             {wsLiveEdit ? '✓' : ''}
           </span>
           Live edit (shared folder)
+        </button>
+      )}
+      {/* List every file here and in subfolders, not just notes/images/docs;
+          they open as plain source text. The check shows what this folder
+          does, inherited or not; toggling always works — a subfolder can hide
+          what its workspace shows — and resets the subfolders below it. */}
+      {showAll !== undefined && (
+        <button
+          className="context-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={showAll.show}
+          title={
+            (showAll.explicit
+              ? 'Set on this folder'
+              : showAll.show
+                ? 'Following a parent folder'
+                : 'Off') +
+            ' — list every file here and in subfolders; other files open as plain text. Changing it resets the subfolders to follow this one.'
+          }
+          onClick={() => {
+            onClose();
+            toggleShowAllFilesFor(dir);
+          }}
+        >
+          <span className="context-menu-check" aria-hidden="true">
+            {showAll.show ? '✓' : ''}
+          </span>
+          Show unsupported files
         </button>
       )}
       {/* Everything created here — files, folders, drawings, terminal and AI

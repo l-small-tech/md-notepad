@@ -14,13 +14,22 @@
  * the source editor instead of self-healing the whole session away.
  */
 
+import { isImagePath } from './images';
+import { isImportablePath } from './import/registry';
 import { extName } from './session/plan-flush';
+import { isEditableTextPath } from './text-files';
 import type { EditorMode, TabKind } from './types';
 
-export type DocFamily = 'markdown' | 'svg' | 'terminal';
+export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal';
 
 const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
 const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
+/**
+ * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
+ * unsupported files. It is not markdown, so rendering it (Rich, split preview,
+ * Read) would mangle it: only the source editor applies.
+ */
+const CODE_MODES: readonly EditorMode[] = ['raw'];
 /**
  * A terminal offers exactly one mode. It still goes through this table so the
  * mode picker and the mod+1..4 shortcuts filter it out with the same
@@ -28,8 +37,20 @@ const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
  */
 const TERMINAL_MODES: readonly EditorMode[] = ['term'];
 
+/**
+ * No path (an unsaved note) is markdown. Images and importable documents stay
+ * 'markdown' too: they open as viewer/import tabs, never through a mode.
+ */
 export function docFamilyFor(path: string | null | undefined): DocFamily {
-  return path && extName(path).toLowerCase() === '.svg' ? 'svg' : 'markdown';
+  if (!path) {
+    return 'markdown';
+  }
+  if (extName(path).toLowerCase() === '.svg') {
+    return 'svg';
+  }
+  return isEditableTextPath(path) || isImagePath(path) || isImportablePath(path)
+    ? 'markdown'
+    : 'code';
 }
 
 /**
@@ -49,6 +70,8 @@ export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
   switch (family) {
     case 'svg':
       return SVG_MODES;
+    case 'code':
+      return CODE_MODES;
     case 'terminal':
       return TERMINAL_MODES;
     default:

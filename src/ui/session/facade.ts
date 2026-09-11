@@ -8,6 +8,7 @@
  */
 
 import { pathKey } from '../../core/tab-workspaces';
+import { toggleShowAllFiles } from '../../core/text-files';
 import type { DocSource } from '../../core/export/doc-source';
 import { dirName } from '../../core/session/plan-flush';
 import type { PersistedTab } from '../../core/session/plan-flush';
@@ -810,6 +811,21 @@ export function setWorkspaceLiveEdit(path: string, liveEdit: boolean): void {
       return liveEdit ? { ...rest, liveEdit: true } : rest;
     }),
   });
+}
+
+/**
+ * FileExplorer → settings: flip "Show unsupported files" for `dir` (a
+ * workspace root or any folder). Its subfolders reset to follow it; a folder
+ * under a showing parent can hide again (core/text-files toggleShowAllFiles).
+ */
+export function toggleShowAllFilesFor(dir: string): void {
+  const { settings, update } = settingsStore.getState();
+  const { shown, hidden } = toggleShowAllFiles(
+    dir,
+    settings.showAllFilesDirs,
+    settings.hideUnsupportedDirs,
+  );
+  update({ showAllFilesDirs: shown, hideUnsupportedDirs: hidden });
 }
 /**
  * FileExplorer single-click → controller: open a note file (activates it if

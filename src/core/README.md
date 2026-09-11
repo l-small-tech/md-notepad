@@ -24,7 +24,8 @@ do not rewrite them.
 | `update-schedule.ts` | reference | when an AUTOMATIC update check is due: at most once a week and never before Sunday midnight, local time. Clock injected, so the policy is testable without waiting a week |
 | `notes-move.ts` | M6 | pure `planNoteMoves` for the notes-dir change flow |
 | `window-drop.ts` | M8 | `pickDropWindow`: which window a tab drag released over (containment + focus-recency for overlap), for the cross-window tab drop |
-| `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw) |
+| `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Draw/Raw; any non-note, non-image, non-document file → `code`, Raw only) |
+| `text-files.ts` | reference | which extensions are text notes (`.md`/`.markdown`/`.txt`, mirrored by Rust `list_dir`), and `showAllFilesState` — whether a folder lists every file: nearest switch wins between `settings.showAllFilesDirs` and `settings.hideUnsupportedDirs`; `toggleShowAllFiles` resets the subfolders below the toggled one |
 | `external-links.ts` | reference | external-link policy: is an href `http(s)`, what host does it really resolve to, how is it shown in the confirmation prompt |
 | `external-links.ts` | reference | link policy: is an href external, what host does it REALLY reach, how to elide it for the confirm prompt |
 | `whiteboard/` | feature | the `.svg` whiteboard format — see `whiteboard/README.md` |

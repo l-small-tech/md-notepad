@@ -57,7 +57,12 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
-import { isEditableTextPath, isMarkdownPath } from '../../core/text-files';
+import {
+  isEditableTextPath,
+  isMarkdownPath,
+  showAllFilesState,
+  showsAllFiles,
+} from '../../core/text-files';
 import { type WorkspaceColor } from '../../core/types';
 import { ipc } from '../../ipc/commands';
 import { currentProvider } from '../../ipc/provider';
@@ -118,6 +123,10 @@ export function FileExplorer() {
   const defaultColor = useSettingsStore((s) => s.settings.defaultWorkspaceColor);
   // notesDir changes (M6 settings flow) must re-derive the default workspace.
   const notesDirSetting = useSettingsStore((s) => s.settings.notesDir);
+  // Folders listing every file ("Show unsupported files"); a change re-lists.
+  const showAllDirs = useSettingsStore((s) => s.settings.showAllFilesDirs);
+  const hideAllDirs = useSettingsStore((s) => s.settings.hideUnsupportedDirs);
+  const showAllSignature = JSON.stringify([showAllDirs, hideAllDirs]);
   // Missing key = not yet loaded (show "Loading…"); an array = the listing.
   const [entriesByDir, setEntriesByDir] = useState<Record<string, ExplorerEntry[]>>({});
   // Dirs whose last listing failed or timed out — a never-loaded one (no entry
@@ -241,7 +250,10 @@ export function FileExplorer() {
                 continue;
               }
               void ipc
-                .dirHasRelevantFiles(e.path)
+                .dirHasRelevantFiles(
+                  e.path,
+                  showsAllFiles(e.path, ...(JSON.parse(showAllSignature) as [string[], string[]])),
+                )
                 .then((has) => {
                   if (cancelled) {
                     return;
@@ -285,7 +297,15 @@ export function FileExplorer() {
     return () => {
       cancelled = true;
     };
-  }, [open, tabSignature, workspaceSignature, expandedSignature, notesDirSetting, explorerRefresh]);
+  }, [
+    open,
+    tabSignature,
+    workspaceSignature,
+    expandedSignature,
+    notesDirSetting,
+    explorerRefresh,
+    showAllSignature,
+  ]);
 
   if (!open) {
     return null;
@@ -528,6 +548,7 @@ export function FileExplorer() {
             {menuFor === entry.path && (
               <ExplorerContextMenu
                 dir={entry.path}
+                showAll={showAllFilesState(entry.path, showAllDirs, hideAllDirs)}
                 renameTarget={entry}
                 onClose={() => setMenuFor(null)}
                 onRename={setRenaming}
@@ -860,6 +881,11 @@ export function FileExplorer() {
                       dir={ws.path}
                       wsColor={ws.color}
                       wsLiveEdit={ws.liveEdit}
+                      showAll={
+                        ws.readOnly
+                          ? undefined
+                          : showAllFilesState(ws.path, showAllDirs, hideAllDirs)
+                      }
                       removableWs={ws.removable}
                       readOnly={ws.readOnly}
                       onClose={() => setMenuFor(null)}

@@ -18,7 +18,8 @@ export function dirIndent(depth: number): number {
  * else (which then keeps its full name, extension included). Recognized files
  * show their name WITHOUT the extension plus this badge: 'md' for markdown
  * (rendered in the accent blue), the uppercased extension for images and
- * importable documents (PDF/DOCX).
+ * importable documents (PDF/DOCX). Unsupported files (listed where the user
+ * shows them) are not recognized: they keep their full name, no badge.
  */
 export function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' } | null {
   const dot = name.lastIndexOf('.');

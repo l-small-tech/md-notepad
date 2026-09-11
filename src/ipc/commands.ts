@@ -172,11 +172,15 @@ export const ipc = {
   readTextFile: (path: string) => call<FileText>('read_text_file', { path }),
   atomicWriteText: (path: string, text: string) => call<void>('atomic_write_text', { path, text }),
   listNotes: (dir: string) => call<NoteMeta[]>('list_notes', { dir }),
-  /** One explorer level: subdirs + .md/image files (dirs A→Z, files newest first). */
-  listDir: (dir: string) => call<DirEntryMeta[]>('list_dir', { dir }),
+  /** One explorer level: subdirs + text/image/document files (dirs A→Z, files
+   *  newest first). `allFiles` lists every file (unsupported files shown). */
+  listDir: (dir: string, allFiles?: boolean) =>
+    call<DirEntryMeta[]>('list_dir', { dir, allFiles: allFiles ?? false }),
   /** Recursive: does `dir`'s subtree hold anything the explorer would list (or
-   *  an extension-less file)? Local paths only — never call with `saf://`. */
-  dirHasRelevantFiles: (dir: string) => call<boolean>('dir_has_relevant_files', { dir }),
+   *  an extension-less file)? `allFiles` counts any file. Local paths only —
+   *  never call with `saf://`. */
+  dirHasRelevantFiles: (dir: string, allFiles?: boolean) =>
+    call<boolean>('dir_has_relevant_files', { dir, allFiles: allFiles ?? false }),
   /** Secondary-window manifests (`session-<label>.json`) in the session dir. */
   listSessionManifests: (dir: string) => call<string[]>('list_session_manifests', { dir }),
   /** Theme-plugin files (`*.json`) in the themes folder; full paths, sorted. */

@@ -47,6 +47,23 @@ opened from it save as you type and merge the changes other people save,
 while you both have the file open — see
 [Live edit](notes-tabs-and-saving.md#live-edit-working-on-one-file-together).
 
+## Showing other files (code, configs…)
+
+The sidebar normally lists only what the app is made for: markdown and text
+notes, images, drawings, and PDF/Word documents to import. To see everything
+else too — `.js`, `.ts`, `.json`, `.rc`, files with no extension — right-click
+a workspace heading (or any folder) and turn on **Show unsupported files**. It
+applies to that folder and every folder inside it.
+
+You can still hide them folder by folder: right-click a folder inside and
+turn the option off there (or back on). Changing it on a workspace heading —
+or any folder — resets everything inside it, so all its folders follow it
+again.
+
+These files open as plain text in the source editor (no rich or preview
+modes) and save like any other file. A file that isn't text at all — a
+program, a zip — won't open; you'll get a notice saying so.
+
 ## Creating, renaming, moving, deleting
 
 Right-click gets you everywhere:

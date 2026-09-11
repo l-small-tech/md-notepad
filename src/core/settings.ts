@@ -253,6 +253,8 @@ export const DEFAULT_SETTINGS: Settings = {
   whisperModel: RECOMMENDED_WHISPER_MODEL,
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
+  showAllFilesDirs: [],
+  hideUnsupportedDirs: [],
   scanPreset: DEFAULT_SCAN_PRESET,
   scanSmoothing: DEFAULT_SCAN_SMOOTHING,
 
@@ -626,6 +628,8 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.whisperModel,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
+    showAllFilesDirs: normalizePathList(r.showAllFilesDirs),
+    hideUnsupportedDirs: normalizePathList(r.hideUnsupportedDirs),
     scanPreset:
       typeof r.scanPreset === 'string' && r.scanPreset in SCAN_PRESETS
         ? (r.scanPreset as ScanPreset)
