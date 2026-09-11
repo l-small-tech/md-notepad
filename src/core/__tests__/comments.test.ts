@@ -307,6 +307,121 @@ describe('parse/serialize round-trip', () => {
   });
 });
 
+describe('code-review fields', () => {
+  const CODE: VoiceComment = {
+    id: 'cunit',
+    file: 'text-files.ts',
+    line: 96,
+    quote: 'export function showAllFilesState(',
+    time: '2026-09-10T21:32:07.000Z',
+    transcript: 'This should take the hidden dirs too.',
+    unit: 'showAllFilesState (function)',
+  };
+
+  test('`unit` is written after the other meta lines and round-trips', () => {
+    const text = serializeCommentsFile([CODE], 'text-files.ts');
+    expect(text).toContain(
+      [
+        '- line: 96',
+        '- time: 2026-09-10T21:32:07.000Z',
+        '- unit: showAllFilesState (function)',
+      ].join('\n'),
+    );
+    expect(parseCommentsFile(text)).toEqual([CODE]);
+  });
+
+  test('a note without a unit writes no line and parses back without the field', () => {
+    const plain: VoiceComment = { ...CODE, unit: undefined };
+    const text = serializeCommentsFile([plain], 'text-files.ts');
+    expect(text).not.toContain('- unit:');
+    const parsed = parseCommentsFile(text);
+    expect(parsed).toEqual([{ ...plain, unit: undefined }]);
+    expect('unit' in parsed[0]!).toBe(false);
+  });
+
+  test('an older file (no unit line) still parses', () => {
+    const older = [
+      '<!-- md-notepad voice comments v2 -->',
+      '## ^cold2',
+      '- file: text-files.ts',
+      '- line: 4',
+      '- time: t',
+      '',
+      '> a line',
+      '',
+      'a note',
+      '',
+    ].join('\n');
+    expect(parseCommentsFile(older)).toEqual([
+      {
+        id: 'cold2',
+        file: 'text-files.ts',
+        line: 4,
+        quote: 'a line',
+        time: 't',
+        transcript: 'a note',
+      },
+    ]);
+  });
+
+  test('an unknown meta line from a newer build is dropped, not read as transcript', () => {
+    const newer = [
+      '<!-- md-notepad voice comments v2 -->',
+      '## ^cnew1',
+      '- file: text-files.ts',
+      '- line: 4',
+      '- time: t',
+      '- unit: dirKey (function)',
+      '- mood: cheerful',
+      '',
+      'the note itself',
+      '',
+    ].join('\n');
+    const parsed = parseCommentsFile(newer);
+    expect(parsed).toEqual([
+      {
+        id: 'cnew1',
+        file: 'text-files.ts',
+        line: 4,
+        quote: '',
+        time: 't',
+        transcript: 'the note itself',
+        unit: 'dirKey (function)',
+      },
+    ]);
+    // The unknown line ends the meta run; it must not survive a rewrite either.
+    expect(serializeCommentsFile(parsed, 'text-files.ts')).not.toContain('mood');
+  });
+
+  test('review context goes under the title, and the parser ignores it', () => {
+    const text = serializeCommentsFile([CODE], 'text-files.ts', {
+      branch: 'feat/explorer-filters',
+      worktree: 'worktrees/explorer-filters',
+      baseBranch: 'development',
+      baseRef: '3c77f30',
+    });
+    const lines = text.split('\n');
+    const at = lines.indexOf('# Voice notes for [text-files.ts](text-files.ts)');
+    expect(lines[at + 1]).toBe(
+      '- branch: feat/explorer-filters (worktree: worktrees/explorer-filters)',
+    );
+    expect(lines[at + 2]).toBe('- compared against: development (merge-base 3c77f30)');
+    expect(lines[at + 3]).toBe('');
+    expect(parseCommentsFile(text)).toEqual([CODE]);
+  });
+
+  test('each context field is optional; an empty context writes nothing', () => {
+    expect(serializeCommentsFile([], 'a.ts', { branch: 'feat/x' })).toContain('- branch: feat/x\n');
+    expect(serializeCommentsFile([], 'a.ts', { baseBranch: 'main' })).toContain(
+      '- compared against: main\n',
+    );
+    expect(serializeCommentsFile([], 'a.ts', { worktree: 'worktrees/x', baseRef: 'abc1234' })).toBe(
+      serializeCommentsFile([], 'a.ts'),
+    );
+    expect(serializeCommentsFile([], 'a.ts', {})).toBe(serializeCommentsFile([], 'a.ts'));
+  });
+});
+
 describe('legacy v1 files', () => {
   test('parse with empty file/line/quote and the body kept verbatim', () => {
     const v1 = [

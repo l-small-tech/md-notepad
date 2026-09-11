@@ -8,7 +8,9 @@
 //! UI never wait on it.
 //!
 //! Input is little-endian f32 PCM, mono, in the request's raw body (no JSON,
-//! no base64), with `sample-rate` and `model-id` headers. Whisper wants
+//! no base64), with `sample-rate`, `model-id` and the optional `hint` (an
+//! initial prompt biasing the decoder — Review mode sends the reviewed file's
+//! identifiers) headers. Whisper wants
 //! 16 kHz; anything else is linearly resampled here, which is enough for
 //! speech captured at 44.1/48 kHz on the odd backend that refuses 16 kHz.
 
@@ -90,21 +92,27 @@ impl EngineState {
         expected_bytes: Option<u64>,
         pcm: &[f32],
         language: Option<&str>,
+        hint: Option<&str>,
     ) -> WhisperResult<String> {
         self.load(path, expected_bytes)?;
         let slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let loaded = slot
             .as_ref()
             .ok_or_else(|| WhisperError::LoadFailed("model vanished".into()))?;
-        transcribe_with(&loaded.ctx, pcm, language)
+        transcribe_with(&loaded.ctx, pcm, language, hint)
     }
 }
 
 /// Greedy decode, no timestamps, segments joined with single spaces.
+///
+/// `hint` is whisper.cpp's initial prompt: words the decoder should expect
+/// (the frontend sends the reviewed file's identifiers). It biases decoding
+/// only — an empty or absent hint leaves the decode exactly as it was.
 pub fn transcribe_with(
     ctx: &WhisperContext,
     pcm: &[f32],
     language: Option<&str>,
+    hint: Option<&str>,
 ) -> WhisperResult<String> {
     let mut state = ctx
         .create_state()
@@ -120,6 +128,12 @@ pub fn transcribe_with(
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
+    // An initial prompt biases the decoder toward the words in it. Interior
+    // null bytes would panic inside whisper-rs, so they go first.
+    let prompt = hint.map(|h| h.replace('\0', " "));
+    if let Some(prompt) = prompt.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        params.set_initial_prompt(prompt);
+    }
     state
         .full(params, pcm)
         .map_err(|e| WhisperError::Failed(e.to_string()))?;
@@ -198,7 +212,9 @@ pub async fn whisper_prepare(app: AppHandle, model_id: String) -> WhisperResult<
 }
 
 /// Raw body: little-endian f32 mono PCM. Headers: `sample-rate` (Hz),
-/// `model-id` (manifest id). Resolves with the transcript ("" for silence).
+/// `model-id` (manifest id), and the optional `hint` — whisper.cpp's initial
+/// prompt, the words to expect (Review mode sends the file's identifiers).
+/// Resolves with the transcript ("" for silence).
 #[tauri::command]
 pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> WhisperResult<String> {
     let header = |name: &str| -> WhisperResult<String> {
@@ -213,6 +229,12 @@ pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Whisper
         .parse()
         .map_err(|_| WhisperError::InvalidData("bad sample-rate header".into()))?;
     let model = spec(&header("model-id")?)?;
+    // Optional: a missing hint is not an error, it is the ordinary case.
+    let hint: Option<String> = request
+        .headers()
+        .get("hint")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let bytes = match request.body() {
         InvokeBody::Raw(bytes) => bytes.clone(),
         InvokeBody::Json(_) => {
@@ -226,7 +248,13 @@ pub async fn whisper_transcribe(app: AppHandle, request: Request<'_>) -> Whisper
         drop(bytes);
         let pcm = resample(&pcm, sample_rate, WHISPER_SAMPLE_RATE);
         let engine: State<'_, EngineState> = app.state();
-        engine.transcribe(&path, Some(model.bytes), &pcm, model.language())
+        engine.transcribe(
+            &path,
+            Some(model.bytes),
+            &pcm,
+            model.language(),
+            hint.as_deref(),
+        )
     })
     .await
     .map_err(|e| WhisperError::Failed(e.to_string()))?
@@ -285,6 +313,7 @@ mod tests {
                 None,
                 &[0.0; 16_000],
                 Some("en"),
+                None,
             )
             .unwrap_err();
         assert!(matches!(err, WhisperError::NoModel(_)), "{err:?}");
@@ -297,13 +326,13 @@ mod tests {
         std::fs::write(&path, b"this is not a ggml file").unwrap();
         let engine = EngineState::default();
         let err = engine
-            .transcribe(&path, None, &[0.0; 16_000], Some("en"))
+            .transcribe(&path, None, &[0.0; 16_000], Some("en"), None)
             .unwrap_err();
         assert!(matches!(err, WhisperError::LoadFailed(_)), "{err:?}");
         // With the manifest size known, a wrong length is reported as corrupt
         // before whisper.cpp ever opens it.
         let err = engine
-            .transcribe(&path, Some(77_704_715), &[0.0; 16_000], Some("en"))
+            .transcribe(&path, Some(77_704_715), &[0.0; 16_000], Some("en"), None)
             .unwrap_err();
         assert!(matches!(err, WhisperError::ModelCorrupt(_)), "{err:?}");
     }
@@ -324,7 +353,13 @@ mod tests {
         let path = std::env::var("MD_NOTEPAD_WHISPER_MODEL").expect("MD_NOTEPAD_WHISPER_MODEL");
         let engine = EngineState::default();
         let text = engine
-            .transcribe(Path::new(&path), None, &[0.0; 16_000], Some("en"))
+            .transcribe(
+                Path::new(&path),
+                None,
+                &[0.0; 16_000],
+                Some("en"),
+                Some("show all files state, is markdown path"),
+            )
             .unwrap();
         assert!(
             text.len() < 64,
@@ -332,7 +367,7 @@ mod tests {
         );
         // The second call reuses the loaded context.
         engine
-            .transcribe(Path::new(&path), None, &[0.0; 16_000], Some("en"))
+            .transcribe(Path::new(&path), None, &[0.0; 16_000], Some("en"), None)
             .unwrap();
     }
 }

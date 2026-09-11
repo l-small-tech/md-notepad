@@ -17,6 +17,7 @@ import {
   openVoiceSettings,
   showNotes,
   toggleMic,
+  undoSnap,
   updateDraft,
   updateTranscript,
   useVoiceStore,
@@ -25,18 +26,53 @@ import {
 } from '../voice-comments';
 import { isAndroid } from '../platform';
 import type { VoiceComment } from '../../core/comments';
+import type { Snap } from '../../core/code/vocab';
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-function CommentCard({ comment, focused }: { comment: VoiceComment; focused: boolean }) {
+/**
+ * What snapping changed in this note, each undoable: "shows all files" became
+ * `` `showsAllFiles` ``. Rendered only while there is something to undo.
+ */
+function Snaps({ snaps }: { snaps: Snap[] }) {
+  return (
+    <div className="vc-snaps">
+      <span className="vc-snaps-label">Matched names</span>
+      {snaps.map((snap, i) => (
+        <span className="vc-snap" key={`${snap.index}-${snap.to}`}>
+          <code>{snap.to.replace(/`/g, '')}</code>
+          <button
+            className="vc-snap-undo"
+            onClick={() => undoSnap(i)}
+            title={`Put "${snap.from}" back`}
+            aria-label={`Undo ${snap.to.replace(/`/g, '')}`}
+          >
+            undo
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CommentCard({
+  comment,
+  focused,
+  snaps,
+}: {
+  comment: VoiceComment;
+  focused: boolean;
+  snaps: Snap[];
+}) {
   return (
     <div className={`vc-card${focused ? ' vc-card-focus' : ''}`}>
       <div className="vc-card-meta">
         <span>
           {comment.line !== null ? `Line ${comment.line} · ` : ''}
+          {comment.unit ? `${comment.unit} · ` : ''}
           {formatTime(comment.time)}
         </span>
         <button
@@ -54,6 +90,7 @@ function CommentCard({ comment, focused }: { comment: VoiceComment; focused: boo
         placeholder="Transcript…"
         onChange={(e) => updateTranscript(comment.id, e.target.value)}
       />
+      {snaps.length > 0 && <Snaps snaps={snaps} />}
     </div>
   );
 }
@@ -67,9 +104,12 @@ export function VoiceComments() {
   const title =
     state.phase === 'viewing'
       ? 'Voice notes'
-      : state.line !== null
-        ? `Voice note · line ${state.line}`
-        : 'Voice note';
+      : state.unit
+        ? // Review mode: the declaration says more than its line number does.
+          `Voice note · ${state.unit}`
+        : state.line !== null
+          ? `Voice note · line ${state.line}`
+          : 'Voice note';
   return (
     <div
       className={`vc-backdrop${isAndroid() ? ' vc-android' : ''}`}
@@ -236,7 +276,12 @@ function ViewingBody({ state }: { state: VoiceCommentsState }) {
   return (
     <div className="vc-body">
       {ordered.map((c) => (
-        <CommentCard key={c.id} comment={c} focused={c.id === state.focusId} />
+        <CommentCard
+          key={c.id}
+          comment={c}
+          focused={c.id === state.focusId}
+          snaps={c.id === state.snapCommentId ? state.snaps : []}
+        />
       ))}
     </div>
   );

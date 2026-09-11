@@ -65,7 +65,11 @@ session concepts in Rust, stop and move it to `src/core`.
   `whisper_prepare` (warm the model) and `whisper_transcribe` — raw f32 PCM
   as the request body (`tauri::ipc::Request`, no JSON/base64) with
   `sample-rate` and `model-id` headers, resampled to 16 kHz if needed, on
-  the blocking pool. Audio only ever lives in memory. The network is touched
+  the blocking pool. An optional `hint` header is whisper.cpp's initial
+  prompt (`FullParams::set_initial_prompt`): words the decoder should expect,
+  which Review mode fills with the reviewed file's identifiers as spoken
+  words (`src/core/code/vocab.ts` `identifierHint`) — without it the decode
+  is unchanged. Audio only ever lives in memory. The network is touched
   only by `whisper_model_download`, only when the user clicks Download.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
