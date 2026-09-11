@@ -29,6 +29,7 @@ import { baseName, dirName, joinPath, type FlushIo } from '../../core/session/pl
 import type { DebouncedFlusher } from '../../core/session/debounce';
 import { imageMimeType } from '../../core/images';
 import { isCommentsPath } from '../../core/comments';
+import { showsAllFiles } from '../../core/text-files';
 import { currentProvider } from '../../ipc/provider';
 import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
@@ -151,6 +152,7 @@ export {
   saveTab,
   savePastedFileInto,
   savePastedImageForTab,
+  setShowAllFiles,
   setWorkspaceColor,
   setWorkspaceLiveEdit,
   takePendingReveal,
@@ -334,7 +336,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setChangeNotesDirDispatch(() => void workspaces.changeNotesDir());
   setWorkspaceRootForDispatch((path) => ctx.workspaceRootFor(path));
   setListNotesDispatch(async (dir?: string) => {
-    const entries = await ipc.listDir(dir ?? ctx.notesDir);
+    const target = dir ?? ctx.notesDir;
+    const entries = await ipc.listDir(
+      target,
+      showsAllFiles(target, settingsStore.getState().settings.showAllFilesDirs),
+    );
     return (
       entries
         // Voice-note sidecars (`*.comments.md`) kept BESIDE their note are

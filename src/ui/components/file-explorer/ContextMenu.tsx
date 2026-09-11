@@ -27,6 +27,7 @@ import {
   openFileInNewWindow,
   removeWorkspace,
   setWorkspaceColor,
+  setShowAllFiles,
   setWorkspaceLiveEdit,
   type ExplorerEntry,
 } from '../../session';
@@ -65,6 +66,11 @@ interface DirMenuProps extends CommonProps {
    * default notes dir and read-only/synced workspaces leave it undefined).
    */
   wsLiveEdit?: boolean;
+  /**
+   * "Show unsupported files" state of this dir (core/text-files
+   * showAllFilesState); undefined = not offered (read-only workspace).
+   */
+  showAll?: 'on' | 'inherited' | 'off';
   renameTarget?: ExplorerEntry;
   removableWs?: boolean;
   readOnly?: boolean;
@@ -211,6 +217,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     dir,
     wsColor,
     wsLiveEdit,
+    showAll,
     renameTarget,
     removableWs,
     readOnly,
@@ -424,6 +431,31 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             {wsLiveEdit ? '✓' : ''}
           </span>
           Live edit (shared folder)
+        </button>
+      )}
+      {/* List every file here and in subfolders, not just notes/images/docs;
+          they open as plain source text. Inherited from a parent that is on:
+          shown checked but disabled — turn it off where it was turned on. */}
+      {showAll !== undefined && (
+        <button
+          className="context-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={showAll !== 'off'}
+          disabled={showAll === 'inherited'}
+          title={
+            showAll === 'inherited'
+              ? 'Turned on for a parent folder — turn it off there'
+              : 'List every file in this folder and its subfolders; other files open as plain text'
+          }
+          onClick={() => {
+            onClose();
+            setShowAllFiles(dir, showAll === 'off');
+          }}
+        >
+          <span className="context-menu-check" aria-hidden="true">
+            {showAll !== 'off' ? '✓' : ''}
+          </span>
+          Show unsupported files
         </button>
       )}
       {/* Everything created here — files, folders, drawings, terminal and AI

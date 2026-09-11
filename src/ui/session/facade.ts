@@ -811,6 +811,17 @@ export function setWorkspaceLiveEdit(path: string, liveEdit: boolean): void {
     }),
   });
 }
+
+/**
+ * FileExplorer → settings: list every file in `dir` and its subfolders (or stop
+ * to). Works for a workspace root and any folder alike; turning a folder off
+ * leaves a parent that is on alone — the menu shows that case as inherited.
+ */
+export function setShowAllFiles(dir: string, on: boolean): void {
+  const { settings, update } = settingsStore.getState();
+  const rest = settings.showAllFilesDirs.filter((d) => pathKey(d) !== pathKey(dir));
+  update({ showAllFilesDirs: on ? [...rest, dir] : rest });
+}
 /**
  * FileExplorer single-click → controller: open a note file (activates it if
  * already open). Opens as a reusable preview tab when the setting is on.

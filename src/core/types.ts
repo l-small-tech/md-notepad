@@ -453,6 +453,12 @@ export interface Settings {
   explorerCollapsedWorkspaces: string[];
   explorerExpandedDirs: string[];
   /**
+   * Workspace roots and folders where the explorer lists EVERY file, not just
+   * notes/images/documents (right-click → "Show unsupported files"). Applies
+   * to subfolders too — `showAllFilesState` in core/text-files.ts. Default [].
+   */
+  showAllFilesDirs: string[];
+  /**
    * Whiteboard-scan panel: last-used quality preset and trace smoothing.
    * Not dialog fields — the scan panel's own selects write them, so the next
    * scan opens the way the previous one was tuned.

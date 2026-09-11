@@ -190,12 +190,15 @@ function isMarkdown(name: string): boolean {
  * Explorer-visible entry: a subfolder, a text note (.md/.txt), an image, or an
  * importable document (PDF/DOCX — see the import registry); no dot-files. The
  * desktop (local FS) listing applies the equivalent filter in Rust `list_dir`.
+ * `allFiles` (unsupported files shown) lists every non-hidden file.
  */
-function isListed(name: string, isDir: boolean): boolean {
+function isListed(name: string, isDir: boolean, allFiles: boolean): boolean {
   if (name.startsWith('.')) {
     return false;
   }
-  return isDir || isEditableTextPath(name) || isImagePath(name) || isImportablePath(name);
+  return (
+    isDir || allFiles || isEditableTextPath(name) || isImagePath(name) || isImportablePath(name)
+  );
 }
 
 /**
@@ -214,10 +217,10 @@ export function createSafProvider(ops: SafOps = ipc): StorageProvider {
     return entries;
   };
 
-  async function listDir(dir: string): Promise<DirEntryMeta[]> {
+  async function listDir(dir: string, allFiles = false): Promise<DirEntryMeta[]> {
     const entries = await listAt(dir);
     return entries
-      .filter((e) => isListed(e.name, e.isDir))
+      .filter((e) => isListed(e.name, e.isDir, allFiles))
       .map((e) => ({
         path: `${dir}/${e.name}`,
         isDir: e.isDir,
@@ -372,7 +375,7 @@ export function createRoutingProvider(
     readTextFile: (path) => backend(path).readTextFile(path),
     atomicWriteText: (path, text) => backend(path).atomicWriteText(path, text),
     listNotes: (dir) => backend(dir).listNotes(dir),
-    listDir: (dir) => backend(dir).listDir(dir),
+    listDir: (dir, allFiles) => backend(dir).listDir(dir, allFiles),
     listSessionManifests: (dir) => backend(dir).listSessionManifests(dir),
     readFileBase64: (path) => backend(path).readFileBase64(path),
     writeFileBase64: (path, data) => backend(path).writeFileBase64(path, data),

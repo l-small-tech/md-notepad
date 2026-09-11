@@ -248,6 +248,7 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceNotesFolderName: 'Voice Notes',
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
+  showAllFilesDirs: [],
   scanPreset: DEFAULT_SCAN_PRESET,
   scanSmoothing: DEFAULT_SCAN_SMOOTHING,
 
@@ -612,6 +613,7 @@ export function normalizeSettings(raw: unknown): Settings {
         : d.voiceNotesFolderName,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
+    showAllFilesDirs: normalizePathList(r.showAllFilesDirs),
     scanPreset:
       typeof r.scanPreset === 'string' && r.scanPreset in SCAN_PRESETS
         ? (r.scanPreset as ScanPreset)
