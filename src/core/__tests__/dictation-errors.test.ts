@@ -43,6 +43,55 @@ describe('captureErrorFor — Android', () => {
   });
 });
 
+describe('captureErrorFor — Whisper (offline)', () => {
+  test('no model: points at the Voice notes settings, no ms-settings link', () => {
+    const e = captureErrorFor('WHISPER_NO_MODEL', 'whisper');
+    expect(e.title).toMatch(/no whisper model/i);
+    expect(e.steps.join(' ')).toMatch(/Settings > Voice notes/);
+    expect(e.steps.at(-1)).toMatch(/tap the microphone again/i);
+    expect(e.appSettings).toEqual({ label: 'Open voice notes settings', tab: 'voice' });
+    expect(e.settings).toBeUndefined();
+    expect(e.note).toMatch(/on this computer/);
+  });
+
+  test('a corrupt or unloadable model says to re-download', () => {
+    for (const code of ['WHISPER_MODEL_CORRUPT', 'WHISPER_LOAD_FAILED:oom']) {
+      const e = captureErrorFor(code, 'whisper');
+      expect(e.steps.join(' ')).toMatch(/download it again/);
+      expect(e.appSettings?.tab).toBe('voice');
+    }
+  });
+
+  test('microphone problems and the length cap have their own words', () => {
+    expect(captureErrorFor('WHISPER_MIC_DENIED', 'whisper').title).toMatch(/refused/);
+    expect(captureErrorFor('WHISPER_NO_MIC', 'whisper').title).toMatch(/No microphone/);
+    expect(captureErrorFor('WHISPER_TOO_LONG', 'whisper').title).toMatch(/10-minute/);
+    expect(captureErrorFor('WHISPER_FAILED:boom', 'whisper').title).toBe('Transcription failed');
+  });
+
+  test('an empty transcript uses the shared "did not catch that"', () => {
+    expect(captureErrorFor('STT_NO_MATCH', 'whisper').title).toBe("Didn't catch that");
+  });
+
+  test('every whisper code has a title and steps', () => {
+    for (const code of [
+      'WHISPER_NO_MODEL',
+      'WHISPER_MODEL_CORRUPT',
+      'WHISPER_MIC_DENIED',
+      'WHISPER_NO_MIC',
+      'WHISPER_TOO_LONG',
+      'WHISPER_LOAD_FAILED',
+      'WHISPER_FAILED',
+      'STT_NO_MATCH',
+      'WHATEVER',
+    ]) {
+      const e = captureErrorFor(code, 'whisper');
+      expect(e.title.length).toBeGreaterThan(0);
+      expect(e.steps.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('captureErrorFor — shared', () => {
   test('an unknown code falls back to a retry, and keeps the raw code for support', () => {
     const e = captureErrorFor('STT_FAILED:0x80004005 boom', 'windows');
@@ -80,7 +129,7 @@ describe('captureErrorFor — shared', () => {
       'STT_ERROR:12',
       'WHATEVER',
     ];
-    for (const engine of ['android', 'windows'] as const) {
+    for (const engine of ['android', 'windows', 'whisper'] as const) {
       for (const code of codes) {
         const e = captureErrorFor(code, engine);
         expect(e.title.length).toBeGreaterThan(0);

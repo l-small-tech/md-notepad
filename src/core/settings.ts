@@ -15,6 +15,7 @@ import {
   LEGACY_HARNESS_PROFILE_ID,
   CURSOR_STYLES,
   DEFAULT_COLOR_SCHEME,
+  DESKTOP_DICTATION_ENGINES,
   EDITOR_FONT_IDS,
   SHELL_PROFILE_ID,
   TERMINAL_BELLS,
@@ -25,6 +26,7 @@ import {
   WORKSPACE_COLORS,
 } from './types';
 import { AUTO_SHELL, normalizeShell } from './terminal-shells';
+import { RECOMMENDED_WHISPER_MODEL } from './whisper-models';
 import {
   DEFAULT_SCAN_PRESET,
   DEFAULT_SCAN_SMOOTHING,
@@ -35,6 +37,7 @@ import {
 } from './whiteboard/scan/types';
 import type {
   CursorStyle,
+  DesktopDictationEngine,
   HarnessChoice,
   HarnessId,
   EditorFontId,
@@ -246,6 +249,8 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolderName: 'images',
   voiceNotesLocation: 'workspaceFolder',
   voiceNotesFolderName: 'Voice Notes',
+  desktopDictationEngine: 'auto',
+  whisperModel: RECOMMENDED_WHISPER_MODEL,
   explorerCollapsedWorkspaces: [],
   explorerExpandedDirs: [],
   scanPreset: DEFAULT_SCAN_PRESET,
@@ -610,6 +615,15 @@ export function normalizeSettings(raw: unknown): Settings {
       typeof r.voiceNotesFolderName === 'string' && r.voiceNotesFolderName.trim().length > 0
         ? r.voiceNotesFolderName.trim()
         : d.voiceNotesFolderName,
+    desktopDictationEngine: (DESKTOP_DICTATION_ENGINES as readonly unknown[]).includes(
+      r.desktopDictationEngine,
+    )
+      ? (r.desktopDictationEngine as DesktopDictationEngine)
+      : d.desktopDictationEngine,
+    whisperModel:
+      typeof r.whisperModel === 'string' && r.whisperModel.trim().length > 0
+        ? r.whisperModel.trim()
+        : d.whisperModel,
     explorerCollapsedWorkspaces: normalizePathList(r.explorerCollapsedWorkspaces),
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
     scanPreset:

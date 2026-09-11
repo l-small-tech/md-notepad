@@ -537,6 +537,16 @@ mod tests {
 
     #[cfg(windows)]
     fn interactive_shell() -> SpawnOptions {
+        // A PATH of just System32 for the test shell. Cargo prepends every
+        // `rustc-link-search` directory of every build script to the PATH a
+        // test binary runs with — whisper-rs-sys's CMake build alone adds
+        // ~115 of them (18 k characters) — and cmd.exe caps a variable at
+        // 8 191 characters, so the inherited PATH loses System32 and
+        // `mode con` below becomes "not recognized". The app never sees
+        // that PATH; only cargo-run test binaries do.
+        let system32 = std::env::var("SystemRoot")
+            .map(|root| format!("{root}\\System32"))
+            .unwrap_or_else(|_| "C:\\Windows\\System32".into());
         SpawnOptions {
             cols: 80,
             rows: 24,
@@ -544,6 +554,7 @@ mod tests {
             // /Q: no command echo, so the output holds results and not the
             // lines the test typed. /K: stay open and keep reading.
             args: vec!["/Q".into(), "/K".into()],
+            env: HashMap::from([("PATH".to_string(), system32)]),
             ..SpawnOptions::default()
         }
     }

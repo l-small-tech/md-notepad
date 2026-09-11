@@ -55,6 +55,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # whisper-rs (offline voice notes) builds whisper.cpp with CMake and
+      # generates its bindings with libclang. CMake is on every runner image;
+      # libclang is not on Linux. Windows and macOS images ship LLVM, but
+      # bindgen only finds it when told where.
+      - name: Install libclang (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get install -y cmake libclang-dev
+      - name: Point bindgen at LLVM (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+        shell: bash
+      - name: Point bindgen at LLVM (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri
@@ -144,6 +159,11 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      # whisper-rs needs libclang for its bindings (see rust-and-build).
+      - name: Point bindgen at LLVM
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+        shell: bash
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:

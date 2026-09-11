@@ -261,7 +261,10 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .manage(commands::watch::WatchState::default())
-        .manage(commands::pty::PtyRegistry::default());
+        .manage(commands::pty::PtyRegistry::default())
+        // Whisper voice notes: the loaded model and the one download at a time.
+        .manage(commands::whisper::engine::EngineState::default())
+        .manage(commands::whisper::models::DownloadState::default());
 
     // Android-only: native Context APIs (external files dir now; content:// reads
     // and incoming intents later) that pure-Rust JNI can't reach in Tauri.
@@ -316,6 +319,21 @@ pub fn run() {
             commands::pty::pty_attach,
             #[cfg(desktop)]
             commands::pty::pty_detach,
+            // Whisper voice notes (offline transcription), desktop only.
+            #[cfg(desktop)]
+            commands::whisper::models::whisper_models_list,
+            #[cfg(desktop)]
+            commands::whisper::models::whisper_model_dir,
+            #[cfg(desktop)]
+            commands::whisper::models::whisper_model_download,
+            #[cfg(desktop)]
+            commands::whisper::models::whisper_model_cancel,
+            #[cfg(desktop)]
+            commands::whisper::models::whisper_model_delete,
+            #[cfg(desktop)]
+            commands::whisper::engine::whisper_prepare,
+            #[cfg(desktop)]
+            commands::whisper::engine::whisper_transcribe,
             #[cfg(target_os = "android")]
             commands::android::extract_docs_dir,
             #[cfg(target_os = "android")]

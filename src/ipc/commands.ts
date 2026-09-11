@@ -20,7 +20,17 @@ export type IpcErrorCode =
   | 'INVALID_DATA'
   | 'IO'
   /** A child process could not be started (bad program, bad cwd) — pty only. */
-  | 'SPAWN';
+  | 'SPAWN'
+  /* Whisper voice notes (src-tauri commands/whisper). */
+  | 'WHISPER_UNKNOWN_MODEL'
+  | 'WHISPER_NO_MODEL'
+  | 'WHISPER_MODEL_CORRUPT'
+  | 'WHISPER_LOAD_FAILED'
+  | 'WHISPER_FAILED'
+  | 'WHISPER_DOWNLOAD_FAILED'
+  | 'WHISPER_DOWNLOAD_CORRUPT'
+  | 'WHISPER_DOWNLOAD_CANCELLED'
+  | 'WHISPER_DOWNLOAD_BUSY';
 
 const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'NOT_FOUND',
@@ -29,6 +39,15 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'INVALID_DATA',
   'IO',
   'SPAWN',
+  'WHISPER_UNKNOWN_MODEL',
+  'WHISPER_NO_MODEL',
+  'WHISPER_MODEL_CORRUPT',
+  'WHISPER_LOAD_FAILED',
+  'WHISPER_FAILED',
+  'WHISPER_DOWNLOAD_FAILED',
+  'WHISPER_DOWNLOAD_CORRUPT',
+  'WHISPER_DOWNLOAD_CANCELLED',
+  'WHISPER_DOWNLOAD_BUSY',
 ];
 
 export class IpcError extends Error {
@@ -119,6 +138,26 @@ export interface SearchHit {
   line: number;
   col: number;
   lineText: string;
+}
+
+/** Progress on the whisper model download channel (mirrors `DownloadEvent` in Rust). */
+export type WhisperDownloadEvent =
+  { kind: 'progress'; received: number; total: number } | { kind: 'verifying' };
+
+/**
+ * One whisper model: manifest entry + on-disk state (mirrors `ModelStatus` in
+ * commands/whisper/models.rs; the same shape as core's `WhisperModelStatus`,
+ * declared here because ipc imports nothing app-local).
+ */
+export interface WhisperModelStatusWire {
+  id: string;
+  file: string;
+  label: string;
+  bytes: number;
+  multilingual: boolean;
+  quantized: boolean;
+  installed: boolean;
+  partialBytes: number;
 }
 
 /** One raw entry from a synced-folder listing (name only, not a full id). */
@@ -309,6 +348,47 @@ export const ipc = {
       }[];
     }>('ocr_image_recognize', { pngBase64 }),
 
+  /* --------------------------- whisper models --------------------------- */
+  /* Desktop only (src-tauri commands/whisper): offline voice-note
+     transcription. Not registered on Android — only call behind the
+     `dictationEngine() === 'whisper'` check in ui/voice-comments.ts or from
+     the Settings dialog's desktop-only section. */
+
+  /** The model manifest joined with what is on disk. */
+  whisperModelsList: () => call<WhisperModelStatusWire[]>('whisper_models_list'),
+  /** Where model files live (`<appData>/whisper`), created if missing. */
+  whisperModelDir: () => call<string>('whisper_model_dir'),
+  /**
+   * Download (or resume) one model, verified against its pinned SHA-256.
+   * Resolves once the file is in place; rejects `WHISPER_DOWNLOAD_*` (a
+   * cancel rejects `WHISPER_DOWNLOAD_CANCELLED` and keeps the part to resume).
+   */
+  whisperModelDownload: (id: string, onProgress: Channel<WhisperDownloadEvent>) =>
+    call<void>('whisper_model_download', { id, onProgress }),
+  whisperModelCancel: () => call<void>('whisper_model_cancel'),
+  whisperModelDelete: (id: string) => call<void>('whisper_model_delete', { id }),
+  /**
+   * Load the model into memory now, so the load overlaps the talking. Rejects
+   * `WHISPER_NO_MODEL` / `WHISPER_LOAD_FAILED` — the capture fails early.
+   */
+  whisperPrepare: (modelId: string) => call<void>('whisper_prepare', { modelId }),
+  /**
+   * Transcribe a capture. The PCM goes as the raw request body (f32 LE mono —
+   * no JSON, no base64; ten minutes is ≈ 38 MB) with the rate and model in
+   * headers. Resolves the transcript, "" for silence.
+   */
+  whisperTranscribe: async (pcm: Float32Array, sampleRate: number, modelId: string) => {
+    try {
+      return await invoke<string>(
+        'whisper_transcribe',
+        new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength),
+        { headers: { 'sample-rate': String(sampleRate), 'model-id': modelId } },
+      );
+    } catch (raw) {
+      throw toIpcError(raw);
+    }
+  },
+
   /* ---------------------------- terminal pty ---------------------------- */
   /* Desktop only: these commands are not registered on Android (no pty).
      Everything above the IPC layer goes through src/ipc/pty.ts, never here. */
@@ -365,3 +445,7 @@ export type Ipc = typeof ipc;
 export type ChannelFactory = () => Channel<PtyMessage>;
 
 export const createIpcChannel: ChannelFactory = () => new Channel<PtyMessage>();
+
+/** The progress channel `whisperModelDownload` takes (mockable in store tests). */
+export const createWhisperChannel = (): Channel<WhisperDownloadEvent> =>
+  new Channel<WhisperDownloadEvent>();

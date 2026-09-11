@@ -53,6 +53,20 @@ session concepts in Rust, stop and move it to `src/core`.
   text field (the voice-note sheet's draft box). Voice notes don't use
   `Windows.Media.SpeechRecognition`: for an app without package identity,
   Windows hands that recognizer silence. No audio is touched.
+- `src/commands/whisper/` — **desktop only**: offline voice-note
+  transcription with whisper.cpp (`whisper-rs`, CPU). `models.rs` owns the
+  pinned manifest (Hugging Face `ggerganov/whisper.cpp` files with sizes and
+  SHA-256 digests), the model folder (`<app_data_dir>/whisper`), and the
+  download commands: `whisper_models_list`, `whisper_model_dir`,
+  `whisper_model_download` (streams to `<file>.part` while hashing, resumes
+  with `Range`, renames into place only on a matching digest, reports
+  progress on a `Channel`), `whisper_model_cancel`, `whisper_model_delete`.
+  `engine.rs` caches one loaded `WhisperContext` per session and runs
+  `whisper_prepare` (warm the model) and `whisper_transcribe` — raw f32 PCM
+  as the request body (`tauri::ipc::Request`, no JSON/base64) with
+  `sample-rate` and `model-id` headers, resampled to 16 kHz if needed, on
+  the blocking pool. Audio only ever lives in memory. The network is touched
+  only by `whisper_model_download`, only when the user clicks Download.
 - `src/commands/pty.rs` — the thin Tauri skin (**desktop only**): the
   `PtyRegistry` and the wire format. Output crosses as
   `InvokeResponseBody::Raw` on a `Channel`, so bytes stay bytes; `exit` and
@@ -85,6 +99,22 @@ own exit; callers treat it as success) and `IO`, plus one code of its own:
 | Rust `PtyError` | wire `code` | TS meaning |
 | --- | --- | --- |
 | `Spawn(msg)` | `SPAWN` | the child could not be started (bad program or cwd) |
+
+`WhisperError` (`src/commands/whisper/mod.rs`) serializes the same shape,
+shares `INVALID_DATA` / `IO`, and adds its own codes — the sheet's
+`core/dictation-errors.ts` turns the first four into steps:
+
+| Rust `WhisperError` | wire `code` | TS meaning |
+| --- | --- | --- |
+| `NoModel(path)` | `WHISPER_NO_MODEL` | the chosen model isn't downloaded — Settings ▸ Voice notes |
+| `ModelCorrupt(msg)` | `WHISPER_MODEL_CORRUPT` | file length ≠ manifest; delete + re-download |
+| `LoadFailed(msg)` | `WHISPER_LOAD_FAILED` | whisper.cpp refused the file (bad file, or out of memory) |
+| `Failed(msg)` | `WHISPER_FAILED` | transcription itself failed |
+| `UnknownModel(id)` | `WHISPER_UNKNOWN_MODEL` | caller bug: id not in the manifest |
+| `DownloadFailed(msg)` | `WHISPER_DOWNLOAD_FAILED` | network / HTTP error; the `.part` stays for a resume |
+| `DownloadCorrupt` | `WHISPER_DOWNLOAD_CORRUPT` | digest mismatch; the `.part` was deleted |
+| `DownloadCancelled` | `WHISPER_DOWNLOAD_CANCELLED` | `whisper_model_cancel` landed; the `.part` stays |
+| `DownloadBusy` | `WHISPER_DOWNLOAD_BUSY` | one download at a time |
 
 Adding a variant = adding it to `IpcErrorCode` in `src/ipc/commands.ts` and
 to this table, same commit.
@@ -147,3 +177,14 @@ code that behaves differently per OS.
   `MDN_LOG=off|error|warn|info|debug|trace` overrides both.
 - Windows needs MSVC Build Tools; Linux needs the webkit2gtk-4.1 stack
   (exact apt list in `.github/workflows/ci.yml`).
+- `whisper-rs` builds whisper.cpp from source, which needs **CMake** on
+  `PATH` and **libclang** for bindgen. Windows: `winget install
+  Kitware.CMake LLVM.LLVM`, then set `LIBCLANG_PATH` to
+  `C:\Program Files\LLVM\bin` (the CMake installer adds itself to `PATH`;
+  open a new shell). Linux: `apt-get install cmake libclang-dev`. macOS:
+  `brew install cmake llvm` and `LIBCLANG_PATH=$(brew --prefix llvm)/lib`.
+  Without them cargo fails inside `whisper-rs-sys`'s build script (a
+  "could not find cmake" / "Unable to find libclang" message). The first
+  build compiles whisper.cpp (~1–2 min); later builds are cached.
+  A real-model engine test exists behind `#[ignore]`:
+  `MD_NOTEPAD_WHISPER_MODEL=<path to ggml-*.bin> cargo test -- --ignored real_model`.

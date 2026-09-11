@@ -14,8 +14,12 @@
  * test suite checks), or the opener refuses it.
  */
 
-/** The speech-to-text engine that captures voice notes on this platform. */
-export type DictationEngine = 'android' | 'windows';
+/**
+ * The speech-to-text engine that captures voice notes on this platform:
+ * Android's on-device recognizer, Windows voice typing, or the offline
+ * Whisper model (any desktop OS).
+ */
+export type DictationEngine = 'android' | 'windows' | 'whisper';
 
 /** A failed capture, shaped for the sheet. */
 export interface CaptureError {
@@ -29,6 +33,8 @@ export interface CaptureError {
   note?: string;
   /** A Settings page that jumps straight to the fix (Windows only). */
   settings?: { label: string; uri: string };
+  /** A section of md-notepad's OWN Settings dialog that holds the fix. */
+  appSettings?: { label: string; tab: 'voice' };
 }
 
 /** The `ms-settings:` pages this module may link to (mirrored in capabilities). */
@@ -116,6 +122,63 @@ function androidError(code: string): Omit<CaptureError, 'code'> {
   return sharedError(code);
 }
 
+/** Whisper (offline): codes from ui/pcm-capture.ts and src-tauri commands/whisper. */
+function whisperError(code: string): Omit<CaptureError, 'code'> {
+  const voiceSettings = { label: 'Open voice notes settings', tab: 'voice' as const };
+  if (code.includes('WHISPER_NO_MODEL')) {
+    return {
+      title: 'No Whisper model is downloaded',
+      steps: [
+        'Open Settings > Voice notes.',
+        'Download the recommended model (Small, English) — about 490 MB, once.',
+        RETRY,
+      ],
+      note: 'Transcription runs on this computer. Nothing is sent anywhere, and no audio is kept.',
+      appSettings: voiceSettings,
+    };
+  }
+  if (code.includes('WHISPER_MODEL_CORRUPT') || code.includes('WHISPER_LOAD_FAILED')) {
+    return {
+      title: "The Whisper model couldn't be loaded",
+      steps: [
+        'Open Settings > Voice notes, delete the model and download it again.',
+        'If it keeps failing, pick a smaller model — a large one may not fit in memory.',
+        RETRY,
+      ],
+      appSettings: voiceSettings,
+    };
+  }
+  if (code.includes('WHISPER_MIC_DENIED')) {
+    return {
+      title: 'Microphone access was refused',
+      steps: [
+        'Allow md-notepad to use the microphone when asked, or in your system privacy settings.',
+        RETRY,
+      ],
+    };
+  }
+  if (code.includes('WHISPER_NO_MIC')) {
+    return {
+      title: 'No microphone was found',
+      steps: ['Plug in or turn on a microphone.', RETRY],
+    };
+  }
+  if (code.includes('WHISPER_TOO_LONG')) {
+    return {
+      title: 'That note hit the 10-minute limit',
+      steps: ['Tap the microphone to record the rest as a second note.'],
+    };
+  }
+  if (code.includes('WHISPER_FAILED')) {
+    return {
+      title: 'Transcription failed',
+      steps: [RETRY, 'If it keeps failing, try a smaller model in Settings > Voice notes.'],
+      appSettings: voiceSettings,
+    };
+  }
+  return sharedError(code);
+}
+
 /** Codes both bridges use, and the fallback. */
 function sharedError(code: string): Omit<CaptureError, 'code'> {
   if (code.includes('STT_NO_MATCH')) {
@@ -157,6 +220,11 @@ function sharedError(code: string): Omit<CaptureError, 'code'> {
 /** The sheet-ready error for a bridge rejection on the given engine. */
 export function captureErrorFor(raw: string, engine: DictationEngine): CaptureError {
   const code = raw.trim() || 'UNKNOWN';
-  const shaped = engine === 'windows' ? windowsError(code) : androidError(code);
+  const shaped =
+    engine === 'windows'
+      ? windowsError(code)
+      : engine === 'whisper'
+        ? whisperError(code)
+        : androidError(code);
   return { code, ...shaped };
 }

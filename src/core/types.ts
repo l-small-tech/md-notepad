@@ -112,6 +112,11 @@ export type ImagePasteLocation = 'subfolder' | 'sameFolder' | 'workspaceRoot';
  */
 export type VoiceNotesLocation = 'workspaceFolder' | 'nextToFile';
 
+/** How desktop voice notes are dictated (see `Settings.desktopDictationEngine`). */
+export const DESKTOP_DICTATION_ENGINES = ['auto', 'windowsVoiceTyping', 'whisper'] as const;
+
+export type DesktopDictationEngine = (typeof DESKTOP_DICTATION_ENGINES)[number];
+
 /**
  * Editor color scheme — the palette family id, chosen independently of light/dark
  * (the `theme` setting still decides light-vs-dark, and OS auto-switching keeps
@@ -441,6 +446,16 @@ export interface Settings {
   voiceNotesLocation: VoiceNotesLocation;
   /** Folder name used by the 'workspaceFolder' mode. Default 'Voice Notes'. */
   voiceNotesFolderName: string;
+  /**
+   * Desktop dictation engine for voice notes. 'auto' = Windows voice typing
+   * on Windows, else Whisper; 'whisper' = the offline Whisper model on every
+   * desktop OS; 'windowsVoiceTyping' = Win+H (Windows only — elsewhere it
+   * means no engine). Android ignores it (on-device SpeechRecognizer).
+   * Default 'auto'.
+   */
+  desktopDictationEngine: DesktopDictationEngine;
+  /** Manifest id of the Whisper model to transcribe with. Default 'small.en'. */
+  whisperModel: string;
   /**
    * Explorer tree shape, persisted so the drawer reopens (and the app relaunches)
    * looking exactly as it was left. Not user-facing settings — no dialog field —

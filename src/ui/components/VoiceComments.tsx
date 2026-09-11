@@ -1,10 +1,11 @@
 /**
  * VoiceComments — the voice-note capture sheet + note list.
  *
- * A pure projection of `voiceStore` (src/ui/voice-comments.ts): in the `ready`
- * and `capturing` phases it shows the chosen line and a big two-tap microphone
- * (tap to start, tap again to finish); in `viewing` it lists the note's voice
- * notes. Mounted once at the app root; it renders nothing while closed.
+ * A pure projection of `voiceStore` (src/ui/voice-comments.ts): in the `ready`,
+ * `capturing` and `transcribing` phases it shows the chosen line and a big
+ * two-tap microphone (tap to start, tap again to finish; Whisper then works
+ * for a moment); in `viewing` it lists the note's voice notes. Mounted once
+ * at the app root; it renders nothing while closed.
  */
 
 import { useEffect, useRef } from 'react';
@@ -13,6 +14,7 @@ import {
   deleteComment,
   dictationEngine,
   openCaptureSettings,
+  openVoiceSettings,
   showNotes,
   toggleMic,
   updateDraft,
@@ -61,7 +63,7 @@ export function VoiceComments() {
   if (state.phase === 'closed') {
     return null;
   }
-  const capturing = state.phase === 'capturing';
+  const capturing = state.phase === 'capturing' || state.phase === 'transcribing';
   const title =
     state.phase === 'viewing'
       ? 'Voice notes'
@@ -107,36 +109,48 @@ export function VoiceComments() {
   );
 }
 
-/** The two-tap microphone: idle in `ready`, pulsing in `capturing`. */
+/** The two-tap microphone: idle in `ready`, pulsing in `capturing`, busy in `transcribing`. */
 function CaptureView({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
-  const finishing = capturing && state.stopping;
+  const transcribing = state.phase === 'transcribing';
+  const finishing = (capturing && state.stopping) || transcribing;
   // Windows: Windows voice typing types into a draft box under the mic.
   const typing = capturing && dictationEngine() === 'windows';
-  const error = capturing ? null : state.error;
-  const label = finishing
-    ? 'Finishing…'
-    : typing
-      ? 'Listening… the note saves when you stop talking'
-      : capturing
-        ? 'Listening… tap again to finish'
-        : error
-          ? 'Tap to try again'
-          : 'Tap to start';
+  const error = capturing || transcribing ? null : state.error;
+  const label = transcribing
+    ? 'Transcribing…'
+    : finishing
+      ? 'Finishing…'
+      : typing
+        ? 'Listening… the note saves when you stop talking'
+        : capturing
+          ? 'Listening… tap again to finish'
+          : error
+            ? 'Tap to try again'
+            : 'Tap to start';
   return (
     <div className="vc-capturing">
       {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
       <button
-        className={`vc-mic${capturing && !finishing ? ' vc-mic-live' : ''}${finishing ? ' vc-mic-finishing' : ''}`}
+        className={`vc-mic${capturing && !finishing ? ' vc-mic-live' : ''}${finishing ? ' vc-mic-finishing' : ''}${transcribing ? ' vc-mic-transcribing' : ''}`}
         onClick={toggleMic}
         onMouseDown={(e) => {
           // Keep focus in the draft box, so voice typing keeps typing into it
           // until the second tap closes it.
           if (typing) e.preventDefault();
         }}
+        disabled={transcribing}
         aria-pressed={capturing}
         aria-busy={finishing}
-        aria-label={finishing ? 'Finishing' : capturing ? 'Finish recording' : 'Start recording'}
+        aria-label={
+          transcribing
+            ? 'Transcribing'
+            : finishing
+              ? 'Finishing'
+              : capturing
+                ? 'Finish recording'
+                : 'Start recording'
+        }
       >
         <svg
           viewBox="0 0 24 24"
@@ -168,6 +182,11 @@ function CaptureView({ state }: { state: VoiceCommentsState }) {
               onClick={() => openCaptureSettings(error.settings!.uri)}
             >
               {error.settings.label}
+            </button>
+          )}
+          {error.appSettings && (
+            <button className="vc-btn vc-error-action" onClick={openVoiceSettings}>
+              {error.appSettings.label}
             </button>
           )}
           {error.note && <div className="vc-error-note">{error.note}</div>}

@@ -102,6 +102,8 @@ describe('normalizeSettings', () => {
       imageFolderName: 'assets',
       voiceNotesLocation: 'nextToFile',
       voiceNotesFolderName: 'Review Notes',
+      desktopDictationEngine: 'auto',
+      whisperModel: 'small.en',
       explorerCollapsedWorkspaces: [],
       explorerExpandedDirs: [],
       scanPreset: 'balanced',
@@ -170,6 +172,8 @@ describe('normalizeSettings', () => {
       imageFolderName: 42,
       voiceNotesLocation: 'somewhere',
       voiceNotesFolderName: '   ',
+      desktopDictationEngine: 'siri',
+      whisperModel: 7,
       scanPreset: 'ultra',
       scanSmoothing: 'extreme',
     });
@@ -271,6 +275,16 @@ describe('normalizeSettings', () => {
   test('voice notes default to a shared "Voice Notes" workspace folder', () => {
     expect(DEFAULT_SETTINGS.voiceNotesLocation).toBe('workspaceFolder');
     expect(DEFAULT_SETTINGS.voiceNotesFolderName).toBe('Voice Notes');
+    expect(DEFAULT_SETTINGS.desktopDictationEngine).toBe('auto');
+    expect(DEFAULT_SETTINGS.whisperModel).toBe('small.en');
+    expect(normalizeSettings({ desktopDictationEngine: 'whisper' }).desktopDictationEngine).toBe(
+      'whisper',
+    );
+    expect(normalizeSettings({ desktopDictationEngine: 'siri' }).desktopDictationEngine).toBe(
+      'auto',
+    );
+    expect(normalizeSettings({ whisperModel: ' base.en ' }).whisperModel).toBe('base.en');
+    expect(normalizeSettings({ whisperModel: '' }).whisperModel).toBe('small.en');
     expect(normalizeSettings({ voiceNotesFolderName: '  Notes  ' }).voiceNotesFolderName).toBe(
       'Notes',
     );

@@ -100,23 +100,38 @@ transcript and may contain small recognition errors, so an agent reading it
 knows to read for intent.
 
 - **Android** turns speech into text on the phone.
-- **Windows** uses Windows voice typing (the Win+H feature). When you tap the
-  microphone, md-notepad starts it and your words appear in a box under the
-  microphone, where you can fix them. The note saves by itself a few seconds
-  after voice typing stops (when you stop talking, or click its own
-  microphone button), or tap the microphone again to finish sooner. Voice typing
-  may need **Online speech recognition** turned on in Windows Settings >
-  Privacy & security > Speech, and while you speak your voice is sent to
-  Microsoft to be transcribed.
-- **macOS and Linux** have no voice-notes button yet, but they read and list
-  the notes files like any other.
+- **Windows** uses Windows voice typing (the Win+H feature) unless you pick
+  Whisper below. When you tap the microphone, md-notepad starts it and your
+  words appear in a box under the microphone, where you can fix them. The
+  note saves by itself a few seconds after voice typing stops (when you stop
+  talking, or click its own microphone button), or tap the microphone again
+  to finish sooner. Voice typing may need **Online speech recognition**
+  turned on in Windows Settings > Privacy & security > Speech, and while you
+  speak your voice is sent to Microsoft to be transcribed.
+- **macOS and Linux** (and Windows, if you choose it) use **Whisper**: an
+  open speech model that runs on your own computer, offline. Tap the
+  microphone, talk, tap again, and the note appears after a moment of
+  transcribing. It needs a model file, downloaded once from this section.
 
-- **Voice notes** — where those files are kept. **Shared folder at workspace
-  root** (the default) collects them in one folder at the top of the
-  workspace, mirroring the document's sub-folders inside it. **Next to the
-  file** keeps each one beside its document, hidden from the sidebar.
+- **Keep voice notes** — where the notes files are kept. **Shared folder at
+  workspace root** (the default) collects them in one folder at the top of
+  the workspace, mirroring the document's sub-folders inside it. **Next to
+  the file** keeps each one beside its document, hidden from the sidebar.
 - **Voice notes folder name** — the shared folder's name. Default
   `Voice Notes`.
+- **Transcription engine** (desktop only) — **Automatic** is Windows voice
+  typing on Windows and Whisper elsewhere; **Windows voice typing** (Windows
+  only) and **Whisper (offline)** choose one outright.
+- **Whisper models** (desktop only) — the models you can download, with
+  their size and a rough speed. **Small (English)** is the recommended
+  balance (about 490 MB; a 30-second note takes roughly ten seconds on a
+  laptop). Bigger models are more accurate and slower; the quantized
+  variants are smaller and a little faster. **Download** fetches a model
+  from Hugging Face and verifies it; a download can be cancelled and resumed
+  later. **Use** makes an installed model the one that transcribes;
+  **Delete** removes its file. **Open folder** shows where the files live
+  (`whisper` inside the app's data folder). No audio is ever saved, and
+  nothing about your notes leaves the computer.
 
 ## Terminal (desktop only)
 

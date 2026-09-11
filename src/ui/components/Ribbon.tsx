@@ -193,9 +193,9 @@ const SaveAutoIcon = (
  * a finished document, and the rendered view is where a line is held.
  *
  * Offered only where there is a dictation engine (`dictationEngine()`):
- * Android's on-device recognizer and Windows voice typing. macOS and
- * Linux have none yet, and recording audio files instead is not wanted, so
- * the button isn't shown there.
+ * Android's on-device recognizer, Windows voice typing, or the offline
+ * Whisper model on any desktop. Recording audio files instead is not wanted,
+ * so with no engine the button isn't shown at all.
  */
 function VoiceNotesToggle() {
   const armed = useVoiceStore((s) => s.armed);
@@ -808,13 +808,22 @@ function ReaderControls() {
         ⟲
       </button>
 
-      {dictationEngine() !== null && (
-        <>
-          <span className="ribbon-divider" role="separator" />
-          <VoiceNotesToggle />
-        </>
-      )}
+      <VoiceNotesSlot />
     </div>
+  );
+}
+
+/** The divider + toggle, present only while an engine exists — re-evaluated when the setting changes. */
+function VoiceNotesSlot() {
+  useSettingsStore((s) => s.settings.desktopDictationEngine);
+  if (dictationEngine() === null) {
+    return null;
+  }
+  return (
+    <>
+      <span className="ribbon-divider" role="separator" />
+      <VoiceNotesToggle />
+    </>
   );
 }
 

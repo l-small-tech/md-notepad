@@ -15,7 +15,7 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `LiveEditBanner` | reference | per-tab "Another editor replaced N lines you wrote — Restore mine / Dismiss" after a Live Edit merge where disk won a collision (`liveEditStore.lost`); same shape as ConflictBanner, mounted beside it in EditorHost |
 | `DiffView` | reference | read-only side-by-side diff of two texts (core/diff.ts does the comparing); shown inline in EditorHost while a conflict's "View diff" is open, reusable for the future git integration |
 | `ExternalLinkPrompt` | reference | the confirm bar for a clicked `http(s)` link (non-modal, bottom centre) — see "Link policy" below |
-| `SettingsDialog` | M6 | plain form over the settings store |
+| `SettingsDialog` | M6 | plain form over the settings store; its Voice notes tab projects `stores/whisper-models.ts` (model list, download progress) — see "Voice notes" below |
 | `ExternalLinkPrompt` | reference | the "open this in your browser?" bar for a clicked external link — non-modal, self-dismissing |
 | `UpdateChip` | M7 | unobtrusive "Update available → restart" affordance |
 | `TerminalTab` | M9 | one terminal tab page: hosts its split tree — see I10 below |
@@ -688,3 +688,25 @@ Stores (`stores/*.ts`) get full Vitest coverage — tab lifecycle, rename
 override, close bookkeeping (`closedNotePaths` tombstones), shortcut
 dispatch decisions (pure `keyEventToAction(e, platform)` helper). JSX stays
 declarative and thin.
+
+## Voice notes — engines
+
+`voice-comments.ts` is the controller; `components/VoiceComments.tsx` the
+sheet. `dictationEngine()` picks the engine: Android's recognizer, Windows
+voice typing (Win+H into the sheet's draft box), or **Whisper** — the
+`desktopDictationEngine` setting decides on desktop ('auto' = voice typing
+on Windows, Whisper elsewhere). The ribbon's Read-mode button appears
+whenever an engine exists.
+
+Whisper's flow: the first tap opens the mic through `pcm-capture.ts` (an
+`AudioWorkletNode` collecting 16 kHz f32 frames in memory — nothing touches
+disk) and, in parallel, `ipc.whisperPrepare` warms the model so a missing
+one fails the capture before anything is said. The second tap stops the mic
+and enters the `transcribing` phase: the PCM goes to `ipc.whisperTranscribe`
+as a raw body and the answer becomes the note. Closing the sheet mid-way
+cancels the mic or drops the pending words. At `MAX_CAPTURE_SECONDS` the
+capture stops itself and transcribes what it has. Models are downloaded from
+Settings ▸ Voice notes through `stores/whisper-models.ts`, which sequences
+the `whisper_model_*` commands and projects `core/whisper-models.ts`'s
+`downloadReducer`. `pcm-capture.ts` is DOM plumbing and untested by policy;
+everything with a decision in it lives in core or the stores.

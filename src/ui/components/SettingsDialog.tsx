@@ -40,7 +40,7 @@ import { openDocs, requestChangeNotesDir } from '../session';
 import { defaultShellStore, useDefaultShell } from '../stores/default-shell';
 import { terminalsAvailable } from '../new-tab';
 import { currentProvider } from '../../ipc/provider';
-import { desktopOs, isAndroid } from '../platform';
+import { desktopOs, isAndroid, isWindows } from '../platform';
 import { pinThemeToWindow, selectTheme, unpinThemeFromWindow } from '../theme-actions';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import {
@@ -60,6 +60,14 @@ import { uiStore, useUiStore, type SettingsTabId } from '../stores/ui';
 import { useWindowTheme } from '../stores/window-theme';
 import { installHarness } from '../harness-install';
 import { checkForUpdate, downloadAndInstall, useUpdateStore } from '../update';
+import { whisperModelsStore, useWhisperModels } from '../stores/whisper-models';
+import {
+  downloadPercent,
+  formatBytes,
+  recommendedModel,
+  speedHint,
+  type WhisperModelStatus,
+} from '../../core/whisper-models';
 
 const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
@@ -104,8 +112,245 @@ const VOICE_NOTE_LOCATIONS: { value: Settings['voiceNotesLocation']; label: stri
   { value: 'nextToFile', label: 'Next to the file' },
 ];
 
+/** The desktop dictation engines; the Windows entry only exists on Windows. */
+function dictationEngineOptions(): { value: Settings['desktopDictationEngine']; label: string }[] {
+  const windows = isWindows();
+  return [
+    {
+      value: 'auto',
+      label: windows ? 'Automatic (Windows voice typing)' : 'Automatic (Whisper, offline)',
+    },
+    ...(windows
+      ? [{ value: 'windowsVoiceTyping' as const, label: 'Windows voice typing (online)' }]
+      : []),
+    { value: 'whisper', label: 'Whisper (offline, on this computer)' },
+  ];
+}
+
 function update(partial: Partial<Settings>): void {
   settingsStore.getState().update(partial);
+}
+
+/**
+ * Voice notes: where the sidecar files go, and — on desktop — which engine
+ * dictates them, with the Whisper model list. Android has one engine (the
+ * on-device recognizer) and no models, so it sees the location rows only.
+ */
+function VoiceNotesSection({ settings }: { settings: Settings }) {
+  const desktop = !isAndroid();
+  return (
+    <>
+      <label className="settings-row">
+        <span className="settings-label">Keep voice notes</span>
+        <select
+          className="settings-control"
+          value={settings.voiceNotesLocation}
+          onChange={(e) =>
+            update({ voiceNotesLocation: e.target.value as Settings['voiceNotesLocation'] })
+          }
+        >
+          {VOICE_NOTE_LOCATIONS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {settings.voiceNotesLocation === 'workspaceFolder' && (
+        <label className="settings-row">
+          <span className="settings-label">Voice notes folder name</span>
+          <input
+            className="settings-control"
+            type="text"
+            value={settings.voiceNotesFolderName}
+            spellCheck={false}
+            placeholder="Voice Notes"
+            onChange={(e) => update({ voiceNotesFolderName: e.target.value })}
+            onBlur={(e) => {
+              if (e.target.value.trim().length === 0) {
+                update({ voiceNotesFolderName: 'Voice Notes' });
+              }
+            }}
+          />
+        </label>
+      )}
+
+      {desktop && (
+        <>
+          <label className="settings-row">
+            <span className="settings-label">Transcription engine</span>
+            <select
+              className="settings-control"
+              value={settings.desktopDictationEngine}
+              onChange={(e) =>
+                update({
+                  desktopDictationEngine: e.target.value as Settings['desktopDictationEngine'],
+                })
+              }
+            >
+              {dictationEngineOptions().map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="settings-row settings-row-hint">
+            <span className="settings-label" />
+            <span className="settings-hint">
+              Whisper turns speech into text on this computer, with no internet after the one-time
+              model download. Windows voice typing sends your voice to Microsoft.
+            </span>
+          </div>
+          <WhisperModelsSection chosen={settings.whisperModel} />
+        </>
+      )}
+    </>
+  );
+}
+
+/**
+ * The Whisper model list: every manifest entry with its size and a speed
+ * hint, the active one marked, Download / Cancel / Delete / Use per row, and
+ * one progress bar for the download in flight. A projection of the
+ * whisper-models store; the list is fetched when the section mounts.
+ */
+function WhisperModelsSection({ chosen }: { chosen: string }) {
+  const models = useWhisperModels((s) => s.models);
+  const loaded = useWhisperModels((s) => s.loaded);
+  const download = useWhisperModels((s) => s.download);
+  useEffect(() => {
+    void whisperModelsStore.getState().refresh();
+  }, []);
+  const store = () => whisperModelsStore.getState();
+  const active = download.kind === 'downloading' || download.kind === 'verifying';
+  const chosenInstalled = models.some((m) => m.id === chosen && m.installed);
+  return (
+    <>
+      <div className="settings-heading">Whisper models</div>
+      <div className="settings-row settings-row-hint">
+        <span className="settings-hint">
+          {loaded && !chosenInstalled
+            ? `Download a model to dictate with Whisper — ${recommendedModel()} is the recommended one.`
+            : 'Bigger models are more accurate and slower. Quantized ones are smaller and a little faster.'}
+        </span>
+        <button className="settings-button" onClick={() => void store().openFolder()}>
+          Open folder
+        </button>
+      </div>
+      <div className="settings-model-list" role="list">
+        {models.map((m) => (
+          <WhisperModelRow
+            key={m.id}
+            model={m}
+            chosen={m.id === chosen}
+            downloadBusy={active}
+            download={download.kind !== 'idle' && download.id === m.id ? download : null}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function WhisperModelRow({
+  model,
+  chosen,
+  downloadBusy,
+  download,
+}: {
+  model: WhisperModelStatus;
+  chosen: boolean;
+  /** Any download is running (only one at a time). */
+  downloadBusy: boolean;
+  /** This row's own download state, when it has one. */
+  download: ReturnType<typeof whisperModelsStore.getState>['download'] | null;
+}) {
+  const store = () => whisperModelsStore.getState();
+  const running = download?.kind === 'downloading' || download?.kind === 'verifying';
+  const percent = download ? downloadPercent(download) : null;
+  const status = running
+    ? download.kind === 'verifying'
+      ? 'Verifying…'
+      : percent === null
+        ? 'Downloading…'
+        : `${percent}% of ${formatBytes(model.bytes)}`
+    : download?.kind === 'failed'
+      ? download.code === 'WHISPER_DOWNLOAD_CORRUPT'
+        ? 'Download failed verification — try again'
+        : 'Download failed — check your connection and try again'
+      : download?.kind === 'cancelled'
+        ? `Paused at ${formatBytes(model.partialBytes)} — Download resumes it`
+        : model.installed
+          ? `Installed · ${formatBytes(model.bytes)}`
+          : model.partialBytes > 0
+            ? `${formatBytes(model.partialBytes)} of ${formatBytes(model.bytes)} downloaded — resume`
+            : formatBytes(model.bytes);
+  const hint = speedHint(model.id);
+  return (
+    <div
+      className={`settings-model-row${chosen ? ' settings-model-row-chosen' : ''}${model.installed ? '' : ' settings-model-row-absent'}`}
+      role="listitem"
+    >
+      <div className="settings-model-main">
+        <span className="settings-model-name">
+          {model.label}
+          {model.id === recommendedModel() && (
+            <span className="settings-model-tag">Recommended</span>
+          )}
+          {chosen && <span className="settings-model-tag settings-model-tag-active">In use</span>}
+        </span>
+        <span className="settings-model-status">
+          {status}
+          {hint ? ` · ${hint}` : ''}
+        </span>
+        {running && (
+          <div
+            className="settings-progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent ?? undefined}
+          >
+            <div
+              className={`settings-progress-bar${percent === null ? ' settings-progress-indeterminate' : ''}`}
+              style={percent === null ? undefined : { width: `${percent}%` }}
+            />
+          </div>
+        )}
+      </div>
+      <div className="settings-model-actions">
+        {running ? (
+          <button className="settings-button" onClick={() => store().cancelDownload()}>
+            Cancel
+          </button>
+        ) : model.installed ? (
+          <>
+            {!chosen && (
+              <button
+                className="settings-button settings-button-primary"
+                onClick={() => update({ whisperModel: model.id })}
+              >
+                Use
+              </button>
+            )}
+            <button className="settings-button" onClick={() => void store().remove(model.id)}>
+              Delete
+            </button>
+          </>
+        ) : (
+          <button
+            className="settings-button settings-button-primary"
+            disabled={downloadBusy}
+            onClick={() => void store().startDownload(model.id)}
+          >
+            {model.partialBytes > 0 ? 'Resume' : 'Download'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -172,6 +417,7 @@ export function settingsTabs(terminals: boolean): readonly { id: SettingsTabId; 
     { id: 'appearance', label: 'Appearance' },
     { id: 'editor', label: 'Editor' },
     { id: 'files', label: 'Files' },
+    { id: 'voice', label: 'Voice notes' },
     ...(terminals
       ? [
           { id: 'terminal' as const, label: 'Terminal' },
@@ -561,42 +807,6 @@ function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
                 </label>
               )}
 
-              <label className="settings-row">
-                <span className="settings-label">Voice notes</span>
-                <select
-                  className="settings-control"
-                  value={settings.voiceNotesLocation}
-                  onChange={(e) =>
-                    update({ voiceNotesLocation: e.target.value as Settings['voiceNotesLocation'] })
-                  }
-                >
-                  {VOICE_NOTE_LOCATIONS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {settings.voiceNotesLocation === 'workspaceFolder' && (
-                <label className="settings-row">
-                  <span className="settings-label">Voice notes folder name</span>
-                  <input
-                    className="settings-control"
-                    type="text"
-                    value={settings.voiceNotesFolderName}
-                    spellCheck={false}
-                    placeholder="Voice Notes"
-                    onChange={(e) => update({ voiceNotesFolderName: e.target.value })}
-                    onBlur={(e) => {
-                      if (e.target.value.trim().length === 0) {
-                        update({ voiceNotesFolderName: 'Voice Notes' });
-                      }
-                    }}
-                  />
-                </label>
-              )}
-
               <div className="settings-row settings-row-notes">
                 <span className="settings-label">Notes folder</span>
                 <div className="settings-notes-value">
@@ -613,6 +823,8 @@ function SettingsBody({ initialTab }: { initialTab: SettingsTabId }) {
               </div>
             </>
           )}
+
+          {tab === 'voice' && <VoiceNotesSection settings={settings} />}
 
           {tab === 'terminal' && <TerminalSection settings={settings} />}
 

@@ -25,7 +25,8 @@ export interface CursorReadout {
  * so a caller can ask for a section (`openSettings('harness')`) without the
  * store importing the component.
  */
-export type SettingsTabId = 'appearance' | 'editor' | 'files' | 'terminal' | 'harness' | 'updates';
+export type SettingsTabId =
+  'appearance' | 'editor' | 'files' | 'voice' | 'terminal' | 'harness' | 'updates';
 
 /** Full-screen view stage — see `fullscreenView` below. */
 export type FullscreenStage = 'normal' | 'window' | 'screen';

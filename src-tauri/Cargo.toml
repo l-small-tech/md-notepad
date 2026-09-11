@@ -69,6 +69,20 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Offline voice-note transcription (commands/whisper): whisper.cpp through
+# whisper-rs, CPU only. Building it needs CMake and libclang (bindgen) — see
+# README.md "Build notes". The model files are downloaded on demand with
+# reqwest (already in the tree via the updater; `stream` lets a 1.5 GB file
+# flow to disk chunk by chunk) and verified with sha2 against pinned digests.
+whisper-rs = { version = "0.16", features = ["log_backend"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
+# The same rustls + ring pairing the updater uses; `rustls-no-provider` means
+# a process-wide provider must be installed before a client is built, which
+# commands/whisper/models.rs does (the updater only does so when IT runs).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sha2 = "0.10"
+futures-util = "0.3"
+log = "0.4"
 
 # WebKitGTK's own settings object (commands/webview.rs flips its
 # enable-smooth-scrolling). Same crate+version wry already pulls in — this

@@ -58,6 +58,19 @@ jobs:
         with:
           targets: ${{ matrix.rust-targets }}
 
+      # whisper-rs (offline voice notes) builds whisper.cpp with CMake and
+      # generates its bindings with libclang — same steps as ci.yml.
+      - name: Install libclang (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get install -y cmake libclang-dev
+      - name: Point bindgen at LLVM (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+        shell: bash
+      - name: Point bindgen at LLVM (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri

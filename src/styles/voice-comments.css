@@ -262,6 +262,24 @@
   cursor: progress;
 }
 
+/* Whisper is turning the capture into text: a slow, steady breathe so the
+   sheet reads as working rather than stuck. */
+.vc-mic-transcribing {
+  animation: vc-breathe 1.6s ease-in-out infinite;
+}
+.vc-mic-transcribing:disabled {
+  cursor: progress;
+}
+@keyframes vc-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 /* Windows: the draft box Windows voice typing types into while capturing. */
 .vc-draft {
   align-self: stretch;

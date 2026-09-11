@@ -9,9 +9,26 @@ const ipc = vi.hoisted(() => ({
   sttStart: vi.fn(),
   sttStop: vi.fn(),
   voiceTypingToggle: vi.fn(),
+  whisperPrepare: vi.fn(),
+  whisperTranscribe: vi.fn(),
 }));
-const platform = vi.hoisted(() => ({ windows: false }));
+const platform = vi.hoisted(() => ({ windows: false, android: true }));
 const writes = vi.hoisted(() => [] as { path: string; text: string }[]);
+const settings = vi.hoisted(() => ({
+  voiceNotesLocation: 'nextToFile',
+  voiceNotesFolderName: 'Voice Notes',
+  desktopDictationEngine: 'auto',
+  whisperModel: 'small.en',
+}));
+const notices = vi.hoisted(() => [] as string[]);
+const opened = vi.hoisted(() => [] as (string | undefined)[]);
+/** The fake microphone: what `startPcmCapture` resolves with, and its calls. */
+const mic = vi.hoisted(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  cancel: vi.fn(),
+  onLimit: null as null | (() => void),
+}));
 
 vi.mock('../../ipc/commands', () => ({ ipc, IpcError: class extends Error {} }));
 vi.mock('../../ipc/provider', () => ({
@@ -24,22 +41,33 @@ vi.mock('../../ipc/provider', () => ({
 }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }));
 vi.mock('../platform', () => ({
-  isAndroid: () => !platform.windows,
+  isAndroid: () => platform.android,
   isWindows: () => platform.windows,
 }));
 vi.mock('../session/facade', () => ({ workspaceRootFor: () => null }));
 vi.mock('../stores/settings', () => ({
-  settingsStore: {
+  settingsStore: { getState: () => ({ settings }) },
+}));
+vi.mock('../stores/tabs', () => ({ tabsStore: { getState: () => ({ tabs: [] }) } }));
+vi.mock('../stores/ui', () => ({
+  uiStore: {
     getState: () => ({
-      settings: { voiceNotesLocation: 'nextToFile', voiceNotesFolderName: 'Voice Notes' },
+      showNotice: (text: string) => notices.push(text),
+      openSettings: (tab?: string) => opened.push(tab),
     }),
   },
 }));
-vi.mock('../stores/tabs', () => ({ tabsStore: { getState: () => ({ tabs: [] }) } }));
-vi.mock('../stores/ui', () => ({ uiStore: { getState: () => ({ showNotice: vi.fn() }) } }));
+vi.mock('../pcm-capture', () => ({
+  startPcmCapture: (options: { onLimit?: () => void }) => {
+    mic.onLimit = options.onLimit ?? null;
+    return mic.start();
+  },
+}));
 
 import {
   closePanel,
+  dictationEngine,
+  openVoiceSettings,
   STOP_WATCHDOG_MS,
   toggleMic,
   updateDraft,
@@ -93,8 +121,23 @@ beforeEach(() => {
   ipc.sttStart.mockReset();
   ipc.sttStop.mockReset().mockResolvedValue(undefined);
   writes.length = 0;
+  notices.length = 0;
+  opened.length = 0;
   platform.windows = false;
+  platform.android = true;
+  settings.desktopDictationEngine = 'auto';
+  settings.whisperModel = 'small.en';
   ipc.voiceTypingToggle.mockReset().mockResolvedValue(undefined);
+  ipc.whisperPrepare.mockReset().mockResolvedValue(undefined);
+  ipc.whisperTranscribe.mockReset();
+  mic.stop.mockReset().mockReturnValue(new Float32Array([0.1, -0.1, 0.2]));
+  mic.cancel.mockReset();
+  mic.onLimit = null;
+  mic.start
+    .mockReset()
+    .mockImplementation(() =>
+      Promise.resolve({ sampleRate: 16_000, stop: mic.stop, cancel: mic.cancel }),
+    );
 });
 
 afterEach(() => {
@@ -219,6 +262,7 @@ describe('voice-note capture on Android: two taps', () => {
 
 describe('voice-note capture on Windows: voice typing', () => {
   beforeEach(() => {
+    platform.android = false;
     platform.windows = true;
   });
 
@@ -317,5 +361,236 @@ describe('voice-note capture on Windows: voice typing', () => {
     vi.advanceTimersByTime(VOICE_TYPING_IDLE_MS * 10);
     expect(state().phase).toBe('capturing');
     expect(ipc.voiceTypingToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dictationEngine: the desktop engine setting', () => {
+  test('Android always dictates with the on-device recognizer', () => {
+    settings.desktopDictationEngine = 'whisper';
+    expect(dictationEngine()).toBe('android');
+  });
+
+  test('auto is Windows voice typing on Windows and Whisper elsewhere', () => {
+    platform.android = false;
+    platform.windows = true;
+    expect(dictationEngine()).toBe('windows');
+    platform.windows = false;
+    expect(dictationEngine()).toBe('whisper');
+  });
+
+  test('an explicit choice wins; Windows voice typing off Windows is no engine', () => {
+    platform.android = false;
+    platform.windows = true;
+    settings.desktopDictationEngine = 'whisper';
+    expect(dictationEngine()).toBe('whisper');
+    settings.desktopDictationEngine = 'windowsVoiceTyping';
+    expect(dictationEngine()).toBe('windows');
+    platform.windows = false;
+    expect(dictationEngine()).toBeNull();
+  });
+
+  test('with no engine, the first tap explains instead of capturing', () => {
+    platform.android = false;
+    settings.desktopDictationEngine = 'windowsVoiceTyping';
+    openReady();
+    toggleMic();
+    expect(state().phase).toBe('ready');
+    expect(notices[0]).toMatch(/Whisper in Settings/);
+  });
+});
+
+describe('voice-note capture with Whisper (offline)', () => {
+  beforeEach(() => {
+    platform.android = false;
+    platform.windows = false;
+  });
+
+  test('first tap opens the mic and warms the model; second tap transcribes and saves', async () => {
+    const answer = deferred<string>();
+    ipc.whisperTranscribe.mockReturnValue(answer.promise);
+    openReady();
+
+    toggleMic();
+    await settle();
+    expect(state().phase).toBe('capturing');
+    expect(mic.start).toHaveBeenCalledTimes(1);
+    expect(ipc.whisperPrepare).toHaveBeenCalledWith('small.en');
+    expect(ipc.sttStart).not.toHaveBeenCalled();
+
+    toggleMic();
+    expect(mic.stop).toHaveBeenCalledTimes(1);
+    expect(state().phase).toBe('transcribing');
+    expect(state().stopping).toBe(false);
+    expect(ipc.whisperTranscribe).toHaveBeenCalledTimes(1);
+    const [pcm, rate, model] = ipc.whisperTranscribe.mock.calls[0] as [
+      Float32Array,
+      number,
+      string,
+    ];
+    expect(Array.from(pcm)).toEqual([0.1, -0.1, 0.2].map((v) => Math.fround(v)));
+    expect(rate).toBe(16_000);
+    expect(model).toBe('small.en');
+
+    toggleMic(); // taps while transcribing do nothing
+    expect(ipc.whisperTranscribe).toHaveBeenCalledTimes(1);
+
+    answer.resolve('  Move the tax column before the demo. ');
+    await settle();
+    expect(state().phase).toBe('viewing');
+    expect(state().comments.map((c) => c.transcript)).toEqual([
+      'Move the tax column before the demo.',
+    ]);
+    expect(writes).toHaveLength(1);
+  });
+
+  test('the chosen model is the one transcribed with', async () => {
+    settings.whisperModel = 'base.en-q5_1';
+    ipc.whisperTranscribe.mockResolvedValue('ok');
+    openReady();
+    toggleMic();
+    await settle();
+    expect(ipc.whisperPrepare).toHaveBeenCalledWith('base.en-q5_1');
+    toggleMic();
+    await settle();
+    expect(ipc.whisperTranscribe.mock.calls[0]?.[2]).toBe('base.en-q5_1');
+  });
+
+  test('a missing model fails the capture before anything is said, with the settings button', async () => {
+    ipc.whisperPrepare.mockRejectedValue(
+      Object.assign(new Error('whisper model not downloaded'), { code: 'WHISPER_NO_MODEL' }),
+    );
+    openReady();
+    toggleMic();
+    await settle();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toContain('WHISPER_NO_MODEL');
+    expect(state().error?.appSettings?.tab).toBe('voice');
+    expect(mic.cancel).toHaveBeenCalledTimes(1); // the mic that had opened is released
+
+    openVoiceSettings();
+    expect(state().phase).toBe('closed');
+    expect(opened).toEqual(['voice']);
+  });
+
+  test('a refused microphone shows in the sheet and never loads audio', async () => {
+    mic.start.mockRejectedValue(new Error('WHISPER_MIC_DENIED'));
+    openReady();
+    toggleMic();
+    await settle();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toBe('WHISPER_MIC_DENIED');
+    expect(state().error?.title).toMatch(/refused/);
+  });
+
+  test('an empty transcript is "did not catch that"; a transcription error keeps its code', async () => {
+    ipc.whisperTranscribe.mockResolvedValueOnce('   ');
+    openReady();
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toBe('STT_NO_MATCH');
+
+    ipc.whisperTranscribe.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), { code: 'WHISPER_FAILED' }),
+    );
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(state().error?.code).toBe('WHISPER_FAILED:boom');
+    expect(writes).toEqual([]);
+  });
+
+  test('silence (no frames) is not sent to the engine', async () => {
+    mic.stop.mockReturnValue(new Float32Array(0));
+    openReady();
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(ipc.whisperTranscribe).not.toHaveBeenCalled();
+    expect(state().error?.code).toBe('STT_NO_MATCH');
+  });
+
+  test('closing while capturing drops the audio; closing while transcribing drops the words', async () => {
+    openReady();
+    toggleMic();
+    await settle();
+    closePanel();
+    expect(mic.cancel).toHaveBeenCalledTimes(1);
+    expect(mic.stop).not.toHaveBeenCalled();
+
+    const answer = deferred<string>();
+    ipc.whisperTranscribe.mockReturnValue(answer.promise);
+    openReady();
+    toggleMic();
+    await settle();
+    toggleMic();
+    expect(state().phase).toBe('transcribing');
+    closePanel();
+    answer.resolve('never saved');
+    await settle();
+    expect(state().phase).toBe('closed');
+    expect(writes).toEqual([]);
+  });
+
+  test('a close while the mic is still opening releases it once it does', async () => {
+    const opening = deferred<{
+      sampleRate: number;
+      stop: () => Float32Array;
+      cancel: () => void;
+    }>();
+    mic.start.mockReturnValue(opening.promise);
+    openReady();
+    toggleMic();
+    closePanel();
+    opening.resolve({ sampleRate: 16_000, stop: mic.stop, cancel: mic.cancel });
+    await settle();
+    expect(mic.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('the ten-minute cap stops the capture, transcribes it, and says why', async () => {
+    ipc.whisperTranscribe.mockResolvedValue('a very long note');
+    openReady();
+    toggleMic();
+    await settle();
+    mic.onLimit?.();
+    expect(state().phase).toBe('transcribing');
+    expect(notices[0]).toMatch(/10-minute limit/);
+    await settle();
+    expect(state().phase).toBe('viewing');
+    expect(state().comments.map((c) => c.transcript)).toEqual(['a very long note']);
+  });
+
+  test('a second tap before the mic has opened fails cleanly instead of hanging', async () => {
+    mic.start.mockReturnValue(new Promise(() => {}));
+    openReady();
+    toggleMic();
+    toggleMic();
+    expect(state().phase).toBe('ready');
+    expect(state().error?.code).toContain('WHISPER_FAILED');
+  });
+
+  test('a stale transcript from an abandoned capture never lands on the next one', async () => {
+    const first = deferred<string>();
+    const second = deferred<string>();
+    ipc.whisperTranscribe.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    openReady();
+    toggleMic();
+    await settle();
+    toggleMic();
+    closePanel();
+    openReady();
+    toggleMic();
+    await settle();
+    toggleMic();
+    first.resolve('stale words');
+    await settle();
+    expect(state().phase).toBe('transcribing');
+    second.resolve('fresh words');
+    await settle();
+    expect(state().comments.map((c) => c.transcript)).toEqual(['fresh words']);
   });
 });
