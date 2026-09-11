@@ -1,6 +1,6 @@
 # Review mode for code files — implementation plan
 
-Status: PROPOSED. Written 2026-09-10 for execution by Claude Code. Open this
+Status: DONE (built 2026-09-11 on branch feat/code-review). Written 2026-09-10 for execution by Claude Code. Open this
 file in md-notepad's Read mode: every diagram below is mermaid and renders
 in the app.
 

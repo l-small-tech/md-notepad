@@ -1,6 +1,10 @@
 #[cfg(target_os = "android")]
 pub mod android;
 pub mod fs;
+// Git facts for Review mode's "What changed". Desktop-only: it shells out to
+// the `git` binary, which no Android device has.
+#[cfg(not(target_os = "android"))]
+pub mod git;
 #[cfg(target_os = "windows")]
 pub mod ocr;
 // The pty has no meaning on Android (no fork/exec, no shell) and

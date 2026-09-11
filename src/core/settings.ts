@@ -255,6 +255,7 @@ export const DEFAULT_SETTINGS: Settings = {
   explorerExpandedDirs: [],
   showAllFilesDirs: [],
   hideUnsupportedDirs: [],
+  reviewBaseBranch: '',
   scanPreset: DEFAULT_SCAN_PRESET,
   scanSmoothing: DEFAULT_SCAN_SMOOTHING,
 
@@ -630,6 +631,9 @@ export function normalizeSettings(raw: unknown): Settings {
     explorerExpandedDirs: normalizePathList(r.explorerExpandedDirs),
     showAllFilesDirs: normalizePathList(r.showAllFilesDirs),
     hideUnsupportedDirs: normalizePathList(r.hideUnsupportedDirs),
+    // Empty is meaningful here (auto-detect development / main / master), so a
+    // blank string is kept rather than replaced by the default.
+    reviewBaseBranch: typeof r.reviewBaseBranch === 'string' ? r.reviewBaseBranch.trim() : '',
     scanPreset:
       typeof r.scanPreset === 'string' && r.scanPreset in SCAN_PRESETS
         ? (r.scanPreset as ScanPreset)

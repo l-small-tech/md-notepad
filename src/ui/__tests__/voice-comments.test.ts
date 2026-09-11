@@ -33,6 +33,8 @@ const mic = vi.hoisted(() => ({
 vi.mock('../../ipc/commands', () => ({ ipc, IpcError: class extends Error {} }));
 vi.mock('../../ipc/provider', () => ({
   currentProvider: () => ({
+    // No sidecar yet: an empty file parses to no notes.
+    readTextFile: () => Promise.resolve({ text: '', mtimeMs: 0 }),
     atomicWriteText: (path: string, text: string) => {
       writes.push({ path, text });
       return Promise.resolve();
@@ -48,7 +50,17 @@ vi.mock('../session/facade', () => ({ workspaceRootFor: () => null }));
 vi.mock('../stores/settings', () => ({
   settingsStore: { getState: () => ({ settings }) },
 }));
-vi.mock('../stores/tabs', () => ({ tabsStore: { getState: () => ({ tabs: [] }) } }));
+/** The tabs the controller can see (a Review-mode test needs a real one). */
+const tabs = vi.hoisted(
+  () => [] as { id: string; filePath: string | null; notePath: string | null; text: string }[],
+);
+vi.mock('../stores/tabs', () => ({
+  tabsStore: {
+    getState: () => ({
+      tabs: tabs.map((t) => ({ ...t, model: { getText: () => t.text } })),
+    }),
+  },
+}));
 vi.mock('../stores/ui', () => ({
   uiStore: {
     getState: () => ({
@@ -67,10 +79,13 @@ vi.mock('../pcm-capture', () => ({
 import {
   closePanel,
   dictationEngine,
+  openNoteAtLine,
   openVoiceSettings,
   STOP_WATCHDOG_MS,
   toggleMic,
+  undoSnap,
   updateDraft,
+  updateTranscript,
   voiceStore,
   VOICE_TYPING_IDLE_MS,
   VOICE_TYPING_SETTLE_MS,
@@ -122,6 +137,7 @@ beforeEach(() => {
   ipc.sttStop.mockReset().mockResolvedValue(undefined);
   writes.length = 0;
   notices.length = 0;
+  tabs.length = 0;
   opened.length = 0;
   platform.windows = false;
   platform.android = true;
@@ -592,5 +608,170 @@ describe('voice-note capture with Whisper (offline)', () => {
     second.resolve('fresh words');
     await settle();
     expect(state().comments.map((c) => c.transcript)).toEqual(['fresh words']);
+  });
+});
+
+describe('reviewing a code file: unit, whisper hint, snapped names', () => {
+  /** A `.ts` tab whose line 96 is a function signature. */
+  function openCodeTab(): void {
+    tabs.push({
+      id: 't1',
+      filePath: 'C:/repo/src/core/text-files.ts',
+      notePath: null,
+      text: 'a\nb\nexport function showAllFilesState(\n',
+    });
+  }
+
+  const IDENTIFIERS = ['showAllFilesState', 'isMarkdownPath', 'dirKey'];
+
+  test('the hold gesture carries the unit, the signature quote, the hint and the identifiers', async () => {
+    openCodeTab();
+    await openNoteAtLine('t1', 3, {
+      unit: 'showAllFilesState (function)',
+      quote: 'showAllFilesState(dir: string): { show: boolean }',
+      hint: 'show all files state, is markdown path',
+      identifiers: IDENTIFIERS,
+    });
+    expect(state().phase).toBe('ready');
+    expect(state().unit).toBe('showAllFilesState (function)');
+    // The card's signature wins over the raw line.
+    expect(state().quote).toBe('showAllFilesState(dir: string): { show: boolean }');
+    expect(state().hint).toBe('show all files state, is markdown path');
+    expect(state().identifiers).toEqual(IDENTIFIERS);
+  });
+
+  test('with no options it behaves exactly as a markdown note does', async () => {
+    openCodeTab();
+    await openNoteAtLine('t1', 3);
+    expect(state().quote).toBe('export function showAllFilesState(');
+    expect(state().unit).toBeNull();
+    expect(state().hint).toBeNull();
+    expect(state().identifiers).toEqual([]);
+    expect(state().snaps).toEqual([]);
+  });
+
+  test('the hint reaches whisper; the transcript snaps and the unit is saved', async () => {
+    platform.android = false;
+    platform.windows = false;
+    ipc.whisperTranscribe.mockResolvedValue('show all files state misses the hidden dirs');
+    openCodeTab();
+    await openNoteAtLine('t1', 3, {
+      unit: 'showAllFilesState (function)',
+      hint: 'show all files state',
+      identifiers: IDENTIFIERS,
+    });
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+
+    expect(ipc.whisperTranscribe.mock.calls[0]?.[3]).toBe('show all files state');
+    expect(state().comments.map((c) => c.transcript)).toEqual([
+      '`showAllFilesState` misses the hidden dirs',
+    ]);
+    expect(state().comments[0]?.unit).toBe('showAllFilesState (function)');
+    expect(state().snaps.map((s) => s.to)).toEqual(['`showAllFilesState`']);
+    expect(state().snapCommentId).toBe(state().comments[0]?.id);
+    expect(writes[0]?.text).toContain('- unit: showAllFilesState (function)');
+    expect(writes[0]?.text).toContain('`showAllFilesState` misses the hidden dirs');
+  });
+
+  test('the review context lands in the sidecar preamble; without one nothing is added', async () => {
+    ipc.sttStart.mockResolvedValue('looks fine');
+    openCodeTab();
+    await openNoteAtLine('t1', 3, {
+      unit: 'showAllFilesState (function)',
+      context: {
+        branch: 'feat/explorer',
+        worktree: 'C:/repo/worktrees/explorer',
+        baseBranch: 'development',
+        baseRef: '3c77f30',
+      },
+    });
+    expect(state().context?.branch).toBe('feat/explorer');
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(writes[0]?.text).toContain(
+      '- branch: feat/explorer (worktree: C:/repo/worktrees/explorer)',
+    );
+    expect(writes[0]?.text).toContain('- compared against: development (merge-base 3c77f30)');
+
+    writes.length = 0;
+    await openNoteAtLine('t1', 3);
+    expect(state().context).toBeNull();
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(writes[0]?.text).not.toContain('- branch:');
+  });
+
+  test('with no identifiers nothing is snapped and no unit line is written', async () => {
+    ipc.sttStart.mockResolvedValue('show all files state misses the hidden dirs');
+    openCodeTab();
+    await openNoteAtLine('t1', 3);
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(state().comments.map((c) => c.transcript)).toEqual([
+      'show all files state misses the hidden dirs',
+    ]);
+    expect(state().snaps).toEqual([]);
+    expect(writes[0]?.text).not.toContain('- unit:');
+  });
+
+  test('undoSnap puts one name back, saves, and leaves the rest undoable', async () => {
+    ipc.sttStart.mockResolvedValue('dir key and show all files state');
+    openCodeTab();
+    await openNoteAtLine('t1', 3, { identifiers: IDENTIFIERS });
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(state().comments[0]?.transcript).toBe('`dirKey` and `showAllFilesState`');
+    expect(state().snaps).toHaveLength(2);
+
+    undoSnap(0);
+    expect(state().comments[0]?.transcript).toBe('dir key and `showAllFilesState`');
+    expect(state().snaps.map((s) => s.to)).toEqual(['`showAllFilesState`']);
+    vi.advanceTimersByTime(600);
+    await settle();
+    expect(writes[writes.length - 1]?.text).toContain('dir key and `showAllFilesState`');
+
+    undoSnap(0);
+    expect(state().comments[0]?.transcript).toBe('dir key and show all files state');
+    expect(state().snaps).toEqual([]);
+    expect(state().snapCommentId).toBeNull();
+    // Nothing left to undo, and an out-of-range index is harmless.
+    undoSnap(0);
+    expect(state().comments[0]?.transcript).toBe('dir key and show all files state');
+  });
+
+  test('editing the transcript by hand drops the stale undo list', async () => {
+    ipc.sttStart.mockResolvedValue('dir key is wrong');
+    openCodeTab();
+    await openNoteAtLine('t1', 3, { identifiers: IDENTIFIERS });
+    toggleMic();
+    await settle();
+    toggleMic();
+    await settle();
+    expect(state().snaps).toHaveLength(1);
+    const id = state().comments[0]!.id;
+    updateTranscript(id, 'something else entirely');
+    expect(state().snaps).toEqual([]);
+    expect(state().snapCommentId).toBeNull();
+  });
+
+  test('closing the sheet forgets the review context', async () => {
+    openCodeTab();
+    await openNoteAtLine('t1', 3, { unit: 'dirKey (function)', identifiers: IDENTIFIERS });
+    closePanel();
+    expect(state().unit).toBeNull();
+    expect(state().identifiers).toEqual([]);
+    expect(state().snaps).toEqual([]);
+    expect(state().snapCommentId).toBeNull();
   });
 });

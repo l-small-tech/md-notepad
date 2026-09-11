@@ -69,6 +69,10 @@ remembered. Press Esc or click outside the panel to close it.
   [Live edit](notes-tabs-and-saving.md#live-edit-working-on-one-file-together).)
 - **Confirm before moving files between folders** — whether dragging a file
   to a new folder in the sidebar asks "are you sure?" first.
+- **Review baseline branch** — which branch a code file's "what changed" view
+  compares against. Leave it empty (the default) and md-notepad looks for
+  `development`, then `main`, then `master`. Only used when the file lives in a
+  git repository and git is installed; on Android the view is hidden.
 - **Arrange tabs by workspace** — off by default, so tabs stay wherever you
   drag them. Turn it on and the tabs of one workspace are kept side by side:
   opening or dragging a tab slots it next to the others from its folder. Either

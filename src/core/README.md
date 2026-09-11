@@ -16,6 +16,8 @@ do not rewrite them.
 | `live-edit.ts` | reference | Live Edit policy: `isLiveEditTab` (per-tab override, else the file's workspace `liveEdit` flag; never notes/images/terminals), `extraLiveWatchDirs` (folders of overridden files outside every workspace root, for the watcher), `LIVE_EDIT_POLL_MS` (the re-read timer that backs up a cloud volume's unreliable change events), `formatClockTime` for the status chip |
 | `mode-sync.ts` | reference | mode-switch state machine + WYSIWYG write-back guard (I2) |
 | `title.ts` | reference | `deriveTitle` / `slugifyTitle` |
+| `comments.ts` | feature | the voice-note sidecar (`<name>.comments.md`): where it lives (`commentsPathFor`), how a note refers to its parent (`noteRefFor`), ids, the line quote, and the v2 parse/serialize. A note may carry an optional `unit` (`showAllFilesState (function)` — the declaration a Review-mode note is about, which outlives line drift), written as a `- unit:` meta line after `time`. `serializeCommentsFile(comments, noteRef, context?)` takes an optional `ReviewContext` and writes `- branch: … (worktree: …)` and `- compared against: … (merge-base …)` under the title; the parser ignores the preamble, so both are free to appear or not, and an unknown `- key: value` line from a newer build is dropped rather than read as transcript |
+| `code/vocab.ts` | feature | the voice vocabulary of a code file, from a plain `string[]` of identifiers (no parser needed): `splitIdentifier` (camel/Pascal/snake/SCREAMING/digits → spoken words), `identifierHint(identifiers, maxChars?)` → whisper.cpp's initial prompt ("show all files state, is markdown path, …"), and `snapIdentifiers(text, identifiers)` → the transcript with spoken names replaced by the real, backticked ones plus a `Snap[]` (`{from, to, index}`) that `undoSnap(text, snaps, at)` reverts one at a time. Snapping is deliberately timid — whole-word runs inside one sentence, ≥ 3 letters, a strict `fuzzy.ts` score, longest match wins, and a one-word identifier that is ordinary English (`name`, `path`, `run`… `SNAP_STOP_WORDS`) is never snapped |
 | `dictation-errors.ts` | feature | voice-note dictation failures → what the sheet shows under the mic: title, numbered fix steps, optional note, on Windows the `ms-settings:` page that fixes it, and for Whisper the app's own Settings section (`appSettings`) (`captureErrorFor(code, engine)`, engines `android` / `windows` / `whisper`). Every URI in `SETTINGS_URIS` must be allow-listed for `opener:allow-open-url` in `src-tauri/capabilities/default.json`; a test enforces it |
 | `whisper-models.ts` | feature | the pure side of offline Whisper dictation: the recommended model id, `formatBytes` / `speedHint` for the model list, `downloadReducer` (idle → downloading → verifying → done / failed / cancelled — the Settings dialog's progress state), and the capture limits (`WHISPER_SAMPLE_RATE`, `MAX_CAPTURE_SECONDS`, `captureLimitReached`, `concatPcm`) that `ui/pcm-capture.ts` enforces. The manifest itself (files, digests) is Rust's — `src-tauri/src/commands/whisper/models.rs` |
 | `error-text.ts` | reference | `errorDetail` / `withErrorDetail`: the one-line reason behind a failed file operation, for the notice the UI shows (cloud drives fail in ways a bare "Could not rename" hides) |
@@ -29,6 +31,7 @@ do not rewrite them.
 | `external-links.ts` | reference | external-link policy: is an href `http(s)`, what host does it really resolve to, how is it shown in the confirmation prompt |
 | `external-links.ts` | reference | link policy: is an href external, what host does it REALLY reach, how to elide it for the confirm prompt |
 | `whiteboard/` | feature | the `.svg` whiteboard format — see `whiteboard/README.md` |
+| `code/` | feature | the parsed model of a code file for Review mode — see the `code/` section below |
 | `session/plan-flush.ts` | reference | pure flush planner + executor (I3, I4) |
 | `export/doc-source.ts` | feature | shared export vocabulary (`DocSource`, `ExportFormat`) |
 | `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |
@@ -44,6 +47,65 @@ do not rewrite them.
 | `shell-commands.ts` | terminal | commands the right-click helpers TYPE into a shell: `cdCommand` / `listCommand` / `quoteCommand` in the shell's own quoting dialect, `relativePath` (Windows: same drive, case-insensitive) and `cdTarget` (relative inside the same workspace, absolute otherwise) |
 | `harness-install.ts` | terminal | the install command the Settings dialog's **Install** button types for a missing harness: official routes per harness × OS × available package managers (winget/brew/scoop → own installer → npm, with a Node step when npm is absent), spelled for the shell that runs it (POSIX / pwsh / Windows PowerShell / cmd) |
 | `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor (AA on light surfaces, where a dark-assuming TUI's text lands); an optional `terminal` block in a theme merges over it. Also `terminalEnvHints` — the `COLORFGBG` light/dark hint a pty is spawned with |
+
+## `code/` — the code model (Review mode)
+
+A `.ts`/`.js` or `.rs` file parsed into one language-neutral `CodeModel`
+(`code/model.ts`) that every Review view is a projection of: the card deck,
+plain-English signatures, forms, the x-ray fold, the call graph, the flow
+charts, change badges and the voice vocabulary (`review_plan.md` §4). Parsing
+happens here, in the webview, with Lezer (`@lezer/javascript`, `@lezer/rust`,
+`@lezer/lr` — pinned exactly); it is pure, synchronous and Vitest-covered.
+
+| File | Role |
+| --- | --- |
+| `model.ts` | `CodeModel` · `CodeUnit` (kind, names, `lines`, `signatureLine`, `signature`, `params`, `returns`, `doc`, `fields`, `calls`, `flow`, `children`, `skeleton`) · `Param` · `TypeRef` · `Field` · `FlowNode` (the body as a control-flow tree: `seq`, `if`, `loop`, `switch`, `try`, exits, inner `fn`) · `SkeletonLine` · `ImportGroup`. Also `xrayLines(skeleton, depth, opened?)`, the depth-n x-ray fold that turns deeper runs into `⋯ N lines` markers |
+| `parse.ts` | `codeLanguageFor(path)` and `parseCode(text, pathOrExt)` — the only entry points; dispatch on extension, `null` for anything else |
+| `ts.ts` / `rust.ts` | the extractors. **These two files are the only ones that know Lezer node names.** Everything downstream works on `CodeModel`, which is what the tests fix |
+| `source.ts` | shared by the extractors: line arithmetic, doc-comment stripping, the skeleton depth painter, Lezer tree types (derived from `@lezer/lr`, since `@lezer/common` is transitive) |
+| `changes.ts` | `changeMap(base, current, diff)` → the Review badges: a `Map` from unit id to `added` / `changed` / `signature-changed` / `same`, the baseline's `removed` units (the ghost cards), and `changedCount`. Also `changeRanges(diff)` / `deletionGaps(diff)`, the current-text line ranges `core/diff.ts` does not report |
+| `calls.ts` | `resolveCalls(model)` → `{ edges }` of caller → callee unit ids: plain names, `new Foo`, `this.x` / `self.x` / `Self::x` inside a class or impl, `Foo.bar` / `Foo::bar`; unresolved callees dropped, deduped. Also `flattenUnits` and `implTargetName` |
+| `flow.ts` | `flowGraph(unit)` → nodes / edges / subgraphs from the `FlowNode` tree (§5.2 collapse rules: seq boxes, condition diamonds with yes/no, loops with back edge + `done`, one labelled edge per switch arm, exits as terminals, a `?` as a conditional exit with an `ok` path, inner functions as subgraphs); above `FLOW_NODE_CAP` (60) nodes depth 1 only, `truncated`. `flowHasBranches(flow)` says whether a chart is worth drawing |
+| `mermaid-text.ts` | `callGraphMermaid(model, { changed?, focus? })` → `{ text, nodes, focused, omitted, total }` (safe ids, entity-code label escaping, `exported` bold / `changed` amber classes, focus mode = exported + one-hop neighbours above 40 nodes, a 150-node cap) and `flowMermaid(graph)`. Plus `kindGlyph`, `lineCount`, `safeId`, `escapeLabel` |
+| `review-state.ts` | `ReviewState` (view · filter · expanded · xrayDepth · xrayOpened · showAll · baseline), `ReviewAction` and the pure `reduceReview` — what the Review pane renders and what its taps report; `ui/stores/code-review.ts` holds one per tab |
+| `plain-english.ts` | `describeType` / `describeParam` / `describeUnit`: the template sentence ("*Name* takes …, and gives back …") from table-driven name rules (`NAME_RULES`) and type rules (`TYPE_RULES`). A wrong sentence is a one-row fix with a one-line test |
+
+Rules the tests pin:
+
+- `lines` is 1-based inclusive and starts at the doc comment / attributes;
+  `signatureLine` is the declaration itself (where the hold gesture anchors).
+- `exported` means `export` in TS (an `export { a }` group counts) and any
+  `pub` in Rust; a trait impl's methods are exported through the trait.
+- Skeleton depths: signature, doc and closing brace 0; a control-flow keyword
+  directly in the body 1; a plain statement (or comment) one deeper than the
+  keywords beside it; each nested block one more. So the depth-1 x-ray is
+  exactly §2.2's "declarations, signatures, doc comments and top-level
+  control flow", and `xrayLines` folds the rest.
+- Flow text (conditions, loop headers, arm labels, seq items) is
+  whitespace-collapsed and cut at `FLOW_TEXT_MAX` (40) characters. A Rust
+  `?` is a conditional `throw` exit.
+- `calls` keep the callee's full dotted/pathed text (`this.x`, `Self::x`,
+  `foo::bar`, `new Foo`, `name!`); a method on a computed receiver is `.name`.
+- Plain English: the NAME rule wins over the type (`dir: string` is "a folder
+  path"; a plural name matching a rule is "a list of folders"), `@param`
+  overrides both, and an object / resolved struct return is spelled field by
+  field. The worked example in `review_plan.md` §2.1 is a verbatim test.
+- "What changed" needs BOTH the line diff and the parsed baseline, and
+  `changes.ts` keeps the division of labour strict: the diff decides whether a
+  surviving unit was touched (its span in the CURRENT text against
+  `changeRanges`, plus `deletionGaps` — a pure deletion badges only a unit that
+  SPANS the gap, so lines dropped between two declarations badge neither), and
+  the two models decide what kind of change it was. Units match by `id`
+  (kind + qualified name) and fall back to kind + plain name, so a method that
+  moved `impl` blocks is one `changed` unit instead of an addition and a
+  removal. `signature-changed` beats `changed` and carries the note — the
+  parameter NAME lists and the return type text are compared ("now also takes
+  hiddenDirs", "no longer takes b", "now gives back yes or no" through
+  `describeType`); a changed parameter TYPE is an ordinary body change. A
+  `null` baseline (a file git has never seen) makes every unit `added`;
+  baseline units with no match become `removed` ghost cards, outermost only (a
+  removed class keeps its methods in its own `children`), and `changedCount`
+  counts the badged units plus those ghosts.
 
 ## Contracts you must not break
 

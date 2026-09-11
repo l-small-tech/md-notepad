@@ -10,6 +10,7 @@ tested — build `pipeline.ts` beside it.
 | `pipeline.ts` | the unified processor (`renderMarkdownToHtml`) + `createRenderSequence`, the pure stale-completion guard |
 | `mermaid.ts` | lazy mermaid rendering (reference impl, M1-era) |
 | `export.ts` + `export.css` | standalone HTML export (`buildStandaloneHtml`): the same sanitized pipeline rendered into one self-contained file (inline stylesheet, images as data: URLs, mermaid pre-rendered to SVG). `export.css` only **consumes** theme variables (`var(--x, fallback)`, fallbacks = the built-in greens) and never defines one — the exporter (`ui/session/export.ts`) appends a generated `:root { --x: v; … }` block for the chosen theme+mode, which therefore always wins. Keep new rules on that pattern. |
+| `code-review.ts` | the Review pane for a code file — see "Code review pane" below |
 | `pane.ts` | wires the two together into one live pane: debounced re-render on model change, the render-sequence guard, and the link-click policy. `EditorHost` (`src/ui/components/EditorHost.tsx`) calls `attachPreviewPane(host, model, { dark })` when a tab enters `split` mode and `dispose()`s it on the way out — same attach/dispose shape as an `EditorAdapter`, but it is not one: the preview never becomes a source of truth, so it needs no write-back guard and never participates in `ModeSync`. |
 
 ## Pipeline (build exactly this)
@@ -153,6 +154,92 @@ voice-comments.css turn off selection + touch callout) so Android's long-press
 selection handles don't fight the gesture. `EditorHost` arms it from the
 voice-notes store in Read mode only.
 
+## Code review pane (`code-review.ts`)
+
+`attachCodeReviewPane(host, docModel, { dark, path, state?, onAction?,
+onOpenDiagram?, onHoldUnit? })` — the `read` mode of the **code** doc family
+(review_plan.md §5; the status bar calls it *Review*, `core/doc-family
+modeLabel`). Same attach/dispose shape as `pane.ts`, same host element
+(`.preview.reader-preview`, so text zoom and reading margins apply), same 200
+ms debounce on model change, same render-sequence guard. It parses the text
+with `core/code/parse` and renders:
+
+- the header row — file name, segmented **Cards / Calls / Changes** buttons
+  (`button.cr-view[data-view]`; *Changes* is disabled until a baseline is
+  chosen), and an empty `span#cr-baseline-slot` the What-changed step fills;
+- the filter chip row (`button.cr-chip[data-filter]`: All · Exported ·
+  Changed · Functions · Types; *Changed* disabled without a baseline);
+- the imports summary card (`.cr-imports`), then the deck (`.cr-deck`): one
+  `article.cr-card[data-unit-id][data-line=signatureLine][data-kind]` per
+  unit, nested `.cr-card-sub` for methods. Its 48 px `button.cr-card-head`
+  (kind glyph, name, an empty `span.cr-badges[data-badges=unitId]` for the
+  change badges, the *exported* tag, size dots) toggles the doc comment;
+  the body holds the plain-English sentence (`describeUnit`), the raw
+  signature, the doc rendered through `renderMarkdownToHtml`, a `.cr-form`
+  table for fields, the facts row (`calls a, b · used by c` from
+  `resolveCalls`, each name a `.cr-fact-link[data-goto]`) and the expander
+  pills (`[data-expander=code|flow]`);
+- the **Code** expander: the depth-1 x-ray (`xrayLines`) for units of 12+
+  lines, `button.cr-xray-fold[data-fold-line]` opening one run one level,
+  `[data-xray-all]` unfolding everything; shorter units open to full code.
+  Highlighted with `@lezer/highlight`'s `highlightTree` over the same
+  grammars the model is parsed with — the tag → class table mirrors
+  `editors/code-highlight.ts` (which the preview layer must not import) and
+  `styles/code-review.css` maps `.cr-tok-*` onto the same `--md-*` vars;
+- the **Flow** expander (only when `flowHasBranches`): `flowMermaid(flowGraph
+  (unit))` rendered by `renderMermaidBlocks`, with a note when truncated;
+- the **Calls** view: `callGraphMermaid` (focus mode above 40 nodes with a
+  *Show all* button); after mermaid renders, a tap on a `g.node` (matched by
+  its `flowchart-<id>-n` element id) switches back to Cards and
+  `scrollToUnit`s; a tap on the diagram background hands the SVG to
+  `onOpenDiagram` exactly like `pane.ts`.
+- notes: a `.cr-warn` line when `parseErrors > 0`; above 5 000 lines a
+  "large file" note and an exported-only outline; for a file `parseCode`
+  cannot read (`.json`, `Makefile`…) a single note and nothing else.
+
+State is NOT the pane's: it renders a `ReviewState` (`core/code/review-state
+.ts` — view, filter, expanded cards, x-ray depths, baseline) and reports
+every tap as a `ReviewAction` through `onAction`; the host reduces it into
+`ui/stores/code-review.ts` and calls `pane.setState(next)`, which re-renders
+only what changed (a view/filter/baseline change re-renders the pane; an
+expander or fold change re-renders that card's body). Without `onAction`
+the pane reduces the state itself.
+
+### What changed (review_plan.md §6)
+
+Git is the host's business (`ui/code-review-git.ts`); the pane only renders
+what it is handed:
+
+- `setGitInfo({ available, hint?, branch?, baseBranch?, baseRef? })` fills
+  `#cr-baseline-slot` in place: a `select.cr-baseline-select` with *this
+  branch* (only when `baseRef` exists; the branch, base branch and merge
+  base are the label's tooltip) · *uncommitted* · *last commit*, or —
+  `available: false` — the hint text (`.cr-git-hint`:
+  "Git not found" / "Not a git repository"). Picking an option reports a
+  plain `{ type: 'baseline' }` action like every other tap; the host turns
+  the baseline into a revision.
+- `setChanges(changeMap, radar)` re-renders the deck with the `ChangeMap`
+  from `core/code/changes`: an `added` / `changed` badge in each card's
+  `.cr-badges` (`data-status` on the card; a `signature-changed` unit shows
+  the note — "now also takes hiddenDirs" — as `.cr-change-note` under its
+  signature), ghost cards (`.cr-card-ghost[data-ghost-id]`, "Removed:
+  `oldHelper`") at the end of the deck, the *Changed* chip's count, the amber
+  ring in the Calls view (`callGraphMermaid({ changed })`) and, on a changed
+  card, the worktree radar line `.cr-radar` ("also changed on: feat/x") from
+  `radar: { branch }[]`. `null` clears all of it. The *Changed* chip floats
+  changed cards first; the **Changes** view is that deck without the chip
+  row. Both are disabled (with the hint as their title) until a change map
+  exists, so a machine without git loses exactly those two controls.
+- `onModelChange(model, text)` fires once per re-parse (never on a theme or
+  state render) so the host recomputes the map on the same 200 ms debounce.
+
+Voice notes: `onHoldUnit(unit, model)` fires from the same 500 ms / 10 px
+press-and-hold gesture as `pane.ts`, resolved to the card under the pointer
+(`[data-unit-id]`), while `setLineHold(true)`; armed, the host carries
+`data-line-hold` (selection + touch callout off) and swallows `contextmenu`.
+`setDark` re-renders (mermaid bakes colours in). `currentModel()` exposes the
+last parse.
+
 ## Styling (`src/styles/preview.css`, new in M4)
 
 GFM look on our variables: tables with `var(--border)` collapsed borders;
@@ -171,6 +258,10 @@ Vitest (node env — unified runs fine without a DOM for parse→stringify):
 - Sanitize policy: `<script>`, inline `onerror`, `javascript:` hrefs, raw
   `<iframe>` — all reduced to inert output.
 - Sequence-number staleness logic if you extract it (pure function).
+
+`code-review.ts` is covered in `__tests__/code-review.test.ts` (jsdom, mermaid
+mocked): DOM shape per fixture, chips, expanders, x-ray folds, the Calls
+view's node taps, the hold gesture, the debounce, and `highlightLines`.
 
 `mermaid.ts` already has its suite (`__tests__/mermaid.test.ts`) — mirror
 its style.

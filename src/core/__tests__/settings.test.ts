@@ -110,6 +110,7 @@ describe('normalizeSettings', () => {
       explorerExpandedDirs: [],
       showAllFilesDirs: ['C:/work/proj'],
       hideUnsupportedDirs: ['C:/work/proj/bin'],
+      reviewBaseBranch: '',
       scanPreset: 'balanced',
       scanSmoothing: 'precise',
       schemaVersion: SETTINGS_SCHEMA,
@@ -274,6 +275,16 @@ describe('normalizeSettings', () => {
   test('image folder name trims, and blank/non-string falls back to default', () => {
     expect(normalizeSettings({ imageFolderName: '  assets  ' }).imageFolderName).toBe('assets');
     expect(normalizeSettings({ imageFolderName: '   ' }).imageFolderName).toBe('images');
+  });
+
+  test('review baseline branch defaults to auto-detect and keeps a blank as blank', () => {
+    // '' is the auto-detect sentinel (development / main / master), so unlike
+    // the folder-name fields a blank string must survive normalization.
+    expect(DEFAULT_SETTINGS.reviewBaseBranch).toBe('');
+    expect(normalizeSettings({}).reviewBaseBranch).toBe('');
+    expect(normalizeSettings({ reviewBaseBranch: '  trunk  ' }).reviewBaseBranch).toBe('trunk');
+    expect(normalizeSettings({ reviewBaseBranch: '   ' }).reviewBaseBranch).toBe('');
+    expect(normalizeSettings({ reviewBaseBranch: 42 }).reviewBaseBranch).toBe('');
   });
 
   test('voice notes default to a shared "Voice Notes" workspace folder', () => {

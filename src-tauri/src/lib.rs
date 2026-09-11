@@ -307,6 +307,13 @@ pub fn run() {
             default_shell,
             #[cfg(desktop)]
             commands::programs::find_programs,
+            // Review mode's "What changed" (git facts), desktop only.
+            #[cfg(desktop)]
+            commands::git::git_repo_info,
+            #[cfg(desktop)]
+            commands::git::git_show_file,
+            #[cfg(desktop)]
+            commands::git::git_file_changes,
             #[cfg(desktop)]
             commands::pty::pty_spawn,
             #[cfg(desktop)]

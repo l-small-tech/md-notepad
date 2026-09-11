@@ -1,0 +1,161 @@
+/**
+ * The in-file call graph (review_plan.md §5.1): every unit's `calls` strings
+ * resolved to the ids of units in the same model. Edges point caller →
+ * callee, read as "uses". A callee the file does not declare (a library
+ * call, a method on a computed receiver, a builtin) is dropped — the graph
+ * shows what this file wires together, not what it depends on.
+ *
+ * What resolves:
+ *  - a plain name (`dirKey`) → a top-level unit (or an item of a `mod`)
+ *    of that name, functions first;
+ *  - `new Foo` → the class `Foo`;
+ *  - `this.x` / `self.x` / `Self::x` → the method `x` of the enclosing class /
+ *    impl (any impl block of the same type);
+ *  - `Foo.bar` / `Foo::bar` → the method `bar` of class / impl `Foo` when
+ *    that type has one; else `bar` is not resolved (an enum variant or a
+ *    static of a type this file does not declare).
+ */
+
+import type { CodeModel, CodeUnit } from './model';
+
+export interface CallEdge {
+  /** Caller unit id. */
+  from: string;
+  /** Callee unit id. */
+  to: string;
+}
+
+export interface CallGraph {
+  /** Deduped, in caller source order then first-seen call order. */
+  edges: CallEdge[];
+}
+
+const CONTAINER_KINDS = new Set(['class', 'impl', 'trait']);
+
+/** `impl Serialize for FsError` → `FsError`, `impl Foo<T>` → `Foo`. */
+export function implTargetName(unit: CodeUnit): string {
+  const raw = unit.name.includes(' for ') ? unit.name.split(' for ').pop()! : unit.name;
+  return raw.replace(/<.*$/, '').trim();
+}
+
+interface Index {
+  /** Top-level (and module item) units by name; the first declared wins. */
+  byName: Map<string, CodeUnit>;
+  /** Type name → method name → unit, across every class / impl / trait of that type. */
+  methods: Map<string, Map<string, CodeUnit>>;
+}
+
+function indexModel(model: CodeModel): Index {
+  const byName = new Map<string, CodeUnit>();
+  const methods = new Map<string, Map<string, CodeUnit>>();
+
+  function addTop(unit: CodeUnit): void {
+    const existing = byName.get(unit.name);
+    // A function beats a same-named type (`Foo()` is the call, not the type).
+    if (!existing || (existing.kind !== 'function' && unit.kind === 'function')) {
+      byName.set(unit.name, unit);
+    }
+  }
+
+  function visit(units: readonly CodeUnit[]): void {
+    for (const unit of units) {
+      if (unit.kind === 'module') {
+        visit(unit.children);
+        continue;
+      }
+      addTop(unit);
+      if (CONTAINER_KINDS.has(unit.kind)) {
+        const type = unit.kind === 'impl' ? implTargetName(unit) : unit.name;
+        let table = methods.get(type);
+        if (!table) {
+          table = new Map();
+          methods.set(type, table);
+        }
+        for (const child of unit.children) {
+          if (!table.has(child.name)) {
+            table.set(child.name, child);
+          }
+        }
+      }
+    }
+  }
+  visit(model.units);
+  return { byName, methods };
+}
+
+/** The type whose methods `this` / `self` / `Self` mean inside `parent`. */
+function selfType(parent: CodeUnit | null): string | null {
+  if (!parent || !CONTAINER_KINDS.has(parent.kind)) {
+    return null;
+  }
+  return parent.kind === 'impl' ? implTargetName(parent) : parent.name;
+}
+
+function resolveOne(call: string, parent: CodeUnit | null, index: Index): CodeUnit | null {
+  let text = call.trim();
+  if (text.startsWith('new ')) {
+    text = text.slice(4).trim();
+  }
+  if (text.endsWith('!')) {
+    return null; // a Rust macro is never a unit of this file
+  }
+  const sep = text.includes('::') ? '::' : text.includes('.') ? '.' : null;
+  if (sep === null) {
+    return index.byName.get(text) ?? null;
+  }
+  const parts = text.split(sep);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return null; // `.name` on a computed receiver, or a deep `a::b::c` path
+  }
+  const [receiver, member] = parts as [string, string];
+  const type =
+    receiver === 'this' || receiver === 'self' || receiver === 'Self' ? selfType(parent) : receiver;
+  if (!type) {
+    return null;
+  }
+  return index.methods.get(type)?.get(member) ?? null;
+}
+
+/**
+ * Resolve every unit's `calls` to edges between unit ids. Units are walked
+ * depth-first in source order, so a caller's edges come out in the order the
+ * calls appear in its body.
+ */
+export function resolveCalls(model: CodeModel): CallGraph {
+  const index = indexModel(model);
+  const edges: CallEdge[] = [];
+  const seen = new Set<string>();
+
+  function visit(units: readonly CodeUnit[], parent: CodeUnit | null): void {
+    for (const unit of units) {
+      for (const call of unit.calls) {
+        const callee = resolveOne(call, parent, index);
+        if (!callee) {
+          continue;
+        }
+        const key = `${unit.id} ${callee.id}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        edges.push({ from: unit.id, to: callee.id });
+      }
+      visit(unit.children, unit);
+    }
+  }
+  visit(model.units, null);
+  return { edges };
+}
+
+/** Every unit in the model, depth-first in source order (containers first). */
+export function flattenUnits(model: CodeModel): CodeUnit[] {
+  const out: CodeUnit[] = [];
+  function visit(units: readonly CodeUnit[]): void {
+    for (const unit of units) {
+      out.push(unit);
+      visit(unit.children);
+    }
+  }
+  visit(model.units);
+  return out;
+}

@@ -25,11 +25,14 @@
  *     <!-- md-notepad voice comments v2 -->
  *     <!-- …disclaimer: how the file was made (VOICE_NOTES_DISCLAIMER)… -->
  *     # Voice notes for [meeting-notes.md](../meeting-notes.md)
+ *     - branch: feat/explorer-filters (worktree: worktrees/explorer-filters)
+ *     - compared against: development (merge-base 3c77f30)
  *
  *     ## ^c3f9a
  *     - file: ../meeting-notes.md
  *     - line: 42
  *     - time: 2026-09-10T21:32:07.000Z
+ *     - unit: showAllFilesState (function)
  *
  *     > The original line's text, quoted at capture time
  *
@@ -40,6 +43,12 @@
  * when the sidecar sits beside the document, `../meeting-notes.md` (or deeper)
  * from a shared workspace "Voice Notes" folder. Where the sidecar lives is a
  * setting; `commentsPathFor` resolves it.
+ *
+ * The two preamble `- …` lines are OPTIONAL review context (which branch the
+ * review happened on, and what it was compared against — see `ReviewContext`);
+ * the parser ignores everything before the first `## ^id`, so they cost a
+ * reader of an older build nothing. `- unit:` is likewise optional: it names
+ * the declaration a note on a CODE file is about, and survives line drift.
  *
  * v1 files (which had no file/line/quote fields — the parent carried an
  * invisible `<!-- ^cXXXX -->` anchor instead) still parse; the missing fields
@@ -63,6 +72,29 @@ export interface VoiceComment {
   time: string;
   /** The dictated (or hand-edited) text. */
   transcript: string;
+  /**
+   * The declaration the note is about, for a code file reviewed in Review mode
+   * — `showAllFilesState (function)`. Absent for a markdown note (and for
+   * every note written before Review mode existed). It outlives line drift, so
+   * an agent finds the target even after the file is edited.
+   */
+  unit?: string;
+}
+
+/**
+ * Where a review happened, recorded in the sidecar's preamble so a file handed
+ * to an agent says which branch and baseline the notes were taken against.
+ * Every field is optional; nothing is written when the context is empty.
+ */
+export interface ReviewContext {
+  /** The checked-out branch, e.g. `feat/explorer-filters`. */
+  branch?: string;
+  /** The worktree the branch is checked out in, e.g. `worktrees/explorer-filters`. */
+  worktree?: string;
+  /** The branch the review compared against, e.g. `development`. */
+  baseBranch?: string;
+  /** The exact baseline commit (short sha), e.g. `3c77f30`. */
+  baseRef?: string;
 }
 
 /** First line of every comments file — a version stamp and a human hint. */
@@ -172,9 +204,12 @@ export function lineQuote(docText: string, line: number): string {
 }
 
 const ENTRY_RE = /^##\s+\^(c[0-9a-z]+)\s*$/;
-// `audio` is still RECOGNIZED so an entry written by the retired desktop
-// recorder parses cleanly — its value is dropped, never surfaced or rewritten.
-const META_RE = /^-\s+(file|line|time|audio):\s*(.*)$/;
+// Any `- key: value` line inside the leading meta run is metadata: the four
+// keys below are read, and ANYTHING ELSE is dropped. That is what lets a newer
+// build add a field (as `unit` was added) without an older build reading it as
+// the note's text — and it is why the legacy `- audio:` line of the retired
+// desktop recorder disappears rather than being surfaced or rewritten.
+const META_RE = /^-\s+([A-Za-z][\w-]*):\s*(.*)$/;
 
 /**
  * Parse a `<name>.comments.md` file into notes, in file order. Tolerant of a
@@ -196,6 +231,7 @@ export function parseCommentsFile(text: string): VoiceComment[] {
     file: string;
     line: number | null;
     time: string;
+    unit: string;
     body: string[];
   }
   let cur: Cur | null = null;
@@ -206,14 +242,20 @@ export function parseCommentsFile(text: string): VoiceComment[] {
 
   const flush = () => {
     if (cur) {
-      out.push({
+      const comment: VoiceComment = {
         id: cur.id,
         file: cur.file,
         line: cur.line,
         quote: quoteLines.join(' ').trim(),
         time: cur.time,
         transcript: cur.body.join('\n').trim(),
-      });
+      };
+      // Only present when the file carried one, so a markdown note round-trips
+      // to exactly the object it came from.
+      if (cur.unit) {
+        comment.unit = cur.unit;
+      }
+      out.push(comment);
     }
     quoteLines = [];
   };
@@ -222,7 +264,7 @@ export function parseCommentsFile(text: string): VoiceComment[] {
     const head = ENTRY_RE.exec(line);
     if (head) {
       flush();
-      cur = { id: head[1]!, file: '', line: null, time: '', body: [] };
+      cur = { id: head[1]!, file: '', line: null, time: '', unit: '', body: [] };
       section = 'meta';
       continue;
     }
@@ -245,7 +287,11 @@ export function parseCommentsFile(text: string): VoiceComment[] {
           case 'time':
             cur.time = v;
             break;
-          // 'audio' (legacy): recognized so it isn't read as transcript; dropped.
+          case 'unit':
+            cur.unit = v;
+            break;
+          // Anything else (legacy 'audio', a field from a newer build) is
+          // consumed so it is never read as the transcript, and dropped.
         }
         continue;
       }
@@ -279,7 +325,11 @@ export function parseCommentsFile(text: string): VoiceComment[] {
  * the parent's path relative to the sidecar (see `noteRefFor`) — it titles the
  * file and fills in the `file:` field of any legacy entry that has none.
  */
-export function serializeCommentsFile(comments: VoiceComment[], noteRef: string): string {
+export function serializeCommentsFile(
+  comments: VoiceComment[],
+  noteRef: string,
+  context?: ReviewContext,
+): string {
   const blocks = comments.map((c) => {
     const file = c.file || noteRef;
     const meta = [`- file: ${file}`];
@@ -287,11 +337,42 @@ export function serializeCommentsFile(comments: VoiceComment[], noteRef: string)
       meta.push(`- line: ${c.line}`);
     }
     meta.push(`- time: ${c.time}`);
+    if (c.unit) {
+      meta.push(`- unit: ${c.unit}`);
+    }
     const quote = c.quote.trim();
     const quoteBlock = quote ? `> ${quote}\n\n` : '';
     const body = c.transcript.trim();
     return `## ^${c.id}\n${meta.join('\n')}\n\n${quoteBlock}${body}\n`;
   });
   const title = `# Voice notes for [${baseName(noteRef)}](${encodeURI(noteRef)})`;
-  return `${HEADER_V2}\n${VOICE_NOTES_DISCLAIMER}\n${title}\n\n${blocks.join('\n')}`;
+  const head = [title, ...contextLines(context)].join('\n');
+  return `${HEADER_V2}\n${VOICE_NOTES_DISCLAIMER}\n${head}\n\n${blocks.join('\n')}`;
+}
+
+/**
+ * The review-context lines that follow the title:
+ *
+ *     - branch: feat/explorer-filters (worktree: worktrees/explorer-filters)
+ *     - compared against: development (merge-base 3c77f30)
+ *
+ * They sit in the preamble, which `parseCommentsFile` ignores, so they are
+ * rewritten fresh on every save and an older build reading them sees only
+ * markdown. A worktree without a branch (or a baseRef without a base branch)
+ * writes nothing — the line only exists to be read by a person or an agent.
+ */
+function contextLines(context?: ReviewContext): string[] {
+  if (!context) {
+    return [];
+  }
+  const lines: string[] = [];
+  if (context.branch) {
+    const where = context.worktree ? ` (worktree: ${context.worktree})` : '';
+    lines.push(`- branch: ${context.branch}${where}`);
+  }
+  if (context.baseBranch) {
+    const at = context.baseRef ? ` (merge-base ${context.baseRef})` : '';
+    lines.push(`- compared against: ${context.baseBranch}${at}`);
+  }
+  return lines;
 }

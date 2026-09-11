@@ -30,7 +30,12 @@ export type IpcErrorCode =
   | 'WHISPER_DOWNLOAD_FAILED'
   | 'WHISPER_DOWNLOAD_CORRUPT'
   | 'WHISPER_DOWNLOAD_CANCELLED'
-  | 'WHISPER_DOWNLOAD_BUSY';
+  | 'WHISPER_DOWNLOAD_BUSY'
+  /* Git facts for Review mode (src-tauri commands/git.rs), desktop only. */
+  | 'GIT_NOT_FOUND'
+  | 'GIT_NOT_A_REPO'
+  | 'GIT_TIMEOUT'
+  | 'GIT_FAILED';
 
 const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'NOT_FOUND',
@@ -48,7 +53,17 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'WHISPER_DOWNLOAD_CORRUPT',
   'WHISPER_DOWNLOAD_CANCELLED',
   'WHISPER_DOWNLOAD_BUSY',
+  'GIT_NOT_FOUND',
+  'GIT_NOT_A_REPO',
+  'GIT_TIMEOUT',
+  'GIT_FAILED',
 ];
+
+/**
+ * The subset of `IpcErrorCode` the git commands reject with (mirrors
+ * `GitError` in src-tauri/src/commands/git.rs).
+ */
+export type GitErrorCode = 'GIT_NOT_FOUND' | 'GIT_NOT_A_REPO' | 'GIT_TIMEOUT' | 'GIT_FAILED';
 
 export class IpcError extends Error {
   readonly code: IpcErrorCode;
@@ -81,6 +96,23 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   } catch (raw) {
     throw toIpcError(raw);
   }
+}
+
+/** How long a header value may get before it is cut (see `headerText`). */
+const MAX_HEADER_CHARS = 1024;
+
+/**
+ * A string made safe for an HTTP header value: printable ASCII on one line,
+ * collapsed whitespace, capped. Anything else (a non-ASCII identifier, a
+ * newline) would make Tauri reject the whole request, so it is dropped rather
+ * than risking the call it rides on.
+ */
+function headerText(value: string): string {
+  return value
+    .replace(/[^\x20-\x7e]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_HEADER_CHARS);
 }
 
 /* Mirrors of the Rust structs (serde renames snake_case → camelCase). */
@@ -158,6 +190,56 @@ export interface WhisperModelStatusWire {
   quantized: boolean;
   installed: boolean;
   partialBytes: number;
+}
+
+/**
+ * One checkout of a repository (mirrors `GitWorktree` in commands/git.rs).
+ * `path` uses forward slashes; `branch` is null on a detached HEAD.
+ */
+export interface GitWorktree {
+  path: string;
+  branch: string | null;
+  head: string;
+}
+
+/** Where a file sits in git (mirrors `GitRepoInfo` in commands/git.rs). */
+export interface GitRepoInfo {
+  /** Absolute repository root, forward slashes. */
+  root: string;
+  /** The asked-about path relative to `root`, forward slashes. */
+  rel: string;
+  /** Short branch name, null on a detached HEAD. */
+  branch: string | null;
+  /** HEAD's commit sha; `''` in a repo with no commits yet. */
+  head: string;
+  /** True when `root` is a linked worktree, not the main checkout. */
+  isWorktree: boolean;
+  /** The baseline branch that exists locally, null when none does. */
+  baseBranch: string | null;
+  /**
+   * `merge-base(HEAD, baseBranch)` — the revision "This branch" compares
+   * against. Null when HEAD IS the base branch (compare against HEAD) or no
+   * merge base is computable.
+   */
+  baseRef: string | null;
+  /** Every checkout of this repository, the main one included. */
+  worktrees: GitWorktree[];
+}
+
+/** Per branch: does its blob for the file differ from the baseline's? */
+export interface GitFileChange {
+  branch: string;
+  differs: boolean;
+}
+
+/**
+ * Is this rejection git's absence rather than a real failure? True for
+ * `GIT_NOT_FOUND` (no git binary) and `GIT_NOT_A_REPO` (the file lives
+ * outside a repository) — both mean "hide the baseline picker with a hint",
+ * while `GIT_TIMEOUT` / `GIT_FAILED` are worth reporting.
+ */
+export function isGitUnavailable(err: unknown): boolean {
+  return err instanceof IpcError && (err.code === 'GIT_NOT_FOUND' || err.code === 'GIT_NOT_A_REPO');
 }
 
 /** One raw entry from a synced-folder listing (name only, not a full id). */
@@ -380,18 +462,64 @@ export const ipc = {
    * Transcribe a capture. The PCM goes as the raw request body (f32 LE mono —
    * no JSON, no base64; ten minutes is ≈ 38 MB) with the rate and model in
    * headers. Resolves the transcript, "" for silence.
+   *
+   * `hint` is whisper.cpp's initial prompt: words the decoder should expect
+   * (Review mode passes the file's identifiers — `core/code/vocab.ts`
+   * `identifierHint`). It rides in the `hint` header, so it is flattened to
+   * printable ASCII on one line and capped; without it nothing changes.
    */
-  whisperTranscribe: async (pcm: Float32Array, sampleRate: number, modelId: string) => {
+  whisperTranscribe: async (
+    pcm: Float32Array,
+    sampleRate: number,
+    modelId: string,
+    hint?: string,
+  ) => {
+    const prompt = hint ? headerText(hint) : '';
     try {
       return await invoke<string>(
         'whisper_transcribe',
         new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength),
-        { headers: { 'sample-rate': String(sampleRate), 'model-id': modelId } },
+        {
+          headers: {
+            'sample-rate': String(sampleRate),
+            'model-id': modelId,
+            ...(prompt ? { hint: prompt } : {}),
+          },
+        },
       );
     } catch (raw) {
       throw toIpcError(raw);
     }
   },
+
+  /* ------------------------------ git facts ----------------------------- */
+  /* Desktop only (src-tauri commands/git.rs): Review mode's "What changed".
+     Not registered on Android, and a machine without the `git` binary rejects
+     `GIT_NOT_FOUND` — call behind `isGitUnavailable` and hide the baseline
+     picker when it says so. Every call has a 3 s timeout in Rust. */
+
+  /**
+   * Where `path` sits in git: root, `rel`, branch, HEAD, the baseline branch
+   * and its merge-base, and every worktree of the repository. `baseBranch` is
+   * the `reviewBaseBranch` setting — pass it only when non-empty; a branch this
+   * checkout does not have falls back to auto-detection (development / main /
+   * master).
+   */
+  gitRepoInfo: (path: string, baseBranch?: string) =>
+    call<GitRepoInfo>('git_repo_info', { path, baseBranch: baseBranch ?? null }),
+  /**
+   * One file's text at a revision (`git show <rev>:<rel>`), or null when it did
+   * not exist there — which is how a NEW file reads, not a failure.
+   */
+  gitShowFile: (root: string, rev: string, rel: string) =>
+    call<string | null>('git_show_file', { root, rev, rel }),
+  /**
+   * The worktree radar: for each branch, does its blob for `rel` differ from
+   * `baseRef`'s? Missing on exactly one side counts as a difference. One
+   * `rev-parse` per branch — no checkouts.
+   */
+  gitFileChanges: (root: string, rel: string, baseRef: string, branches: string[]) =>
+    call<GitFileChange[]>('git_file_changes', { root, rel, baseRef, branches }),
 
   /* ---------------------------- terminal pty ---------------------------- */
   /* Desktop only: these commands are not registered on Android (no pty).

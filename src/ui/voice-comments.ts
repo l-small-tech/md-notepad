@@ -21,6 +21,13 @@
  * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
  * resolves it through the session's workspace lookup.
  *
+ * A CODE file reviewed in Review mode passes extra context with the hold
+ * gesture (`openNoteAtLine(tab, line, opts)`, see `NoteTarget`): the
+ * declaration (saved as the note's `unit`), its signature as the quote, and
+ * the file's identifiers — which prime Whisper (`hint`) and snap the
+ * transcript's spoken names to the real ones (`core/code/vocab.ts`), with a
+ * per-name `undoSnap` in the sheet.
+ *
  * Capture never records an audio file. The engine per platform is
  * `dictationEngine()`:
  *   - Android: the on-device SpeechRecognizer through the `ipc.stt*` bridge,
@@ -51,8 +58,10 @@ import {
   noteRefFor,
   parseCommentsFile,
   serializeCommentsFile,
+  type ReviewContext,
   type VoiceComment,
 } from '../core/comments';
+import { snapIdentifiers, undoSnap as undoSnapIn, type Snap } from '../core/code/vocab';
 import { captureErrorFor, type CaptureError, type DictationEngine } from '../core/dictation-errors';
 import { sanitizeFileBaseName } from '../core/title';
 import { ipc, IpcError } from '../ipc/commands';
@@ -102,6 +111,33 @@ export interface VoiceCommentsState {
    * (capturing phase). Becomes the note's transcript on the second tap.
    */
   draft: string;
+  /**
+   * Review mode: the declaration the note is about (`showAllFilesState
+   * (function)`), stored on the saved note so an agent finds the target after
+   * the lines drift. Null for a markdown note.
+   */
+  unit: string | null;
+  /**
+   * Review mode: whisper.cpp's initial prompt for this capture — the file's
+   * identifiers as spoken words (`core/code/vocab.ts` `identifierHint`).
+   */
+  hint: string | null;
+  /** Review mode: the file's identifiers, for snapping the transcript. */
+  identifiers: string[];
+  /**
+   * Review mode: where the review happened (branch, worktree, baseline) —
+   * written into the sidecar's preamble on every save while the sheet is
+   * open on that tab. Null for a markdown note or when git is absent.
+   */
+  context: ReviewContext | null;
+  /**
+   * What snapping changed in the last note ("shows all files" →
+   * `` `showsAllFiles` ``). The sheet lists them with a per-snap undo; empty
+   * whenever there is nothing to show.
+   */
+  snaps: Snap[];
+  /** The note `snaps` belong to (the undo edits that note's transcript). */
+  snapCommentId: string | null;
 }
 
 const initial: VoiceCommentsState = {
@@ -117,6 +153,12 @@ const initial: VoiceCommentsState = {
   error: null,
   stopping: false,
   draft: '',
+  unit: null,
+  hint: null,
+  identifiers: [],
+  context: null,
+  snaps: [],
+  snapCommentId: null,
 };
 
 export const voiceStore = createStore<VoiceCommentsState>()(() => initial);
@@ -201,14 +243,14 @@ function scheduleSave(): void {
 }
 
 async function flushSave(): Promise<void> {
-  const { commentsPath, comments, notePath } = voiceStore.getState();
+  const { commentsPath, comments, notePath, context } = voiceStore.getState();
   if (!commentsPath || !notePath) {
     return;
   }
   try {
     await currentProvider().atomicWriteText(
       commentsPath,
-      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath)),
+      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath), context ?? undefined),
     );
   } catch {
     uiStore.getState().showNotice('Could not save voice notes.');
@@ -286,11 +328,35 @@ export function toggleArmed(): void {
 }
 
 /**
+ * What a CODE file's Review pane knows about the thing being annotated, and
+ * that a markdown document does not. Every field is optional: with none of
+ * them the sheet behaves exactly as it does for markdown.
+ */
+export interface NoteTarget {
+  /** The declaration, e.g. `showAllFilesState (function)` — saved on the note. */
+  unit?: string;
+  /** The quote to show and store instead of the raw line (a card's signature). */
+  quote?: string;
+  /** Whisper's initial prompt for this capture (`identifierHint`). */
+  hint?: string;
+  /** The file's identifiers: spoken ones snap to the real names. */
+  identifiers?: string[];
+  /** Where the review happened — the sidecar's preamble (`ReviewContext`). */
+  context?: ReviewContext;
+}
+
+/**
  * The hold gesture landed on `line` of the tab's document: open the panel in
  * the `ready` phase for that line (mic idle). Loads the existing notes so the
  * list is a tap away and the new id can be minted collision-free.
+ *
+ * `opts` is the Review pane's extra context (see `NoteTarget`).
  */
-export async function openNoteAtLine(tabId: string, line: number): Promise<void> {
+export async function openNoteAtLine(
+  tabId: string,
+  line: number,
+  opts?: NoteTarget,
+): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
     uiStore.getState().showNotice('Save the note before adding voice notes.');
@@ -314,8 +380,14 @@ export async function openNoteAtLine(tabId: string, line: number): Promise<void>
     comments,
     focusId: null,
     line,
-    quote: lineQuote(docTextFor(tabId), line),
+    quote: opts?.quote ?? lineQuote(docTextFor(tabId), line),
     error: null,
+    unit: opts?.unit ?? null,
+    hint: opts?.hint ?? null,
+    identifiers: opts?.identifiers ?? [],
+    context: opts?.context ?? null,
+    snaps: [],
+    snapCommentId: null,
   });
 }
 
@@ -343,6 +415,11 @@ export async function openAllComments(tabId: string): Promise<void> {
     line: null,
     quote: '',
     error: null,
+    unit: null,
+    hint: null,
+    identifiers: [],
+    snaps: [],
+    snapCommentId: null,
   });
 }
 
@@ -457,7 +534,10 @@ async function transcribeCapture(id: string, pcm: Float32Array, sampleRate: numb
   }
   try {
     const modelId = settingsStore.getState().settings.whisperModel;
-    const text = (await ipc.whisperTranscribe(pcm, sampleRate, modelId)).trim();
+    // Review mode's identifier hint (if any) primes the decoder — see
+    // core/code/vocab.ts.
+    const hint = voiceStore.getState().hint ?? undefined;
+    const text = (await ipc.whisperTranscribe(pcm, sampleRate, modelId, hint)).trim();
     if (!current()) {
       return; // closed while transcribing: the words are dropped, as cancelled
     }
@@ -552,9 +632,15 @@ async function captureDictation(id: string): Promise<void> {
   }
 }
 
-/** Commit the in-flight capture: append + save the note. The document is untouched. */
-async function finishCapture(transcript: string): Promise<void> {
-  const { notePath, commentsPath, comments, line, quote } = voiceStore.getState();
+/**
+ * Commit the in-flight capture: append + save the note. The document is
+ * untouched. Every engine lands here, so this is where a code review's spoken
+ * identifiers snap to the real names — the sheet then lists what changed with
+ * an undo per name.
+ */
+async function finishCapture(spoken: string): Promise<void> {
+  const { notePath, commentsPath, comments, line, quote, unit, identifiers } =
+    voiceStore.getState();
   if (!notePath || !commentsPath || !captureId || line === null) {
     return;
   }
@@ -562,6 +648,8 @@ async function finishCapture(transcript: string): Promise<void> {
   captureId = null;
   clearStopWatchdog();
   clearIdleTimer();
+  const { text: transcript, snaps } =
+    identifiers.length > 0 ? snapIdentifiers(spoken, identifiers) : { text: spoken, snaps: [] };
   const comment: VoiceComment = {
     id,
     file: noteRefFor(commentsPath, notePath),
@@ -569,6 +657,7 @@ async function finishCapture(transcript: string): Promise<void> {
     quote,
     time: new Date().toISOString(),
     transcript,
+    ...(unit ? { unit } : {}),
   };
   voiceStore.setState({
     phase: 'viewing',
@@ -577,8 +666,33 @@ async function finishCapture(transcript: string): Promise<void> {
     line: null,
     quote: '',
     stopping: false,
+    snaps,
+    snapCommentId: snaps.length > 0 ? id : null,
   });
   await saveNow();
+}
+
+/**
+ * Undo one snapped name in the note that was just captured: the identifier
+ * goes back to the words that were spoken, and the rest of the snaps stay
+ * undoable. Saves like any other transcript edit.
+ */
+export function undoSnap(at: number): void {
+  const { comments, snaps, snapCommentId } = voiceStore.getState();
+  const comment = comments.find((c) => c.id === snapCommentId);
+  if (!comment) {
+    return;
+  }
+  const next = undoSnapIn(comment.transcript, snaps, at);
+  if (next.text === comment.transcript) {
+    return;
+  }
+  voiceStore.setState({
+    comments: comments.map((c) => (c.id === comment.id ? { ...c, transcript: next.text } : c)),
+    snaps: next.snaps,
+    snapCommentId: next.snaps.length > 0 ? snapCommentId : null,
+  });
+  scheduleSave();
 }
 
 /**
@@ -675,6 +789,9 @@ export function stopCapture(): void {
 export function updateTranscript(id: string, transcript: string): void {
   voiceStore.setState((s) => ({
     comments: s.comments.map((c) => (c.id === id ? { ...c, transcript } : c)),
+    // A hand edit moves the text the snap offsets point at: drop the undo list
+    // rather than leave it pointing somewhere stale.
+    ...(s.snapCommentId === id ? { snaps: [], snapCommentId: null } : {}),
   }));
   scheduleSave();
 }
@@ -726,5 +843,11 @@ function initialTail() {
     error: null,
     stopping: false,
     draft: '',
+    unit: null,
+    hint: null,
+    identifiers: [],
+    context: null,
+    snaps: [],
+    snapCommentId: null,
   } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
 }
