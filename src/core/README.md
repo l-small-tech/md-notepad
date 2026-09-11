@@ -29,6 +29,7 @@ do not rewrite them.
 | `external-links.ts` | reference | external-link policy: is an href `http(s)`, what host does it really resolve to, how is it shown in the confirmation prompt |
 | `external-links.ts` | reference | link policy: is an href external, what host does it REALLY reach, how to elide it for the confirm prompt |
 | `whiteboard/` | feature | the `.svg` whiteboard format — see `whiteboard/README.md` |
+| `code/` | feature | the parsed model of a code file for Review mode — see the `code/` section below |
 | `session/plan-flush.ts` | reference | pure flush planner + executor (I3, I4) |
 | `export/doc-source.ts` | feature | shared export vocabulary (`DocSource`, `ExportFormat`) |
 | `export/docx.ts` | feature | markdown → .docx (same remark/GFM parse as the preview, mapped onto `docx` objects; images via injected resolver) |
@@ -44,6 +45,44 @@ do not rewrite them.
 | `shell-commands.ts` | terminal | commands the right-click helpers TYPE into a shell: `cdCommand` / `listCommand` / `quoteCommand` in the shell's own quoting dialect, `relativePath` (Windows: same drive, case-insensitive) and `cdTarget` (relative inside the same workspace, absolute otherwise) |
 | `harness-install.ts` | terminal | the install command the Settings dialog's **Install** button types for a missing harness: official routes per harness × OS × available package managers (winget/brew/scoop → own installer → npm, with a Node step when npm is absent), spelled for the shell that runs it (POSIX / pwsh / Windows PowerShell / cmd) |
 | `terminal-palette.ts` | terminal | `branding` → 16 ANSI + chrome colors, with a measured contrast floor (AA on light surfaces, where a dark-assuming TUI's text lands); an optional `terminal` block in a theme merges over it. Also `terminalEnvHints` — the `COLORFGBG` light/dark hint a pty is spawned with |
+
+## `code/` — the code model (Review mode)
+
+A `.ts`/`.js` or `.rs` file parsed into one language-neutral `CodeModel`
+(`code/model.ts`) that every Review view is a projection of: the card deck,
+plain-English signatures, forms, the x-ray fold, the call graph, the flow
+charts, change badges and the voice vocabulary (`review_plan.md` §4). Parsing
+happens here, in the webview, with Lezer (`@lezer/javascript`, `@lezer/rust`,
+`@lezer/lr` — pinned exactly); it is pure, synchronous and Vitest-covered.
+
+| File | Role |
+| --- | --- |
+| `model.ts` | `CodeModel` · `CodeUnit` (kind, names, `lines`, `signatureLine`, `signature`, `params`, `returns`, `doc`, `fields`, `calls`, `flow`, `children`, `skeleton`) · `Param` · `TypeRef` · `Field` · `FlowNode` (the body as a control-flow tree: `seq`, `if`, `loop`, `switch`, `try`, exits, inner `fn`) · `SkeletonLine` · `ImportGroup`. Also `xrayLines(skeleton, depth, opened?)`, the depth-n x-ray fold that turns deeper runs into `⋯ N lines` markers |
+| `parse.ts` | `codeLanguageFor(path)` and `parseCode(text, pathOrExt)` — the only entry points; dispatch on extension, `null` for anything else |
+| `ts.ts` / `rust.ts` | the extractors. **These two files are the only ones that know Lezer node names.** Everything downstream works on `CodeModel`, which is what the tests fix |
+| `source.ts` | shared by the extractors: line arithmetic, doc-comment stripping, the skeleton depth painter, Lezer tree types (derived from `@lezer/lr`, since `@lezer/common` is transitive) |
+| `plain-english.ts` | `describeType` / `describeParam` / `describeUnit`: the template sentence ("*Name* takes …, and gives back …") from table-driven name rules (`NAME_RULES`) and type rules (`TYPE_RULES`). A wrong sentence is a one-row fix with a one-line test |
+
+Rules the tests pin:
+
+- `lines` is 1-based inclusive and starts at the doc comment / attributes;
+  `signatureLine` is the declaration itself (where the hold gesture anchors).
+- `exported` means `export` in TS (an `export { a }` group counts) and any
+  `pub` in Rust; a trait impl's methods are exported through the trait.
+- Skeleton depths: signature, doc and closing brace 0; a control-flow keyword
+  directly in the body 1; a plain statement (or comment) one deeper than the
+  keywords beside it; each nested block one more. So the depth-1 x-ray is
+  exactly §2.2's "declarations, signatures, doc comments and top-level
+  control flow", and `xrayLines` folds the rest.
+- Flow text (conditions, loop headers, arm labels, seq items) is
+  whitespace-collapsed and cut at `FLOW_TEXT_MAX` (40) characters. A Rust
+  `?` is a conditional `throw` exit.
+- `calls` keep the callee's full dotted/pathed text (`this.x`, `Self::x`,
+  `foo::bar`, `new Foo`, `name!`); a method on a computed receiver is `.name`.
+- Plain English: the NAME rule wins over the type (`dir: string` is "a folder
+  path"; a plural name matching a rule is "a list of folders"), `@param`
+  overrides both, and an object / resolved struct return is spelled field by
+  field. The worked example in `review_plan.md` §2.1 is a verbatim test.
 
 ## Contracts you must not break
 

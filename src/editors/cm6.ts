@@ -25,6 +25,7 @@ import { syntaxHighlighting } from '@codemirror/language';
 import { search, searchKeymap } from '@codemirror/search';
 import { highlightStyle, listMarkStyling } from './markdown-highlight';
 import { xmlHighlightStyle, xmlLanguage } from './xml-highlight';
+import { codeHighlightStyle, rustLanguage, tsLanguage } from './code-highlight';
 import { reindentLists } from './list-indent';
 import { plainDotsExtension } from './plain-dots';
 import type { DocModel } from '../core/doc-model';
@@ -72,10 +73,12 @@ export interface Cm6Options {
    * Which grammar to highlight with. Default 'markdown'. 'xml' is used for the
    * Raw view of an `.svg` whiteboard (core/doc-family decides), and also drops
    * the markdown-only editing behaviours — auto-bullets, list Tab indentation —
-   * which would be actively wrong in SVG source. 'plain' (any other file — a
-   * `.ts`, a config) highlights nothing and drops the same behaviours.
+   * which would be actively wrong in SVG source. 'ts' and 'rust' (the code
+   * family's languages — core/code/parse decides) use the same Lezer grammars
+   * the Review model parses with; 'plain' (any other file — a config) highlights
+   * nothing. All three drop the markdown behaviours.
    */
-  language?: 'markdown' | 'xml' | 'plain';
+  language?: 'markdown' | 'xml' | 'plain' | 'ts' | 'rust';
 }
 
 /** Ribbon formatting actions the adapter can apply to the current selection. */
@@ -533,8 +536,24 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
   const fontSizeCompartment = new Compartment();
   const themeCompartment = new Compartment();
   /** Fixed for the adapter's lifetime — a tab's document type never changes. */
-  const isXml = options.language === 'xml';
-  const isMarkdown = !isXml && options.language !== 'plain';
+  const language = options.language ?? 'markdown';
+  const isMarkdown = language === 'markdown';
+  const languageExtension =
+    language === 'xml'
+      ? xmlLanguage
+      : language === 'ts'
+        ? tsLanguage
+        : language === 'rust'
+          ? rustLanguage
+          : isMarkdown
+            ? markdown({ base: markdownLanguage, extensions: [listMarkStyling] })
+            : [];
+  const languageStyle =
+    language === 'xml'
+      ? xmlHighlightStyle
+      : language === 'ts' || language === 'rust'
+        ? codeHighlightStyle
+        : highlightStyle;
 
   let view: EditorView | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -662,21 +681,14 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
           ...historyKeymap,
           ...searchKeymap,
         ]),
-        isXml
-          ? xmlLanguage
-          : isMarkdown
-            ? markdown({ base: markdownLanguage, extensions: [listMarkStyling] })
-            : [],
+        languageExtension,
         search({ top: true }),
         imagePasteHandler,
         copyEnrichHandler,
         plainDotsExtension,
         addedFlashField,
         removedFlashField,
-        themeCompartment.of([
-          baseTheme,
-          syntaxHighlighting(isXml ? xmlHighlightStyle : highlightStyle),
-        ]),
+        themeCompartment.of([baseTheme, syntaxHighlighting(languageStyle)]),
         // Font size defaults to the CSS variable so M1 needs no wiring; M6's
         // setFontSize reconfigures this compartment to an explicit px value.
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),

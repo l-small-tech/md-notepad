@@ -79,6 +79,19 @@ italic, code `var(--fg-muted)` on subtle bg, links underlined. Register via
 `syntaxHighlighting(style)` inside the theme compartment so a theme flip
 reconfigures it atomically.
 
+### Code files (`language: 'ts' | 'rust'`)
+
+`code-highlight.ts` wraps the Lezer grammars the code Review model already
+parses with (`@lezer/javascript` in its TypeScript+JSX dialect, `@lezer/rust`)
+in `LRLanguage.define`, so a `.ts`/`.js`/`.rs` tab's Raw mode gets real syntax
+colouring for free — no second tokenizer, and the same tree the model reads.
+`EditorHost` picks the value with `codeLanguageFor(path)` from
+`core/code/parse.ts` and falls back to `'plain'` for any other code-family
+file. The style follows the `--md-*` variable vocabulary of the markdown and
+XML styles (keywords → accent, definitions → heading, types → link, strings →
+code, comments → quote), so themes need nothing new. Like `'xml'` and
+`'plain'`, these languages drop the markdown-only editing behaviours.
+
 ### Pitfalls
 
 - Fira Code ligatures: the editor content element must inherit
