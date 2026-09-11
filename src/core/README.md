@@ -63,6 +63,7 @@ happens here, in the webview, with Lezer (`@lezer/javascript`, `@lezer/rust`,
 | `parse.ts` | `codeLanguageFor(path)` and `parseCode(text, pathOrExt)` — the only entry points; dispatch on extension, `null` for anything else |
 | `ts.ts` / `rust.ts` | the extractors. **These two files are the only ones that know Lezer node names.** Everything downstream works on `CodeModel`, which is what the tests fix |
 | `source.ts` | shared by the extractors: line arithmetic, doc-comment stripping, the skeleton depth painter, Lezer tree types (derived from `@lezer/lr`, since `@lezer/common` is transitive) |
+| `changes.ts` | `changeMap(base, current, diff)` → the Review badges: a `Map` from unit id to `added` / `changed` / `signature-changed` / `same`, the baseline's `removed` units (the ghost cards), and `changedCount`. Also `changeRanges(diff)` / `deletionGaps(diff)`, the current-text line ranges `core/diff.ts` does not report |
 | `plain-english.ts` | `describeType` / `describeParam` / `describeUnit`: the template sentence ("*Name* takes …, and gives back …") from table-driven name rules (`NAME_RULES`) and type rules (`TYPE_RULES`). A wrong sentence is a one-row fix with a one-line test |
 
 Rules the tests pin:
@@ -85,6 +86,22 @@ Rules the tests pin:
   path"; a plural name matching a rule is "a list of folders"), `@param`
   overrides both, and an object / resolved struct return is spelled field by
   field. The worked example in `review_plan.md` §2.1 is a verbatim test.
+- "What changed" needs BOTH the line diff and the parsed baseline, and
+  `changes.ts` keeps the division of labour strict: the diff decides whether a
+  surviving unit was touched (its span in the CURRENT text against
+  `changeRanges`, plus `deletionGaps` — a pure deletion badges only a unit that
+  SPANS the gap, so lines dropped between two declarations badge neither), and
+  the two models decide what kind of change it was. Units match by `id`
+  (kind + qualified name) and fall back to kind + plain name, so a method that
+  moved `impl` blocks is one `changed` unit instead of an addition and a
+  removal. `signature-changed` beats `changed` and carries the note — the
+  parameter NAME lists and the return type text are compared ("now also takes
+  hiddenDirs", "no longer takes b", "now gives back yes or no" through
+  `describeType`); a changed parameter TYPE is an ordinary body change. A
+  `null` baseline (a file git has never seen) makes every unit `added`;
+  baseline units with no match become `removed` ghost cards, outermost only (a
+  removed class keeps its methods in its own `children`), and `changedCount`
+  counts the badged units plus those ghosts.
 
 ## Contracts you must not break
 
