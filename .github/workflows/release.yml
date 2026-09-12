@@ -126,8 +126,9 @@ jobs:
           wget -qO- "$KEY" | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list "$LIST"
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev shaderc
+          sudo apt-get install -y libvulkan-dev vulkan-headers shaderc
           glslc --version
+          test -f /usr/include/vulkan/vulkan.h
       # The shader generator is a nested CMake project ~150 characters deep
       # inside the target dir; MSVC's build tooling still stops at MAX_PATH,
       # so Windows builds from a short target dir (see README "Build notes").

@@ -107,8 +107,9 @@ jobs:
           wget -qO- "$KEY" | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list "$LIST"
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev shaderc
+          sudo apt-get install -y libvulkan-dev vulkan-headers shaderc
           glslc --version
+          test -f /usr/include/vulkan/vulkan.h
       # The shader generator is a nested CMake project ~150 characters deep
       # inside the target dir; MSVC's build tooling still stops at MAX_PATH,
       # so Windows builds from a short target dir (see README "Build notes").
@@ -236,6 +237,15 @@ jobs:
           Start-Process -FilePath $exe -ArgumentList $sdkArgs -NoNewWindow -Wait
           "VULKAN_SDK=C:/VulkanSDK" >> $env:GITHUB_ENV
           "C:/VulkanSDK/Bin" >> $env:GITHUB_PATH
+
+      # Same MAX_PATH trap as rust-and-build: the shader generator builds ~150
+      # characters below the target dir. wdio takes the exe's real path from
+      # TAURI_APP_BIN (e2e/wdio.conf.ts) instead of assuming src-tauri/target.
+      - name: Short target dir
+        shell: bash
+        run: |
+          echo "CARGO_TARGET_DIR=D:/t" >> "$GITHUB_ENV"
+          echo "TAURI_APP_BIN=D:/t/debug/md-notepad.exe" >> "$GITHUB_ENV"
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
