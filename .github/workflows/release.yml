@@ -222,6 +222,41 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Install cmake + libclang (whisper-rs bindings)
+        run: sudo apt-get install -y cmake libclang-dev
+
+      # whisper-rs-sys builds whisper.cpp with CMake even for `cargo check`,
+      # so the NDK compilers are needed for real here, not just as a probe.
+      # The cmake crate takes CC/CXX/AR per target and, for Android targets,
+      # the NDK's own toolchain file; bindgen needs the NDK sysroot and the
+      # target triple, or it reads the HOST headers and silently falls back to
+      # whisper-rs-sys's prebuilt 64-bit bindings.
+      - name: Export NDK toolchain env
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          API=24
+          echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          # <rust target>:<clang prefix> — armv7's compiler wrapper is spelled
+          # armv7a-linux-androideabi, not armv7-linux-androideabi.
+          for abi in aarch64-linux-android:aarch64-linux-android \
+            armv7-linux-androideabi:armv7a-linux-androideabi \
+            i686-linux-android:i686-linux-android \
+            x86_64-linux-android:x86_64-linux-android; do
+            triple="${abi%%:*}"
+            prefix="${abi##*:}"
+            key="${triple//-/_}"
+            upper="$(echo "$key" | tr '[:lower:]' '[:upper:]')"
+            {
+              echo "CC_${key}=$TOOLCHAIN/bin/${prefix}${API}-clang"
+              echo "CXX_${key}=$TOOLCHAIN/bin/${prefix}${API}-clang++"
+              echo "AR_${key}=$TOOLCHAIN/bin/llvm-ar"
+              echo "CARGO_TARGET_${upper}_LINKER=$TOOLCHAIN/bin/${prefix}${API}-clang"
+              echo "CMAKE_TOOLCHAIN_FILE_${key}=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
+              echo "BINDGEN_EXTRA_CLANG_ARGS_${key}=--sysroot=$TOOLCHAIN/sysroot --target=${prefix}${API}"
+            } >> "$GITHUB_ENV"
+          done
+
       - name: Configure release signing
         if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
@@ -237,6 +272,8 @@ jobs:
       - name: Build APK
         # NDK + JDK 17 are preinstalled on GitHub runners — using them avoids
         # adding new (unpinned) actions to a workflow that holds signing keys.
+        # This builds every ABI, 32-bit included, so the bindgen env above has
+        # to cover all four.
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           export JAVA_HOME="$JAVA_HOME_17_X64"

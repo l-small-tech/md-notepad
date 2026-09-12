@@ -160,9 +160,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # armv7 as well as arm64: whisper-rs-sys falls back to PREBUILT (64-bit)
+      # bindings when bindgen fails, which only blows up on a 32-bit ABI — the
+      # v0.8.0 APK build died on `24_usize - 48_usize` overflows that an
+      # arm64-only check cannot see.
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -180,20 +184,37 @@ jobs:
       # whisper-rs-sys builds whisper.cpp with CMake even for `cargo check`,
       # so the NDK compilers are needed for real here, not just as a probe.
       # The cmake crate takes CC/CXX/AR per target and, for Android targets,
-      # the NDK's own toolchain file.
+      # the NDK's own toolchain file; bindgen needs the NDK sysroot and the
+      # target triple, or it reads the HOST headers and silently falls back to
+      # whisper-rs-sys's prebuilt 64-bit bindings.
       - name: Export NDK toolchain env
         run: |
-          TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
-          echo "CXX_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android24-clang++" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          API=24
           echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-          echo "CMAKE_TOOLCHAIN_FILE_aarch64_linux_android=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" >> "$GITHUB_ENV"
+          # <rust target>:<clang prefix> — armv7's compiler wrapper is spelled
+          # armv7a-linux-androideabi, not armv7-linux-androideabi.
+          for abi in aarch64-linux-android:aarch64-linux-android \
+            armv7-linux-androideabi:armv7a-linux-androideabi; do
+            triple="${abi%%:*}"
+            prefix="${abi##*:}"
+            key="${triple//-/_}"
+            upper="$(echo "$key" | tr '[:lower:]' '[:upper:]')"
+            {
+              echo "CC_${key}=$TOOLCHAIN/bin/${prefix}${API}-clang"
+              echo "CXX_${key}=$TOOLCHAIN/bin/${prefix}${API}-clang++"
+              echo "AR_${key}=$TOOLCHAIN/bin/llvm-ar"
+              echo "CARGO_TARGET_${upper}_LINKER=$TOOLCHAIN/bin/${prefix}${API}-clang"
+              echo "CMAKE_TOOLCHAIN_FILE_${key}=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
+              echo "BINDGEN_EXTRA_CLANG_ARGS_${key}=--sysroot=$TOOLCHAIN/sysroot --target=${prefix}${API}"
+            } >> "$GITHUB_ENV"
+          done
 
-      - name: cargo check (aarch64-linux-android)
-        run: cargo check --target aarch64-linux-android
+      - name: cargo check (Android ABIs)
+        run: |
+          cargo check --target aarch64-linux-android
+          cargo check --target armv7-linux-androideabi
         working-directory: src-tauri
         env:
           RUSTFLAGS: -D warnings
