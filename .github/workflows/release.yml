@@ -151,23 +151,15 @@ jobs:
         with:
           tagName: v__VERSION__ # tauri-action substitutes the app version
           releaseName: 'MD Notepad v__VERSION__'
-          # Shown above the asset list — tells non-technical users which file
-          # is theirs. Keep the suffixes in sync with the bundle targets.
+          # The per-platform download table is NOT here: `finalize` prepends one
+          # with real links, because only that job knows the built filenames.
+          # If it never runs, the notes below still stand on their own.
           releaseBody: |
             ## What's new
 
             ${{ steps.changelog.outputs.body }}
 
-            ## Which file should I download?
-
-            | Your computer | Download the file ending in… |
-            | --- | --- |
-            | 🪟 **Windows** | `-setup.exe` |
-            | 🍎 **macOS** (Intel & Apple Silicon) | `.dmg` |
-            | 🐧 **Linux** (any distro) | `.AppImage` |
-            | 🐧 Linux (Debian/Ubuntu) | `.deb` |
-            | 🐧 Linux (Fedora/RHEL) | `.rpm` |
-            | 🤖 **Android** | `.apk` |
+            **Linux**: take the `.AppImage` (any distro), `.deb` or `.rpm` from Assets below.
 
             **First-run notes**
             - **Windows**: SmartScreen may warn because the app isn't signed with a paid certificate — click *More info → Run anyway*.
@@ -346,3 +338,40 @@ jobs:
             | while IFS= read -r f; do
                 gh release upload "$TAG" "$f" --repo '${{ github.repository }}' --clobber
               done
+
+      # GitHub always renders the notes above the Assets box, and offers no way
+      # to reorder the page — so the only way to put downloads first is to put
+      # links IN the notes. Built here, not in the releaseBody template, because
+      # this is the job that knows the real filenames. The links 404 until the
+      # draft is published; that is expected.
+      - name: Put download links at the top of the release notes
+        run: |
+          BASE='${{ github.server_url }}/${{ github.repository }}/releases/download'
+          # $1 is a glob, deliberately unquoted so the shell expands it. A glob
+          # rather than ls: ls decorates names on some platforms.
+          link() {
+            for f in assets/$1; do
+              [ -e "$f" ] || continue
+              f="${f#assets/}"
+              printf '[%s](%s/%s/%s)' "$f" "$BASE" "$TAG" "$(jq -rn --arg s "$f" '$s|@uri')"
+              return
+            done
+            printf '_not built_'
+          }
+          gh release view "$TAG" --repo '${{ github.repository }}' --json body -q .body > old-body.md
+          if head -n 1 old-body.md | grep -q '^## Download'; then
+            echo "notes already carry a download table — nothing to do"
+            exit 0
+          fi
+          {
+            echo '## Download'
+            echo
+            echo '| Your computer | File |'
+            echo '| --- | --- |'
+            echo "| 🪟 **Windows** | $(link '*-setup.exe') |"
+            echo "| 🤖 **Android** | $(link '*.apk') |"
+            echo "| 🍎 **macOS** (Intel & Apple Silicon) | $(link '*.dmg') |"
+            echo
+            cat old-body.md
+          } > body.md
+          gh release edit "$TAG" --repo '${{ github.repository }}' --notes-file body.md
