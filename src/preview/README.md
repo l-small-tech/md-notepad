@@ -164,14 +164,34 @@ up to the next block's; a note above the first block is the first block's).
 Each owning block gets a zero-height `div.vn-mark-row[data-vn-line]` before
 it holding `button.vn-mark` (count + icon; absolutely positioned into the
 right gutter by voice-comments.css, so the text never moves). A tap on the
-marker toggles a read-only `div.vn-callout` after the block — one `.vn-note`
-(meta + transcript, `textContent`, never HTML) per note and an
-`button[data-vn-open]` that fires `onOpenNotes(line)` (omit the option and
-there is no Open button). The set of open callouts is keyed by block line and
-survives re-renders; markers are re-applied after every render and never
-drawn on a followed link. `EditorHost` feeds `setNotes` from the review-notes
-store's `marks[tabId]` while armed in Review mode, and an empty list clears
-everything. `note-marks.ts` builds the marker and callout DOM for both panes.
+marker toggles a `div.vn-callout` after the block — a comment thread: one
+`.vn-note` per note with its meta, a `textarea.vn-note-text[data-vn-id]`
+whose `change` fires `onEditNote(id, text)` (commit on blur or Ctrl+Enter,
+never per keystroke, so the re-render a save causes can't fight the typing;
+omit the option and the box is read-only), a `button[data-vn-delete]` that
+asks twice (`confirmDelete`, "Delete?" for 3 s) before `onDeleteNote(id)`,
+and `button[data-vn-all]` → `onOpenAllNotes()` (the host's overview). The
+set of open callouts is keyed by block line and survives re-renders; markers
+are re-applied after every render and never drawn on a followed link.
+`EditorHost` feeds `setNotes` from the review-notes store's `marks[tabId]`
+while armed in Review mode, and an empty list clears everything.
+`note-marks.ts` builds the marker and callout DOM for both panes (user text
+goes in as `value`/`textContent`, never HTML).
+
+Two more pieces of the same wiring:
+
+- **The inline composer.** `mountComposer(line, slot)` puts the host's
+  element (a React portal target — `EditorHost` renders `NoteComposer` into
+  it) right after the block that owns `line` (`core/note-marks
+  blockLineFor`), above that block's callout if one is open, and keeps it
+  there across re-renders until `unmountComposer()`. Inside the slot and the
+  callouts the pane's own gestures stand down: no hold (`onHoldLine`), no
+  link following, and text selection is back on (`voice-comments.css`).
+- **Reveals.** `revealNotes({ line })` opens the owning block's callout (in
+  addition to whatever is open), scrolls the block to the centre and flashes
+  the callout (`.vn-flash`); before the first render lands it waits for it.
+  A save and the overview's "Go to" arrive this way (`ui/voice-comments.ts
+  requestReveal`).
 
 ## Code review pane (`code-review.ts`)
 
@@ -265,8 +285,15 @@ label-less note on the signature line) a `span.vn-mark[role=button]` in its
 head after the badges (a span: the head is itself a button). A tap on it —
 caught before the head's own doc toggle — expands a `div.vn-callout` between
 the head and the body (so `refreshCard`, which only replaces the body,
-leaves it alone); its `[data-vn-open]` fires `onOpenUnitNotes(unit)`. Open
-callouts are keyed by unit id and survive re-renders.
+leaves it alone), with the same edit / two-step delete / "All notes"
+controls as the markdown pane's (`onEditNote`, `onDeleteNote`,
+`onOpenAllNotes`). Open callouts are keyed by unit id and survive
+re-renders. `mountComposer(unitId, slot)` places the host's inline composer
+under that card's head (above its callout); `revealNotes({ line, unit })`
+finds the card by the note's declaration label (`unitNoteLabel`), else by
+signature line, opens its callout and scrolls to it through `scrollToUnit`
+(switching view or widening the filter as that does), waiting for the first
+parse if it must.
 
 ## Styling (`src/styles/preview.css`, new in M4)
 

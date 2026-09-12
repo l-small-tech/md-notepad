@@ -727,35 +727,66 @@ override, close bookkeeping (`closedNotePaths` tombstones), shortcut
 dispatch decisions (pure `keyEventToAction(e, platform)` helper). JSX stays
 declarative and thin.
 
-## Review notes — markers
+## Review notes — composer, markers, overview
 
-The user-facing name is **Review notes** (the ribbon toggle, the sheet's
+The user-facing name is **Review notes** (the ribbon buttons, the composer's
 title and labels, the notices): a note is typed on desktop and spoken on
 Android, so the name says what they are for. Module and setting names keep
 `voice…` — the sidecar format, the Settings tab and its `voiceNotes*` keys
 are unchanged.
 
-While the toggle is armed, each Review pane shows a marker on every
-line/card that already has a note and expands it in place
-(`preview/README.md` "Review-note markers"). The notes come from the store's
-`marks: Record<tabId, VoiceComment[]>`: `EditorHost`'s per-pane
-subscription calls `loadMarks(tabId)` whenever armed (the entry appears
-empty at once, so repeat asks are no-ops, then fills from the sidecar; a
-missing or unreadable sidecar leaves it empty without a notice), feeds
-`pane.setNotes(marks[tabId])`, and `dropMarks(tabId)` on unmount so the next
-mount reads afresh. Every save from the sheet (`flushSave` → `syncMarks`)
-pushes the saved list into each marked tab on that document; disarming
-clears the map. A marker's Open button calls `openAllComments(tabId,
-{ line } | { unit })`, which opens the sheet in `viewing` with the first
-matching note (`core/note-marks firstNoteAt`) as `focusId`, listed first.
+**The composer is inline.** There is no sheet: holding a line (or a code
+card) opens `components/NoteComposer.tsx` right under it, inside the Review
+pane. `EditorHost` owns one `div` per tab (`composerSlot`) and portals the
+composer into it while the store's `phase` is open for that tab; the pane
+places the slot (`mountComposer(line | unitId, slot)` — `preview/README.md`)
+and `EditorHost`'s per-pane `syncNotesPane` keeps placement, markers and the
+hold gesture in step with the store on every tick. Saving closes the
+composer and asks the pane to show the note landing (`requestReveal` →
+`reveal` in the store → the matching pane's `revealNotes`, cleared with
+`clearReveal(seq)`; a reveal older than `REVEAL_TTL_MS` is dropped). A code
+note whose spoken names were snapped stops at `phase: 'saved'` first, with
+the undo chips, until Done.
+
+**Markers** — while the toggle is armed, each Review pane marks every
+line/card that already has a note and expands it in place. The notes come
+from the store's `marks: Record<tabId, VoiceComment[]>`: `EditorHost` calls
+`loadMarks(tabId)` whenever armed (the entry appears empty at once, so
+repeat asks are no-ops, then fills from the sidecar; a missing or
+unreadable sidecar leaves it empty without a notice), feeds
+`pane.setNotes(marks[tabId])`, and `dropMarks(tabId)` on unmount so the
+next mount reads afresh. Every write (`writeSidecar` → `syncMarks`) pushes
+the saved list into each marked tab on that document; disarming clears the
+map. A callout's edit and delete go through `editNote(tabId, id, text)` /
+`deleteNote(tabId, id)`, thin wrappers over `mutateNotes(notePath, sidecar,
+change)`: a read → change → write of the sidecar that keeps the preamble's
+review context (`core/comments parseReviewContext`), refreshes the marks and
+an open composer's `comments`, and tells `onNotesChanged` listeners.
+
+**The overview** ("All notes" in the ribbon and in every callout;
+`Show all review notes` in the palette; Escape closes) is
+`notes-overview.ts` + `components/NotesOverview.tsx`: opening walks every
+workspace root through the storage provider (`listDir`, breadth-first,
+dot-dirs and build trees skipped, capped at `DIR_CAP` directories and
+`SIDECAR_CAP` files — `truncated` says when a cap hit) plus the open tabs'
+sidecars, reads each `*.comments.md` into a `NoteDoc`
+(`core/notes-overview.ts` resolves the document from the entry's `file:`
+reference and does the searching, grouping and relative times), and shows
+them newest-first or by document, scoped to all documents or the active
+tab's. Edits and deletes there use `mutateNotes` too, and the store keeps
+its list current by listening to `onNotesChanged` rather than writing
+itself. "Go to" closes the panel, arms review notes, `requestReveal`s the
+note, opens the document (`openNotePath`) and switches its tab to Review —
+waiting for the tab to appear when the open is asynchronous.
 
 ## Voice notes — engines
 
-`voice-comments.ts` is the controller; `components/VoiceComments.tsx` the
-sheet. `noteEngine()` picks the sheet's engine: on Android the recognizer or
-**Whisper** (`androidDictationEngine`, 'system' or 'whisper') — voice first,
-the keyboard is awkward there; on desktop always Whisper, because the note
-is **typed**: the sheet is a text box (`draft`, `updateDraft`) with a Save
+`voice-comments.ts` is the controller; `components/NoteComposer.tsx` the
+inline composer. `noteEngine()` picks the composer's engine: on Android the
+recognizer or **Whisper** (`androidDictationEngine`, 'system' or 'whisper')
+— voice first, the keyboard is awkward there (the text box is there too, for
+a tablet with one); on desktop always Whisper, because the note is
+**typed**: the composer is a text box (`draft`, `updateDraft`) with a Save
 button (`saveDraft`), a hint that the OS's own dictation types into it
 (Win+H, the macOS Dictation key — suggested, never pressed by the app), and
 a Whisper microphone whose transcript is appended to the draft. Until the
@@ -772,7 +803,7 @@ disk) and, in parallel, `ipc.whisperPrepare` warms the model so a missing
 one fails the capture before anything is said. The second tap stops the mic
 and enters the `transcribing` phase: the PCM goes to `ipc.whisperTranscribe`
 as a raw body and the answer becomes the note (Android) or lands in the
-draft (desktop, `deliver`). Closing the sheet mid-way
+draft (desktop, `deliver`). Closing the composer mid-way
 cancels the mic or drops the pending words. At `MAX_CAPTURE_SECONDS` the
 capture stops itself and transcribes what it has. Models are downloaded from
 Settings ▸ Voice notes through `stores/whisper-models.ts`, which sequences

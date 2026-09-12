@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { VoiceComment } from '../comments';
-import { firstNoteAt, notesByBlock, notesForUnit, unitNoteLabel } from '../note-marks';
+import { blockLineFor, notesByBlock, notesForUnit, unitNoteLabel } from '../note-marks';
 
 function note(id: string, line: number | null, unit?: string): VoiceComment {
   return {
@@ -55,12 +55,12 @@ describe('notesForUnit', () => {
   });
 });
 
-describe('firstNoteAt', () => {
-  const notes = [note('a', 2), note('b', 5, 'x (class)'), note('c', 5, 'x (class)')];
-
-  test('the first note on a line, or the first naming a declaration', () => {
-    expect(firstNoteAt(notes, { line: 2 })?.id).toBe('a');
-    expect(firstNoteAt(notes, { line: 5, unit: 'x (class)' })?.id).toBe('b');
-    expect(firstNoteAt(notes, { line: 9 })).toBeUndefined();
+describe('blockLineFor', () => {
+  test('the block a line falls in, by the same rule the grouping uses', () => {
+    expect(blockLineFor(5, [1, 4, 8])).toBe(4);
+    expect(blockLineFor(4, [8, 1, 4])).toBe(4);
+    expect(blockLineFor(1, [3, 7])).toBe(3); // front matter → the first block
+    expect(blockLineFor(20, [3, 7])).toBe(7);
+    expect(blockLineFor(2, [])).toBeUndefined();
   });
 });

@@ -71,15 +71,20 @@ export function notesForUnit(
 }
 
 /**
- * The note the sheet should lead with when opened from a marker: the first
- * note on that line — for a code card, the first that names the declaration.
+ * The block a source line belongs to, by the rule `notesByBlock` uses: the
+ * greatest block first-line at or above it, else the first block (a line in
+ * the front matter belongs to the first block). Undefined with no blocks.
  */
-export function firstNoteAt(
-  notes: readonly VoiceComment[],
-  target: { line?: number; unit?: string },
-): VoiceComment | undefined {
-  if (target.unit !== undefined) {
-    return notes.find((n) => n.unit === target.unit);
+export function blockLineFor(line: number, blockLines: readonly number[]): number | undefined {
+  let best: number | undefined;
+  let first: number | undefined;
+  for (const b of blockLines) {
+    if (first === undefined || b < first) {
+      first = b;
+    }
+    if (b <= line && (best === undefined || b > best)) {
+      best = b;
+    }
   }
-  return notes.find((n) => n.line === target.line);
+  return best ?? first;
 }

@@ -555,16 +555,23 @@ describe('review-note markers', () => {
   ];
   const text = '# Title\n\nfirst para\n\nsecond para\n';
 
-  test('marks each block that owns a note; a tap expands the notes, Open hands the note line to the host', async () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  test('marks each block that owns a note; a tap expands the notes for editing, deleting, or the overview', async () => {
     const el = host();
-    const onOpenNotes = vi.fn();
+    const onEditNote = vi.fn();
+    const onDeleteNote = vi.fn();
+    const onOpenAllNotes = vi.fn();
     const pane = attachPreviewPane(el, createDocModel(text), {
       dark: false,
       onHoldLine: () => {},
-      onOpenNotes,
+      onEditNote,
+      onDeleteNote,
+      onOpenAllNotes,
     });
     await vi.runAllTimersAsync();
-    // The first block's notes start on its second line: Open leads with THAT line.
     pane.setNotes([{ ...notes[0]!, line: 4 }, notes[1]!, notes[2]!]);
     const rows = el.querySelectorAll('.vn-mark-row');
     expect(rows).toHaveLength(2);
@@ -577,12 +584,28 @@ describe('review-note markers', () => {
     click(rows[0]!.querySelector('.vn-mark')!);
     const callout = el.querySelector('.vn-callout')!;
     expect(callout.previousElementSibling?.textContent).toBe('first para');
-    const texts = [...callout.querySelectorAll('.vn-note-text')].map((n) => n.textContent);
-    expect(texts).toEqual(['Tighten <this> up', 'and this']); // user text, never HTML
+    const boxes = [...callout.querySelectorAll<HTMLTextAreaElement>('.vn-note-text')];
+    expect(boxes.map((b) => b.value)).toEqual(['Tighten <this> up', 'and this']); // user text, never HTML
     expect(el.querySelector('.vn-mark')?.getAttribute('aria-expanded')).toBe('true');
 
-    click(callout.querySelector('[data-vn-open]')!);
-    expect(onOpenNotes).toHaveBeenCalledWith(4);
+    // An edit commits on change, with the note's id.
+    boxes[1]!.value = 'and THIS';
+    boxes[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onEditNote).toHaveBeenCalledWith('n2', 'and THIS');
+
+    // Delete asks twice; the timeout takes the question back.
+    const del = callout.querySelector<HTMLElement>('[data-vn-delete="n1"]')!;
+    click(del);
+    expect(onDeleteNote).not.toHaveBeenCalled();
+    expect(del.textContent).toBe('Delete?');
+    vi.advanceTimersByTime(4000);
+    expect(del.textContent).toBe('Delete');
+    click(del);
+    click(del);
+    expect(onDeleteNote).toHaveBeenCalledWith('n1');
+
+    click(callout.querySelector('[data-vn-all]')!);
+    expect(onOpenAllNotes).toHaveBeenCalledTimes(1);
 
     // A second tap folds it; the text itself never moved.
     click(el.querySelector('.vn-mark')!);
@@ -590,7 +613,7 @@ describe('review-note markers', () => {
     expect(el.querySelectorAll('p')).toHaveLength(2);
   });
 
-  test('an open callout survives a re-render; an empty list clears everything', async () => {
+  test('an open callout survives a re-render; without callbacks it is read-only; an empty list clears everything', async () => {
     const el = host();
     const model = createDocModel(text);
     const pane = attachPreviewPane(el, model, { dark: false, onHoldLine: () => {} });
@@ -603,8 +626,8 @@ describe('review-note markers', () => {
     await vi.runAllTimersAsync();
     expect(el.querySelectorAll('.vn-mark-row')).toHaveLength(2);
     expect(el.querySelector('.vn-callout')).not.toBeNull();
-    // Without onOpenNotes the callout has nothing to open.
-    expect(el.querySelector('[data-vn-open]')).toBeNull();
+    expect(el.querySelector<HTMLTextAreaElement>('.vn-note-text')?.readOnly).toBe(true);
+    expect(el.querySelector('[data-vn-delete], [data-vn-all]')).toBeNull();
 
     pane.setNotes([]);
     expect(el.querySelector('.vn-mark-row, .vn-callout')).toBeNull();
@@ -628,5 +651,65 @@ describe('review-note markers', () => {
     pane.goBack();
     await vi.runAllTimersAsync();
     expect(el.querySelectorAll('.vn-mark-row')).toHaveLength(1);
+  });
+
+  test('the composer slot sits under the held line’s block, follows re-renders, and holds off the gestures', async () => {
+    const el = host();
+    const model = createDocModel(text);
+    const onHoldLine = vi.fn();
+    const pane = attachPreviewPane(el, model, { dark: false, onHoldLine });
+    await vi.runAllTimersAsync();
+    const slot = document.createElement('div');
+    slot.innerHTML = '<textarea></textarea><a href="x.md">link</a>';
+    pane.mountComposer(4, slot); // line 4 is inside the first paragraph's block
+    expect(slot.parentElement).toBe(el);
+    expect(slot.previousElementSibling?.textContent).toBe('first para');
+    expect(slot.classList.contains('vn-composer-slot')).toBe(true);
+
+    // Notes open under the same block go below the composer.
+    pane.setNotes(notes);
+    click(el.querySelector('.vn-mark')!);
+    expect(el.querySelector('.vn-callout')?.previousElementSibling).toBe(slot);
+
+    model.pushText(text + '\nthird para\n', 'cm6');
+    await vi.runAllTimersAsync();
+    expect(slot.isConnected).toBe(true);
+    expect(slot.previousElementSibling?.textContent).toBe('first para');
+
+    // A press inside the composer is typing, not the hold gesture; a link in
+    // it is the host's, not a followed link.
+    pane.setLineHold(true);
+    slot
+      .querySelector('textarea')!
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 }));
+    vi.advanceTimersByTime(2000);
+    expect(onHoldLine).not.toHaveBeenCalled();
+    expect(click(slot.querySelector('a')!)).toBe(false);
+
+    pane.mountComposer(5, slot);
+    expect(slot.previousElementSibling?.textContent).toBe('second para');
+    pane.unmountComposer();
+    expect(slot.isConnected).toBe(false);
+  });
+
+  test('revealNotes opens the line’s callout and scrolls to it, waiting for the first render if it must', async () => {
+    const el = host();
+    const pane = attachPreviewPane(el, createDocModel(text), {
+      dark: false,
+      onHoldLine: () => {},
+    });
+    pane.revealNotes({ line: 5 }); // nothing rendered yet
+    await vi.runAllTimersAsync();
+    pane.setNotes(notes);
+    const callout = el.querySelector('.vn-callout')!;
+    expect(callout.previousElementSibling?.textContent).toBe('second para');
+    expect(callout.classList.contains('vn-flash')).toBe(true);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    // Revealing another line adds to what is open; the flash moves on.
+    pane.revealNotes({ line: 3 });
+    const callouts = el.querySelectorAll('.vn-callout');
+    expect(callouts).toHaveLength(2);
+    expect(callouts[0]!.classList.contains('vn-flash')).toBe(true);
+    expect(callouts[1]!.classList.contains('vn-flash')).toBe(false);
   });
 });

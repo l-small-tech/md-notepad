@@ -82,6 +82,7 @@ import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
 import { searchStore } from './ui/stores/search';
+import { closeOverview, notesOverviewStore } from './ui/notes-overview';
 import { isAndroid } from './ui/platform';
 import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
@@ -604,6 +605,13 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && exportPreviewStore.getState().open) {
     event.preventDefault();
     exportPreviewStore.getState().close();
+    return;
+  }
+  // Escape closes the all-review-notes overview (a panel over everything but
+  // the dialogs above).
+  if (event.key === 'Escape' && notesOverviewStore.getState().open) {
+    event.preventDefault();
+    closeOverview();
     return;
   }
   // Escape closes the settings modal when it's open (standard modal behavior;

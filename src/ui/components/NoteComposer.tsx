@@ -1,25 +1,26 @@
 /**
- * VoiceComments — the voice-note capture sheet + note list.
+ * NoteComposer — the inline review-note composer.
  *
- * A pure projection of `voiceStore` (src/ui/voice-comments.ts): in the `ready`,
- * `capturing` and `transcribing` phases it shows the chosen line and the way
- * to add a note — on Android a big two-tap microphone (tap to start, tap
- * again to finish), on desktop a text box with a Save button, a hint about the
- * OS's own dictation, and a Whisper microphone that is an Install button until
- * a model is on disk (`stores/whisper-models.ts` for the download's progress);
- * in `viewing` it lists the note's voice notes. Mounted once at the app root;
- * it renders nothing while closed.
+ * A pure projection of `voiceStore` (src/ui/voice-comments.ts), rendered by
+ * `EditorHost` through a portal INTO the Review pane, right under the line
+ * (or code card head) that was held — the way a word processor opens a
+ * comment box beside the text, with nothing covering the document. In the
+ * `ready`, `capturing` and `transcribing` phases it shows the held line and
+ * the way to add a note: a text box with Save (the OS's own dictation types
+ * into it on desktop), and a microphone — on Android the on-device
+ * recognizer, on desktop Whisper, which is an Install button until a model
+ * is on disk (`stores/whisper-models.ts` for the download's progress). In
+ * `saved` — a code note whose spoken names were snapped — it shows the saved
+ * text with an undo per name, and Done.
  */
 
 import { useEffect, useRef } from 'react';
 import {
   closePanel,
-  deleteComment,
   installWhisper,
   openCaptureSettings,
   openVoiceSettings,
   saveDraft,
-  showNotes,
   toggleMic,
   undoSnap,
   updateDraft,
@@ -32,13 +33,7 @@ import { desktopOs, isAndroid } from '../platform';
 import { useSettingsStore } from '../stores/settings';
 import { useWhisperModels, whisperModelsStore } from '../stores/whisper-models';
 import { downloadPercent } from '../../core/whisper-models';
-import type { VoiceComment } from '../../core/comments';
 import type { Snap } from '../../core/code/vocab';
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
 
 /**
  * What snapping changed in this note, each undoable: "shows all files" became
@@ -65,93 +60,64 @@ function Snaps({ snaps }: { snaps: Snap[] }) {
   );
 }
 
-function CommentCard({
-  comment,
-  focused,
-  snaps,
-}: {
-  comment: VoiceComment;
-  focused: boolean;
-  snaps: Snap[];
-}) {
-  return (
-    <div className={`vc-card${focused ? ' vc-card-focus' : ''}`}>
-      <div className="vc-card-meta">
-        <span>
-          {comment.line !== null ? `Line ${comment.line} · ` : ''}
-          {comment.unit ? `${comment.unit} · ` : ''}
-          {formatTime(comment.time)}
-        </span>
-        <button
-          className="vc-btn-danger"
-          onClick={() => void deleteComment(comment.id)}
-          aria-label="Delete review note"
-        >
-          Delete
-        </button>
-      </div>
-      {comment.quote && <div className="vc-quote">{comment.quote}</div>}
-      <textarea
-        className="vc-transcript"
-        value={comment.transcript}
-        placeholder="Transcript…"
-        onChange={(e) => updateTranscript(comment.id, e.target.value)}
-      />
-      {snaps.length > 0 && <Snaps snaps={snaps} />}
-    </div>
-  );
-}
-
-export function VoiceComments() {
+export function NoteComposer() {
   const state = useVoiceStore((s) => s);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const open = state.phase !== 'closed';
+  // The held line may sit at the bottom of the window: bring the whole box
+  // into view once it is in the document (the pane places the slot first).
+  useEffect(() => {
+    if (open) {
+      const id = requestAnimationFrame(() =>
+        rootRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+      );
+      return () => cancelAnimationFrame(id);
+    }
+  }, [open]);
   if (state.phase === 'closed') {
     return null;
   }
   const capturing = state.phase === 'capturing' || state.phase === 'transcribing';
-  const title =
-    state.phase === 'viewing'
-      ? 'Review notes'
-      : state.unit
-        ? // Review mode: the declaration says more than its line number does.
-          `Review note · ${state.unit}`
-        : state.line !== null
-          ? `Review note · line ${state.line}`
-          : 'Review note';
+  const where = state.unit ?? (state.line !== null ? `Line ${state.line}` : '');
   return (
     <div
-      className={`vc-backdrop${isAndroid() ? ' vc-android' : ''}`}
-      onClick={(e) => {
-        // Click on the backdrop (not the panel) closes.
-        if (e.target === e.currentTarget) {
+      ref={rootRef}
+      className={`vn-composer${isAndroid() ? ' vn-composer-android' : ''}`}
+      role="dialog"
+      aria-label={state.phase === 'saved' ? 'Review note saved' : 'New review note'}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
           closePanel();
         }
       }}
     >
-      <div className="vc-panel" role="dialog" aria-label="Review notes">
-        <div className="vc-header">
-          <span>{title}</span>
-          <div className="vc-header-actions">
-            {state.phase === 'ready' && (
-              <button
-                className="vc-add"
-                onClick={showNotes}
-                aria-label="Show all review notes"
-                title="Show this document's review notes"
-              >
-                {state.comments.length > 0 ? `Notes (${state.comments.length})` : 'Notes'}
-              </button>
-            )}
-            <button
-              className="vc-close"
-              onClick={closePanel}
-              aria-label={capturing ? 'Cancel' : 'Close'}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        {state.phase === 'viewing' ? <ViewingBody state={state} /> : <CaptureView state={state} />}
+      <div className="vn-composer-head">
+        <span className="vn-composer-title">
+          <span className="vn-composer-icon" aria-hidden="true">
+            💬
+          </span>
+          {state.phase === 'saved' ? 'Saved' : 'New review note'}
+          {where && <span className="vn-composer-where">{where}</span>}
+        </span>
+        <button
+          className="vn-composer-close"
+          onClick={closePanel}
+          aria-label={capturing ? 'Cancel' : 'Close'}
+          title={capturing ? 'Cancel' : 'Close (Esc)'}
+        >
+          ✕
+        </button>
       </div>
+      {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
+      {state.phase === 'saved' ? (
+        <SavedView state={state} />
+      ) : isAndroid() ? (
+        <AndroidCapture state={state} />
+      ) : (
+        <DesktopCapture state={state} />
+      )}
     </div>
   );
 }
@@ -232,17 +198,17 @@ function ErrorBox({ error }: { error: NonNullable<VoiceCommentsState['error']> }
   );
 }
 
-/** The capture body: Android's voice-first sheet, or the desktop text box. */
-function CaptureView({ state }: { state: VoiceCommentsState }) {
-  return isAndroid() ? <AndroidCapture state={state} /> : <DesktopCapture state={state} />;
-}
-
-/** Android: the big microphone — the keyboard is awkward, so voice comes first. */
+/**
+ * Android: the microphone leads (the keyboard is awkward), the text box is
+ * there for a tablet with one. A finished dictation IS the note; typing
+ * needs Save.
+ */
 function AndroidCapture({ state }: { state: VoiceCommentsState }) {
   const capturing = state.phase === 'capturing';
   const transcribing = state.phase === 'transcribing';
   const finishing = (capturing && state.stopping) || transcribing;
-  const error = capturing || transcribing ? null : state.error;
+  const busy = capturing || transcribing;
+  const error = busy ? null : state.error;
   const label = transcribing
     ? 'Transcribing…'
     : finishing
@@ -251,13 +217,25 @@ function AndroidCapture({ state }: { state: VoiceCommentsState }) {
         ? 'Listening… tap again to finish'
         : error
           ? 'Tap to try again'
-          : 'Tap to start';
+          : 'Tap to speak, or type below';
   return (
-    <div className="vc-capturing">
-      {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
+    <div className="vc-capturing vn-android">
       <MicButton state={state} />
       <div className="vc-capture-label">{label}</div>
       {error && <ErrorBox error={error} />}
+      <DraftBox draft={state.draft} disabled={busy} autoFocus={false} />
+      <div className="vc-actions">
+        <button className="vc-btn vc-btn-quiet" onClick={closePanel}>
+          Cancel
+        </button>
+        <button
+          className="vc-btn vc-save"
+          onClick={() => void saveDraft()}
+          disabled={busy || !state.draft.trim()}
+        >
+          Save note
+        </button>
+      </div>
     </div>
   );
 }
@@ -304,11 +282,11 @@ function DesktopCapture({ state }: { state: VoiceCommentsState }) {
             ready
               ? 'The microphone dictates offline with Whisper.'
               : 'Or install Whisper to dictate offline, on this computer.',
+            'Ctrl+Enter saves.',
           ].join(' ');
   return (
     <div className="vc-capturing vc-desktop">
-      {state.quote && <div className="vc-quote vc-quote-target">{state.quote}</div>}
-      <DraftBox draft={state.draft} disabled={busy} />
+      <DraftBox draft={state.draft} disabled={busy} autoFocus />
       <div className="vc-actions">
         {ready ? (
           <MicButton state={state} small />
@@ -351,6 +329,10 @@ function DesktopCapture({ state }: { state: VoiceCommentsState }) {
             {download.kind === 'failed' ? 'Retry Whisper download' : 'Install Whisper'}
           </button>
         )}
+        <span className="vc-actions-spacer" />
+        <button className="vc-btn vc-btn-quiet" onClick={closePanel} disabled={busy}>
+          Cancel
+        </button>
         <button
           className="vc-btn vc-save"
           onClick={() => void saveDraft()}
@@ -366,20 +348,39 @@ function DesktopCapture({ state }: { state: VoiceCommentsState }) {
 }
 
 /**
- * Desktop: the note's text box. Focused on mount, so typing — or the OS's
- * dictation, which types wherever the caret is — starts right away.
+ * The note's text box. Grows with the text; focused on mount on desktop, so
+ * typing — or the OS's dictation, which types wherever the caret is — starts
+ * right away. Ctrl/Cmd+Enter saves.
  */
-function DraftBox({ draft, disabled }: { draft: string; disabled: boolean }) {
+function DraftBox({
+  draft,
+  disabled,
+  autoFocus,
+}: {
+  draft: string;
+  disabled: boolean;
+  autoFocus: boolean;
+}) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    ref.current?.focus();
-  }, []);
+    if (autoFocus) {
+      ref.current?.focus();
+    }
+  }, [autoFocus]);
+  useEffect(() => {
+    const box = ref.current;
+    if (box) {
+      box.style.height = 'auto';
+      box.style.height = `${Math.max(box.scrollHeight, 56)}px`;
+    }
+  }, [draft]);
   return (
     <textarea
       ref={ref}
       className="vc-transcript vc-draft"
       value={draft}
       disabled={disabled}
+      rows={2}
       placeholder="Type your note…"
       aria-label="Review note text"
       onChange={(e) => updateDraft(e.target.value)}
@@ -393,30 +394,27 @@ function DraftBox({ draft, disabled }: { draft: string; disabled: boolean }) {
   );
 }
 
-function ViewingBody({ state }: { state: VoiceCommentsState }) {
-  if (state.comments.length === 0) {
-    return (
-      <div className="vc-body">
-        <div className="vc-empty">No review notes on this document yet.</div>
-      </div>
-    );
-  }
-  // Focused first, then the rest in file order.
-  const ordered = [...state.comments].sort((a, b) => {
-    if (a.id === state.focusId) return -1;
-    if (b.id === state.focusId) return 1;
-    return 0;
-  });
+/** After a save with snapped names: the saved text (still editable) and the undo chips. */
+function SavedView({ state }: { state: VoiceCommentsState }) {
+  const comment = state.comments.find((c) => c.id === state.snapCommentId);
   return (
-    <div className="vc-body">
-      {ordered.map((c) => (
-        <CommentCard
-          key={c.id}
-          comment={c}
-          focused={c.id === state.focusId}
-          snaps={c.id === state.snapCommentId ? state.snaps : []}
+    <div className="vc-capturing vc-desktop">
+      {comment && (
+        <textarea
+          className="vc-transcript vc-draft"
+          value={comment.transcript}
+          rows={2}
+          aria-label="Saved review note text"
+          onChange={(e) => updateTranscript(comment.id, e.target.value)}
         />
-      ))}
+      )}
+      {state.snaps.length > 0 && <Snaps snaps={state.snaps} />}
+      <div className="vc-actions">
+        <span className="vc-actions-spacer" />
+        <button className="vc-btn vc-save" onClick={closePanel}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }

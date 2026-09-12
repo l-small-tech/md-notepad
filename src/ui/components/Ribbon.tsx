@@ -34,6 +34,7 @@ import { isAndroid } from '../platform';
 import { setFullscreen } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
 import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
+import { toggleOverview, useNotesOverview } from '../notes-overview';
 import { stopVoiceTyping, toggleVoiceTyping, useVoiceTypingStore } from '../voice-typing';
 import {
   FONT_FAMILIES,
@@ -878,12 +879,43 @@ function ReaderControls() {
   );
 }
 
-/** The divider + voice-notes toggle. */
+/** A stack of note lines — every review note. */
+const NotesListIcon = (
+  <RibbonIcon>
+    <path d="M4 5.5h12M4 10h12M4 14.5h7" />
+    <circle cx="15.2" cy="14.5" r="1.6" />
+  </RibbonIcon>
+);
+
+/**
+ * "See all review notes": the overview of every note across the workspaces
+ * (`notes-overview.ts`). Always available in Review mode — reading what was
+ * noted needs no toggle — and the button lights while the panel is open.
+ */
+function AllNotesButton() {
+  const open = useNotesOverview((s) => s.open);
+  return (
+    <button
+      className="ribbon-btn"
+      data-active={open || undefined}
+      aria-pressed={open}
+      aria-label="All review notes"
+      title="All review notes — every note in this document and the workspaces"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={toggleOverview}
+    >
+      {NotesListIcon}
+    </button>
+  );
+}
+
+/** The divider + review-notes toggle + the all-notes overview. */
 function VoiceNotesSlot() {
   return (
     <>
       <span className="ribbon-divider" role="separator" />
       <VoiceNotesToggle />
+      <AllNotesButton />
     </>
   );
 }

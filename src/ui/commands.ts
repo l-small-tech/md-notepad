@@ -26,6 +26,7 @@ import {
 } from './session';
 import { cycleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
+import { openOverview } from './notes-overview';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
 import { activePaneOf, terminalsStore } from './stores/terminals';
@@ -323,6 +324,12 @@ export function buildCommands(): AppCommand[] {
         shortcut: modKey('F', { shift: true }),
       },
     ),
+    {
+      id: 'review-notes-overview',
+      title: 'Show all review notes',
+      keywords: ['voice', 'comments', 'review', 'annotations', 'overview'],
+      run: () => openOverview(),
+    },
     fromAction(
       'toggle-outline',
       'Toggle outline',

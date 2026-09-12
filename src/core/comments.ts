@@ -181,6 +181,75 @@ export function isCommentsPath(path: string): boolean {
 }
 
 /**
+ * The inverse of `noteRefFor`: the absolute path of the document a sidecar is
+ * about, from the sidecar's own path and an entry's `file:` reference (which
+ * is relative to the sidecar's directory). `..` segments climb; the
+ * separator style of the sidecar's path is kept, so a `saf://` sidecar yields
+ * a `saf://` document. With an empty reference the document is assumed to be
+ * the sidecar's namesake beside it (`foo.comments.md` → `foo.md`).
+ */
+export function notePathFromSidecar(sidecarPath: string, ref: string): string {
+  const dir = dirName(sidecarPath);
+  if (!ref) {
+    const stem = baseName(sidecarPath).replace(/\.comments\.md$/i, '');
+    return dir ? joinPath(dir, `${stem}.md`) : `${stem}.md`;
+  }
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  const parts = dir.split(/[\\/]/);
+  for (const seg of ref.split(/[\\/]/)) {
+    if (seg === '' || seg === '.') {
+      continue;
+    }
+    if (seg === '..') {
+      if (parts.length > 1) {
+        parts.pop();
+      }
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.join(sep);
+}
+
+const CONTEXT_BRANCH_RE = /^-\s+branch:\s*(.+?)(?:\s+\(worktree:\s*(.+?)\))?\s*$/;
+const CONTEXT_BASE_RE = /^-\s+compared against:\s*(.+?)(?:\s+\(merge-base\s+(\S+?)\))?\s*$/;
+
+/**
+ * The review context a sidecar's preamble carries (the lines `contextLines`
+ * writes), so an edit made away from the review — from the notes overview,
+ * or a marker's callout — keeps the branch and baseline on the file. Only the
+ * preamble (before the first `## ^id`) is read; undefined when it has none.
+ */
+export function parseReviewContext(text: string): ReviewContext | undefined {
+  const context: ReviewContext = {};
+  let found = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (ENTRY_RE.test(line)) {
+      break;
+    }
+    const branch = CONTEXT_BRANCH_RE.exec(line);
+    if (branch) {
+      context.branch = branch[1];
+      if (branch[2]) {
+        context.worktree = branch[2];
+      }
+      found = true;
+      continue;
+    }
+    const base = CONTEXT_BASE_RE.exec(line);
+    if (base) {
+      context.baseBranch = base[1];
+      if (base[2]) {
+        context.baseRef = base[2];
+      }
+      found = true;
+    }
+  }
+  return found ? context : undefined;
+}
+
+/**
  * Mint an id that collides with none of `existingIds`. `c` + 4 base36 chars
  * gives ~1.7M values; the retry loop makes uniqueness deterministic regardless.
  */

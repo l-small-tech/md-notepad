@@ -119,15 +119,19 @@ vi.mock('../pcm-capture', () => ({
 
 import { serializeCommentsFile } from '../../core/comments';
 import {
+  clearReveal,
   closePanel,
-  deleteComment,
+  deleteNote,
   dictationEngine,
   dropMarks,
+  editNote,
   installWhisper,
   loadMarks,
+  mutateNotes,
   noteEngine,
-  openAllComments,
+  onNotesChanged,
   openNoteAtLine,
+  requestReveal,
   toggleArmed,
   openVoiceSettings,
   saveDraft,
@@ -165,7 +169,6 @@ function openReady(): void {
     notePath: 'C:/notes/pricing.md',
     commentsPath: 'C:/notes/pricing.comments.md',
     comments: [],
-    focusId: null,
     line: 3,
     quote: 'The new pricing goes live on Friday.',
     error: null,
@@ -236,10 +239,12 @@ describe('voice-note capture on Android: two taps', () => {
 
     start.resolve('  Ship it on Friday. ');
     await settle();
-    expect(state().phase).toBe('viewing');
+    // The note is saved and the composer closes; the pane is asked to show it.
+    expect(state().phase).toBe('closed');
     expect(state().stopping).toBe(false);
-    expect(state().comments.map((c) => c.transcript)).toEqual(['Ship it on Friday.']);
+    expect(state().reveal).toMatchObject({ path: 'C:/notes/pricing.md', line: 3, unit: null });
     expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('C:/notes/pricing.comments.md');
     expect(writes[0]?.text).toContain('Ship it on Friday.');
   });
 
@@ -285,7 +290,9 @@ describe('voice-note capture on Android: two taps', () => {
     toggleMic();
     second.resolve('fresh words');
     await settle();
-    expect(state().comments.map((c) => c.transcript)).toEqual(['fresh words']);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.text).toContain('fresh words');
+    expect(writes[0]?.text).not.toContain('stale words');
   });
 
   test('a stop that settles normally disarms the watchdog', async () => {
@@ -298,8 +305,9 @@ describe('voice-note capture on Android: two taps', () => {
     start.resolve('Done.');
     await settle();
     vi.advanceTimersByTime(STOP_WATCHDOG_MS * 2);
-    expect(state().phase).toBe('viewing');
+    expect(state().phase).toBe('closed');
     expect(state().error).toBeNull();
+    expect(writes).toHaveLength(1);
   });
 
   test('closing mid-capture stops the engine and drops its result', async () => {
@@ -345,18 +353,15 @@ describe('desktop: the note is typed; Whisper is the microphone', () => {
 
     updateDraft('  Move the tax column before the demo. ');
     await saveDraft();
-    expect(state().phase).toBe('viewing');
+    expect(state().phase).toBe('closed');
     expect(state().draft).toBe('');
-    expect(state().comments.map((c) => c.transcript)).toEqual([
-      'Move the tax column before the demo.',
-    ]);
     expect(writes).toHaveLength(1);
     expect(writes[0]?.text).toContain('Move the tax column before the demo.');
   });
 
   test('Save is only for the ready phase', async () => {
     openReady();
-    voiceStore.setState({ phase: 'viewing', draft: 'stray' });
+    voiceStore.setState({ phase: 'saved', draft: 'stray' });
     await saveDraft();
     expect(state().comments).toEqual([]);
   });
@@ -388,7 +393,8 @@ describe('desktop: the note is typed; Whisper is the microphone', () => {
     expect(writes).toEqual([]);
 
     await saveDraft();
-    expect(state().comments.map((c) => c.transcript)).toEqual(['Also: ship it on Friday']);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.text).toContain('Also: ship it on Friday');
   });
 
   test('the identifier snap happens on save, so a typed name snaps like a spoken one', async () => {
@@ -543,11 +549,9 @@ describe('voice-note capture with Whisper (offline)', () => {
     expect(state().draft).toBe('Move the tax column before the demo.');
     expect(writes).toHaveLength(0);
     await saveDraft();
-    expect(state().phase).toBe('viewing');
-    expect(state().comments.map((c) => c.transcript)).toEqual([
-      'Move the tax column before the demo.',
-    ]);
+    expect(state().phase).toBe('closed');
     expect(writes).toHaveLength(1);
+    expect(writes[0]?.text).toContain('Move the tax column before the demo.');
   });
 
   test('the chosen model and the GPU switch are what is transcribed with', async () => {
@@ -825,10 +829,10 @@ describe('reviewing a code file: unit, whisper hint, snapped names', () => {
     await settle();
     toggleMic();
     await settle();
-    expect(state().comments.map((c) => c.transcript)).toEqual([
-      'show all files state misses the hidden dirs',
-    ]);
+    // Nothing snapped: no `saved` stop for undo — straight to closed.
+    expect(state().phase).toBe('closed');
     expect(state().snaps).toEqual([]);
+    expect(writes[0]?.text).toContain('show all files state misses the hidden dirs');
     expect(writes[0]?.text).not.toContain('- unit:');
   });
 
@@ -926,21 +930,20 @@ describe('note markers: the notes each Review pane draws from', () => {
     expect(notices).toEqual([]);
   });
 
-  test('a save from the sheet updates every marked tab on that document; disarming drops them all', async () => {
+  test('a delete from a callout updates every marked tab on that document; disarming drops them all', async () => {
     toggleArmed();
     await loadMarks('t1');
     await loadMarks('t2');
-    voiceStore.setState({
-      phase: 'viewing',
-      tabId: 't1',
-      notePath: 'C:/notes/a.md',
-      commentsPath: 'C:/notes/a.comments.md',
-      comments: [noteOn('c1', 2), noteOn('c2', 3, 'f (function)')],
-    });
-    await deleteComment('c1');
+    const changed: string[][] = [];
+    const off = onNotesChanged((_path, _sidecar, notes) => changed.push(notes.map((n) => n.id)));
+    await deleteNote('t1', 'c1');
+    off();
     expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('C:/notes/a.comments.md');
+    expect(writes[0]?.text).not.toContain('^c1');
     expect(state().marks.t1!.map((n) => n.id)).toEqual(['c2']);
     expect(state().marks.t2!.map((n) => n.id)).toEqual(['c2']);
+    expect(changed).toEqual([['c2']]);
 
     dropMarks('t2');
     expect(Object.keys(state().marks)).toEqual(['t1']);
@@ -949,18 +952,44 @@ describe('note markers: the notes each Review pane draws from', () => {
     expect(state().marks).toEqual({});
   });
 
-  test("opening the sheet from a marker leads with that line's (or declaration's) note", async () => {
-    await openAllComments('t1', { line: 3, unit: 'f (function)' });
-    expect(state().phase).toBe('viewing');
-    expect(state().focusId).toBe('c2');
-    closePanel();
-    await openAllComments('t1', { line: 2 });
-    expect(state().focusId).toBe('c1');
-    closePanel();
-    await openAllComments('t1', { line: 9 });
-    expect(state().focusId).toBeNull();
-    closePanel();
-    await openAllComments('untitled');
-    expect(notices).toEqual(['Save the note before adding review notes.']);
+  test('an edit rewrites the note in place and keeps the review context on the file', async () => {
+    sidecar.text = serializeCommentsFile([noteOn('c1', 2)], 'a.md', {
+      branch: 'feat/x',
+      baseBranch: 'development',
+    });
+    await editNote('t1', 'c1', 'better words');
+    expect(writes[0]?.text).toContain('better words');
+    expect(writes[0]?.text).toContain('- branch: feat/x');
+    expect(writes[0]?.text).toContain('- compared against: development');
+    // An unsaved tab has nothing to edit; nothing is written and nothing said.
+    await editNote('untitled', 'c1', 'x');
+    expect(writes).toHaveLength(1);
+    expect(notices).toEqual([]);
+  });
+
+  test('an open composer on the document sees the edit, so its ids stay fresh; a failed write says so', async () => {
+    openReady();
+    voiceStore.setState({
+      notePath: 'C:/notes/a.md',
+      commentsPath: 'C:/notes/a.comments.md',
+      comments: [noteOn('c1', 2), noteOn('c2', 3)],
+    });
+    const next = await mutateNotes('C:/notes/a.md', 'C:/notes/a.comments.md', (notes) =>
+      notes.filter((n) => n.id !== 'c2'),
+    );
+    expect(next?.map((n) => n.id)).toEqual(['c1']);
+    expect(state().comments.map((n) => n.id)).toEqual(['c1']);
+    expect(state().phase).toBe('ready');
+  });
+
+  test('a reveal request is kept until the pane that shows the document takes it', () => {
+    requestReveal('C:/notes/a.md', 7, 'f (function)');
+    const first = state().reveal!;
+    expect(first).toMatchObject({ path: 'C:/notes/a.md', line: 7, unit: 'f (function)' });
+    requestReveal('C:/notes/b.md', 1, null);
+    clearReveal(first.seq); // stale: the newer request stands
+    expect(state().reveal?.path).toBe('C:/notes/b.md');
+    clearReveal(state().reveal!.seq);
+    expect(state().reveal).toBeNull();
   });
 });
