@@ -44,6 +44,9 @@
       "deb": { "depends": ["libvulkan1"] },
       "rpm": { "depends": ["vulkan-loader"] }
     },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
     "resources": {
       "../LICENSE": "LICENSE.txt",
       "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",

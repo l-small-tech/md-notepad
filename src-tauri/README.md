@@ -228,5 +228,10 @@ code that behaves differently per OS.
   Without them cargo fails inside `whisper-rs-sys`'s build script (a
   "could not find cmake" / "Unable to find libclang" message). The first
   build compiles whisper.cpp (~1–2 min); later builds are cached.
+  ggml uses `std::filesystem`, which Apple marks unavailable below macOS
+  10.15, so `bundle.macOS.minimumSystemVersion` in `tauri.conf.json` is
+  pinned to 10.15 — `tauri build` turns it into `MACOSX_DEPLOYMENT_TARGET`,
+  and Tauri's own default (10.13) fails the whisper build. A bare
+  `cargo build` sets no deployment target, so only a bundle build sees it.
   A real-model engine test exists behind `#[ignore]`:
   `MD_NOTEPAD_WHISPER_MODEL=<path to ggml-*.bin> cargo test -- --ignored real_model`.
