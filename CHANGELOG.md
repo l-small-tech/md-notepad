@@ -10,11 +10,25 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
-- **Review notes are typed on desktop.** The note sheet is now a text box
-  with a Save button; use Win+H (Windows) or the Dictation key (macOS) to
-  talk into it, or tap the microphone to dictate offline with Whisper. If
-  Whisper isn't installed yet, the microphone is an Install button that
-  downloads the model right there. The phone keeps its voice-first sheet.
+- **Review notes live in the document.** The Review-mode button is now
+  "Review notes" (they are typed on desktop and spoken on the phone). Press
+  and hold a line and the note box opens right under it, like a comment in
+  a word processor — no side panel. Every paragraph or code card that
+  already has a note shows a marker in the margin; tap it to read, edit or
+  delete the notes right there, and a saved note opens where it landed.
+
+- **See all review notes.** A new "All notes" button beside the toggle (and
+  a palette command) opens an overview of every note across your
+  workspaces — newest first or grouped by document, searchable, scoped to
+  the current document if you like. Edit a note in place, delete it, or
+  "Go to" it: the document opens in Review mode scrolled to the note.
+  Works as a side panel on desktop and a full-screen sheet on a phone.
+
+- **Review notes are typed on desktop.** The note box is a text field with
+  a Save button; use Win+H (Windows) or the Dictation key (macOS) to talk
+  into it, or tap the microphone to dictate offline with Whisper. If Whisper
+  isn't installed yet, the microphone is an Install button that downloads
+  the model right there. The phone keeps voice first, with a text field too.
 
 - **Voice typing.** A microphone in the ribbon in Raw, Split and Rich modes
   types what you say at the cursor — Windows voice typing, offline Whisper,

@@ -362,3 +362,125 @@ describe('highlightLines', () => {
     expect(line).toContain('<span class="cr-tok-def">main</span>');
   });
 });
+
+describe('review-note markers on cards', () => {
+  const notes = [
+    {
+      id: 'n1',
+      file: 'text-files.ts',
+      line: 24,
+      quote: '',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'rename <me>',
+      unit: 'dirKey (function)',
+    },
+    {
+      id: 'n2',
+      file: 'text-files.ts',
+      line: 24,
+      quote: '',
+      time: '2026-01-01T00:00:00.000Z',
+      transcript: 'elsewhere',
+      unit: 'other (function)',
+    },
+  ];
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  test('a card whose declaration has notes gets a marker; a tap expands them without toggling the card', async () => {
+    const onEditNote = vi.fn();
+    const onDeleteNote = vi.fn();
+    const onOpenAllNotes = vi.fn();
+    const { el, pane, actions, model } = attach(fixture('text-files.ts.txt'), 'text-files.ts', {
+      onEditNote,
+      onDeleteNote,
+      onOpenAllNotes,
+    });
+    await vi.runOnlyPendingTimersAsync();
+    pane.setNotes(notes);
+    const marks = el.querySelectorAll('.vn-mark');
+    expect(marks).toHaveLength(1);
+    const card = el.querySelector('[data-unit-id="function:dirKey"]')!;
+    expect(marks[0]!.closest('.cr-card')).toBe(card);
+    expect(marks[0]!.closest('.cr-card-head')).not.toBeNull();
+    expect(marks[0]!.querySelector('.vn-mark-count')?.textContent).toBe('1');
+
+    click(marks[0]!);
+    expect(actions).toEqual([]); // the head's own toggle did not fire
+    const callout = card.querySelector(':scope > .vn-callout')!;
+    const box = callout.querySelector<HTMLTextAreaElement>('.vn-note-text')!;
+    expect(box.value).toBe('rename <me>');
+    expect(callout.previousElementSibling?.classList.contains('cr-card-head')).toBe(true);
+
+    box.value = 'rename me';
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onEditNote).toHaveBeenCalledWith('n1', 'rename me');
+    expect(actions).toEqual([]); // not mistaken for the baseline picker
+    const del = callout.querySelector<HTMLElement>('[data-vn-delete]')!;
+    click(del);
+    click(del);
+    expect(onDeleteNote).toHaveBeenCalledWith('n1');
+    click(callout.querySelector('[data-vn-all]')!);
+    expect(onOpenAllNotes).toHaveBeenCalledTimes(1);
+
+    // Still open after a re-parse; gone once the list is empty.
+    model.pushText(model.getText() + '\n', 'cm6');
+    await vi.runOnlyPendingTimersAsync();
+    expect(el.querySelector('.vn-callout')).not.toBeNull();
+    pane.setNotes([]);
+    expect(el.querySelector('.vn-mark, .vn-callout')).toBeNull();
+  });
+
+  test('the composer slot goes under the card head, above its notes, and survives a re-parse', async () => {
+    const onHoldUnit = vi.fn();
+    const { el, pane, model } = attach(fixture('text-files.ts.txt'), 'text-files.ts', {
+      onHoldUnit,
+    });
+    await vi.runOnlyPendingTimersAsync();
+    const slot = document.createElement('div');
+    slot.innerHTML = '<textarea></textarea>';
+    pane.mountComposer('function:dirKey', slot);
+    const card = el.querySelector('[data-unit-id="function:dirKey"]')!;
+    expect(slot.parentElement).toBe(card);
+    expect(slot.previousElementSibling?.classList.contains('cr-card-head')).toBe(true);
+
+    pane.setNotes(notes);
+    click(card.querySelector('.vn-mark')!);
+    expect(card.querySelector(':scope > .vn-callout')?.previousElementSibling).toBe(slot);
+
+    model.pushText(model.getText() + '\n', 'cm6');
+    await vi.runOnlyPendingTimersAsync();
+    expect(slot.isConnected).toBe(true);
+
+    // A press in the composer is typing, not the hold gesture.
+    pane.setLineHold(true);
+    slot
+      .querySelector('textarea')!
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 }));
+    vi.advanceTimersByTime(2000);
+    expect(onHoldUnit).not.toHaveBeenCalled();
+
+    pane.unmountComposer();
+    expect(slot.isConnected).toBe(false);
+  });
+
+  test('revealNotes finds the card by declaration label, else by signature line, and opens it', async () => {
+    const { el, pane } = attach(fixture('text-files.ts.txt'), 'text-files.ts');
+    pane.revealNotes({ line: 24, unit: 'dirKey (function)' }); // before the first parse
+    await vi.runOnlyPendingTimersAsync();
+    pane.setNotes(notes);
+    const card = el.querySelector('[data-unit-id="function:dirKey"]')!;
+    const callout = card.querySelector(':scope > .vn-callout')!;
+    expect(callout.classList.contains('vn-flash')).toBe(true);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+
+    // An unknown label falls back to the signature line; an unknown line is nothing.
+    const line = Number(card.getAttribute('data-line'));
+    pane.revealNotes({ line, unit: 'nobody (function)' });
+    expect(card.querySelector(':scope > .vn-callout')).not.toBeNull();
+    pane.revealNotes({ line: 100_000 });
+    expect(el.querySelectorAll('.vn-callout')).toHaveLength(1);
+  });
+});

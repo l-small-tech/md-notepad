@@ -21,8 +21,20 @@ import {
   WB_THEME_VAR_NAMES,
   type BoardThemeVars,
 } from '../core/whiteboard/theme-inject';
+import type { VoiceComment } from '../core/comments';
+import { blockLineFor, notesByBlock } from '../core/note-marks';
 import { ipc } from '../ipc/commands';
 import { renderMermaidBlocks } from './mermaid';
+import {
+  buildCallout,
+  buildMark,
+  CALLOUT_CLASS,
+  COMPOSER_CLASS,
+  confirmDelete,
+  fitNoteBoxes,
+  MARK_CLASS,
+  noteEditFromEvent,
+} from './note-marks';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
@@ -81,6 +93,19 @@ export interface PreviewPaneOptions {
    * (that page isn't the tab's document, so a line number would mislead).
    */
   onHoldLine?: (line: number) => void;
+  /**
+   * The reader changed a note's text in a marker's callout (see `setNotes`):
+   * the note's id and its new text. Fires on commit (the box loses focus or
+   * Ctrl+Enter), not per keystroke. Omit and the callout's text is read-only.
+   */
+  onEditNote?: (id: string, text: string) => void;
+  /** The reader confirmed Delete on a callout note. Omit and there is no Delete. */
+  onDeleteNote?: (id: string) => void;
+  /**
+   * The reader tapped "All notes" in a callout: the host opens its overview
+   * of every review note. Omit and the callout has no such button.
+   */
+  onOpenAllNotes?: () => void;
 }
 
 export interface BoardContextMenuInfo {
@@ -135,6 +160,32 @@ export interface PreviewPane {
    * top of the gesture, and marks itself `data-line-hold` for styling.
    */
   setLineHold(on: boolean): void;
+  /**
+   * The review notes on the tab's document. Every top-level block that owns
+   * one (`core/note-marks notesByBlock`) gets a marker in its margin
+   * (`button.vn-mark`); a tap on the marker expands a callout of those notes
+   * under the block — each editable (`onEditNote`), deletable
+   * (`onDeleteNote`), with an "All notes" button (`onOpenAllNotes`). An
+   * empty list removes every marker. Markers are re-applied after each
+   * render and never shown on a followed link (not the tab's document).
+   */
+  setNotes(notes: readonly VoiceComment[]): void;
+  /**
+   * Put the host's inline note composer under the block that owns source
+   * `line` (`core/note-marks blockLineFor`). `slot` is the host's element —
+   * it renders the composer into it (a React portal) and the pane only
+   * places it, again after every render, until `unmountComposer`. Calling
+   * it for the same line again is a no-op; a new line moves the slot.
+   */
+  mountComposer(line: number, slot: HTMLElement): void;
+  /** Take the composer out of the document (the note was saved or cancelled). */
+  unmountComposer(): void;
+  /**
+   * Bring the notes on source `line` into view: the owning block scrolls to
+   * the centre and its callout opens (and stays open; other open callouts
+   * are untouched). Before the first render lands, the reveal waits for it.
+   */
+  revealNotes(target: { line: number }): void;
   dispose(): void;
 }
 
@@ -293,8 +344,171 @@ export function attachPreviewPane(
     // The Back affordance for followed links lives OUTSIDE the pane (the ribbon
     // toolbar in normal mode, the fullscreen cluster in full screen) — surfaced
     // via `onCanGoBackChange` — so nothing is injected into the content here.
+    applyNotes();
     await renderMermaidBlocks(host, { dark });
     await inlineLocalImages(token);
+  }
+
+  /* ---- review-note markers ------------------------------------------- */
+  let notes: readonly VoiceComment[] = [];
+  /** Blocks (by first source line) whose callout is open; survives re-renders. */
+  const expandedBlocks = new Set<number>();
+  /** The block whose callout gets the arrival highlight on its next build. */
+  let flashBlock: number | null = null;
+  /** A `revealNotes` that arrived before the first render put blocks on screen. */
+  let pendingReveal: number | null = null;
+  /** The host's inline composer and the source line it was mounted for. */
+  let composerSlot: HTMLElement | null = null;
+  let composerLine: number | null = null;
+
+  /** The top-level blocks' first source lines, in document order. */
+  function blockLines(): number[] {
+    return [...host.querySelectorAll<HTMLElement>(':scope > [data-line]')].map((b) =>
+      Number(b.dataset.line),
+    );
+  }
+
+  function blockAt(line: number): HTMLElement | null {
+    return host.querySelector<HTMLElement>(`:scope > [data-line="${line}"]`);
+  }
+
+  /**
+   * Rebuild the markers from `notes` over the current DOM: a zero-height
+   * `.vn-mark-row` before each owning block holds the marker in the margin
+   * without moving the text; the callout goes after the block. Nothing is
+   * drawn while browsing a followed link (its lines are not the document's).
+   * The composer slot, when mounted, is placed after its block the same way.
+   */
+  function applyNotes(): void {
+    for (const el of host.querySelectorAll(`.vn-mark-row, .${CALLOUT_CLASS}`)) {
+      el.remove();
+    }
+    if (navStack.length > 0) {
+      composerSlot?.remove();
+      return;
+    }
+    const blocks = [...host.querySelectorAll<HTMLElement>(':scope > [data-line]')];
+    const lines = blocks.map((b) => Number(b.dataset.line));
+    const grouped = notesByBlock(notes, lines);
+    const doc = host.ownerDocument;
+    const actions = {
+      edit: options.onEditNote !== undefined,
+      remove: options.onDeleteNote !== undefined,
+      all: options.onOpenAllNotes !== undefined,
+    };
+    for (const block of blocks) {
+      const line = Number(block.dataset.line);
+      const own = grouped.get(line);
+      if (!own) {
+        continue;
+      }
+      // Duplicate first-lines (rare — a list item's paragraph) mark once.
+      grouped.delete(line);
+      const expanded = expandedBlocks.has(line);
+      const row = doc.createElement('div');
+      row.className = 'vn-mark-row';
+      row.dataset.vnLine = String(line);
+      row.appendChild(buildMark(doc, own.length, expanded));
+      block.before(row);
+      if (expanded) {
+        const callout = buildCallout(doc, own, actions);
+        if (flashBlock === line) {
+          callout.classList.add('vn-flash');
+          flashBlock = null;
+        }
+        // Under the composer when it is already in place: the new note first.
+        (composerSlot?.previousElementSibling === block ? composerSlot : block).after(callout);
+        fitNoteBoxes(callout);
+      }
+    }
+    if (composerSlot && composerLine !== null) {
+      // Moved only when it is not already where it belongs: a move would
+      // take the keyboard focus out of the box being typed in.
+      const owner = blockLineFor(composerLine, lines);
+      const block = owner === undefined ? null : blockAt(owner);
+      if (block) {
+        if (composerSlot.previousElementSibling !== block) {
+          block.after(composerSlot);
+        }
+      } else if (composerSlot.parentElement !== host) {
+        host.appendChild(composerSlot); // an empty document: the slot is all there is
+      }
+    }
+    if (pendingReveal !== null && lines.length > 0) {
+      const line = pendingReveal;
+      pendingReveal = null;
+      revealNotes(line);
+    }
+  }
+
+  function revealNotes(line: number): void {
+    const lines = blockLines();
+    const owner = blockLineFor(line, lines);
+    if (owner === undefined) {
+      pendingReveal = line; // nothing rendered yet — after the render, then
+      return;
+    }
+    expandedBlocks.add(owner);
+    flashBlock = owner;
+    applyNotes();
+    blockAt(owner)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  /** A tap on a marker or one of its callout's buttons; true when it was one. */
+  function onNoteClick(el: Element): boolean {
+    const mark = el.closest<HTMLElement>(`.${MARK_CLASS}`);
+    if (mark) {
+      const line = Number(mark.parentElement?.dataset.vnLine);
+      if (!Number.isNaN(line)) {
+        if (expandedBlocks.has(line)) {
+          expandedBlocks.delete(line);
+        } else {
+          expandedBlocks.add(line);
+        }
+        applyNotes();
+      }
+      return true;
+    }
+    const del = el.closest<HTMLElement>('[data-vn-delete]');
+    if (del) {
+      if (confirmDelete(del, window) && del.dataset.vnDelete) {
+        options.onDeleteNote?.(del.dataset.vnDelete);
+      }
+      return true;
+    }
+    if (el.closest('[data-vn-all]')) {
+      options.onOpenAllNotes?.();
+      return true;
+    }
+    return false;
+  }
+
+  /** A callout text box committed an edit. */
+  function onChange(event: Event): void {
+    const edit = noteEditFromEvent(event);
+    if (edit) {
+      options.onEditNote?.(edit.id, edit.text);
+    }
+  }
+
+  /** Ctrl/Cmd+Enter in a callout box commits it (blur fires `change`). */
+  function onKeyDown(event: KeyboardEvent): void {
+    if (
+      event.key === 'Enter' &&
+      (event.ctrlKey || event.metaKey) &&
+      event.target instanceof HTMLTextAreaElement &&
+      event.target.classList.contains('vn-note-text')
+    ) {
+      event.preventDefault();
+      event.target.blur();
+    }
+  }
+
+  /** Inside the composer or a callout: the pane's own gestures stay out. */
+  function inNoteUi(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element && target.closest(`.${COMPOSER_CLASS}, .${CALLOUT_CLASS}`) !== null
+    );
   }
 
   function scheduleRender(): void {
@@ -365,6 +579,13 @@ export function attachPreviewPane(
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
+    if (onNoteClick(el)) {
+      event.preventDefault();
+      return;
+    }
+    if (inNoteUi(el)) {
+      return; // the composer's and callouts' own controls
+    }
     // A click anywhere on a rendered diagram opens the fullscreen viewer.
     // Checked BEFORE the anchor branch: mermaid SVGs can contain <a> elements,
     // and the viewer takes priority over following a link baked into one.
@@ -432,7 +653,7 @@ export function attachPreviewPane(
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (!holdArmed || !options.onHoldLine || navStack.length > 0) {
+    if (!holdArmed || !options.onHoldLine || navStack.length > 0 || inNoteUi(event.target)) {
       return;
     }
     if (event.pointerType === 'mouse' && event.button !== 0) {
@@ -487,6 +708,8 @@ export function attachPreviewPane(
   }
 
   host.addEventListener('click', onClick);
+  host.addEventListener('change', onChange);
+  host.addEventListener('keydown', onKeyDown);
   host.addEventListener('contextmenu', onContextMenu);
   host.addEventListener('pointerdown', onPointerDown);
   host.addEventListener('pointermove', onPointerMove);
@@ -574,12 +797,45 @@ export function attachPreviewPane(
         delete host.dataset.lineHold;
       }
     },
+    setNotes(next) {
+      if (disposed || next === notes) {
+        return;
+      }
+      notes = next;
+      applyNotes();
+    },
+    mountComposer(line, slot) {
+      if (disposed || (slot === composerSlot && line === composerLine)) {
+        return;
+      }
+      composerSlot?.remove();
+      composerSlot = slot;
+      composerLine = line;
+      slot.classList.add(COMPOSER_CLASS);
+      applyNotes();
+    },
+    unmountComposer() {
+      if (!composerSlot) {
+        return;
+      }
+      composerSlot.remove();
+      composerSlot = null;
+      composerLine = null;
+    },
+    revealNotes(target) {
+      if (!disposed && navStack.length === 0) {
+        revealNotes(target.line);
+      }
+    },
     dispose() {
       disposed = true;
       clearTimer();
       clearHold();
       unsubscribe();
+      composerSlot?.remove();
       host.removeEventListener('click', onClick);
+      host.removeEventListener('change', onChange);
+      host.removeEventListener('keydown', onKeyDown);
       host.removeEventListener('contextmenu', onContextMenu);
       host.removeEventListener('pointerdown', onPointerDown);
       host.removeEventListener('pointermove', onPointerMove);

@@ -49,8 +49,20 @@ import {
   type ReviewState,
   type ReviewView,
 } from '../core/code/review-state';
+import type { VoiceComment } from '../core/comments';
 import type { DocModel } from '../core/doc-model';
+import { notesForUnit, unitNoteLabel } from '../core/note-marks';
 import { renderMermaidBlocks } from './mermaid';
+import {
+  buildCallout,
+  buildMark,
+  CALLOUT_CLASS,
+  COMPOSER_CLASS,
+  confirmDelete,
+  fitNoteBoxes,
+  MARK_CLASS,
+  noteEditFromEvent,
+} from './note-marks';
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
@@ -82,6 +94,16 @@ export interface CodeReviewPaneOptions {
    * from, for the identifier vocabulary.
    */
   onHoldUnit?: (unit: CodeUnit, model: CodeModel) => void;
+  /**
+   * The reader changed a note's text in a card's callout (see `setNotes`):
+   * the note's id and its new text, on commit (blur or Ctrl+Enter). Omit and
+   * the callout's text is read-only.
+   */
+  onEditNote?: (id: string, text: string) => void;
+  /** The reader confirmed Delete on a callout note. Omit and there is no Delete. */
+  onDeleteNote?: (id: string) => void;
+  /** The reader tapped "All notes" in a callout: the host opens its overview. */
+  onOpenAllNotes?: () => void;
   /**
    * The pane re-parsed the document (first render, and after each 200 ms
    * debounce on a text change). The What-changed host recomputes its change
@@ -125,6 +147,31 @@ export interface CodeReviewPane {
   setGitInfo(info: ReviewGitInfo | null): void;
   /** Arm/disarm the press-and-hold card gesture (`onHoldUnit`). */
   setLineHold(on: boolean): void;
+  /**
+   * The review notes on this file. Every card whose declaration owns one
+   * (`core/note-marks notesForUnit`) gets a marker in its head
+   * (`span.vn-mark`, after the badges); a tap on it expands a callout of
+   * those notes under the head — each editable (`onEditNote`), deletable
+   * (`onDeleteNote`), with an "All notes" button (`onOpenAllNotes`). An
+   * empty list removes every marker. Re-applied after each render.
+   */
+  setNotes(notes: readonly VoiceComment[]): void;
+  /**
+   * Put the host's inline note composer under the head of the card for
+   * `unitId`. `slot` is the host's element (a React portal renders into it);
+   * the pane only places it, again after every render, until
+   * `unmountComposer`. Same unit again is a no-op; a new unit moves it.
+   */
+  mountComposer(unitId: string, slot: HTMLElement): void;
+  /** Take the composer out of the deck (the note was saved or cancelled). */
+  unmountComposer(): void;
+  /**
+   * Bring a note's card into view and open its callout: the card whose
+   * declaration label is `unit`, else the one whose signature is on `line`.
+   * Switches to the Cards view (and widens the filter) like `scrollToUnit`;
+   * before the first parse lands, the reveal waits for it.
+   */
+  revealNotes(target: { line: number; unit?: string }): void;
   /** Bring a unit's card into view (switching to the Cards view first). */
   scrollToUnit(unitId: string): void;
   /** The parse the pane currently shows (null before the first render / for a non-code file). */
@@ -747,6 +794,7 @@ export function attachCodeReviewPane(
     const scrollTop = host.scrollTop;
     host.innerHTML = html;
     host.scrollTop = scrollTop;
+    applyNotes();
     await renderMermaidBlocks(host, { dark });
     if (disposed || !sequence.isCurrent(token)) {
       return;
@@ -848,10 +896,170 @@ export function attachCodeReviewPane(
     }
   }
 
+  /* ---- review-note markers ---- */
+  let notes: readonly VoiceComment[] = [];
+  /** Cards (by unit id) whose callout is open; survives re-renders. */
+  const expandedUnits = new Set<string>();
+  /** The card whose callout gets the arrival highlight on its next build. */
+  let flashUnit: string | null = null;
+  /** A `revealNotes` that arrived before the first parse (no cards yet). */
+  let pendingReveal: { line: number; unit?: string } | null = null;
+  /** The host's inline composer and the card it was mounted for. */
+  let composerSlot: HTMLElement | null = null;
+  let composerUnit: string | null = null;
+
+  /**
+   * Rebuild the markers from `notes` over the current deck: the marker sits
+   * in the card's head after the badges (a `span`, since the head is itself a
+   * button); the callout goes between the head and the body, so a body
+   * refresh (`refreshCard`) leaves it alone. The composer slot, when mounted,
+   * goes right under its card's head the same way.
+   */
+  function applyNotes(): void {
+    for (const el of host.querySelectorAll(`.${MARK_CLASS}, .${CALLOUT_CLASS}`)) {
+      el.remove();
+    }
+    const doc = host.ownerDocument;
+    const actions = {
+      edit: options.onEditNote !== undefined,
+      remove: options.onDeleteNote !== undefined,
+      all: options.onOpenAllNotes !== undefined,
+    };
+    for (const card of host.querySelectorAll<HTMLElement>('.cr-card[data-unit-id]')) {
+      const unit = card.dataset.unitId ? unitsById.get(card.dataset.unitId) : undefined;
+      const head = card.querySelector<HTMLElement>(':scope > .cr-card-head');
+      if (!unit || !head) {
+        continue;
+      }
+      if (
+        composerSlot &&
+        unit.id === composerUnit &&
+        composerSlot.previousElementSibling !== head
+      ) {
+        head.after(composerSlot); // moved only when needed: a move drops the box's focus
+      }
+      const own = notesForUnit(notes, unit);
+      if (own.length === 0) {
+        continue;
+      }
+      const expanded = expandedUnits.has(unit.id);
+      const mark = buildMark(doc, own.length, expanded, 'span');
+      const badges = head.querySelector(':scope > .cr-badges');
+      if (badges) {
+        badges.after(mark);
+      } else {
+        head.appendChild(mark);
+      }
+      if (expanded) {
+        const callout = buildCallout(doc, own, actions);
+        if (flashUnit === unit.id) {
+          callout.classList.add('vn-flash');
+          flashUnit = null;
+        }
+        // Under the composer when both are open: the new note is composed first.
+        (composerSlot?.parentElement === card ? composerSlot : head).after(callout);
+        fitNoteBoxes(callout);
+      }
+    }
+    if (pendingReveal && model) {
+      const target = pendingReveal;
+      pendingReveal = null;
+      revealNotes(target);
+    }
+  }
+
+  /** The card a note belongs to: by its declaration label, else its signature line. */
+  function unitForNote(target: { line: number; unit?: string }): CodeUnit | undefined {
+    const units = [...unitsById.values()];
+    return (
+      (target.unit === undefined
+        ? undefined
+        : units.find((u) => unitNoteLabel(u) === target.unit)) ??
+      units.find((u) => u.signatureLine === target.line)
+    );
+  }
+
+  function revealNotes(target: { line: number; unit?: string }): void {
+    if (!model) {
+      pendingReveal = target; // no parse yet — after the first render, then
+      return;
+    }
+    const unit = unitForNote(target);
+    if (!unit) {
+      return;
+    }
+    expandedUnits.add(unit.id);
+    flashUnit = unit.id;
+    applyNotes();
+    const onScreen = host.querySelector(`.cr-card[data-unit-id="${cssEscape(unit.id)}"]`);
+    if (onScreen || state.view !== 'cards' || state.filter !== 'all') {
+      scrollToUnit(unit.id); // there, or a view/filter change away
+    } else {
+      pendingScroll = unit.id; // parsed but not yet rendered: after the render
+    }
+  }
+
+  /** A tap on a card's marker or one of its callout's buttons; true when it was one. */
+  function onNoteClick(el: Element): boolean {
+    const mark = el.closest<HTMLElement>(`.${MARK_CLASS}`);
+    if (mark) {
+      const unitId = mark.closest<HTMLElement>('.cr-card[data-unit-id]')?.dataset.unitId;
+      const unit = unitId ? unitsById.get(unitId) : undefined;
+      if (unit) {
+        if (expandedUnits.has(unit.id)) {
+          expandedUnits.delete(unit.id);
+        } else {
+          expandedUnits.add(unit.id);
+        }
+        applyNotes();
+      }
+      return true;
+    }
+    const del = el.closest<HTMLElement>('[data-vn-delete]');
+    if (del) {
+      if (confirmDelete(del, window) && del.dataset.vnDelete) {
+        options.onDeleteNote?.(del.dataset.vnDelete);
+      }
+      return true;
+    }
+    if (el.closest('[data-vn-all]')) {
+      options.onOpenAllNotes?.();
+      return true;
+    }
+    return false;
+  }
+
+  /** Inside the composer or a callout: the pane's own gestures stay out. */
+  function inNoteUi(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element && target.closest(`.${COMPOSER_CLASS}, .${CALLOUT_CLASS}`) !== null
+    );
+  }
+
+  /** Ctrl/Cmd+Enter in a callout box commits it (blur fires `change`). */
+  function onKeyDown(event: KeyboardEvent): void {
+    if (
+      event.key === 'Enter' &&
+      (event.ctrlKey || event.metaKey) &&
+      event.target instanceof HTMLTextAreaElement &&
+      event.target.classList.contains('vn-note-text')
+    ) {
+      event.preventDefault();
+      event.target.blur();
+    }
+  }
+
   /* ---- events ---- */
 
   function onClick(event: MouseEvent): void {
     const el = event.target as HTMLElement;
+    if (onNoteClick(el)) {
+      event.preventDefault();
+      return;
+    }
+    if (inNoteUi(el)) {
+      return; // the composer's and callouts' own controls
+    }
     const view = el.closest<HTMLElement>('button[data-view]');
     if (view?.dataset.view && !(view as HTMLButtonElement).disabled) {
       apply({ type: 'view', view: view.dataset.view as ReviewView });
@@ -935,7 +1143,7 @@ export function attachCodeReviewPane(
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (!holdArmed || !options.onHoldUnit) {
+    if (!holdArmed || !options.onHoldUnit || inNoteUi(event.target)) {
       return;
     }
     if (event.pointerType === 'mouse' && event.button !== 0) {
@@ -976,6 +1184,11 @@ export function attachCodeReviewPane(
 
   /** The baseline picker: reported as a plain `baseline` action like every tap. */
   function onChange(event: Event): void {
+    const edit = noteEditFromEvent(event);
+    if (edit) {
+      options.onEditNote?.(edit.id, edit.text);
+      return;
+    }
     const select = event.target;
     if (select instanceof HTMLSelectElement && select.classList.contains('cr-baseline-select')) {
       const value = select.value as ReviewBaseline;
@@ -1033,6 +1246,7 @@ export function attachCodeReviewPane(
 
   host.addEventListener('click', onClick);
   host.addEventListener('change', onChange);
+  host.addEventListener('keydown', onKeyDown);
   host.addEventListener('contextmenu', onContextMenu);
   host.addEventListener('pointerdown', onPointerDown);
   host.addEventListener('pointermove', onPointerMove);
@@ -1063,6 +1277,36 @@ export function attachCodeReviewPane(
         delete host.dataset.lineHold;
       }
     },
+    setNotes(next) {
+      if (disposed || next === notes) {
+        return;
+      }
+      notes = next;
+      applyNotes();
+    },
+    mountComposer(unitId, slot) {
+      if (disposed || (slot === composerSlot && unitId === composerUnit)) {
+        return;
+      }
+      composerSlot?.remove();
+      composerSlot = slot;
+      composerUnit = unitId;
+      slot.classList.add(COMPOSER_CLASS);
+      applyNotes();
+    },
+    unmountComposer() {
+      if (!composerSlot) {
+        return;
+      }
+      composerSlot.remove();
+      composerSlot = null;
+      composerUnit = null;
+    },
+    revealNotes(target) {
+      if (!disposed) {
+        revealNotes(target);
+      }
+    },
     scrollToUnit,
     currentModel: () => model,
     dispose() {
@@ -1070,10 +1314,12 @@ export function attachCodeReviewPane(
       clearTimer();
       clearHold();
       unsubscribe();
+      composerSlot?.remove();
       host.classList.remove('cr-host');
       delete host.dataset.lineHold;
       host.removeEventListener('click', onClick);
       host.removeEventListener('change', onChange);
+      host.removeEventListener('keydown', onKeyDown);
       host.removeEventListener('contextmenu', onContextMenu);
       host.removeEventListener('pointerdown', onPointerDown);
       host.removeEventListener('pointermove', onPointerMove);

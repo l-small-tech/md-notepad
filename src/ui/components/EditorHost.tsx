@@ -12,7 +12,8 @@
  * toggling only shows/hides the preview column, so CM6 is never disturbed.
  */
 
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
 import { docFamilyFor } from '../../core/doc-family';
@@ -71,11 +72,76 @@ import { isAndroid } from '../platform';
 import { capturePhotoForScan, pickPhotoForScan } from '../scan-photo';
 import { createScanDebugSaver } from '../scan-debug';
 import { scanTextRecognizer } from '../scan-ocr';
-import { openNoteAtLine, voiceStore } from '../voice-comments';
+import {
+  clearReveal,
+  deleteNote,
+  dropMarks,
+  editNote,
+  loadMarks,
+  openNoteAtLine,
+  REVEAL_TTL_MS,
+  useVoiceStore,
+  voiceStore,
+} from '../voice-comments';
+import { openOverview } from '../notes-overview';
+import { unitNoteLabel } from '../../core/note-marks';
+import { pathKey } from '../../core/tab-workspaces';
+import type { VoiceComment } from '../../core/comments';
 import { ConflictBanner } from './ConflictBanner';
 import { LiveEditBanner } from './LiveEditBanner';
 import { DiffView } from './DiffView';
+import { NoteComposer } from './NoteComposer';
 import { diffViewStore, useDiffView } from '../stores/diff-view';
+
+/** A stable empty list, so the panes' `setNotes` sees no change tick to tick. */
+const NO_NOTES: readonly VoiceComment[] = [];
+
+/** What both Review panes offer the review-notes wiring below. */
+interface NotesPane {
+  setLineHold(on: boolean): void;
+  setNotes(notes: readonly VoiceComment[]): void;
+  unmountComposer(): void;
+  revealNotes(target: { line: number; unit?: string }): void;
+}
+
+/**
+ * The review-notes half of a Review pane's store sync: the hold gesture and
+ * the markers follow the toggle (loading the tab's notes when it comes on),
+ * the inline composer is mounted while it is open on this tab, and a pending
+ * reveal for this tab's document is taken and carried out. `mount` is how
+ * this pane places the composer (by line, or by card).
+ */
+function syncNotesPane(
+  tabId: string,
+  pane: NotesPane,
+  on: boolean,
+  mount: (state: { line: number; unitId: string | null }) => void,
+): void {
+  const state = voiceStore.getState();
+  pane.setLineHold(on);
+  pane.setNotes(on ? (state.marks[tabId] ?? NO_NOTES) : NO_NOTES);
+  if (on) {
+    void loadMarks(tabId);
+  }
+  if (on && state.phase !== 'closed' && state.tabId === tabId && state.line !== null) {
+    mount({ line: state.line, unitId: state.unitId });
+  } else {
+    pane.unmountComposer();
+  }
+  const { reveal } = state;
+  if (!on || !reveal) {
+    return;
+  }
+  const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+  const path = tab ? (tab.filePath ?? tab.notePath) : null;
+  if (!path || pathKey(path) !== pathKey(reveal.path)) {
+    return;
+  }
+  clearReveal(reveal.seq);
+  if (Date.now() - reveal.at <= REVEAL_TTL_MS) {
+    pane.revealNotes({ line: reveal.line, ...(reveal.unit ? { unit: reveal.unit } : {}) });
+  }
+}
 
 /**
  * Split-divider position, shared by every tab (module scope, not React
@@ -126,6 +192,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   /** The rich adapter once created (lazy chunk) — for theme-driven image refreshes. */
   const richAdapterRef = useRef<MilkdownAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
+  // The inline review-note composer renders into this element; the Review
+  // pane places it under the held line (`mountComposer`) — a portal, so the
+  // composer is React while the pane around it is plain DOM.
+  const composerSlot = useMemo(() => document.createElement('div'), []);
+  const composerHere = useVoiceStore((s) => s.phase !== 'closed' && s.tabId === tabId);
   const conflict = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.conflict ?? false);
   const diffEntry = useDiffView((s) => s.byTab[tabId] ?? null);
   // The diff pane exists only while its conflict does — resolving the
@@ -393,17 +464,22 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         onAction: (action) => codeReviewStore.getState().dispatch(tabId, action),
         onOpenDiagram: (svg) => diagramViewerStore.getState().openWith(svg),
         onModelChange: (model, text) => reviewGit.modelChanged(model, text),
-        // Voice notes: holding a card opens the sheet on that declaration,
+        // Review notes: holding a card opens the sheet on that declaration,
         // with the file's identifiers priming Whisper and snapping the
         // transcript, and the review context for the sidecar's preamble.
         onHoldUnit: (unit, model) =>
           void openNoteAtLine(tabId, unit.signatureLine, {
-            unit: `${unit.name} (${unit.kind})`,
+            unit: unitNoteLabel(unit),
+            unitId: unit.id,
             quote: unit.signature,
             hint: identifierHint(model.identifiers),
             identifiers: model.identifiers,
             context: reviewGit.context(),
           }),
+        // A card's callout edits and deletes in place; "All notes" is the overview.
+        onEditNote: (id, text) => void editNote(tabId, id, text),
+        onDeleteNote: (id) => void deleteNote(tabId, id),
+        onOpenAllNotes: () => openOverview('current'),
       });
       const pane = review;
       let lastBaseline = reviewStateFor(tabId).baseline;
@@ -416,7 +492,14 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         }
       };
       const unsubscribeReview = codeReviewStore.subscribe(syncReviewState);
-      const syncReviewHold = () => pane.setLineHold(voiceStore.getState().armed);
+      // The hold gesture, the note markers, the inline composer and reveals
+      // follow the review-notes store; the composer sits under its card's head.
+      const syncReviewHold = () =>
+        syncNotesPane(tabId, pane, voiceStore.getState().armed, ({ unitId }) => {
+          if (unitId) {
+            pane.mountComposer(unitId, composerSlot);
+          }
+        });
       syncReviewHold();
       const unsubscribeReviewVoice = voiceStore.subscribe(syncReviewHold);
       const unsubscribeReviewDark = subscribeDark((dark) => pane.setDark(dark));
@@ -450,6 +533,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       return () => {
         unsubscribeReview();
         unsubscribeReviewVoice();
+        dropMarks(tabId);
         unsubscribeReviewDark();
         unsubscribeReviewFocus();
         unsubscribeReviewSettings();
@@ -474,12 +558,21 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       onOpenExternal: (url) => externalLinkStore.getState().request(url),
       // A right-clicked board opens the theme/true colours menu.
       onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
-      // Voice notes: while the Review-mode toggle is armed, holding a line of
+      // Review notes: while the Review-mode toggle is armed, holding a line of
       // the rendered document opens the capture sheet for that source line.
       onHoldLine: mode === 'read' ? (line) => void openNoteAtLine(tabId, line) : undefined,
+      // A block's callout edits and deletes in place; "All notes" is the overview.
+      onEditNote: mode === 'read' ? (id, text) => void editNote(tabId, id, text) : undefined,
+      onDeleteNote: mode === 'read' ? (id) => void deleteNote(tabId, id) : undefined,
+      onOpenAllNotes: mode === 'read' ? () => openOverview('current') : undefined,
     });
-    // The hold gesture follows the voice-notes toggle (Review mode only).
-    const syncLineHold = () => pane.setLineHold(mode === 'read' && voiceStore.getState().armed);
+    // The hold gesture, the note markers, the inline composer and reveals
+    // follow the review-notes store (Review mode only); the composer sits
+    // under the held line's block.
+    const syncLineHold = () =>
+      syncNotesPane(tabId, pane, mode === 'read' && voiceStore.getState().armed, ({ line }) =>
+        pane.mountComposer(line, composerSlot),
+      );
     syncLineHold();
     const unsubscribeVoice = voiceStore.subscribe(syncLineHold);
     registerPreviewGoBack(tabId, () => pane.goBack());
@@ -514,6 +607,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     return () => {
       unsubscribeVoice();
+      dropMarks(tabId);
       unsubscribeDark();
       unsubscribeScheme();
       unsubscribePath();
@@ -526,7 +620,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         editorPane.style.flex = ''; // back to the raw-mode CSS default
       }
     };
-  }, [tabId, mode]);
+  }, [tabId, mode, composerSlot]);
 
   return (
     <div
@@ -540,6 +634,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     >
       <ConflictBanner tabId={tabId} />
       <LiveEditBanner tabId={tabId} />
+      {composerHere && createPortal(<NoteComposer />, composerSlot)}
       {showDiff && diffEntry && (
         <DiffView
           oldText={diffEntry.diskText}

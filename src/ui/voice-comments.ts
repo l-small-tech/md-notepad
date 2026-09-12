@@ -3,19 +3,27 @@
  *
  * Mirrors the tab-agnostic module-dispatch style of `session.ts`: a single
  * vanilla Zustand store holds the transient state, and the UI
- * (`VoiceComments.tsx`, the ribbon's Review-mode button, the preview pane's hold
- * gesture) is a pure projection of it. All file I/O goes through
- * `currentProvider()` so a note in a synced (SAF) workspace gets its comments
- * file in the same backend.
+ * (`NoteComposer.tsx`, the ribbon's Review-mode buttons, the Review panes'
+ * hold gesture and markers) is a pure projection of it. All file I/O goes
+ * through `currentProvider()` so a note in a synced (SAF) workspace gets its
+ * comments file in the same backend.
  *
  * The flow, designed for reviewing a document from the couch:
- *   1. In Review mode, the ribbon's voice-notes button ARMS the feature.
+ *   1. In Review mode, the ribbon's review-notes button ARMS the feature.
  *   2. While armed, press-and-hold a line of the rendered document. The pane
- *      reports the source line; the panel opens in the `ready` phase, showing
- *      the line's text and a big microphone.
- *   3. Tap the mic to start, tap again to finish. The transcript is appended
- *      to `<name>.comments.md` with a reference to the file, the line, its
- *      quote and the UTC time. The document itself is never modified.
+ *      reports the source line; the composer opens INLINE under that line
+ *      (`EditorHost` portals it into the pane's slot) in the `ready` phase,
+ *      with the line's text, a text box and a microphone.
+ *   3. Type, or tap the mic to start and again to finish. The note is
+ *      appended to `<name>.comments.md` with a reference to the file, the
+ *      line, its quote and the UTC time; the composer closes and the pane
+ *      opens the note's callout so it is seen landing (`requestReveal`). The
+ *      document itself is never modified.
+ *
+ * Existing notes are edited and deleted in the panes' callouts and in the
+ * overview of every note (`notes-overview.ts`); both go through
+ * `mutateNotes`, which keeps the marked panes, an open composer and the
+ * overview in step (`onNotesChanged`).
  *
  * Where the sidecar lives is the `voiceNotesLocation` setting: the workspace's
  * shared "Voice Notes" folder (default) or beside the document. `sidecarFor`
@@ -56,6 +64,7 @@ import {
   newCommentId,
   noteRefFor,
   parseCommentsFile,
+  parseReviewContext,
   serializeCommentsFile,
   type ReviewContext,
   type VoiceComment,
@@ -76,23 +85,49 @@ import { uiStore } from './stores/ui';
 import { whisperModelsStore } from './stores/whisper-models';
 
 /**
- * Panel lifecycle: closed → ready (mic idle, line chosen) → capturing (mic
- * live) → [transcribing (Whisper is turning the capture into text)] →
- * viewing (the note list). `viewing` is also reachable directly from `ready`
- * ("show notes") to read what's already there.
+ * Composer lifecycle: closed → ready (text box open under the held line, mic
+ * idle) → capturing (mic live) → [transcribing (Whisper is turning the
+ * capture into text)] → closed once the note is saved. A code note whose
+ * spoken names were snapped stops at `saved` first, so the composer can list
+ * what changed with an undo per name, then closes on Done.
  */
-export type Phase = 'closed' | 'ready' | 'capturing' | 'transcribing' | 'viewing';
+export type Phase = 'closed' | 'ready' | 'capturing' | 'transcribing' | 'saved';
+
+/**
+ * A request for the Review pane showing `path` to bring a note into view:
+ * scroll to its line (or declaration) and open the callout there. Made by a
+ * save (so the new note is seen landing) and by the overview's "Go to";
+ * consumed by the first pane that matches (`EditorHost`), and stale after
+ * `REVEAL_TTL_MS` so a document that never opens can't fire it later.
+ */
+export interface NoteReveal {
+  path: string;
+  line: number;
+  unit: string | null;
+  seq: number;
+  at: number;
+}
+
+export const REVEAL_TTL_MS = 15_000;
 
 export interface VoiceCommentsState {
-  /** The Review-mode voice-notes toggle: while true, holding a line opens the panel. */
+  /** The Review-mode review-notes toggle: while true, holding a line opens the composer. */
   armed: boolean;
+  /** The pending reveal, if any (see `NoteReveal`). */
+  reveal: NoteReveal | null;
+  /**
+   * The notes each Review pane draws its markers from, by tab id — loaded
+   * by `loadMarks` when a pane is on screen while armed, kept in step with
+   * every save from the sheet, and dropped when the toggle goes off. Only
+   * tabs that asked have an entry; a tab's entry is `[]` while its file is
+   * being read.
+   */
+  marks: Readonly<Record<string, readonly VoiceComment[]>>;
   phase: Phase;
   tabId: string | null;
   notePath: string | null;
   commentsPath: string | null;
   comments: VoiceComment[];
-  /** Comment to highlight (listed first) when viewing. */
-  focusId: string | null;
   /** 1-based line being annotated (ready/capturing). */
   line: number | null;
   /** That line's text at the time it was chosen. */
@@ -121,6 +156,11 @@ export interface VoiceCommentsState {
    */
   unit: string | null;
   /**
+   * Review mode: the card's unit id (`function:dirKey`), which is where the
+   * pane places the composer. Null for a markdown note (the line places it).
+   */
+  unitId: string | null;
+  /**
    * Review mode: whisper.cpp's initial prompt for this capture — the file's
    * identifiers as spoken words (`core/code/vocab.ts` `identifierHint`).
    */
@@ -145,18 +185,20 @@ export interface VoiceCommentsState {
 
 const initial: VoiceCommentsState = {
   armed: false,
+  reveal: null,
+  marks: {},
   phase: 'closed',
   tabId: null,
   notePath: null,
   commentsPath: null,
   comments: [],
-  focusId: null,
   line: null,
   quote: '',
   error: null,
   stopping: false,
   draft: '',
   unit: null,
+  unitId: null,
   hint: null,
   identifiers: [],
   context: null,
@@ -256,16 +298,136 @@ export function sidecarFor(notePath: string): string {
   });
 }
 
-/** Read + parse a note's comments file; [] when it doesn't exist yet. */
-async function loadComments(notePath: string): Promise<VoiceComment[]> {
+/** A sidecar as read from disk: its notes and the review context its preamble carries. */
+interface Sidecar {
+  notes: VoiceComment[];
+  context: ReviewContext | undefined;
+}
+
+/** Read + parse a comments file; empty when it doesn't exist yet. */
+async function readSidecar(sidecarPath: string): Promise<Sidecar> {
   try {
-    const { text } = await currentProvider().readTextFile(sidecarFor(notePath));
-    return parseCommentsFile(text);
+    const { text } = await currentProvider().readTextFile(sidecarPath);
+    return { notes: parseCommentsFile(text), context: parseReviewContext(text) };
   } catch (e) {
     if (e instanceof IpcError && e.code === 'NOT_FOUND') {
-      return [];
+      return { notes: [], context: undefined };
     }
     throw e;
+  }
+}
+
+/** A note's comments file, per the location setting. */
+function loadSidecar(notePath: string): Promise<Sidecar> {
+  return readSidecar(sidecarFor(notePath));
+}
+
+/** Just a note's comments; [] when the file doesn't exist yet. */
+async function loadComments(notePath: string): Promise<VoiceComment[]> {
+  return (await loadSidecar(notePath)).notes;
+}
+
+/* ---- edits from anywhere: callouts, the overview ----------------------- */
+
+type NotesListener = (
+  notePath: string,
+  sidecarPath: string,
+  notes: readonly VoiceComment[],
+) => void;
+const notesListeners = new Set<NotesListener>();
+
+/**
+ * Be told whenever a document's notes are written (a save from the composer,
+ * an edit or delete from a callout or the overview) — how the overview keeps
+ * its list current without owning the writes. Returns the unsubscribe.
+ */
+export function onNotesChanged(listener: NotesListener): () => void {
+  notesListeners.add(listener);
+  return () => {
+    notesListeners.delete(listener);
+  };
+}
+
+function notifyNotesChanged(
+  notePath: string,
+  sidecarPath: string,
+  notes: readonly VoiceComment[],
+): void {
+  for (const listener of notesListeners) {
+    listener(notePath, sidecarPath, notes);
+  }
+}
+
+/**
+ * Read → change → write one document's sidecar, keeping the preamble's
+ * review context. Every marked Review pane, an open composer on that
+ * document, and the overview see the result. Resolves with the new list, or
+ * null when the read or write failed (a notice says so).
+ */
+export async function mutateNotes(
+  notePath: string,
+  sidecarPath: string,
+  change: (notes: VoiceComment[]) => VoiceComment[],
+): Promise<VoiceComment[] | null> {
+  let sidecar: Sidecar;
+  try {
+    sidecar = await readSidecar(sidecarPath);
+  } catch {
+    uiStore.getState().showNotice('Could not read review notes.');
+    return null;
+  }
+  const next = change(sidecar.notes);
+  try {
+    await currentProvider().atomicWriteText(
+      sidecarPath,
+      serializeCommentsFile(next, noteRefFor(sidecarPath, notePath), sidecar.context),
+    );
+  } catch {
+    uiStore.getState().showNotice('Could not save review notes.');
+    return null;
+  }
+  const state = voiceStore.getState();
+  if (state.phase !== 'closed' && state.commentsPath === sidecarPath) {
+    // The composer mints ids against this list; keep it current.
+    voiceStore.setState({ comments: next });
+  }
+  syncMarks(notePath, next);
+  notifyNotesChanged(notePath, sidecarPath, next);
+  return next;
+}
+
+/** A callout on `tabId`'s document: the note's new text. */
+export async function editNote(tabId: string, id: string, transcript: string): Promise<void> {
+  const notePath = notePathFor(tabId);
+  if (!notePath) {
+    return;
+  }
+  await mutateNotes(notePath, sidecarFor(notePath), (notes) =>
+    notes.map((n) => (n.id === id ? { ...n, transcript } : n)),
+  );
+}
+
+/** A callout on `tabId`'s document: the note is deleted. */
+export async function deleteNote(tabId: string, id: string): Promise<void> {
+  const notePath = notePathFor(tabId);
+  if (!notePath) {
+    return;
+  }
+  await mutateNotes(notePath, sidecarFor(notePath), (notes) => notes.filter((n) => n.id !== id));
+}
+
+let revealSeq = 0;
+
+/** Ask the Review pane on `path` to bring a note into view (see `NoteReveal`). */
+export function requestReveal(path: string, line: number, unit: string | null): void {
+  voiceStore.setState({ reveal: { path, line, unit, seq: ++revealSeq, at: Date.now() } });
+}
+
+/** A pane took the reveal (`seq` says which, so a newer one is left alone). */
+export function clearReveal(seq: number): void {
+  const { reveal } = voiceStore.getState();
+  if (reveal?.seq === seq) {
+    voiceStore.setState({ reveal: null });
   }
 }
 
@@ -287,23 +449,84 @@ async function flushSave(): Promise<void> {
   if (!commentsPath || !notePath) {
     return;
   }
+  await writeSidecar(commentsPath, notePath, comments, context ?? undefined);
+}
+
+/**
+ * Write a document's notes to its sidecar and tell everyone who shows them:
+ * the marked Review panes and the overview. A failed write is a notice; the
+ * in-memory list stands either way.
+ */
+async function writeSidecar(
+  commentsPath: string,
+  notePath: string,
+  comments: readonly VoiceComment[],
+  context: ReviewContext | undefined,
+): Promise<void> {
   try {
     await currentProvider().atomicWriteText(
       commentsPath,
-      serializeCommentsFile(comments, noteRefFor(commentsPath, notePath), context ?? undefined),
+      serializeCommentsFile([...comments], noteRefFor(commentsPath, notePath), context),
     );
   } catch {
-    uiStore.getState().showNotice('Could not save voice notes.');
+    uiStore.getState().showNotice('Could not save review notes.');
+  }
+  syncMarks(notePath, comments);
+  notifyNotesChanged(notePath, commentsPath, comments);
+}
+
+/** After a save: every marked tab showing `notePath` gets the saved list. */
+function syncMarks(notePath: string, comments: readonly VoiceComment[]): void {
+  const { marks } = voiceStore.getState();
+  let next: Record<string, readonly VoiceComment[]> | null = null;
+  for (const tabId of Object.keys(marks)) {
+    if (notePathFor(tabId) === notePath) {
+      next ??= { ...marks };
+      next[tabId] = comments;
+    }
+  }
+  if (next) {
+    voiceStore.setState({ marks: next });
   }
 }
 
-/** Write immediately (structural changes: add/delete). */
-async function saveNow(): Promise<void> {
-  if (saveTimer !== null) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
+/**
+ * A Review pane is on screen for `tabId` while the toggle is armed: read the
+ * document's notes so the pane can mark the lines that have one. The entry
+ * appears at once (empty) so a second call while the read is in flight is a
+ * no-op; a read failure leaves it empty — the markers are a convenience, so
+ * no notice. Resolves when the entry holds the notes.
+ */
+export async function loadMarks(tabId: string): Promise<void> {
+  const { marks, armed } = voiceStore.getState();
+  if (!armed || tabId in marks) {
+    return;
   }
-  await flushSave();
+  voiceStore.setState({ marks: { ...marks, [tabId]: [] } });
+  const notePath = notePathFor(tabId);
+  if (!notePath) {
+    return;
+  }
+  let comments: VoiceComment[];
+  try {
+    comments = await loadComments(notePath);
+  } catch {
+    return;
+  }
+  const current = voiceStore.getState().marks;
+  if (tabId in current) {
+    voiceStore.setState({ marks: { ...current, [tabId]: comments } });
+  }
+}
+
+/** The pane left the screen: forget its notes (the next pane reads them afresh). */
+export function dropMarks(tabId: string): void {
+  const { marks } = voiceStore.getState();
+  if (tabId in marks) {
+    const next = { ...marks };
+    delete next[tabId];
+    voiceStore.setState({ marks: next });
+  }
 }
 
 // The id minted for the in-flight capture.
@@ -327,13 +550,16 @@ function clearStopWatchdog(): void {
 
 /* ---- public actions ---------------------------------------------------- */
 
-/** Flip the Review-mode voice-notes toggle. Disarming also closes the panel. */
+/**
+ * Flip the Review-mode review-notes toggle. Disarming also closes the panel
+ * and drops the markers (each pane asks again the next time it is armed).
+ */
 export function toggleArmed(): void {
   const { armed } = voiceStore.getState();
   if (armed) {
     closePanel();
   }
-  voiceStore.setState({ armed: !armed });
+  voiceStore.setState({ armed: !armed, marks: {} });
 }
 
 /**
@@ -344,6 +570,8 @@ export function toggleArmed(): void {
 export interface NoteTarget {
   /** The declaration, e.g. `showAllFilesState (function)` — saved on the note. */
   unit?: string;
+  /** The card's unit id (`function:showAllFilesState`): where the composer goes. */
+  unitId?: string;
   /** The quote to show and store instead of the raw line (a card's signature). */
   quote?: string;
   /** Whisper's initial prompt for this capture (`identifierHint`). */
@@ -355,9 +583,10 @@ export interface NoteTarget {
 }
 
 /**
- * The hold gesture landed on `line` of the tab's document: open the panel in
- * the `ready` phase for that line (mic idle). Loads the existing notes so the
- * list is a tap away and the new id can be minted collision-free.
+ * The hold gesture landed on `line` of the tab's document: open the composer
+ * in the `ready` phase for that line (mic idle). Loads the existing notes so
+ * the new id can be minted collision-free, and the sidecar's review context
+ * so a save keeps it when the pane has none to give.
  *
  * `opts` is the Review pane's extra context (see `NoteTarget`).
  */
@@ -368,21 +597,21 @@ export async function openNoteAtLine(
 ): Promise<void> {
   const notePath = notePathFor(tabId);
   if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding voice notes.');
+    uiStore.getState().showNotice('Save the note before adding review notes.');
     return;
   }
-  let comments: VoiceComment[];
+  let sidecar: Sidecar;
   try {
-    comments = await loadComments(notePath);
+    sidecar = await loadSidecar(notePath);
   } catch {
-    uiStore.getState().showNotice('Could not read voice notes.');
+    uiStore.getState().showNotice('Could not read review notes.');
     return;
   }
   if (inFlight(voiceStore.getState().phase)) {
     return; // a capture is in flight — don't yank the line out from under it
   }
   if (!isAndroid() && !whisperModelsStore.getState().loaded) {
-    // So the sheet knows whether to show a microphone or an Install button.
+    // So the composer knows whether to show a microphone or an Install button.
     void whisperModelsStore.getState().refresh();
   }
   voiceStore.setState({
@@ -390,58 +619,19 @@ export async function openNoteAtLine(
     tabId,
     notePath,
     commentsPath: sidecarFor(notePath),
-    comments,
-    focusId: null,
+    comments: sidecar.notes,
     line,
     quote: opts?.quote ?? lineQuote(docTextFor(tabId), line),
     error: null,
     draft: '',
     unit: opts?.unit ?? null,
+    unitId: opts?.unitId ?? null,
     hint: opts?.hint ?? null,
     identifiers: opts?.identifiers ?? [],
-    context: opts?.context ?? null,
+    context: opts?.context ?? sidecar.context ?? null,
     snaps: [],
     snapCommentId: null,
   });
-}
-
-/** Open the panel listing ALL of a note's voice notes (no single focus). */
-export async function openAllComments(tabId: string): Promise<void> {
-  const notePath = notePathFor(tabId);
-  if (!notePath) {
-    uiStore.getState().showNotice('Save the note before adding voice notes.');
-    return;
-  }
-  let comments: VoiceComment[];
-  try {
-    comments = await loadComments(notePath);
-  } catch {
-    uiStore.getState().showNotice('Could not read voice notes.');
-    return;
-  }
-  voiceStore.setState({
-    phase: 'viewing',
-    tabId,
-    notePath,
-    commentsPath: sidecarFor(notePath),
-    comments,
-    focusId: null,
-    line: null,
-    quote: '',
-    error: null,
-    unit: null,
-    hint: null,
-    identifiers: [],
-    snaps: [],
-    snapCommentId: null,
-  });
-}
-
-/** From the ready phase, show the note list instead (nothing captured). */
-export function showNotes(): void {
-  if (voiceStore.getState().phase === 'ready') {
-    voiceStore.setState({ phase: 'viewing', line: null, quote: '', error: null });
-  }
 }
 
 /**
@@ -644,7 +834,7 @@ async function captureDictation(id: string): Promise<void> {
  * an undo per name.
  */
 async function finishCapture(spoken: string): Promise<void> {
-  const { notePath, commentsPath, comments, line, quote, unit, identifiers } =
+  const { notePath, commentsPath, comments, line, quote, unit, identifiers, context } =
     voiceStore.getState();
   if (!notePath || !commentsPath || !captureId || line === null) {
     return;
@@ -663,18 +853,23 @@ async function finishCapture(spoken: string): Promise<void> {
     transcript,
     ...(unit ? { unit } : {}),
   };
-  voiceStore.setState({
-    phase: 'viewing',
-    comments: [...comments, comment],
-    focusId: id,
-    line: null,
-    quote: '',
-    stopping: false,
-    draft: '',
-    snaps,
-    snapCommentId: snaps.length > 0 ? id : null,
-  });
-  await saveNow();
+  const next = [...comments, comment];
+  if (snaps.length > 0) {
+    // Snapped names: stay open on `saved` so each one can be undone.
+    voiceStore.setState({
+      phase: 'saved',
+      comments: next,
+      stopping: false,
+      draft: '',
+      snaps,
+      snapCommentId: id,
+    });
+  } else {
+    voiceStore.setState({ phase: 'closed', ...initialTail() });
+  }
+  // The pane shows the note landing: its callout opens where it was written.
+  requestReveal(notePath, line, unit);
+  await writeSidecar(commentsPath, notePath, next, context ?? undefined);
 }
 
 /**
@@ -782,16 +977,7 @@ export function updateTranscript(id: string, transcript: string): void {
   scheduleSave();
 }
 
-/** Delete a note's entry. */
-export async function deleteComment(id: string): Promise<void> {
-  voiceStore.setState((s) => ({
-    comments: s.comments.filter((c) => c.id !== id),
-    focusId: s.focusId === id ? null : s.focusId,
-  }));
-  await saveNow();
-}
-
-/** Close the panel; cancels an in-flight capture without committing it. The toggle stays armed. */
+/** Close the composer; cancels an in-flight capture without committing it. The toggle stays armed. */
 export function closePanel(): void {
   const { phase } = voiceStore.getState();
   if (phase === 'capturing') {
@@ -812,24 +998,24 @@ export function closePanel(): void {
   voiceStore.setState({ phase: 'closed', ...initialTail() });
 }
 
-/** The reset fields shared by close (keeps a closed panel tidy; `armed` is untouched). */
+/** The reset fields shared by close (keeps a closed composer tidy; `armed`, `marks` and `reveal` are untouched). */
 function initialTail() {
   return {
     tabId: null,
     notePath: null,
     commentsPath: null,
     comments: [],
-    focusId: null,
     line: null,
     quote: '',
     error: null,
     stopping: false,
     draft: '',
     unit: null,
+    unitId: null,
     hint: null,
     identifiers: [],
     context: null,
     snaps: [],
     snapCommentId: null,
-  } satisfies Omit<VoiceCommentsState, 'phase' | 'armed'>;
+  } satisfies Omit<VoiceCommentsState, 'phase' | 'armed' | 'marks' | 'reveal'>;
 }

@@ -1,98 +1,17 @@
-/* Voice notes — capture sheet + note list.
+/* Review notes — the inline composer, the markers + callouts in the Review
+ * panes, and the all-notes overview.
  *
- * One overlay serves both platforms: a right-side panel on desktop, a bottom
- * sheet on mobile (body gets [data-android] — see main.tsx). Colours are all
- * theme variables so it flips with the app. */
+ * Colours are all theme variables so everything flips with the app. The
+ * composer and the callouts live INSIDE the rendered document (the panes
+ * insert them under the block/card they belong to), so they use the UI font
+ * and keep their own text selectable while the pane's hold gesture disables
+ * selection around them. */
 
-.vc-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: rgba(0, 0, 0, 0.28);
-  display: flex;
-  justify-content: flex-end;
-  align-items: stretch;
-}
+/* ---- shared capture pieces (composer) ------------------------------------ */
 
-.vc-panel {
-  background: var(--bg);
-  color: var(--fg);
-  border-left: 1px solid var(--border);
-  width: min(380px, 92vw);
-  display: flex;
-  flex-direction: column;
-  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.22);
-}
-
-/* Mobile: dock to the bottom as a sheet. */
-.vc-backdrop.vc-android {
-  align-items: flex-end;
-  justify-content: stretch;
-}
-
-.vc-backdrop.vc-android .vc-panel {
-  width: 100%;
-  max-height: 70vh;
-  border-left: none;
-  border-top: 1px solid var(--border);
-  border-radius: 12px 12px 0 0;
-  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.22);
-}
-
-.vc-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-}
-
-.vc-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.vc-close,
-.vc-add {
-  background: none;
-  border: none;
-  color: var(--fg-muted);
-  font-size: 1.1rem;
-  cursor: pointer;
-  line-height: 1;
-  padding: 4px 6px;
-}
-.vc-close:hover,
-.vc-add:hover {
-  color: var(--fg);
-}
-.vc-add {
-  color: var(--accent);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.vc-body {
-  overflow-y: auto;
-  padding: 10px 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* Capture state: the line being annotated, then the big two-tap mic. */
-.vc-capturing {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 22px 14px 28px;
-}
 .vc-mic {
-  width: 96px;
-  height: 96px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
@@ -110,14 +29,14 @@
   transform: scale(0.96);
 }
 .vc-mic svg {
-  width: 48px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
 }
 .vc-mic-live {
   background: var(--danger);
   animation: vc-pulse 1.3s ease-in-out infinite;
 }
-/* The line under review, echoed above the mic and on each note card. */
+/* The line under review, echoed at the top of the composer. */
 .vc-quote {
   color: var(--fg-muted);
   font-size: 0.85rem;
@@ -129,7 +48,7 @@
 }
 .vc-quote-target {
   align-self: stretch;
-  margin-bottom: 0;
+  margin: 0 12px;
 }
 @keyframes vc-pulse {
   0%,
@@ -144,26 +63,14 @@
 }
 .vc-capture-label {
   color: var(--fg-muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
-
-/* Comment card */
-.vc-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--bg-alt);
-}
-.vc-card-focus {
-  border-color: var(--accent);
-}
-.vc-card-meta {
+.vc-capturing {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  font-size: 0.75rem;
-  color: var(--fg-muted);
-  margin-bottom: 6px;
+  gap: 12px;
+  padding: 10px 12px 12px;
 }
 .vc-transcript {
   width: 100%;
@@ -171,51 +78,57 @@
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: 8px;
+  padding: 8px 10px;
   font-family: inherit;
-  font-size: 0.9rem;
-  resize: vertical;
-  min-height: 48px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  resize: none;
+  min-height: 56px;
+  overflow: hidden;
 }
-.vc-empty {
-  color: var(--fg-muted);
-  font-size: 0.9rem;
-  text-align: center;
-  padding: 20px 0;
+.vc-transcript:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .vc-btn {
   border: 1px solid var(--border);
   background: var(--bg-hover);
   color: var(--fg);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 16px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font: inherit;
+  font-size: 0.88rem;
+  min-height: 36px;
 }
 .vc-btn:hover {
   border-color: var(--accent);
 }
-.vc-btn-danger {
-  border: none;
-  background: none;
-  color: var(--danger);
-  padding: 2px 6px;
-  font-size: 0.75rem;
-  cursor: pointer;
+.vc-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* While the Review-mode toggle is armed the pane owns the long press: no text
-   selection or callout may start on top of the hold gesture. */
+   selection or callout may start on top of the hold gesture — except inside
+   the composer and the callouts, which are for typing. */
 .preview[data-line-hold] {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+.preview[data-line-hold] .vn-composer-slot,
+.preview[data-line-hold] .vn-callout,
+.cr-host[data-line-hold] .vn-composer-slot,
+.cr-host[data-line-hold] .vn-callout {
+  user-select: text;
+  -webkit-user-select: text;
+}
 
-/* A failed capture explains itself IN the sheet, under the mic: a status-bar
-   notice would sit behind the dimmed backdrop and go unseen. */
+/* A failed capture explains itself under the mic, with steps. */
 .vc-error {
   align-self: stretch;
   border: 1px solid var(--danger);
@@ -263,7 +176,7 @@
 }
 
 /* Whisper is turning the capture into text: a slow, steady breathe so the
-   sheet reads as working rather than stuck. */
+   composer reads as working rather than stuck. */
 .vc-mic-transcribing {
   animation: vc-breathe 1.6s ease-in-out infinite;
 }
@@ -280,32 +193,33 @@
   }
 }
 
-/* Desktop: the note is typed (or dictated by the OS) into this box. */
+/* The note is typed (or dictated) into this box. */
 .vc-draft {
   align-self: stretch;
-  min-height: 5em;
 }
 .vc-desktop {
-  gap: 12px;
-  padding: 16px 14px 20px;
+  gap: 10px;
+  padding: 10px 12px 12px;
 }
-/* The row under the box: the Whisper mic (or its Install button) and Save. */
+/* The row under the box: the Whisper mic (or its Install button), Cancel, Save. */
 .vc-actions {
   align-self: stretch;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
+.vc-actions-spacer {
+  flex: 1 1 auto;
+}
 .vc-mic-small {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 .vc-mic-small svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
 }
 .vc-install {
   display: inline-flex;
@@ -317,8 +231,13 @@
   height: 16px;
 }
 .vc-btn-quiet {
-  padding: 4px 10px;
-  font-size: 0.8rem;
+  background: none;
+  border-color: transparent;
+  color: var(--fg-muted);
+}
+.vc-btn-quiet:hover {
+  color: var(--fg);
+  border-color: var(--border);
 }
 .vc-install-progress {
   flex: 1 1 200px;
@@ -335,26 +254,25 @@
   background: var(--accent);
   color: var(--bg);
   border-color: var(--accent);
-  margin-left: auto;
+  font-weight: 600;
 }
-.vc-save:disabled {
-  opacity: 0.5;
-  cursor: default;
+.vc-save:hover {
+  filter: brightness(1.08);
 }
 .vc-hint {
   align-self: stretch;
   text-align: left;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 /* Review mode: the names snapping pulled out of the transcript, each with a
    one-tap undo (the reviewer can see what was put in their mouth). */
 .vc-snaps {
+  align-self: stretch;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
   font-size: 0.75rem;
 }
 .vc-snaps-label {
@@ -379,4 +297,772 @@
   padding: 2px 4px;
   font-size: 0.72rem;
   cursor: pointer;
+}
+
+/* ---- the inline composer (components/NoteComposer.tsx) ------------------- */
+
+/* The slot the pane inserts; the composer inside animates open. */
+.vn-composer-slot {
+  margin: 8px 0 14px;
+  font-family: var(--font-ui, inherit);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.cr-card > .vn-composer-slot {
+  margin: 0 10px 8px;
+}
+.vn-composer {
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  animation: vn-open 180ms ease-out;
+  transform-origin: top left;
+}
+@keyframes vn-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.vn-composer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-alt));
+}
+.vn-composer-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.vn-composer-icon {
+  font-size: 0.9em;
+}
+.vn-composer-where {
+  font-weight: 400;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vn-composer-close {
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 1rem;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.vn-composer-close:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.vn-composer .vc-quote-target {
+  margin: 10px 12px 0;
+}
+.vn-android .vc-mic {
+  margin-top: 4px;
+}
+
+/* ---- markers + callouts in the Review panes (preview/note-marks.ts) ------
+ *
+ * A pill beside a markdown block (in a zero-height row, so the text never
+ * moves) or in a code card's head, showing how many notes the thing has; a
+ * tap expands a callout of them under it — a comment thread: each note's
+ * text is editable in place, Delete asks twice, "All notes" opens the
+ * overview. Armed state only. */
+
+.vn-mark-row {
+  position: relative;
+  height: 0;
+}
+
+.vn-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg-alt);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-family: var(--font-ui, inherit);
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.vn-mark:hover,
+.vn-mark[aria-expanded='true'] {
+  background: var(--accent);
+  color: var(--bg);
+}
+.vn-mark-row > .vn-mark {
+  position: absolute;
+  right: 0;
+  top: 2px;
+  transform: translateX(calc(100% + 6px));
+  z-index: 1;
+}
+/* No room in the gutter: keep the pill inside the column, top-right, and
+   give the marked block's first line room for it. */
+@media (max-width: 640px) {
+  .vn-mark-row > .vn-mark {
+    transform: none;
+  }
+  .vn-mark-row + [data-line] {
+    padding-right: 48px;
+  }
+}
+.vn-mark-icon {
+  font-size: 0.8em;
+}
+.cr-card-head .vn-mark {
+  margin-left: 4px;
+}
+
+.vn-callout {
+  margin: 6px 0 14px;
+  padding: 4px 10px 10px;
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-family: var(--font-ui, inherit);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  animation: vn-open 160ms ease-out;
+}
+.cr-card > .vn-callout {
+  margin: 0 10px 8px;
+}
+/* Just revealed (a save landed, or "Go to" from the overview). */
+.vn-flash {
+  animation:
+    vn-open 160ms ease-out,
+    vn-flash 1.4s ease-out;
+}
+@keyframes vn-flash {
+  0% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.vn-note {
+  padding-top: 6px;
+}
+.vn-note + .vn-note {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.vn-note-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+  margin-bottom: 2px;
+}
+.vn-note-where {
+  font-family: var(--font-mono);
+}
+.vn-note-when {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vn-delete {
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.vn-delete:hover,
+.vn-delete[data-confirm] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+textarea.vn-note-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  transition: border-color 120ms ease;
+}
+textarea.vn-note-text:hover:not(:read-only) {
+  border-color: var(--border);
+}
+textarea.vn-note-text:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.vn-open {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.vn-open:hover {
+  border-color: var(--accent);
+}
+
+/* ---- the all-notes overview (components/NotesOverview.tsx) ---------------
+ *
+ * A panel that slides in from the right (desktop) or up to fill the screen
+ * (phone). `[data-open]` on the backdrop drives both the fade and the slide,
+ * so opening and closing share one transition. */
+
+.rn-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(0);
+  /* Closed: invisible and inert, but still in the tree for the closing
+     slide — visibility flips only once that slide is over. */
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    background 240ms ease,
+    backdrop-filter 240ms ease,
+    visibility 0s linear 240ms;
+}
+.rn-backdrop[data-open] {
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.rn-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100vw);
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.25);
+  font-family: var(--font-ui, inherit);
+  font-size: 13px;
+  transform: translateX(24px);
+  opacity: 0;
+  transition:
+    transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 200ms ease;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.rn-backdrop[data-open] .rn-panel {
+  transform: none;
+  opacity: 1;
+}
+.rn-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 10px 10px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0));
+}
+.rn-title {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rn-title h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.rn-title-icon {
+  font-size: 1rem;
+}
+.rn-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.rn-icon-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rn-icon-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.rn-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.rn-icon-btn svg,
+.rn-search svg,
+.rn-goto svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rn-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.rn-search {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  color: var(--fg-muted);
+  transition: border-color 120ms ease;
+}
+.rn-search:focus-within {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.rn-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.92rem;
+  outline: none;
+}
+.rn-search input::placeholder {
+  color: var(--fg-muted);
+}
+.rn-search input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+.rn-segments {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+}
+.rn-segment {
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  min-height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.rn-segment[data-active] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.rn-segment:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rn-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+.rn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rn-group + .rn-group {
+  margin-top: 18px;
+}
+.rn-group-head {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0 8px;
+  margin-bottom: 4px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.rn-group-title {
+  flex: 0 0 auto; /* the name wins the row; the directory beside it gives way */
+  min-width: 0;
+  max-width: 70%;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rn-group-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.rn-group-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rn-group-count {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.rn-card {
+  position: relative;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  transition:
+    border-color 120ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+.rn-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.8;
+}
+.rn-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+.rn-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-width: 0;
+}
+.rn-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rn-chip-line {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.rn-doc-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rn-doc-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.rn-when {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.rn-quote {
+  margin: 0 0 6px;
+  padding: 2px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.rn-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  transition: border-color 120ms ease;
+}
+.rn-card:hover .rn-text {
+  border-color: var(--border);
+}
+.rn-text:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.rn-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.rn-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.rn-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.rn-goto {
+  color: var(--accent);
+}
+.rn-goto svg {
+  width: 15px;
+  height: 15px;
+}
+.rn-delete {
+  margin-left: auto;
+}
+.rn-delete:hover,
+.rn-delete-asking {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.rn-foot {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.rn-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 48px 24px;
+  color: var(--fg-muted);
+}
+.rn-empty-glyph {
+  font-size: 2.4rem;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+.rn-empty-title {
+  color: var(--fg);
+  font-size: 1rem;
+  font-weight: 700;
+}
+.rn-empty-hint {
+  max-width: 32ch;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+/* Loading: three quiet placeholders that shimmer. */
+.rn-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 72px;
+}
+.rn-sk-line {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--border) 0%, var(--bg-hover) 50%, var(--border) 100%);
+  background-size: 200% 100%;
+  animation: rn-shimmer 1.4s ease-in-out infinite;
+}
+.rn-sk-short {
+  width: 30%;
+}
+.rn-sk-mid {
+  width: 65%;
+}
+@keyframes rn-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Phones: the panel is the screen, rising from the bottom; touch targets grow. */
+@media (max-width: 640px) {
+  .rn-backdrop {
+    align-items: flex-end;
+  }
+  .rn-panel {
+    width: 100vw;
+    border-left: none;
+    transform: translateY(32px);
+  }
+  .rn-body {
+    padding: 10px 12px 28px;
+  }
+  .rn-tools {
+    padding: 0 12px 10px;
+  }
+  .rn-segment,
+  .rn-btn {
+    min-height: 38px;
+  }
+  .rn-icon-btn {
+    width: 42px;
+    height: 42px;
+  }
+  .vc-btn {
+    min-height: 42px;
+  }
+  .vn-delete {
+    padding: 6px 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rn-backdrop,
+  .rn-panel,
+  .vn-composer,
+  .vn-callout,
+  .vn-flash {
+    transition: none;
+    animation: none;
+  }
 }

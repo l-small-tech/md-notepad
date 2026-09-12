@@ -25,7 +25,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
 import { WhisperSetupPrompt } from './components/WhisperSetupPrompt';
 import { SearchPanel } from './components/SearchPanel';
-import { VoiceComments } from './components/VoiceComments';
+import { NotesOverview } from './components/NotesOverview';
 import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
 import { ResizeBorders } from './components/ResizeBorders';
 import { IS_MAC } from './components/AppMenu';
@@ -112,7 +112,7 @@ export function App() {
       <ExternalLinkPrompt />
       <WhisperSetupPrompt />
       <SearchPanel />
-      <VoiceComments />
+      <NotesOverview />
       {/* Desktop keeps the hover-revealed cluster; Android's way out is the
           tap-and-hold menu (which works on a board too, where the old
           double-tap-the-edge gesture never reached the window). */}
