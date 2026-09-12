@@ -85,22 +85,49 @@ jobs:
         if: startsWith(matrix.os, 'windows')
         run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
         shell: bash
+      # Xcode's own toolchain, not brew's: `brew --prefix llvm` answers with a
+      # prefix even when the formula is not installed, and the runner images
+      # stopped shipping it — bindgen then died on "Unable to find libclang".
       - name: Point bindgen at LLVM (macOS)
         if: startsWith(matrix.os, 'macos')
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+        run: |
+          LIB="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+          test -f "$LIB/libclang.dylib" || { echo "::error::no libclang.dylib in $LIB"; exit 1; }
+          echo "LIBCLANG_PATH=$LIB" >> "$GITHUB_ENV"
       # The Vulkan backend (Windows/Linux) compiles its shaders with glslc
       # from the Vulkan SDK at build time; the app itself needs only the
       # platform's Vulkan loader (delay-loaded on Windows). macOS uses Metal
       # and needs nothing extra.
+      # LunarG's own silent install, not a third-party action: the action
+      # unpacks the installer with 7-Zip, and the current SDK's installer
+      # yields only bin/ that way — CMake's FindVulkan then fails on the
+      # missing Include/ and Lib/. `--root` keeps the SDK path short.
       - name: Install Vulkan SDK (Windows)
         if: startsWith(matrix.os, 'windows')
-        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
-        with:
-          version: latest
-          cache: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = "$env:RUNNER_TEMP/vulkan_sdk.exe"
+          Invoke-WebRequest 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe' -OutFile $exe
+          $sdkArgs = @('--root', 'C:/VulkanSDK', '--accept-licenses', '--default-answer', '--confirm-command', 'install')
+          Start-Process -FilePath $exe -ArgumentList $sdkArgs -NoNewWindow -Wait
+          foreach ($f in 'Bin/glslc.exe', 'Include/vulkan/vulkan.h', 'Lib/vulkan-1.lib') {
+            if (-not (Test-Path "C:/VulkanSDK/$f")) { throw "Vulkan SDK install is missing $f" }
+          }
+          "VULKAN_SDK=C:/VulkanSDK" >> $env:GITHUB_ENV
+          "C:/VulkanSDK/Bin" >> $env:GITHUB_PATH
+      # jammy has no `glslc` package (it arrives in 24.04), so glslc comes from
+      # LunarG's own apt repo; the loader and headers still come from Ubuntu.
       - name: Install Vulkan headers + glslc (Linux)
         if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get install -y libvulkan-dev glslc
+        run: |
+          KEY=https://packages.lunarg.com/lunarg-signing-key-pub.asc
+          LIST=https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          wget -qO- "$KEY" | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list "$LIST"
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev shaderc
+          glslc --version
       # The shader generator is a nested CMake project ~150 characters deep
       # inside the target dir; MSVC's build tooling still stops at MAX_PATH,
       # so Windows builds from a short target dir (see README "Build notes").
