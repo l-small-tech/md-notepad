@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-09-11
+
 - **Review notes live in the document.** The Review-mode button is now
   "Review notes" (they are typed on desktop and spoken on the phone). Press
   and hold a line and the note box opens right under it, like a comment in
