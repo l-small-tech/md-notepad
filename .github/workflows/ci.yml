@@ -183,16 +183,22 @@ jobs:
 
       # whisper-rs-sys builds whisper.cpp with CMake even for `cargo check`,
       # so the NDK compilers are needed for real here, not just as a probe.
-      # The cmake crate takes CC/CXX/AR per target and, for Android targets,
-      # the NDK's own toolchain file; bindgen needs the NDK sysroot and the
-      # target triple, or it reads the HOST headers and silently falls back to
-      # whisper-rs-sys's prebuilt 64-bit bindings.
+      # Deliberately NOT the NDK's android.toolchain.cmake: that file picks its
+      # own default ABI (armeabi-v7a) unless ANDROID_ABI is passed as a CMake
+      # argument, which the cmake crate offers no env hook for — the v0.8.0 APK
+      # got 32-bit whisper objects for every ABI and failed to link with
+      # "incompatible with aarch64linux". Without it the cmake crate sets
+      # CMAKE_SYSTEM_NAME=Android and CMAKE_SYSTEM_PROCESSOR per target and
+      # CMake derives the right ABI. bindgen separately needs the NDK sysroot
+      # and the target triple, or it reads the HOST headers and silently falls
+      # back to whisper-rs-sys's prebuilt 64-bit bindings.
       - name: Export NDK toolchain env
         run: |
           TOOLCHAIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           API=24
           echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           # <rust target>:<clang prefix> — armv7's compiler wrapper is spelled
           # armv7a-linux-androideabi, not armv7-linux-androideabi.
           for abi in aarch64-linux-android:aarch64-linux-android \
@@ -206,18 +212,20 @@ jobs:
               echo "CXX_${key}=$TOOLCHAIN/bin/${prefix}${API}-clang++"
               echo "AR_${key}=$TOOLCHAIN/bin/llvm-ar"
               echo "CARGO_TARGET_${upper}_LINKER=$TOOLCHAIN/bin/${prefix}${API}-clang"
-              echo "CMAKE_TOOLCHAIN_FILE_${key}=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
               echo "BINDGEN_EXTRA_CLANG_ARGS_${key}=--sysroot=$TOOLCHAIN/sysroot --target=${prefix}${API}"
             } >> "$GITHUB_ENV"
           done
 
-      - name: cargo check (Android ABIs)
+      # `cargo build --lib`, not `cargo check`: a check never LINKS, and the
+      # whisper ABI mismatch that broke the v0.8.0 APK is a link-time error.
+      # The link args are the ones tauri's own android build passes.
+      - name: cargo build (Android ABIs)
         run: |
-          cargo check --target aarch64-linux-android
-          cargo check --target armv7-linux-androideabi
+          cargo build --lib --target aarch64-linux-android
+          cargo build --lib --target armv7-linux-androideabi
         working-directory: src-tauri
         env:
-          RUSTFLAGS: -D warnings
+          RUSTFLAGS: -D warnings -Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES
 
   # EXPERIMENTAL, NON-GATING e2e smoke test: WebdriverIO drives the real debug
   # exe through tauri-driver (launch → type → relaunch → session restore).
