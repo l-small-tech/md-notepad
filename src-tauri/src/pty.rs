@@ -690,6 +690,7 @@ mod tests {
         let _session = PtySession::spawn(
             &sh("printf '%s/%s\\n' \"$TERM\" \"$COLORTERM\""),
             sink.sink(),
+            || {},
         )
         .unwrap();
 
@@ -816,7 +817,7 @@ mod tests {
                 PtyEvent::Closed => {
                     d.store(1, Ordering::Release);
                 }
-                PtyEvent::Exit(_) => {}
+                PtyEvent::Exit(_) | PtyEvent::ReplayEnd => {}
             },
             || {},
         )

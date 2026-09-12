@@ -33,7 +33,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 // Debug binary built by `cargo build` in src-tauri. The name comes from the
 // Cargo package name (`md-notepad` — src-tauri/Cargo.toml has no [[bin]]
 // override). Windows-only for now; a Linux run would drop the .exe suffix.
-const application = resolve(here, '..', 'src-tauri', 'target', 'debug', 'md-notepad.exe');
+// TAURI_APP_BIN overrides it for a build that used its own CARGO_TARGET_DIR —
+// whisper's Vulkan shader generator needs a short one on Windows (MAX_PATH).
+const application =
+  process.env.TAURI_APP_BIN ??
+  resolve(here, '..', 'src-tauri', 'target', 'debug', 'md-notepad.exe');
 
 // tauri-driver's default listen port. The wdio runner connects here instead
 // of to a browser driver; tauri-driver spawns the native driver internally.
