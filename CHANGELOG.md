@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-16
+
 - **Diagram editor.** Whiteboards are for drawing diagrams now, not just
   sketching on. Five new shapes — diamond, triangle, parallelogram, hexagon and
   cylinder — join rectangles, rounded rectangles, ellipses, lines and arrows in
