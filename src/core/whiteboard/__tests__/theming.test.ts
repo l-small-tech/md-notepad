@@ -130,6 +130,9 @@ describe('palette-slot classes', () => {
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
     };
     const text: SceneElement = {
       kind: 'text',

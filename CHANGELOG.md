@@ -10,6 +10,18 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Diagram editor.** Whiteboards are for drawing diagrams now, not just
+  sketching on. Five new shapes — diamond, triangle, parallelogram, hexagon and
+  cylinder — join rectangles, rounded rectangles, ellipses, lines and arrows in
+  a shape menu that keeps the ribbon the same size and remembers the shape you
+  last used. Shapes can be filled (including with the board's own colour, so a
+  box hides what is behind it on a light or a dark board), dashed or dotted,
+  and arrows can have a head at either end or both. Holding Shift while
+  dragging keeps a shape square and a line at 45°. With something selected, the
+  colour, width, fill, dash and arrow-head controls restyle it instead of only
+  setting what comes next — and they show what the selection currently is.
+  Everything still saves as a plain `.svg` that renders the same anywhere.
+
 - **Marp slide decks.** A markdown file with `marp: true` in its frontmatter
   is a slide deck: Split shows the slides beside the text (the one under your
   cursor highlighted), the Review mode becomes **Present** — a light table of

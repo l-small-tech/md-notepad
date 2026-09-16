@@ -17,6 +17,7 @@ what a whiteboard *is* lives here.
 | `layers.ts` | pure `(doc, …) → doc` layer and element operations |
 | `hit-test.ts` | the eraser's aim, and selection's base |
 | `select.ts` | the selected set, resize handles, and BAKING a transform in |
+| `style.ts` | restyling a selection, and reading back what it currently IS |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
@@ -71,6 +72,86 @@ One thing the adapter must keep doing, learned the hard way: **cancelling
 compatibility `mousedown` that `preventDefault()` suppresses. The stage focuses
 itself explicitly on every accepted press; without that, every keyboard path
 (Delete, Ctrl+Z, nudge) dies silently after the first click.
+
+## Shapes: one box, many outlines (diagram phase A)
+
+The five diagram shapes — diamond, triangle, parallelogram, hexagon, cylinder —
+all keep `x/y/width/height` geometry, the same keys `rect` uses. That is the
+whole design: `transformElement`, `elementBounds` and the resize path each got
+ONE new branch rather than five, and the sixth shape will cost a vertex list.
+`shapeGeomRect` in `geometry.ts` is the single decoder of the geom-key
+convention, so "what does it cover" and "what can I click" cannot drift apart.
+
+They serialize as `<polygon wb:shape="diamond" points="…">`, and the cylinder
+as `<path wb:shape="cylinder" wb:box="x y w h" d="…">`. The asymmetry is
+deliberate: a polygon's vertices touch the box's edges **by construction**, so
+parse recovers the geometry as the bounding box of the points and no
+editor-only attribute is needed — a polygon someone nudged in a text editor
+still comes back with the box it now occupies. The cylinder's arcs bulge past
+the numbers in its `d`, and recovering a box from two elliptical arcs means
+trusting a template a hand edit may already have broken, so it says its box out
+loud instead. A `<polygon>` with no `wb:shape` — or one naming a shape we don't
+know — stays a `RawElement`, which is the same promise the format has always
+made about content it did not write.
+
+Hit-testing follows the OUTLINE (`boxShapeOutline`), not the box: the corners
+of a diamond's box are empty space, and a click there should reach whatever is
+drawn underneath.
+
+**A rounded rectangle is a `rect` with an `rx`, not a shape kind.** The tool is
+`'roundrect'` (a `ShapeTool`, which the FORMAT never sees); the element is a
+rect. That keeps hit-testing, transforms and — when phase D arrives —
+connectors shared between square and rounded boxes. `rx` scales by the
+geometric mean √(sx·sy) under a non-uniform resize, the same compromise
+`stroke-width` makes and for the same reason: one number cannot follow two
+axes.
+
+### Dashes, heads and a themable fill
+
+- `dash` is the `stroke-dasharray` string, verbatim, or null for solid — and
+  **null emits no attribute**, which is what keeps every shape written before
+  this round-tripping byte-for-byte. The presets in `tool-settings.ts` are
+  computed against the stroke width at construction time: a fixed pattern would
+  mean something different on every nib, and a 1-unit dash on an 8-unit nib is
+  a solid line. A pattern we cannot name (`dashStyleOf` → null) is somebody
+  else's and is never rewritten.
+- The head at the END of a line is still the `arrow` KIND — that is where every
+  board written before this keeps it, and changing that would have rewritten
+  them all. `markerStart` is the new field, so the ribbon's none/end/both is
+  `(line, false)` / `(arrow, false)` / `(arrow, true)`.
+- The start head is a **second marker def with mirrored geometry and plain
+  `orient="auto"`**, not `wb-arrow` under `orient="auto-start-reverse"`. The
+  attribute is SVG 2: Chromium, Firefox and WebView2 honour it; librsvg, resvg,
+  older Inkscape and several SVG→PDF converters degrade it to `auto` and draw
+  the head pointing backwards into the line. The file rendering identically
+  anywhere outranks the tidier def, and the duplicate costs eighty bytes once.
+- A shape's fill themes through its own class: `wb-fN` **alongside** the
+  stroke's `wb-cN` (`class="wb-c1 wb-f3"`). The `.wb-fN` rule already existed
+  for scan blobs and needed no new scoping. A fill equal to the board's
+  background gets `wb-bg` instead — the very rule the page rect themes through
+  — which is what makes a **Paper**-filled box hide the lines behind it on a
+  dark board as well as a light one, while the literal attribute stays white
+  for a CSS-less renderer. `PAPER_FILL` is duplicated in `tool-settings.ts`
+  rather than imported, because that module is a dependency-free leaf; a test
+  pins the two equal.
+
+### Restyling is a patch, applied per kind
+
+`restyleElements(doc, refs, patch)` in `style.ts` is the whole styling model:
+the ribbon IS the properties panel, so a swatch/nib/fill/dash/head click
+restyles the selection and sets the tool default in one go, one undo step. The
+patch is partial — an absent field is left alone — and every kind ignores what
+it cannot express rather than growing a field it never renders: a stroke has no
+fill, text maps the colour control onto its `fill`, an image has no style at
+all. Two rules are less obvious and both are tested: recolouring **drops a
+stored palette slot** (it was a scan's "this hex means that theme colour" note
+and is now a lie), and a nib change **redraws the dash pattern**, which is
+expressed against the width.
+
+`selectionStyle(doc, refs)` is the inverse, and the reason the ribbon can show
+what is selected: every field is the value the whole selection agrees on, or
+null when it is mixed. Null lights nothing, which is the honest answer to "what
+colour is this?" for two differently-coloured shapes.
 
 ## Text is a point and some lines — that is all `<text>` is
 

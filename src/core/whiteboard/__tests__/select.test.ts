@@ -39,7 +39,7 @@ function board(elements: readonly SceneElement[], over: Partial<SceneDoc> = {}):
   });
 }
 
-const rect = makeShape('rect', P(10, 10), P(50, 30), '#1a1a1a', 2)!;
+const rect = makeShape('rect', P(10, 10), P(50, 30), { color: '#1a1a1a', width: 2 })!;
 const stroke = makeStroke('pen', [P(100, 100), P(140, 120), P(180, 100)], '#1a1a1a', 4)!;
 
 /* ------------------------------- the set ---------------------------------- */
@@ -181,14 +181,29 @@ describe('transformElement', () => {
     expect(transformElement(rect, 2, 2, 0, 0)).toMatchObject({
       geom: { x: 20, y: 20, width: 80, height: 40 },
     });
-    const ellipse = makeShape('ellipse', P(0, 0), P(100, 50), '#1a1a1a', 2)!;
+    const ellipse = makeShape('ellipse', P(0, 0), P(100, 50), { color: '#1a1a1a', width: 2 })!;
     expect(transformElement(ellipse, 2, 1, 5, 0)).toMatchObject({
       geom: { cx: 105, cy: 25, rx: 100, ry: 25 },
     });
-    const line = makeShape('line', P(0, 0), P(10, 10), '#1a1a1a', 2)!;
+    const line = makeShape('line', P(0, 0), P(10, 10), { color: '#1a1a1a', width: 2 })!;
     expect(transformElement(line, 1, 1, 3, 4)).toMatchObject({
       geom: { x1: 3, y1: 4, x2: 13, y2: 14 },
     });
+  });
+
+  it('bakes every box shape through the SAME branch rect uses', () => {
+    const hexagon = makeShape('hexagon', P(0, 0), P(100, 50), { color: '#1a1a1a', width: 2 })!;
+    expect(transformElement(hexagon, 2, 2, 5, 5)).toMatchObject({
+      shape: 'hexagon',
+      geom: { x: 5, y: 5, width: 200, height: 100 },
+    });
+  });
+
+  it('scales a corner radius by the geometric mean, like a stroke width', () => {
+    const rounded = makeShape('roundrect', P(0, 0), P(100, 100), { color: '#1a1a1a', width: 2 })!;
+    // √(4·1) = 2, the same compromise a single stroke-width has to make.
+    expect(transformElement(rounded, 4, 1, 0, 0)).toMatchObject({ rx: rounded.rx! * 2 });
+    expect(transformElement(rect, 2, 2, 0, 0)).toMatchObject({ rx: null });
   });
 
   it('moves text by its baseline and scales its type size', () => {

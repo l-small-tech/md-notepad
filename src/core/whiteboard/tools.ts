@@ -15,8 +15,17 @@
 import type { Point } from './geometry';
 import { rectFromCorners } from './geometry';
 import { buildStrokePath } from './smoothing';
-import type { ShapeElement, ShapeKind, StrokeElement, TextElement } from './scene';
-import { HIGHLIGHTER_OPACITY, HIGHLIGHTER_WIDTH_FACTOR } from './tool-settings';
+import { isBoxShape, type ShapeElement, type StrokeElement, type TextElement } from './scene';
+import {
+  dashArray,
+  DEFAULT_CORNER_RADIUS,
+  HIGHLIGHTER_OPACITY,
+  HIGHLIGHTER_WIDTH_FACTOR,
+  NO_FILL,
+  type ArrowHeads,
+  type DashStyle,
+  type ShapeTool,
+} from './tool-settings';
 
 export * from './tool-settings';
 
@@ -87,53 +96,118 @@ export function makeText(
   };
 }
 
+/** Everything a shape tool needs beyond its two corners. */
+export interface ShapeStyle {
+  readonly color: string;
+  readonly width: number;
+  /** `'none'` (the default) or a colour — see `PAPER_FILL` for the board's own. */
+  readonly fill?: string;
+  readonly dash?: DashStyle;
+  /**
+   * Line family only. It decides the KIND as well as the heads: `'none'` draws
+   * a `line`, anything else an `arrow`, and `'both'` adds `marker-start`. One
+   * source of truth, so the shape picker and the heads control cannot
+   * disagree about what the next drag will produce.
+   */
+  readonly heads?: ArrowHeads;
+}
+
 /**
  * A shape from its drag. Returns null for a degenerate gesture (a click that
  * never moved) so a stray tap can't litter the board with zero-size elements.
+ *
+ * Every non-linear shape is a BOX: the five polygon/path shapes share `rect`'s
+ * geometry keys and differ only in what the serializer draws inside them, so
+ * transforms, bounds and resize each need one branch rather than six.
  */
 export function makeShape(
-  kind: ShapeKind,
+  tool: ShapeTool,
   start: Point,
   end: Point,
-  color: string,
-  width: number,
+  style: ShapeStyle,
 ): ShapeElement | null {
-  const base = { kind: 'shape', id: null, stroke: color, strokeWidth: width } as const;
-  if (kind === 'line' || kind === 'arrow') {
+  const { color, width } = style;
+  const dash = dashArray(style.dash ?? 'solid', width);
+  const base = {
+    kind: 'shape',
+    id: null,
+    stroke: color,
+    strokeWidth: width,
+    dash,
+    rx: null,
+    markerStart: false,
+    opacity: null,
+  } as const;
+
+  if (tool === 'line' || tool === 'arrow') {
     if (Math.hypot(end.x - start.x, end.y - start.y) < 2) {
       return null;
     }
+    const heads = style.heads ?? (tool === 'arrow' ? 'end' : 'none');
     return {
       ...base,
-      shape: kind,
+      shape: heads === 'none' ? 'line' : 'arrow',
+      markerStart: heads === 'both',
       geom: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
-      fill: 'none',
-      opacity: null,
+      fill: NO_FILL,
     };
   }
+
   const rect = rectFromCorners(start, end);
   if (rect.width < 2 && rect.height < 2) {
     return null;
   }
-  if (kind === 'rect') {
+  const fill = style.fill ?? NO_FILL;
+
+  if (tool === 'ellipse') {
+    return {
+      ...base,
+      shape: 'ellipse',
+      geom: {
+        cx: rect.x + rect.width / 2,
+        cy: rect.y + rect.height / 2,
+        rx: rect.width / 2,
+        ry: rect.height / 2,
+      },
+      fill,
+    };
+  }
+  const geom = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  if (tool === 'rect' || tool === 'roundrect') {
     return {
       ...base,
       shape: 'rect',
-      geom: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      fill: 'none',
-      opacity: null,
+      // The corner radius never exceeds half the shorter side — SVG clamps it
+      // anyway, and storing the clamped value keeps a resize honest.
+      rx:
+        tool === 'roundrect'
+          ? Math.min(DEFAULT_CORNER_RADIUS, rect.width / 2, rect.height / 2)
+          : null,
+      geom,
+      fill,
     };
   }
+  return isBoxShape(tool) ? { ...base, shape: tool, geom, fill } : null;
+}
+
+/**
+ * Where a constrained (shift-held) drag actually ends: a box shape becomes a
+ * square — an ellipse a circle — and a line snaps to 45° steps. The drag's
+ * DIRECTION is preserved in both cases, so a square grows up-and-left as
+ * readily as down-and-right.
+ */
+export function constrainShapeDrag(tool: ShapeTool, start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (tool === 'line' || tool === 'arrow') {
+    const length = Math.hypot(dx, dy);
+    const step = Math.PI / 4;
+    const angle = Math.round(Math.atan2(dy, dx) / step) * step;
+    return { x: start.x + Math.cos(angle) * length, y: start.y + Math.sin(angle) * length };
+  }
+  const size = Math.max(Math.abs(dx), Math.abs(dy));
   return {
-    ...base,
-    shape: 'ellipse',
-    geom: {
-      cx: rect.x + rect.width / 2,
-      cy: rect.y + rect.height / 2,
-      rx: rect.width / 2,
-      ry: rect.height / 2,
-    },
-    fill: 'none',
-    opacity: null,
+    x: start.x + (dx < 0 ? -size : size),
+    y: start.y + (dy < 0 ? -size : size),
   };
 }

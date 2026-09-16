@@ -31,6 +31,9 @@ function rect(fill: string): SceneElement {
     strokeWidth: 2,
     fill,
     opacity: null,
+    dash: null,
+    rx: null,
+    markerStart: false,
   };
 }
 
@@ -83,6 +86,9 @@ describe('hitTestElement — shapes', () => {
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
     };
     expect(hitTestElement(ellipse, { x: 150, y: 100 }, 1)).toBe(true);
     expect(hitTestElement(ellipse, { x: 100, y: 100 }, 1)).toBe(false);
@@ -98,6 +104,9 @@ describe('hitTestElement — shapes', () => {
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
     };
     expect(hitTestElement(line, { x: 50, y: 50 }, 1)).toBe(true);
     expect(hitTestElement(line, { x: 50, y: 60 }, 1)).toBe(false);

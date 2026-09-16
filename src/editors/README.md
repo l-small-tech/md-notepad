@@ -254,6 +254,30 @@ build instead of self-healing the session away.
     file's metadata is honoured read-only as the opening view.
 - `refreshTool()` exists because tool settings are PULLED per gesture: the
   cursor and the selection handles are what the ribbon has to announce.
+- **Styling lives in the ribbon (diagram phase A).** There is no floating
+  toolbar and no properties panel: a swatch, nib, fill, dash or arrow-head
+  click calls `restyleSelection(patch)` AND sets the tool default, so one click
+  changes what is selected and what the next shape will look like. The decision
+  is `core/whiteboard/style.ts`; this file only commits it, and the refs
+  survive because a restyle replaces elements in place.
+  - The traffic back up is `WhiteboardUiState.selectionStyle` — the style the
+    whole selection AGREES on, each field null when mixed. The ribbon shows the
+    selection when there is one and the tool's own settings otherwise, and
+    highlights nothing for null. It also carries `hasText`/`hasInk`/`hasLine`,
+    which is how the ribbon decides whether to show the type row, the nib row
+    or both; before this it swapped the nib row out for ANY selection, so
+    selecting a shape hid the control its outline needed.
+  - Ten shapes and three style controls would have pushed the strip past the
+    width it has to fit on a tablet, so they live behind two popovers (the
+    shape picker, whose button is the last shape you used, and the shape-style
+    menu). Both use the same dismiss contract as the other ribbon menus.
+  - Shift constrains a shape drag (square/circle, 45° line). It is read LIVE
+    on every move rather than latched at the press, because people reach for it
+    once they can see the shape is not square yet; the maths is
+    `constrainShapeDrag` in `tools.ts`.
+  - The drag-preview overlay carries its own copy of BOTH arrow markers — the
+    board's `<defs>` only exists once the file HAS an arrow, so without them
+    the first one would drag around headless.
 
 ## Testing expectations
 

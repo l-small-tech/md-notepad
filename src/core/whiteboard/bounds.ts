@@ -10,7 +10,7 @@
  * whole units.
  */
 
-import { boundsOfPoints, flattenPathData, type Rect } from './geometry';
+import { boundsOfPoints, flattenPathData, shapeGeomRect, type Rect } from './geometry';
 import {
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
@@ -33,21 +33,8 @@ export function elementBounds(element: SceneElement): Rect | null {
       const bounds = boundsOfPoints(points);
       return bounds === null ? null : padded(bounds, element.strokeWidth / 2);
     }
-    case 'shape': {
-      const g = element.geom;
-      const rect =
-        element.shape === 'rect'
-          ? { x: g.x ?? 0, y: g.y ?? 0, width: g.width ?? 0, height: g.height ?? 0 }
-          : element.shape === 'ellipse'
-            ? {
-                x: (g.cx ?? 0) - (g.rx ?? 0),
-                y: (g.cy ?? 0) - (g.ry ?? 0),
-                width: (g.rx ?? 0) * 2,
-                height: (g.ry ?? 0) * 2,
-              }
-            : rectFromSegment(g.x1 ?? 0, g.y1 ?? 0, g.x2 ?? 0, g.y2 ?? 0);
-      return padded(rect, element.strokeWidth / 2);
-    }
+    case 'shape':
+      return padded(shapeGeomRect(element.shape, element.geom), element.strokeWidth / 2);
     case 'text': {
       // No DOM, so estimate: line height ≈ 1.2em, width ≈ 0.6em per character.
       // The content margin absorbs the error; exactness is not required here.
@@ -129,10 +116,4 @@ function union(a: Rect, b: Rect): Rect {
     width: Math.max(a.x + a.width, b.x + b.width) - x,
     height: Math.max(a.y + a.height, b.y + b.height) - y,
   };
-}
-
-function rectFromSegment(x1: number, y1: number, x2: number, y2: number): Rect {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  return { x, y, width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
 }

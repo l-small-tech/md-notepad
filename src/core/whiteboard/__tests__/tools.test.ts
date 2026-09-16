@@ -6,6 +6,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  constrainShapeDrag,
+  dashStyleOf,
+  DEFAULT_CORNER_RADIUS,
   DEFAULT_FONT_SIZE,
   DEFAULT_STROKE_WIDTH,
   fontLabelFor,
@@ -15,6 +18,7 @@ import {
   makeStroke,
   makeText,
   PALETTE,
+  SHAPE_TOOLS,
   STROKE_WIDTHS,
   TEXT_SIZES,
 } from '../tools';
@@ -75,25 +79,92 @@ describe('makeStroke', () => {
 
 describe('makeShape', () => {
   it('normalizes a rect dragged up-and-left', () => {
-    const shape = makeShape('rect', P(100, 100), P(40, 60), '#1a1a1a', 2)!;
+    const shape = makeShape('rect', P(100, 100), P(40, 60), { color: '#1a1a1a', width: 2 })!;
     expect(shape.geom).toEqual({ x: 40, y: 60, width: 60, height: 40 });
     expect(shape.fill).toBe('none');
   });
 
   it('centres an ellipse in the dragged box', () => {
-    const shape = makeShape('ellipse', P(0, 0), P(100, 50), '#1a1a1a', 2)!;
+    const shape = makeShape('ellipse', P(0, 0), P(100, 50), { color: '#1a1a1a', width: 2 })!;
     expect(shape.geom).toEqual({ cx: 50, cy: 25, rx: 50, ry: 25 });
   });
 
   it('keeps a line/arrow as its two endpoints, undirected drag included', () => {
-    const arrow = makeShape('arrow', P(10, 10), P(0, 0), '#1a1a1a', 2)!;
+    const arrow = makeShape('arrow', P(10, 10), P(0, 0), { color: '#1a1a1a', width: 2 })!;
     expect(arrow.shape).toBe('arrow');
     expect(arrow.geom).toEqual({ x1: 10, y1: 10, x2: 0, y2: 0 });
   });
 
+  it('gives every box shape the SAME geometry keys, which is the point of them', () => {
+    for (const kind of ['diamond', 'triangle', 'parallelogram', 'hexagon', 'cylinder'] as const) {
+      const shape = makeShape(kind, P(10, 20), P(110, 80), { color: '#1a1a1a', width: 2 })!;
+      expect(shape.shape).toBe(kind);
+      expect(shape.geom).toEqual({ x: 10, y: 20, width: 100, height: 60 });
+    }
+  });
+
+  it('makes the rounded rect a rect with an rx — not a shape of its own', () => {
+    const shape = makeShape('roundrect', P(0, 0), P(100, 80), { color: '#1a1a1a', width: 2 })!;
+    expect(shape.shape).toBe('rect');
+    expect(shape.rx).toBe(DEFAULT_CORNER_RADIUS);
+    // …and it never exceeds half the shorter side, because SVG clamps it there.
+    expect(makeShape('roundrect', P(0, 0), P(100, 10), { color: '#1a1a1a', width: 2 })!.rx).toBe(5);
+    expect(makeShape('rect', P(0, 0), P(100, 80), { color: '#1a1a1a', width: 2 })!.rx).toBeNull();
+  });
+
+  it('computes the dash against the nib, so a preset means the same at any size', () => {
+    const thin = makeShape('rect', P(0, 0), P(50, 50), {
+      color: '#1a1a1a',
+      width: 1,
+      dash: 'dashed',
+    })!;
+    const fat = makeShape('rect', P(0, 0), P(50, 50), {
+      color: '#1a1a1a',
+      width: 4,
+      dash: 'dashed',
+    })!;
+    expect(thin.dash).toBe('4 2.5');
+    expect(fat.dash).toBe('16 10');
+    // Solid is the absence of a pattern, not a pattern that looks solid.
+    expect(makeShape('rect', P(0, 0), P(50, 50), { color: '#1a1a1a', width: 2 })!.dash).toBeNull();
+    expect(dashStyleOf('4 2.5', 1)).toBe('dashed');
+    expect(dashStyleOf(null, 2)).toBe('solid');
+    expect(dashStyleOf('3 1 9', 2)).toBeNull();
+  });
+
+  it('lets the heads decide whether the line family draws a line or an arrow', () => {
+    const none = makeShape('arrow', P(0, 0), P(50, 0), {
+      color: '#1a1a1a',
+      width: 2,
+      heads: 'none',
+    })!;
+    expect(none.shape).toBe('line');
+    const both = makeShape('line', P(0, 0), P(50, 0), {
+      color: '#1a1a1a',
+      width: 2,
+      heads: 'both',
+    })!;
+    expect(both).toMatchObject({ shape: 'arrow', markerStart: true });
+  });
+
   it('refuses a degenerate gesture, so a stray click leaves nothing behind', () => {
-    expect(makeShape('rect', P(10, 10), P(11, 11), '#1a1a1a', 2)).toBeNull();
-    expect(makeShape('line', P(10, 10), P(11, 10), '#1a1a1a', 2)).toBeNull();
+    expect(makeShape('rect', P(10, 10), P(11, 11), { color: '#1a1a1a', width: 2 })).toBeNull();
+    expect(makeShape('line', P(10, 10), P(11, 10), { color: '#1a1a1a', width: 2 })).toBeNull();
+  });
+});
+
+describe('constrainShapeDrag (shift held)', () => {
+  it('squares a box off the LONGER axis, keeping the drag direction', () => {
+    expect(constrainShapeDrag('rect', P(0, 0), P(100, 40))).toEqual({ x: 100, y: 100 });
+    expect(constrainShapeDrag('ellipse', P(50, 50), P(10, 20))).toEqual({ x: 10, y: 10 });
+  });
+
+  it('snaps a line to 45° steps without changing its length', () => {
+    const end = constrainShapeDrag('line', P(0, 0), P(100, 10));
+    expect(end.x).toBeCloseTo(Math.hypot(100, 10));
+    expect(end.y).toBeCloseTo(0);
+    const diagonal = constrainShapeDrag('arrow', P(0, 0), P(100, 90));
+    expect(diagonal.x).toBeCloseTo(diagonal.y);
   });
 });
 
@@ -178,12 +249,24 @@ describe('what the tools produce round-trips through the format', () => {
   });
 
   it('every shape survives, and an arrow brings its marker with it', () => {
-    for (const kind of ['rect', 'ellipse', 'line', 'arrow'] as const) {
-      const shape = makeShape(kind, P(0, 0), P(100, 60), '#1f9d55', 2)!;
+    for (const tool of SHAPE_TOOLS) {
+      const shape = makeShape(tool, P(0, 0), P(100, 60), { color: '#1f9d55', width: 2 })!;
       const source = board(shape);
       expect(parseWhiteboard(source).layers[0]!.elements[0]).toEqual(shape);
-      expect(source.includes(ARROW_MARKER_ID)).toBe(kind === 'arrow');
+      expect(source.includes(ARROW_MARKER_ID)).toBe(tool === 'arrow');
     }
+  });
+
+  it('a fully styled shape survives every one of its new attributes', () => {
+    const shape = makeShape('roundrect', P(0, 0), P(100, 60), {
+      color: PALETTE[2]!,
+      width: 4,
+      fill: PALETTE[6]!,
+      dash: 'dotted',
+    })!;
+    const source = board(shape);
+    expect(parseWhiteboard(source).layers[0]!.elements[0]).toEqual(shape);
+    expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
   });
 
   it('a highlighter keeps its opacity through the round trip', () => {

@@ -61,6 +61,7 @@
 import { parseWhiteboard, WhiteboardParseError } from '../core/whiteboard/parse';
 import {
   ARROW_MARKER_ID,
+  ARROW_START_MARKER_ID,
   colorModeOf,
   isThemed,
   serializeElement,
@@ -89,6 +90,7 @@ import {
 import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
 import {
+  constrainShapeDrag,
   ERASER_RADIUS,
   HANDLE_HIT_RADIUS,
   HANDLE_SIZE,
@@ -99,6 +101,7 @@ import {
   MIN_SELECTION_SIZE,
   PALETTE,
   type DrawTool,
+  type ShapeStyle,
   type ToolSettings,
 } from '../core/whiteboard/tools';
 import {
@@ -120,6 +123,12 @@ import {
   validRefs,
   type ResizeHandle,
 } from '../core/whiteboard/select';
+import {
+  restyleElements,
+  selectionStyle,
+  type SelectionStyle,
+  type StylePatch,
+} from '../core/whiteboard/style';
 import {
   createInputState,
   fingerDrawsEnabled,
@@ -166,6 +175,16 @@ export interface WhiteboardUiState {
   readonly activeLayerName: string | null;
   /** How many elements are selected — the Delete button's enablement. */
   readonly selectionCount: number;
+  /**
+   * The style the SELECTION agrees on, or null when nothing is selected.
+   *
+   * The ribbon doubles as the style panel, so with a selection active its
+   * swatches, nib, fill, dash and arrow-head controls have to show what is
+   * selected rather than what the tool would draw next — and show nothing at
+   * all where the selection disagrees with itself. Each field of
+   * {@link SelectionStyle} is already "the common value, or null".
+   */
+  readonly selectionStyle: SelectionStyle | null;
 }
 
 export interface WhiteboardAdapterOptions {
@@ -241,6 +260,13 @@ export interface WhiteboardAdapter extends EditorAdapter {
    */
   applyTextStyle(style: { fontSize?: number; fontFamily?: string }): void;
   /**
+   * Restyle the selection — colour, fill, nib, dash, arrow heads. The ribbon
+   * calls this IN ADDITION to setting the tool default, so one click both
+   * changes what is selected and what the next shape will look like. One undo
+   * step per click; a no-op when nothing is selected.
+   */
+  restyleSelection(patch: StylePatch): void;
+  /**
    * Open the scan screen. Defaults to the camera where there is one and the
    * file picker otherwise; a {@link ScanPhoto} skips acquisition entirely,
    * which is how paste and drag-drop arrive. No-op without `options.scan`.
@@ -267,6 +293,10 @@ interface Gesture {
   tool: DrawTool;
   color: string;
   width: number;
+  /** Shape tools: the fill/dash/heads the ribbon had when the drag began. */
+  shapeStyle: ShapeStyle;
+  /** Shift held: the shape is constrained (square/circle, 45° line). */
+  constrained: boolean;
   /** 1€-filtered samples in scene coordinates (freehand tools). */
   points: Point[];
   filter: (point: Point, timeMs: number) => Point;
@@ -699,7 +729,12 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     defs.innerHTML =
       `<marker id="${ARROW_MARKER_ID}" viewBox="0 0 10 10" refX="9" refY="5" ` +
       `markerWidth="6" markerHeight="6" orient="auto-start-reverse">` +
-      `<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>`;
+      `<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>` +
+      // The reversed head, same deal: mirrored geometry with plain `auto`, so
+      // the drag preview matches what the file will say (see serialize.ts).
+      `<marker id="${ARROW_START_MARKER_ID}" viewBox="0 0 10 10" refX="1" refY="5" ` +
+      `markerWidth="6" markerHeight="6" orient="auto">` +
+      `<path d="M10,0 L0,5 L10,10 z" fill="context-stroke"/></marker>`;
     previewGroup = document.createElementNS(SVG_NS, 'g');
     // Selection chrome rides ABOVE the stroke preview: the box and its handles
     // are UI, not ink, and must never be hidden by what is being drawn.
@@ -785,6 +820,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       layersOpen,
       activeLayerName: layer?.name ?? null,
       selectionCount: selection.length,
+      selectionStyle: scene === null ? null : selectionStyle(scene, selection),
     };
   }
 
@@ -944,6 +980,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       tool,
       color: settings.color,
       width: settings.width,
+      shapeStyle: {
+        color: settings.color,
+        width: settings.width,
+        fill: settings.fill,
+        dash: settings.dash,
+        heads: settings.heads,
+      },
+      constrained: event.shiftKey,
       points: [filter(point, event.timeStamp)],
       filter,
       start: point,
@@ -979,6 +1023,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         }
       }
       if (gesture.tool !== 'eraser') {
+        gesture.constrained = event.shiftKey;
         updatePreview(scenePoint(event));
       }
       return;
@@ -1011,6 +1056,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       finishSelectDrag(scenePoint(event));
     } else if (gesture && event.pointerId === gesture.pointerId) {
+      gesture.constrained = event.shiftKey;
       finishGesture(scenePoint(event));
     }
     input = notePointerUp(input, pointerInfo(event));
@@ -1350,7 +1396,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return makeStroke(active.tool, active.points, active.color, active.width);
     }
     if (isShapeTool(active.tool)) {
-      return makeShape(active.tool, active.start, end, active.color, active.width);
+      // Shift is read LIVE, not from the press: people reach for it once they
+      // can see the shape is not square yet.
+      const corner = active.constrained ? constrainShapeDrag(active.tool, active.start, end) : end;
+      return makeShape(active.tool, active.start, corner, active.shapeStyle);
     }
     return null;
   }
@@ -1823,6 +1872,16 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.dataset.tool = options.getTool().tool;
       }
       renderChrome();
+    },
+
+    restyleSelection(patch) {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      // Refs survive a restyle (elements are replaced in place), so the
+      // selection — and the box around it — stay exactly where they were, and
+      // `commit`'s own re-render reports the new style back to the ribbon.
+      commit(restyleElements(scene, selection, patch));
     },
 
     applyTextStyle(style) {

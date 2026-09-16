@@ -84,15 +84,37 @@ export interface StrokeElement {
   readonly slot?: number;
 }
 
-export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow';
+/**
+ * The diagram shapes that are nothing but a BOX plus a recipe for the outline
+ * inside it. They all share `x`/`y`/`width`/`height` geometry deliberately: one
+ * branch in `transformElement`, one in `elementBounds` and one in the resize
+ * path covers every one of them, and adding a seventh costs a vertex list. Four
+ * of them serialize as `<polygon>`, the cylinder as a `<path>` (see
+ * `serialize.ts` for why the cylinder additionally carries `wb:box`).
+ */
+export type BoxShapeKind = 'diamond' | 'triangle' | 'parallelogram' | 'hexagon' | 'cylinder';
+
+export const BOX_SHAPES: readonly BoxShapeKind[] = [
+  'diamond',
+  'triangle',
+  'parallelogram',
+  'hexagon',
+  'cylinder',
+];
+
+export function isBoxShape(shape: string): shape is BoxShapeKind {
+  return (BOX_SHAPES as readonly string[]).includes(shape);
+}
+
+export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow' | BoxShapeKind;
 
 /**
  * A primitive shape. Geometry is BAKED into the element's own coordinates —
  * there are no stacked transforms anywhere in the format, which is what keeps
  * hit-testing, resizing and foreign-renderer fidelity all trivial.
  *
- * `geom` keys by shape: rect → x/y/width/height, ellipse → cx/cy/rx/ry,
- * line and arrow → x1/y1/x2/y2.
+ * `geom` keys by shape: rect and every {@link BoxShapeKind} →
+ * x/y/width/height, ellipse → cx/cy/rx/ry, line and arrow → x1/y1/x2/y2.
  */
 export interface ShapeElement {
   readonly kind: 'shape';
@@ -104,6 +126,29 @@ export interface ShapeElement {
   /** `'none'` or a color. */
   readonly fill: string;
   readonly opacity: number | null;
+  /**
+   * `stroke-dasharray`, or null for a solid outline — and null emits NO
+   * attribute, which is what keeps every shape written before this field
+   * round-tripping byte-for-byte. The string is stored verbatim (a
+   * hand-authored pattern survives); `DASH_STYLES` in `tool-settings.ts` is
+   * only what the ribbon offers, computed against the stroke width at the
+   * moment the shape is made.
+   */
+  readonly dash: string | null;
+  /**
+   * Corner radius, `rect` only (the `rx` attribute). Null = square corners and
+   * no attribute. The "Rounded rect" TOOL is a rect with a default `rx`, not a
+   * shape kind of its own, so rounded and square boxes share every code path
+   * that matters — hit-testing, bounds, resize, connectors later on.
+   */
+  readonly rx: number | null;
+  /**
+   * A head at the START of a `line`/`arrow` (`marker-start`). The head at the
+   * END is the `arrow` KIND itself, which is how every board written before
+   * this still reads correctly — so the ribbon's none/end/both is
+   * (line, false) / (arrow, false) / (arrow, true).
+   */
+  readonly markerStart: boolean;
   /** Stored palette slot — see {@link StrokeElement.slot}. */
   readonly slot?: number;
 }

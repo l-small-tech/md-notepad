@@ -14,14 +14,18 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhiteboard, WhiteboardParseError } from '../parse';
 import {
+  BOX_SHAPES,
   createLayer,
   createScene,
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
   elementCount,
   type SceneDoc,
+  type SceneElement,
+  type ShapeKind,
 } from '../scene';
-import { ARROW_MARKER_ID, num, serializeWhiteboard } from '../serialize';
+import { PALETTE, PAPER_FILL } from '../tool-settings';
+import { ARROW_MARKER_ID, ARROW_START_MARKER_ID, num, serializeWhiteboard } from '../serialize';
 
 /** parse → serialize → parse; the second serialization must equal the first. */
 function stabilize(source: string): { first: string; second: string; doc: SceneDoc } {
@@ -109,6 +113,179 @@ describe('a whiteboard we wrote', () => {
   it('emits the arrow marker when an arrow exists and the file has no defs', () => {
     const out = serializeWhiteboard(parseWhiteboard(BOARD));
     expect(out).toContain(`<marker id="${ARROW_MARKER_ID}"`);
+  });
+});
+
+/**
+ * The phase-A promise: a file written BEFORE shape styling existed comes back
+ * out byte-for-byte. Every new field's default emits no attribute at all, so
+ * the proof is a canonical pre-phase-A body asserted verbatim, line by line.
+ */
+describe('a board written before shape styling', () => {
+  const LEGACY_ELEMENTS = [
+    '<path wb:tool="pen" class="wb-c3" d="M10,10 C20,20 30,30 40,40" fill="none" stroke="#1f6fd0" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>',
+    '<rect class="wb-c0" x="100" y="120" width="80" height="40" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>',
+    '<ellipse class="wb-c0" cx="300" cy="200" rx="50" ry="25" fill="#eeeeee" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>',
+    '<line class="wb-c0" x1="0" y1="0" x2="10" y2="10" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" marker-end="url(#wb-arrow)"/>',
+    '<text class="wb-c0" x="40" y="400" font-size="24" fill="#1a1a1a"><tspan x="40" dy="0">hello</tspan><tspan x="40" dy="1.2em">world</tspan></text>',
+  ];
+
+  const LEGACY = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:wb="urn:md-notepad:whiteboard" viewBox="0 0 1600 1000" width="1600" height="1000">
+  <g wb:layer="a1B2" wb:name="Layer 1">
+    ${LEGACY_ELEMENTS.join('\n    ')}
+  </g>
+</svg>
+`;
+
+  it('re-emits every element byte-for-byte', () => {
+    const { first, second } = stabilize(LEGACY);
+    for (const element of LEGACY_ELEMENTS) {
+      expect(first).toContain(element);
+    }
+    expect(second).toBe(first);
+  });
+
+  it('emits none of the new attributes for elements that never asked for them', () => {
+    const { first } = stabilize(LEGACY);
+    expect(first).not.toContain('stroke-dasharray');
+    expect(first).not.toContain('marker-start');
+    expect(first).not.toContain('wb:shape');
+    // (an ellipse's own `rx` is geometry; only a rect's is a corner radius)
+    expect(first).not.toMatch(/<rect[^>]* rx=/);
+    expect(first).not.toContain(ARROW_START_MARKER_ID);
+  });
+});
+
+describe('shape styling', () => {
+  function withShapes(...elements: string[]): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:wb="urn:md-notepad:whiteboard" viewBox="0 0 400 300" width="400" height="300">
+  <g wb:layer="a1B2" wb:name="L">
+    ${elements.join('\n    ')}
+  </g>
+</svg>
+`;
+  }
+
+  it('round-trips a dash, a corner radius and a reversed arrow head', () => {
+    const source = withShapes(
+      '<rect x="10" y="10" width="80" height="40" rx="12" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-dasharray="8 5"/>',
+      '<line x1="0" y1="0" x2="50" y2="0" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" marker-start="url(#wb-arrow-start)" marker-end="url(#wb-arrow)"/>',
+    );
+    const doc = parseWhiteboard(source);
+    expect(doc.layers[0]!.elements[0]).toMatchObject({ shape: 'rect', rx: 12, dash: '8 5' });
+    expect(doc.layers[0]!.elements[1]).toMatchObject({ shape: 'arrow', markerStart: true });
+    const out = serializeWhiteboard(doc);
+    expect(out).toContain('rx="12"');
+    expect(out).toContain('stroke-dasharray="8 5"');
+    expect(out).toContain(`marker-start="url(#${ARROW_START_MARKER_ID})"`);
+    expect(serializeWhiteboard(parseWhiteboard(out))).toBe(out);
+  });
+
+  it('brings a reversed marker def with it, mirrored rather than auto-start-reverse', () => {
+    const out = serializeWhiteboard(
+      parseWhiteboard(
+        withShapes(
+          '<line x1="0" y1="0" x2="50" y2="0" stroke="#1a1a1a" stroke-width="2" marker-start="url(#wb-arrow-start)"/>',
+        ),
+      ),
+    );
+    // The mirror is the head; the attribute stays plain `auto`, which every
+    // SVG 1.1 renderer understands (see ARROW_START_MARKER_ID).
+    expect(out).toContain(`<marker id="${ARROW_START_MARKER_ID}"`);
+    expect(out).toContain('<path d="M10,0 L0,5 L10,10 z"');
+    expect(out).toMatch(/id="wb-arrow-start"[^>]*orient="auto">/);
+    // A line with only a start head is still a `line`, so no end marker.
+    expect(out).not.toContain(`marker-end`);
+    expect(out).not.toContain(`id="${ARROW_MARKER_ID}"`);
+  });
+
+  it('themes a fill through its own class, alongside the stroke’s', () => {
+    const out = serializeWhiteboard(
+      parseWhiteboard(
+        withShapes(
+          `<rect x="0" y="0" width="10" height="10" fill="${PALETTE[3]}" stroke="${PALETTE[1]}" stroke-width="2"/>`,
+        ),
+      ),
+    );
+    expect(out).toContain('class="wb-c1 wb-f3"');
+    expect(serializeWhiteboard(parseWhiteboard(out))).toBe(out);
+  });
+
+  it('gives a Paper-filled shape the same class the page rect themes through', () => {
+    const out = serializeWhiteboard(
+      parseWhiteboard(
+        withShapes(
+          `<rect x="0" y="0" width="10" height="10" fill="${PAPER_FILL}" stroke="${PALETTE[0]}" stroke-width="2"/>`,
+        ),
+      ),
+    );
+    expect(out).toContain('class="wb-c0 wb-bg"');
+    // The literal stays white — a CSS-less renderer must still paint paper.
+    expect(out).toContain(`fill="${PAPER_FILL}"`);
+    expect(serializeWhiteboard(parseWhiteboard(out))).toBe(out);
+  });
+});
+
+describe('the box shapes', () => {
+  function boardWith(element: SceneElement): SceneDoc {
+    return createScene({ layers: [createLayer({ id: 'a1B2', elements: [element] })] });
+  }
+
+  const shape = (kind: ShapeKind): SceneElement => ({
+    kind: 'shape',
+    id: null,
+    shape: kind,
+    geom: { x: 10, y: 20, width: 100, height: 60 },
+    stroke: '#1a1a1a',
+    strokeWidth: 2,
+    fill: 'none',
+    opacity: null,
+    dash: null,
+    rx: null,
+    markerStart: false,
+  });
+
+  it('round-trips every one of them, box and all', () => {
+    for (const kind of BOX_SHAPES) {
+      const source = serializeWhiteboard(boardWith(shape(kind)));
+      expect(source).toContain(`wb:shape="${kind}"`);
+      const back = parseWhiteboard(source).layers[0]!.elements[0];
+      expect(back).toMatchObject({
+        kind: 'shape',
+        shape: kind,
+        geom: { x: 10, y: 20, width: 100, height: 60 },
+      });
+      // And the serializer is still a fixed point with them in the file.
+      expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
+    }
+  });
+
+  it('recovers a polygon’s box from its own vertices — no extra attribute', () => {
+    const source = serializeWhiteboard(boardWith(shape('diamond')));
+    expect(source).toContain(
+      '<polygon wb:shape="diamond" class="wb-c0" points="60,20 110,50 60,80 10,50"',
+    );
+    expect(source).not.toContain('wb:box');
+  });
+
+  it('gives the cylinder wb:box, because two arcs cannot name their own box', () => {
+    const source = serializeWhiteboard(boardWith(shape('cylinder')));
+    expect(source).toContain('<path wb:shape="cylinder" class="wb-c0" wb:box="10 20 100 60"');
+    expect(source).toContain('d="M10,30A50,10 0 0 1 110,30');
+  });
+
+  it('leaves a polygon nobody claimed as untouched raw content', () => {
+    const doc = parseWhiteboard(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g wb:layer="aaaa" wb:name="L"><polygon wb:shape="trapezoid" points="0,0 1,1 2,2"/></g></svg>`,
+    );
+    expect(doc.layers[0]!.elements[0]).toMatchObject({ kind: 'raw' });
+  });
+
+  it('refuses a cylinder whose box was lost rather than putting it at the origin', () => {
+    const doc = parseWhiteboard(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g wb:layer="aaaa" wb:name="L"><path wb:shape="cylinder" d="M0,0"/></g></svg>`,
+    );
+    expect(doc.layers[0]!.elements[0]).toMatchObject({ kind: 'raw' });
   });
 });
 

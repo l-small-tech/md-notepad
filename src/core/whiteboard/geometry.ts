@@ -12,6 +12,8 @@
  * these functions can stay this simple.
  */
 
+import type { BoxShapeKind, ShapeKind } from './scene';
+
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -176,6 +178,137 @@ export function ellipseOutline(
     points.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
   }
   return points;
+}
+
+/* ------------------------------ box shapes -------------------------------- */
+
+/**
+ * How far a parallelogram leans, and how far a hexagon's corners are cut in,
+ * as a fraction of the box width. One constant for both because they are the
+ * same gesture — shave the corners — and because a diagram reads better when
+ * its shapes agree about how slanted "slanted" is.
+ */
+export const BOX_SLANT = 0.25;
+
+/**
+ * The height of a cylinder's elliptical rim. Proportional to the box, capped
+ * by its width so a tall narrow cylinder does not get a rim it could roll on.
+ */
+export function cylinderRimRy(rect: Rect): number {
+  return Math.min(rect.height / 6, rect.width / 4);
+}
+
+/**
+ * The vertices of a polygonal box shape, in draw order and NOT closed — this
+ * is exactly what `<polygon points>` wants.
+ *
+ * Every list touches all four edges of the box by construction, which is the
+ * whole reason the format can store these as plain polygons and still recover
+ * `x/y/width/height` on parse: the bounding box of the points IS the geometry.
+ * `cylinder` has no vertex list (it is an arc path) and returns none.
+ */
+export function boxShapePoints(shape: BoxShapeKind, rect: Rect): Point[] {
+  const { x, y, width: w, height: h } = rect;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const slant = w * BOX_SLANT;
+  switch (shape) {
+    case 'diamond':
+      return [
+        { x: cx, y },
+        { x: x + w, y: cy },
+        { x: cx, y: y + h },
+        { x, y: cy },
+      ];
+    case 'triangle':
+      return [
+        { x: cx, y },
+        { x: x + w, y: y + h },
+        { x, y: y + h },
+      ];
+    case 'parallelogram':
+      return [
+        { x: x + slant, y },
+        { x: x + w, y },
+        { x: x + w - slant, y: y + h },
+        { x, y: y + h },
+      ];
+    case 'hexagon':
+      return [
+        { x: x + slant, y },
+        { x: x + w - slant, y },
+        { x: x + w, y: cy },
+        { x: x + w - slant, y: y + h },
+        { x: x + slant, y: y + h },
+        { x, y: cy },
+      ];
+    case 'cylinder':
+      return [];
+  }
+}
+
+/**
+ * A box shape's outline as a CLOSED polyline — what hit-testing follows, so a
+ * click lands on the drawn edge rather than on the bounding box a diamond
+ * barely touches. The cylinder's arcs are sampled; everything else is exact.
+ */
+export function boxShapeOutline(shape: BoxShapeKind, rect: Rect, steps = 16): Point[] {
+  if (shape !== 'cylinder') {
+    const points = boxShapePoints(shape, rect);
+    return points.length > 0 ? [...points, points[0]!] : [];
+  }
+  const { x, y, width: w, height: h } = rect;
+  const ry = cylinderRimRy(rect);
+  const rx = w / 2;
+  const cx = x + w / 2;
+  const points: Point[] = [];
+  // The top rim's upper half, left to right, then down the right side …
+  for (let i = 0; i <= steps; i++) {
+    const angle = Math.PI - (i / steps) * Math.PI;
+    points.push({ x: cx + rx * Math.cos(angle), y: y + ry - ry * Math.sin(angle) });
+  }
+  // … the bottom's lower half, right to left, then closed up the left side.
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI;
+    points.push({ x: cx + rx * Math.cos(angle), y: y + h - ry + ry * Math.sin(angle) });
+  }
+  points.push(points[0]!);
+  return points;
+}
+
+/**
+ * The box a shape's geometry spans, whatever keys that shape uses — the one
+ * place the geom-key convention is decoded. Unpadded: callers add the stroke
+ * width themselves, because "what does it cover" and "what can I click" want
+ * different amounts of slop.
+ */
+export function shapeGeomRect(shape: ShapeKind, geom: Readonly<Record<string, number>>): Rect {
+  if (shape === 'ellipse') {
+    return {
+      x: (geom.cx ?? 0) - (geom.rx ?? 0),
+      y: (geom.cy ?? 0) - (geom.ry ?? 0),
+      width: (geom.rx ?? 0) * 2,
+      height: (geom.ry ?? 0) * 2,
+    };
+  }
+  if (shape === 'line' || shape === 'arrow') {
+    const x1 = geom.x1 ?? 0;
+    const y1 = geom.y1 ?? 0;
+    const x2 = geom.x2 ?? 0;
+    const y2 = geom.y2 ?? 0;
+    return {
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    };
+  }
+  return {
+    x: geom.x ?? 0,
+    y: geom.y ?? 0,
+    width: geom.width ?? 0,
+    height: geom.height ?? 0,
+  };
 }
 
 /* ----------------------------- path transforming -------------------------- */

@@ -29,6 +29,9 @@ const RECT: SceneElement = {
   strokeWidth: 2,
   fill: 'none',
   opacity: null,
+  dash: null,
+  rx: null,
+  markerStart: false,
 };
 
 function infiniteBoard(
