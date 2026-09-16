@@ -10,10 +10,17 @@
  * whole units.
  */
 
-import { boundsOfPoints, flattenPathData, type Rect } from './geometry';
+import {
+  boundsOfPoints,
+  connectorPoints,
+  flattenPathData,
+  shapeGeomRect,
+  type Rect,
+} from './geometry';
 import {
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
+  isLineShape,
   type SceneDoc,
   type SceneElement,
 } from './scene';
@@ -33,29 +40,26 @@ export function elementBounds(element: SceneElement): Rect | null {
       const bounds = boundsOfPoints(points);
       return bounds === null ? null : padded(bounds, element.strokeWidth / 2);
     }
-    case 'shape': {
-      const g = element.geom;
-      const rect =
-        element.shape === 'rect'
-          ? { x: g.x ?? 0, y: g.y ?? 0, width: g.width ?? 0, height: g.height ?? 0 }
-          : element.shape === 'ellipse'
-            ? {
-                x: (g.cx ?? 0) - (g.rx ?? 0),
-                y: (g.cy ?? 0) - (g.ry ?? 0),
-                width: (g.rx ?? 0) * 2,
-                height: (g.ry ?? 0) * 2,
-              }
-            : rectFromSegment(g.x1 ?? 0, g.y1 ?? 0, g.x2 ?? 0, g.y2 ?? 0);
-      return padded(rect, element.strokeWidth / 2);
-    }
+    case 'shape':
+      // A connector's box is its route's (an elbow bends outside the line
+      // between its ends); every other shape's is its geometry's.
+      return padded(
+        isLineShape(element)
+          ? (boundsOfPoints(connectorPoints(element)) ?? shapeGeomRect(element.shape, element.geom))
+          : shapeGeomRect(element.shape, element.geom),
+        element.strokeWidth / 2,
+      );
     case 'text': {
       // No DOM, so estimate: line height ≈ 1.2em, width ≈ 0.6em per character.
       // The content margin absorbs the error; exactness is not required here.
       const longest = element.lines.reduce((max, line) => Math.max(max, line.length), 0);
+      const width = Math.max(1, longest * element.fontSize * 0.6);
       return {
-        x: element.x,
+        // A label (`text-anchor="middle"`) straddles its `x`; free text
+        // starts there.
+        x: element.labelOf === null ? element.x : element.x - width / 2,
         y: element.y - element.fontSize,
-        width: Math.max(1, longest * element.fontSize * 0.6),
+        width,
         height: Math.max(1, element.lines.length * element.fontSize * 1.2),
       };
     }
@@ -129,10 +133,4 @@ function union(a: Rect, b: Rect): Rect {
     width: Math.max(a.x + a.width, b.x + b.width) - x,
     height: Math.max(a.y + a.height, b.y + b.height) - y,
   };
-}
-
-function rectFromSegment(x1: number, y1: number, x2: number, y2: number): Rect {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  return { x, y, width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
 }

@@ -12,6 +12,8 @@
  * these functions can stay this simple.
  */
 
+import type { BoxShapeKind, ConnectorPort, ShapeElement, ShapeKind } from './scene';
+
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -176,6 +178,351 @@ export function ellipseOutline(
     points.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
   }
   return points;
+}
+
+/* ------------------------------ box shapes -------------------------------- */
+
+/**
+ * How far a parallelogram leans, and how far a hexagon's corners are cut in,
+ * as a fraction of the box width. One constant for both because they are the
+ * same gesture — shave the corners — and because a diagram reads better when
+ * its shapes agree about how slanted "slanted" is.
+ */
+export const BOX_SLANT = 0.25;
+
+/**
+ * The height of a cylinder's elliptical rim. Proportional to the box, capped
+ * by its width so a tall narrow cylinder does not get a rim it could roll on.
+ */
+export function cylinderRimRy(rect: Rect): number {
+  return Math.min(rect.height / 6, rect.width / 4);
+}
+
+/**
+ * The vertices of a polygonal box shape, in draw order and NOT closed — this
+ * is exactly what `<polygon points>` wants.
+ *
+ * Every list touches all four edges of the box by construction, which is the
+ * whole reason the format can store these as plain polygons and still recover
+ * `x/y/width/height` on parse: the bounding box of the points IS the geometry.
+ * `cylinder` has no vertex list (it is an arc path) and returns none.
+ */
+export function boxShapePoints(shape: BoxShapeKind, rect: Rect): Point[] {
+  const { x, y, width: w, height: h } = rect;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const slant = w * BOX_SLANT;
+  switch (shape) {
+    case 'diamond':
+      return [
+        { x: cx, y },
+        { x: x + w, y: cy },
+        { x: cx, y: y + h },
+        { x, y: cy },
+      ];
+    case 'triangle':
+      return [
+        { x: cx, y },
+        { x: x + w, y: y + h },
+        { x, y: y + h },
+      ];
+    case 'parallelogram':
+      return [
+        { x: x + slant, y },
+        { x: x + w, y },
+        { x: x + w - slant, y: y + h },
+        { x, y: y + h },
+      ];
+    case 'hexagon':
+      return [
+        { x: x + slant, y },
+        { x: x + w - slant, y },
+        { x: x + w, y: cy },
+        { x: x + w - slant, y: y + h },
+        { x: x + slant, y: y + h },
+        { x, y: cy },
+      ];
+    case 'cylinder':
+      return [];
+  }
+}
+
+/**
+ * A box shape's outline as a CLOSED polyline — what hit-testing follows, so a
+ * click lands on the drawn edge rather than on the bounding box a diamond
+ * barely touches. The cylinder's arcs are sampled; everything else is exact.
+ */
+export function boxShapeOutline(shape: BoxShapeKind, rect: Rect, steps = 16): Point[] {
+  if (shape !== 'cylinder') {
+    const points = boxShapePoints(shape, rect);
+    return points.length > 0 ? [...points, points[0]!] : [];
+  }
+  const { x, y, width: w, height: h } = rect;
+  const ry = cylinderRimRy(rect);
+  const rx = w / 2;
+  const cx = x + w / 2;
+  const points: Point[] = [];
+  // The top rim's upper half, left to right, then down the right side …
+  for (let i = 0; i <= steps; i++) {
+    const angle = Math.PI - (i / steps) * Math.PI;
+    points.push({ x: cx + rx * Math.cos(angle), y: y + ry - ry * Math.sin(angle) });
+  }
+  // … the bottom's lower half, right to left, then closed up the left side.
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI;
+    points.push({ x: cx + rx * Math.cos(angle), y: y + h - ry + ry * Math.sin(angle) });
+  }
+  points.push(points[0]!);
+  return points;
+}
+
+/**
+ * The box a shape's geometry spans, whatever keys that shape uses — the one
+ * place the geom-key convention is decoded. Unpadded: callers add the stroke
+ * width themselves, because "what does it cover" and "what can I click" want
+ * different amounts of slop.
+ */
+export function shapeGeomRect(shape: ShapeKind, geom: Readonly<Record<string, number>>): Rect {
+  if (shape === 'ellipse') {
+    return {
+      x: (geom.cx ?? 0) - (geom.rx ?? 0),
+      y: (geom.cy ?? 0) - (geom.ry ?? 0),
+      width: (geom.rx ?? 0) * 2,
+      height: (geom.ry ?? 0) * 2,
+    };
+  }
+  if (shape === 'line' || shape === 'arrow') {
+    const x1 = geom.x1 ?? 0;
+    const y1 = geom.y1 ?? 0;
+    const x2 = geom.x2 ?? 0;
+    const y2 = geom.y2 ?? 0;
+    return {
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    };
+  }
+  return {
+    x: geom.x ?? 0,
+    y: geom.y ?? 0,
+    width: geom.width ?? 0,
+    height: geom.height ?? 0,
+  };
+}
+
+/**
+ * A shape's outline as a closed polyline, whatever its kind — the one curve
+ * hit-testing, connector endpoints and port placement all follow, so a line
+ * that ends "on the box" ends on the drawn edge of an ellipse or a diamond and
+ * not on the corner of the rectangle around it. `steps` only matters for the
+ * curved shapes; connector endpoints ask for a finer sampling than a click.
+ */
+export function shapeOutline(
+  shape: ShapeKind,
+  geom: Readonly<Record<string, number>>,
+  steps = 48,
+): Point[] {
+  const rect = shapeGeomRect(shape, geom);
+  if (shape === 'ellipse') {
+    return ellipseOutline(
+      rect.x + rect.width / 2,
+      rect.y + rect.height / 2,
+      rect.width / 2,
+      rect.height / 2,
+      steps,
+    );
+  }
+  if (shape === 'rect' || shape === 'line' || shape === 'arrow') {
+    return rectOutline(rect);
+  }
+  return boxShapeOutline(shape, rect, Math.max(8, Math.round(steps / 3)));
+}
+
+/**
+ * Where a ray from `origin` along `direction` LEAVES a closed outline: the
+ * farthest crossing along the ray, which for the convex outlines this format
+ * draws is the only one. Null when the ray never crosses (a degenerate shape,
+ * or an origin outside it aimed away).
+ */
+export function rayOutlineHit(
+  origin: Point,
+  direction: Point,
+  outline: readonly Point[],
+): Point | null {
+  let best: { t: number; point: Point } | null = null;
+  for (let i = 1; i < outline.length; i++) {
+    const a = outline[i - 1]!;
+    const b = outline[i]!;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const denominator = direction.x * ey - direction.y * ex;
+    if (Math.abs(denominator) < 1e-12) {
+      continue; // parallel
+    }
+    const wx = a.x - origin.x;
+    const wy = a.y - origin.y;
+    const t = (wx * ey - wy * ex) / denominator;
+    const u = (wx * direction.y - wy * direction.x) / denominator;
+    if (t < 0 || u < -1e-9 || u > 1 + 1e-9) {
+      continue;
+    }
+    if (best === null || t > best.t) {
+      best = { t, point: { x: origin.x + direction.x * t, y: origin.y + direction.y * t } };
+    }
+  }
+  return best?.point ?? null;
+}
+
+/* ------------------------------- connectors ------------------------------- */
+
+/** The axis a connector travels along as it leaves (or arrives at) an end. */
+export type ConnectorAxis = 'h' | 'v';
+
+/** The axis a port's normal lies on; null for `c` (and for a free end). */
+export function portAxis(port: ConnectorPort | null | undefined): ConnectorAxis | null {
+  switch (port) {
+    case 'n':
+    case 's':
+      return 'v';
+    case 'e':
+    case 'w':
+      return 'h';
+    default:
+      return null;
+  }
+}
+
+/** The outward unit normal of an axis port, or null for `c`. */
+export function portNormal(port: ConnectorPort): Point | null {
+  switch (port) {
+    case 'n':
+      return { x: 0, y: -1 };
+    case 'e':
+      return { x: 1, y: 0 };
+    case 's':
+      return { x: 0, y: 1 };
+    case 'w':
+      return { x: -1, y: 0 };
+    case 'c':
+      return null;
+  }
+}
+
+/**
+ * An axis-aligned route from `a` to `b` with one or two bends — the elbow
+ * connector's polyline, endpoints included.
+ *
+ * Deterministic and geometry-only, so the serializer can derive it on every
+ * save and never has to store a waypoint: the same ends and the same ports
+ * always draw the same path. `axisA`/`axisB` are the axes the line leaves
+ * `a` and arrives at `b` along (a port's normal); null means "whichever way
+ * the other end mostly is", which is what a free end and a `c` port want.
+ *
+ * - Both horizontal (or both vertical): two bends, turning at the midpoint
+ *   between the ends — the classic `⊐⊏` between two boxes side by side.
+ * - One of each: a single bend at the corner.
+ * - Ends already collinear on the shared axis: no bend at all.
+ *
+ * The route does NOT add a stub when the target lies BEHIND a port (an `e`
+ * port aimed at something on the left runs back across its own host). That
+ * costs two more bends per end and a stub length nobody agrees on; the ports
+ * a press picks (`nearestPort`) face the pointer, so it takes deliberately
+ * choosing the wrong side to reach it.
+ */
+export function routeElbow(
+  a: Point,
+  b: Point,
+  axisA: ConnectorAxis | null,
+  axisB: ConnectorAxis | null,
+): Point[] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dominant: ConnectorAxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+  const first = axisA ?? dominant;
+  const last = axisB ?? dominant;
+  let points: Point[];
+  if (first === last) {
+    if (first === 'h') {
+      const mx = a.x + dx / 2;
+      points = [a, { x: mx, y: a.y }, { x: mx, y: b.y }, b];
+    } else {
+      const my = a.y + dy / 2;
+      points = [a, { x: a.x, y: my }, { x: b.x, y: my }, b];
+    }
+  } else if (first === 'h') {
+    points = [a, { x: b.x, y: a.y }, b];
+  } else {
+    points = [a, { x: a.x, y: b.y }, b];
+  }
+  return dedupePoints(points);
+}
+
+/**
+ * Drop consecutive (near-)duplicate points and any bend that does not bend —
+ * a waypoint on the straight line between its neighbours — so a route whose
+ * ends are already in line is a plain segment.
+ */
+function dedupePoints(points: readonly Point[]): Point[] {
+  const out: Point[] = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (!last || Math.abs(last.x - p.x) > 1e-6 || Math.abs(last.y - p.y) > 1e-6) {
+      out.push(p);
+    }
+  }
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1]!;
+    const b = out[i]!;
+    const c = out[i + 1]!;
+    const sameX = Math.abs(a.x - b.x) < 1e-6 && Math.abs(b.x - c.x) < 1e-6;
+    const sameY = Math.abs(a.y - b.y) < 1e-6 && Math.abs(b.y - c.y) < 1e-6;
+    if (sameX || sameY) {
+      out.splice(i, 1);
+    }
+  }
+  return out;
+}
+
+/**
+ * The polyline a line/arrow draws: its two endpoints, or the elbow route
+ * between them. THE geometry of a connector for everything that is not the
+ * serializer's attribute list — hit-testing, bounds, label placement.
+ */
+export function connectorPoints(shape: ShapeElement): Point[] {
+  const g = shape.geom;
+  const a = { x: g.x1 ?? 0, y: g.y1 ?? 0 };
+  const b = { x: g.x2 ?? 0, y: g.y2 ?? 0 };
+  if (shape.route !== 'elbow') {
+    return [a, b];
+  }
+  return routeElbow(a, b, portAxis(shape.from?.port), portAxis(shape.to?.port));
+}
+
+/** The point halfway along a polyline BY LENGTH — where a connector's label sits. */
+export function polylineMidpoint(points: readonly Point[]): Point | null {
+  if (points.length === 0) {
+    return null;
+  }
+  if (points.length === 1) {
+    return points[0]!;
+  }
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += distance(points[i - 1]!, points[i]!);
+  }
+  let remaining = total / 2;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const length = distance(a, b);
+    if (length >= remaining) {
+      const t = length === 0 ? 0 : remaining / length;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    remaining -= length;
+  }
+  return points[points.length - 1]!;
 }
 
 /* ----------------------------- path transforming -------------------------- */

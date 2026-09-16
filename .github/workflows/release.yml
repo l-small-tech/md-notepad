@@ -154,11 +154,9 @@ jobs:
           # The per-platform download table is NOT here: `finalize` prepends one
           # with real links, because only that job knows the built filenames.
           # If it never runs, the notes below still stand on their own.
+          # First-run notes lead the template so they land directly under that
+          # table and above "What's new".
           releaseBody: |
-            ## What's new
-
-            ${{ steps.changelog.outputs.body }}
-
             **Linux**: take the `.AppImage` (any distro), `.deb` or `.rpm` from Assets below.
 
             **First-run notes**
@@ -167,6 +165,10 @@ jobs:
             - **Linux AppImage**: `chmod +x` the file, then run it.
 
             The app updates itself automatically after this install.
+
+            ## What's new
+
+            ${{ steps.changelog.outputs.body }}
 
             <details>
             <summary>Other files (you don't need these)</summary>

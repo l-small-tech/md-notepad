@@ -14,17 +14,22 @@
  */
 
 import {
+  boundsOfPoints,
+  boxShapeOutline,
+  connectorPoints,
   distanceToPolyline,
   ellipseOutline,
   flattenPathData,
+  padRect,
   pointInPolygonsEvenOdd,
   pointInRect,
   rectOutline,
+  shapeGeomRect,
   type Point,
   type Rect,
 } from './geometry';
 import { isEditable, type ElementRef } from './layers';
-import type { SceneDoc, SceneElement } from './scene';
+import { isBoxShape, isLineShape, type SceneDoc, type SceneElement } from './scene';
 
 /** Rough advance width of a glyph as a fraction of font size — text bounds only. */
 const TEXT_ADVANCE = 0.55;
@@ -56,44 +61,28 @@ export function elementBounds(element: SceneElement): Rect | null {
         height: maxY - minY + pad * 2,
       };
     }
-    case 'shape': {
-      const g = element.geom;
-      const pad = element.strokeWidth / 2;
-      if (element.shape === 'rect') {
-        return {
-          x: (g.x ?? 0) - pad,
-          y: (g.y ?? 0) - pad,
-          width: (g.width ?? 0) + pad * 2,
-          height: (g.height ?? 0) + pad * 2,
-        };
-      }
-      if (element.shape === 'ellipse') {
-        return {
-          x: (g.cx ?? 0) - (g.rx ?? 0) - pad,
-          y: (g.cy ?? 0) - (g.ry ?? 0) - pad,
-          width: (g.rx ?? 0) * 2 + pad * 2,
-          height: (g.ry ?? 0) * 2 + pad * 2,
-        };
-      }
-      const x1 = g.x1 ?? 0;
-      const y1 = g.y1 ?? 0;
-      const x2 = g.x2 ?? 0;
-      const y2 = g.y2 ?? 0;
-      return {
-        x: Math.min(x1, x2) - pad,
-        y: Math.min(y1, y2) - pad,
-        width: Math.abs(x2 - x1) + pad * 2,
-        height: Math.abs(y2 - y1) + pad * 2,
-      };
-    }
+    case 'shape':
+      // A connector covers its ROUTE (an elbow's bends included); every other
+      // shape's box comes from one decoder, so "what does it cover" and "what
+      // can I click" can never drift apart (`shapeGeomRect`).
+      return padRect(
+        isLineShape(element)
+          ? (boundsOfPoints(connectorPoints(element)) ?? shapeGeomRect(element.shape, element.geom))
+          : shapeGeomRect(element.shape, element.geom),
+        element.strokeWidth / 2,
+      );
     case 'text': {
       // Estimated, not measured — core has no font metrics. Good enough to
       // erase or select by; phase 3's text tool measures for real in the DOM.
       const longest = element.lines.reduce((n, line) => Math.max(n, line.length), 0);
+      const width = longest * element.fontSize * TEXT_ADVANCE;
       return {
-        x: element.x,
+        // A label is `text-anchor="middle"`: its `x` is the centre, not the
+        // left edge, so its box straddles it — otherwise clicking the left
+        // half of a label would reach whatever is underneath instead.
+        x: element.labelOf === null ? element.x : element.x - width / 2,
         y: element.y - element.fontSize,
-        width: longest * element.fontSize * TEXT_ADVANCE,
+        width,
         height: Math.max(1, element.lines.length) * element.fontSize * TEXT_LINE_HEIGHT,
       };
     }
@@ -120,6 +109,15 @@ export function hitTestElement(element: SceneElement, point: Point, radius: numb
     case 'shape': {
       const g = element.geom;
       const reach = radius + element.strokeWidth / 2;
+      if (isBoxShape(element.shape)) {
+        // The OUTLINE, not the box: a diamond's corners are empty space, and
+        // clicking them should reach whatever is actually drawn there.
+        const outline = boxShapeOutline(element.shape, shapeGeomRect(element.shape, g));
+        if (element.fill !== 'none' && pointInPolygonsEvenOdd(point, [outline])) {
+          return true;
+        }
+        return distanceToPolyline(point, outline) <= reach;
+      }
       if (element.shape === 'rect') {
         const rect = {
           x: g.x ?? 0,
@@ -147,12 +145,8 @@ export function hitTestElement(element: SceneElement, point: Point, radius: numb
         }
         return distanceToPolyline(point, ellipseOutline(cx, cy, rx, ry)) <= reach;
       }
-      return (
-        distanceToPolyline(point, [
-          { x: g.x1 ?? 0, y: g.y1 ?? 0 },
-          { x: g.x2 ?? 0, y: g.y2 ?? 0 },
-        ]) <= reach
-      );
+      // A line or arrow: its route — the two endpoints, or the elbow's bends.
+      return distanceToPolyline(point, connectorPoints(element)) <= reach;
     }
     case 'text':
     case 'image': {

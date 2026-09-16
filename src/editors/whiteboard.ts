@@ -60,13 +60,77 @@
 
 import { parseWhiteboard, WhiteboardParseError } from '../core/whiteboard/parse';
 import {
+  ALIGN_LABELS,
+  alignElements,
+  canAlign,
+  canDistribute,
+  DISTRIBUTE_LABELS,
+  distributeElements,
+  reorderElements,
+  Z_ORDER_LABELS,
+  type AlignEdge,
+  type DistributeAxis,
+  type ZOrderOp,
+} from '../core/whiteboard/arrange';
+import {
+  copyElements,
+  parseFragment,
+  PASTE_OFFSET,
+  pasteElements,
+  serializeFragment,
+} from '../core/whiteboard/clipboard';
+import {
+  canGroup,
+  canUngroup,
+  expandSelection,
+  groupElements,
+  ungroupElements,
+  withoutRefs,
+} from '../core/whiteboard/groups';
+import {
+  attachLabel,
+  canHostLabel,
+  findElementById,
+  hostCentre,
+  hostOf,
+  labelBaseline,
+  labelCentreY,
+  labelsOf,
+  relayoutLabels,
+  withLabels,
+} from '../core/whiteboard/labels';
+import {
+  attachConnector,
+  AXIS_PORTS,
+  canDetach,
+  canHostConnector,
+  connectorTarget,
+  detachElements,
+  endpointOn,
+  hostCentreOf,
+  portPoints,
+  reconnect,
+  removeAndDetach,
+  setConnectorEnd,
+  type ConnectorTarget,
+} from '../core/whiteboard/connectors';
+import { getClipboard } from '../ipc/clipboard';
+import { openContextMenu, type ContextMenuItem } from './whiteboard-menu';
+import {
   ARROW_MARKER_ID,
+  ARROW_START_MARKER_ID,
   colorModeOf,
   isThemed,
   serializeElement,
   serializeWhiteboard,
 } from '../core/whiteboard/serialize';
-import type { SceneDoc, SceneElement } from '../core/whiteboard/scene';
+import {
+  isLineShape,
+  type LineShapeElement,
+  type SceneDoc,
+  type SceneElement,
+  type TextElement,
+} from '../core/whiteboard/scene';
 import { createHistory, type History } from '../core/whiteboard/history';
 import { hitTest } from '../core/whiteboard/hit-test';
 import {
@@ -86,10 +150,29 @@ import {
   targetLayerId,
   type ElementRef,
 } from '../core/whiteboard/layers';
-import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
+import { DEFAULT_BACKGROUND, WB_NAMESPACE } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
 import {
+  carryGrid,
+  DEFAULT_GRID,
+  gridOf,
+  setGrid as setDocGrid,
+  type GridSettings,
+} from '../core/whiteboard/grid';
+import {
+  guidePorts,
+  guideRects,
+  NO_SNAP,
+  snapPoint,
+  snapRect,
+  type GuideLine,
+  type SnapContext,
+} from '../core/whiteboard/snap';
+import {
+  constrainShapeDrag,
   ERASER_RADIUS,
+  GRID_HOTKEY,
+  SNAP_THRESHOLD,
   HANDLE_HIT_RADIUS,
   HANDLE_SIZE,
   isShapeTool,
@@ -98,7 +181,11 @@ import {
   makeText,
   MIN_SELECTION_SIZE,
   PALETTE,
+  PORT_SNAP_RADIUS,
+  ROUTE_LABELS,
+  toolForHotkey,
   type DrawTool,
+  type ShapeStyle,
   type ToolSettings,
 } from '../core/whiteboard/tools';
 import {
@@ -121,6 +208,12 @@ import {
   type ResizeHandle,
 } from '../core/whiteboard/select';
 import {
+  restyleElements,
+  selectionStyle,
+  type SelectionStyle,
+  type StylePatch,
+} from '../core/whiteboard/style';
+import {
   createInputState,
   fingerDrawsEnabled,
   notePointerDown,
@@ -130,7 +223,7 @@ import {
   type InputState,
   type PointerInfo,
 } from '../core/whiteboard/input';
-import type { Point, Rect } from '../core/whiteboard/geometry';
+import { padRect, type Point, type Rect } from '../core/whiteboard/geometry';
 import {
   clampDiagramScale,
   DIAGRAM_ZOOM_STEP,
@@ -166,11 +259,53 @@ export interface WhiteboardUiState {
   readonly activeLayerName: string | null;
   /** How many elements are selected — the Delete button's enablement. */
   readonly selectionCount: number;
+  /**
+   * The style the SELECTION agrees on, or null when nothing is selected.
+   *
+   * The ribbon doubles as the style panel, so with a selection active its
+   * swatches, nib, fill, dash and arrow-head controls have to show what is
+   * selected rather than what the tool would draw next — and show nothing at
+   * all where the selection disagrees with itself. Each field of
+   * {@link SelectionStyle} is already "the common value, or null".
+   */
+  readonly selectionStyle: SelectionStyle | null;
+  /**
+   * This DOCUMENT's grid (`core/whiteboard/grid.ts`) — the ribbon's grid
+   * button, its snap toggle and its size menu. Per tab rather than global,
+   * unlike the tool, because the grid belongs to the diagram: it is stored in
+   * the file and comes back with it.
+   */
+  readonly grid: GridSettings;
+}
+
+/**
+ * What Ctrl+C put on the board clipboard. Held by the UI store (GLOBAL, like
+ * the tool: copy on one board, paste on another) and reached through
+ * {@link WhiteboardAdapterOptions.clipboard}. `fragment` is the serialized
+ * `<svg>` that also went to the system clipboard, so a paste can tell "the
+ * same thing again" (which lands a step further along) from "something new";
+ * `pastes` is how many times this clipboard has landed so far.
+ */
+export interface WhiteboardClipboard {
+  readonly fragment: string;
+  readonly elements: readonly SceneElement[];
+  readonly pastes: number;
 }
 
 export interface WhiteboardAdapterOptions {
   /** The error card's escape hatch — the UI switches this tab to raw source. */
   onOpenAsText: () => void;
+  /**
+   * A single-key tool hotkey was pressed on the focused board (V, P, H, E, T,
+   * R, O, L, A — `TOOL_HOTKEYS`). The ribbon owns the tool, so the adapter
+   * asks it to switch rather than switching anything itself.
+   */
+  onToolHotkey?: (tool: DrawTool) => void;
+  /** The board clipboard — see {@link WhiteboardClipboard}. */
+  clipboard?: {
+    get: () => WhiteboardClipboard | null;
+    set: (clipboard: WhiteboardClipboard | null) => void;
+  };
   /** The ribbon's current tool/colour/width, read fresh at each gesture start. */
   getTool: () => ToolSettings;
   /** Undo availability etc., so the ribbon can disable what won't work. */
@@ -228,6 +363,26 @@ export interface WhiteboardAdapter extends EditorAdapter {
   /** Delete the current selection (the ribbon's bin button, and Delete). */
   deleteSelection(): void;
   selectAll(): void;
+  /** Ctrl+C: the selection to the board clipboard and, as SVG, the system's. */
+  copySelection(): void;
+  /** Ctrl+X: copy, then delete. */
+  cutSelection(): void;
+  /**
+   * Ctrl+V / the menu: paste the system clipboard if it holds a whiteboard
+   * fragment, else the board clipboard. Each repeat lands 16 units further.
+   */
+  pasteClipboard(): void;
+  /** Ctrl+D: a copy of the selection, 16 units along, without touching the clipboard. */
+  duplicateSelection(): void;
+  /** Ctrl+] / Ctrl+[ (Shift for front/back): restack within each layer. */
+  reorderSelection(op: ZOrderOp): void;
+  alignSelection(edge: AlignEdge): void;
+  distributeSelection(axis: DistributeAxis): void;
+  /** Ctrl+G / Ctrl+Shift+G: tag the selection as one group / clear the tags. */
+  groupSelection(): void;
+  ungroupSelection(): void;
+  /** Cut every selected connector loose from its hosts; the lines stay put. */
+  detachSelection(): void;
   /**
    * The ribbon changed the tool. The adapter PULLS tool settings at each
    * gesture, so this is only about what is visible between gestures: the
@@ -240,6 +395,20 @@ export interface WhiteboardAdapter extends EditorAdapter {
    * looking at rather than only on the next thing you type.
    */
   applyTextStyle(style: { fontSize?: number; fontFamily?: string }): void;
+  /**
+   * Restyle the selection — colour, fill, nib, dash, arrow heads. The ribbon
+   * calls this IN ADDITION to setting the tool default, so one click both
+   * changes what is selected and what the next shape will look like. One undo
+   * step per click; a no-op when nothing is selected.
+   */
+  restyleSelection(patch: StylePatch): void;
+  /**
+   * Change this document's grid — show/hide (the ribbon's button and G), the
+   * snap toggle, the spacing. Committed WITHOUT an undo step: showing the grid
+   * is not an edit to the drawing, and a Ctrl+Z that turns the dots back on is
+   * the kind of surprise that makes people stop using undo.
+   */
+  setGrid(patch: Partial<GridSettings>): void;
   /**
    * Open the scan screen. Defaults to the camera where there is one and the
    * file picker otherwise; a {@link ScanPhoto} skips acquisition entirely,
@@ -267,6 +436,17 @@ interface Gesture {
   tool: DrawTool;
   color: string;
   width: number;
+  /** Shape tools: the fill/dash/heads the ribbon had when the drag began. */
+  shapeStyle: ShapeStyle;
+  /** Shift held: the shape is constrained (square/circle, 45° line). */
+  constrained: boolean;
+  /**
+   * Line/arrow tools: the host the press landed on, and the host under the
+   * pointer right now (recomputed every frame by `elementFor`). Either end
+   * that has one is attached when the line is committed.
+   */
+  fromTarget: ConnectorTarget | null;
+  toTarget: ConnectorTarget | null;
   /** 1€-filtered samples in scene coordinates (freehand tools). */
   points: Point[];
   filter: (point: Point, timeMs: number) => Point;
@@ -308,18 +488,48 @@ type SelectDrag =
       from: Rect;
       base: SceneDoc;
       moved: boolean;
+      /**
+       * The selection minus labels that have a live host. A resize scales
+       * these and RE-CENTRES the labels on the result (`relayoutLabels`),
+       * because stretching a box must not stretch the type inside it.
+       */
+      scaled: readonly ElementRef[];
+    }
+  | {
+      /**
+       * One end of a single selected connector, dragged by its handle. Over a
+       * host it re-attaches (the candidate port lights up); over open board it
+       * detaches and snaps like any point.
+       */
+      kind: 'endpoint';
+      pointerId: number;
+      ref: ElementRef;
+      end: 'from' | 'to';
+      start: Point;
+      base: SceneDoc;
+      moved: boolean;
     };
 
-/** What the text tool is currently editing. `ref` is null for new text. */
+/**
+ * What the text tool is currently editing. `ref` is null for new text; `host`
+ * is the element a NEW label is being typed for. `at` is the first line's
+ * baseline origin for start-anchored text and the block's CENTRE for a label
+ * (`anchor: 'middle'`), whose baseline moves as lines are added.
+ */
 interface TextEdit {
   at: Point;
+  anchor: 'start' | 'middle';
   color: string;
   fontSize: number;
   fontFamily: string | null;
   ref: ElementRef | null;
+  host: ElementRef | null;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** The modifier name the context menu's shortcut column shows. */
+const MOD_LABEL = /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
 
 /** Arrow-key nudge directions, in SCREEN pixels (scaled by the zoom). */
 const NUDGE_KEYS: Record<string, Point | undefined> = {
@@ -349,6 +559,9 @@ const WB_THEME_VARS = [
   '--wb-c6',
   '--wb-c7',
 ];
+
+/** Counts adapter instances, so each board's grid `<pattern>` ids are its own. */
+let gridInstances = 0;
 
 export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): WhiteboardAdapter {
   let root: HTMLDivElement | null = null;
@@ -406,6 +619,44 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let textEdit: TextEdit | null = null;
   let viewReportTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /* ------------------------------ phase C state --------------------------- */
+
+  /**
+   * Alt, read LIVE from every pointer event for the same reason Shift is:
+   * people reach for it once they can SEE the thing being pulled somewhere
+   * they didn't mean. It suppresses snapping for as long as it is held.
+   */
+  let snapOff = false;
+  /**
+   * The rectangles the gesture in flight may align to, computed ONCE when it
+   * starts. They come from the drag's base document and the selection cannot
+   * change mid-drag, so recomputing them per frame would buy nothing and cost
+   * a pass over the board.
+   */
+  let gestureGuides: readonly Rect[] = [];
+  /** The guides currently MATCHED — drawn as chrome, cleared on release. */
+  let matchedGuides: readonly GuideLine[] = [];
+
+  /* ------------------------------ phase D state --------------------------- */
+
+  /** The ports the gesture in flight may land on — same lifetime as the guides. */
+  let gesturePorts: readonly Point[] = [];
+  /** The port a snap landed on this frame, drawn as a ring. */
+  let matchedPort: Point | null = null;
+  /**
+   * The host a connector end is about to attach to — while drawing a line or
+   * dragging an endpoint handle. Its ports are drawn with the chosen one lit,
+   * so the user can see WHERE the line will land before letting go.
+   */
+  let hoverTarget: ConnectorTarget | null = null;
+  /**
+   * Pattern ids have to be unique across the DOCUMENT, not the board: every
+   * tab's editor is mounted at once (I7), so two boards showing a grid would
+   * otherwise both resolve `url(#wb-grid-minor)` to whichever was adopted
+   * first — and paint the other board's spacing.
+   */
+  const gridIdSuffix = `${++gridInstances}`;
+
   /* ------------------------------ view plumbing --------------------------- */
 
   function applyView(): void {
@@ -423,6 +674,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // Selection handles are drawn in scene units at a constant SCREEN size, so
     // every zoom change has to redraw them.
     renderChrome();
+    // Same for the grid's dots — and an infinite board's grid rectangle is the
+    // visible pane, which a pan moves.
+    renderGrid();
     reportViewSoon();
   }
 
@@ -653,6 +907,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       }
       applyView();
     }
+    // Last: the grid is sized against the view this render settled on.
+    renderGrid();
   }
 
   /**
@@ -678,6 +934,88 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
   }
 
+  /* ---------------------------------- grid -------------------------------- */
+
+  /**
+   * Paint the dot grid INTO the adopted board `<svg>`, after adoption.
+   *
+   * This is the one place the on-screen board deliberately differs from the
+   * file, and the shape of it is the point: the model never learns about the
+   * grid's geometry, the serializer never sees it, and `renderedText` — the
+   * thing that gets written back — is produced from the scene, not from this
+   * DOM. So a board with the grid showing saves exactly like the same board
+   * with it hidden, minus one metadata key.
+   *
+   * It goes inside the board (rather than on the overlay, which would be
+   * simpler) because the dots have to sit BENEATH the ink and above the page:
+   * a grid painted over a drawing is a grid you have to turn off to read it.
+   *
+   * Two things are sized in screen pixels and therefore have to be redone on
+   * every zoom: the dot radius (constant on screen, like the selection
+   * handles) and — for an infinite board, whose viewBox hugs the content —
+   * the rectangle the pattern fills, which is the visible pane.
+   */
+  function renderGrid(): void {
+    const board = canvas?.firstElementChild;
+    if (!(board instanceof SVGSVGElement)) {
+      return;
+    }
+    board.querySelector('[data-wb-grid]')?.remove();
+    if (!scene) {
+      return;
+    }
+    const grid = gridOf(scene);
+    if (!grid.show || grid.size <= 0) {
+      return;
+    }
+    // A page board's grid stops at the page; an infinite one's has to cover
+    // whatever is on screen, which moves with every pan and zoom.
+    const area =
+      scene.background === null
+        ? padRect(visibleSceneRect(), grid.size * 5)
+        : {
+            x: scene.viewBox[0],
+            y: scene.viewBox[1],
+            width: scene.viewBox[2],
+            height: scene.viewBox[3],
+          };
+    const unit = sceneUnitsPerPixel();
+    const minor = `wb-grid-minor-${gridIdSuffix}`;
+    const major = `wb-grid-major-${gridIdSuffix}`;
+    const step = grid.size;
+    // The pattern's ORIGIN is the scene origin, never the rect's corner, so
+    // the dots sit on the same lines the snapping rounds to. All FOUR corners
+    // are drawn because a pattern clips its tile: one circle at (0,0) would
+    // paint a quarter of a dot, and the four quarters reassemble it.
+    const dots = (id: string, spacing: number, radius: number, cls: string): string =>
+      `<pattern id="${id}" patternUnits="userSpaceOnUse" x="0" y="0" ` +
+      `width="${spacing}" height="${spacing}">` +
+      `<circle class="${cls}" cx="0" cy="0" r="${radius}"/>` +
+      `<circle class="${cls}" cx="${spacing}" cy="0" r="${radius}"/>` +
+      `<circle class="${cls}" cx="0" cy="${spacing}" r="${radius}"/>` +
+      `<circle class="${cls}" cx="${spacing}" cy="${spacing}" r="${radius}"/>` +
+      `</pattern>`;
+    const fill = (id: string): string =>
+      `<rect x="${area.x}" y="${area.y}" width="${area.width}" height="${area.height}" ` +
+      `fill="url(#${id})"/>`;
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('data-wb-grid', '');
+    group.setAttribute('class', 'wb-grid');
+    group.innerHTML =
+      `<defs>${dots(minor, step, unit, 'wb-grid-dot')}` +
+      // Every fifth dot is heavier, which is what turns a field of dots into
+      // something you can count squares on.
+      `${dots(major, step * 5, unit * 1.75, 'wb-grid-dot wb-grid-dot-major')}</defs>` +
+      fill(minor) +
+      fill(major);
+    // Before the first LAYER, so the dots are under the ink and over the page
+    // rect, the palette style block and anything the file brought with it.
+    const firstLayer = [...board.children].find(
+      (child) => child.hasAttributeNS(WB_NAMESPACE, 'layer') || child.hasAttribute('wb:layer'),
+    );
+    board.insertBefore(group, firstLayer ?? null);
+  }
+
   /** Draw (or clear) the element being dragged, on the transparent overlay. */
   function setPreview(element: SceneElement | null): void {
     if (!previewGroup) {
@@ -699,7 +1037,12 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     defs.innerHTML =
       `<marker id="${ARROW_MARKER_ID}" viewBox="0 0 10 10" refX="9" refY="5" ` +
       `markerWidth="6" markerHeight="6" orient="auto-start-reverse">` +
-      `<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>`;
+      `<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>` +
+      // The reversed head, same deal: mirrored geometry with plain `auto`, so
+      // the drag preview matches what the file will say (see serialize.ts).
+      `<marker id="${ARROW_START_MARKER_ID}" viewBox="0 0 10 10" refX="1" refY="5" ` +
+      `markerWidth="6" markerHeight="6" orient="auto">` +
+      `<path d="M10,0 L0,5 L10,10 z" fill="context-stroke"/></marker>`;
     previewGroup = document.createElementNS(SVG_NS, 'g');
     // Selection chrome rides ABOVE the stroke preview: the box and its handles
     // are UI, not ink, and must never be hidden by what is being drawn.
@@ -727,6 +1070,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const unit = sceneUnitsPerPixel();
     const parts: string[] = [];
 
+    // Smart guides, drawn only while the gesture that matched them is live.
+    // They span the matched element AND the thing being dragged, so the line
+    // shows what it lined up WITH rather than crossing the whole board.
+    for (const guide of matchedGuides) {
+      const [x1, y1, x2, y2] =
+        guide.axis === 'x'
+          ? [guide.at, guide.from, guide.at, guide.to]
+          : [guide.from, guide.at, guide.to, guide.at];
+      parts.push(
+        `<line class="wb-guide" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
+          `stroke-width="${unit}"/>`,
+      );
+    }
+
     if (selectDrag?.kind === 'marquee') {
       const box = marqueeRect(selectDrag.start, selectDrag.current);
       parts.push(
@@ -735,7 +1092,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       );
     }
 
-    const box = scene ? selectionBounds(scene, selection) : null;
+    const tool = options.getTool().tool;
+    const selecting = tool === 'select' && selectDrag?.kind !== 'marquee';
+    const connector = selecting ? singleConnector() : null;
+    const box = scene && !connector ? selectionBounds(scene, selection) : null;
     if (box) {
       const pad = 3 * unit;
       const outline = {
@@ -751,7 +1111,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       );
       // Handles only make sense while the SELECT tool is live; with the pen in
       // hand the box is just a reminder of what Delete would take.
-      if (options.getTool().tool === 'select' && selectDrag?.kind !== 'marquee') {
+      if (selecting) {
         const size = HANDLE_SIZE * unit;
         for (const handle of RESIZE_HANDLES) {
           const p = handlePoint(outline, handle);
@@ -762,13 +1122,182 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         }
       }
     }
+    // A single connector gets its two ENDPOINT handles instead of a resize
+    // box — stretching a line by its box is never what anyone means, moving
+    // where it ends is. A filled handle is an attached end.
+    if (connector) {
+      const r = (HANDLE_SIZE * unit) / 2 + unit;
+      for (const [x, y, attached] of [
+        [connector.geom.x1 ?? 0, connector.geom.y1 ?? 0, connector.from !== null],
+        [connector.geom.x2 ?? 0, connector.geom.y2 ?? 0, connector.to !== null],
+      ] as const) {
+        parts.push(
+          `<circle class="wb-sel-end${attached ? ' wb-sel-end-attached' : ''}" ` +
+            `cx="${x}" cy="${y}" r="${r}" stroke-width="${unit}"/>`,
+        );
+      }
+    }
+    // A single selected host shows its four ports faintly: an invitation to
+    // start an arrow from one (so with the line tools in hand as well), and a
+    // reminder of where one would land.
+    const lineTool = tool === 'line' || tool === 'arrow';
+    const host = (selecting || lineTool) && !connector ? singleHost() : null;
+    if (host) {
+      parts.push(...portMarkup(host, null, unit));
+    }
+    // The host a line end is about to attach to: every port, the chosen one
+    // lit — or, for a `c` port, a ring where the end will land.
+    if (hoverTarget && scene) {
+      const element = resolveElement(scene, hoverTarget.ref);
+      if (element) {
+        parts.push(
+          ...portMarkup(element, hoverTarget.port === 'c' ? null : hoverTarget.port, unit),
+        );
+        if (hoverTarget.port === 'c') {
+          parts.push(portRing(hoverTarget.point, unit, true));
+        }
+      }
+    }
+    if (matchedPort) {
+      parts.push(portRing(matchedPort, unit, true));
+    }
     chromeGroup.innerHTML = parts.join('');
   }
 
+  /** The four ports of `host`, `hot` (if any) drawn emphasised. */
+  function portMarkup(host: SceneElement, hot: string | null, unit: number): string[] {
+    const ports = portPoints(host);
+    if (!ports) {
+      return [];
+    }
+    return AXIS_PORTS.map((port) => portRing(ports[port], unit, port === hot));
+  }
+
+  function portRing(at: Point, unit: number, hot: boolean): string {
+    const r = (hot ? 5 : 3.5) * unit;
+    return (
+      `<circle class="wb-port${hot ? ' wb-port-hot' : ''}" cx="${at.x}" cy="${at.y}" ` +
+      `r="${r}" stroke-width="${unit}"/>`
+    );
+  }
+
+  /** The one selected line/arrow, when the selection is exactly that. */
+  function singleConnector(): LineShapeElement | null {
+    if (!scene || selection.length !== 1) {
+      return null;
+    }
+    const element = resolveElement(scene, selection[0]!);
+    return element && isLineShape(element) ? element : null;
+  }
+
+  /** The one selected element that can host a connector, when there is exactly one. */
+  function singleHost(): SceneElement | null {
+    if (!scene || selection.length !== 1) {
+      return null;
+    }
+    const element = resolveElement(scene, selection[0]!);
+    return element && canHostConnector(element) ? element : null;
+  }
+
+  /**
+   * The closure of `refs` over groups and label <-> host links — EVERY
+   * selection the user makes passes through here (click, shift-click,
+   * marquee, the context menu), which is the single mechanism that makes a
+   * group move as one and a label follow its host. Connectors do NOT expand
+   * (an arrow is not part of the box it points at); they follow by
+   * `reconnect` instead.
+   */
+  function expanded(refs: readonly ElementRef[]): ElementRef[] {
+    return scene ? expandSelection(scene, refs) : [...refs];
+  }
+
   function setSelection(next: readonly ElementRef[]): void {
-    selection = next;
+    selection = expanded(next);
     renderChrome();
     notifyState();
+  }
+
+  /* -------------------------------- snapping ------------------------------ */
+
+  /**
+   * Remember what the gesture about to start may align to. Called once, at the
+   * press: the candidates come from the drag's base document and the selection
+   * cannot change mid-drag, so this is the only moment they can change.
+   */
+  function beginSnap(doc: SceneDoc | null, exclude: readonly ElementRef[]): void {
+    gestureGuides = doc ? guideRects(doc, exclude) : [];
+    gesturePorts = doc ? guidePorts(doc, exclude) : [];
+    matchedGuides = [];
+    matchedPort = null;
+  }
+
+  /**
+   * The snapping rules in force right now. Alt turns them off wholesale; the
+   * threshold is {@link SNAP_THRESHOLD} SCREEN pixels converted to scene units,
+   * so the pull feels the same at every zoom while the grid, a property of the
+   * drawing, does not.
+   */
+  function snapContext(): SnapContext {
+    if (!scene || snapOff) {
+      return NO_SNAP;
+    }
+    return {
+      grid: gridOf(scene),
+      guides: gestureGuides,
+      ports: gesturePorts,
+      threshold: SNAP_THRESHOLD * sceneUnitsPerPixel(),
+      enabled: true,
+    };
+  }
+
+  /**
+   * Record what a snap matched — guide lines, a port, the host a connector end
+   * is over — and redraw the chrome if any of it changed.
+   */
+  function showGuides(
+    guides: readonly GuideLine[],
+    port: Point | null = null,
+    target: ConnectorTarget | null = null,
+  ): void {
+    const sameGuides =
+      guides.length === matchedGuides.length &&
+      guides.every((g, i) => {
+        const was = matchedGuides[i]!;
+        return g.axis === was.axis && g.at === was.at && g.from === was.from && g.to === was.to;
+      });
+    const samePort =
+      port === matchedPort ||
+      (port !== null &&
+        matchedPort !== null &&
+        port.x === matchedPort.x &&
+        port.y === matchedPort.y);
+    const sameTarget =
+      target === hoverTarget ||
+      (target !== null &&
+        hoverTarget !== null &&
+        target.port === hoverTarget.port &&
+        target.ref.layerId === hoverTarget.ref.layerId &&
+        target.ref.index === hoverTarget.ref.index &&
+        target.point.x === hoverTarget.point.x &&
+        target.point.y === hoverTarget.point.y);
+    matchedGuides = guides;
+    matchedPort = port;
+    hoverTarget = target;
+    if (!sameGuides || !samePort || !sameTarget) {
+      renderChrome();
+    }
+  }
+
+  /** Every gesture ends the same way: no guides, ports or candidates on screen. */
+  function clearGuides(): void {
+    if (matchedGuides.length > 0 || matchedPort !== null || hoverTarget !== null) {
+      matchedGuides = [];
+      matchedPort = null;
+      hoverTarget = null;
+      renderChrome();
+    }
+    gestureGuides = [];
+    gesturePorts = [];
   }
 
   /* --------------------------------- editing ------------------------------ */
@@ -785,6 +1314,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       layersOpen,
       activeLayerName: layer?.name ?? null,
       selectionCount: selection.length,
+      selectionStyle: scene === null ? null : selectionStyle(scene, selection),
+      grid: scene === null ? DEFAULT_GRID : gridOf(scene),
     };
   }
 
@@ -795,12 +1326,41 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    */
   function commit(next: SceneDoc, record = true): void {
     if (record) {
+      next = settle(next);
       history?.push(next);
     }
     render(serializeWhiteboard(next), false);
     pendingPush = true;
     schedulePush();
     notifyState();
+  }
+
+  /**
+   * The passes every RECORDED commit runs before the document becomes the
+   * next snapshot: `reconnect` (re-aim every attached connector end at its
+   * host's current outline) and then `relayoutLabels` (re-centre every label
+   * on its host) — in that order, because a connector's label sits on its
+   * routed path, which reconnect may have just moved. Each is a fixed point
+   * on a document it has nothing to do to, so running them on every commit
+   * costs nothing when nothing moved. Undo and redo skip this — a snapshot
+   * was settled when it was recorded.
+   */
+  function settle(doc: SceneDoc): SceneDoc {
+    return relayoutLabels(reconnect(doc));
+  }
+
+  /**
+   * A snapshot on its way back out of the history, wearing the CURRENT grid.
+   *
+   * The stack holds whole documents, and the grid rides in the document, so a
+   * plain undo would restore the grid the snapshot was taken with — turning
+   * the dots back on (or off) as a side effect of undoing a stroke. Showing a
+   * grid is not an edit, so it must not be undoable; carrying the live
+   * settings across every restore is what makes that true. Nothing else in the
+   * metadata gets this treatment, because nothing else is a view preference.
+   */
+  function restored(doc: SceneDoc): SceneDoc {
+    return scene === null ? doc : carryGrid(doc, scene);
   }
 
   /**
@@ -877,6 +1437,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // A pointer landing anywhere commits whatever was being typed, before it
     // can start a gesture that would make the caret's position meaningless.
     commitText();
+    snapOff = event.altKey;
 
     const info = pointerInfo(event);
     if (info.pointerType === 'pen') {
@@ -932,11 +1493,30 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (tool === 'text') {
-      openTextEditor(point, null);
+      // Text lands on the grid too — a column of labels that each start a
+      // pixel off is the thing a grid exists to prevent.
+      beginSnap(scene, []);
+      const at = snapPoint(point, snapContext()).point;
+      clearGuides();
+      openTextEditor(at, null);
       event.preventDefault();
       return;
     }
 
+    // Ink never snaps — a pen stroke pulled onto a lattice is not the stroke
+    // anyone drew. Shapes do, and their guides are fixed for the whole drag.
+    beginSnap(isShapeTool(tool) ? scene : null, []);
+    // A line pressed on a shape starts ATTACHED to it, at the port the press
+    // picked; the end is decided the same way on release (`elementFor`).
+    const fromTarget =
+      tool === 'line' || tool === 'arrow'
+        ? connectorTarget(scene, point, PORT_SNAP_RADIUS * sceneUnitsPerPixel(), point)
+        : null;
+    const start = fromTarget
+      ? fromTarget.point
+      : isShapeTool(tool)
+        ? snapPoint(point, snapContext()).point
+        : point;
     const filter = createOneEuroFilter();
     gesture = {
       pointerId: event.pointerId,
@@ -944,9 +1524,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       tool,
       color: settings.color,
       width: settings.width,
+      shapeStyle: {
+        color: settings.color,
+        width: settings.width,
+        fill: settings.fill,
+        dash: settings.dash,
+        heads: settings.heads,
+        route: settings.route,
+      },
+      constrained: event.shiftKey,
+      fromTarget,
+      toTarget: null,
       points: [filter(point, event.timeStamp)],
       filter,
-      start: point,
+      start,
       working: tool === 'eraser' ? scene : null,
       erased: false,
     };
@@ -960,6 +1551,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   function onPointerMove(event: PointerEvent): void {
     stagePositions.set(event.pointerId, stagePoint(event));
+    // Live, like Shift: Alt is reached for once you can see the snap pulling
+    // something where you did not mean it to go.
+    snapOff = event.altKey;
 
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       updateSelectDrag(scenePoint(event));
@@ -979,6 +1573,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         }
       }
       if (gesture.tool !== 'eraser') {
+        gesture.constrained = event.shiftKey;
         updatePreview(scenePoint(event));
       }
       return;
@@ -1008,9 +1603,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function onPointerUp(event: PointerEvent): void {
+    snapOff = event.altKey;
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       finishSelectDrag(scenePoint(event));
     } else if (gesture && event.pointerId === gesture.pointerId) {
+      gesture.constrained = event.shiftKey;
       finishGesture(scenePoint(event));
     }
     input = notePointerUp(input, pointerInfo(event));
@@ -1034,7 +1631,39 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const unit = sceneUnitsPerPixel();
-    const box = selectionBounds(scene, selection);
+    // A single connector has endpoint handles, not a box: a press on one
+    // starts moving that end (re-attaching it, or cutting it loose).
+    const connector = singleConnector();
+    if (connector) {
+      const ref = selection[0]!;
+      const ends = [
+        ['from', { x: connector.geom.x1 ?? 0, y: connector.geom.y1 ?? 0 }],
+        ['to', { x: connector.geom.x2 ?? 0, y: connector.geom.y2 ?? 0 }],
+      ] as const;
+      let grabbed: (typeof ends)[number] | null = null;
+      let nearest = HANDLE_HIT_RADIUS * unit;
+      for (const end of ends) {
+        const d = Math.hypot(point.x - end[1].x, point.y - end[1].y);
+        if (d <= nearest) {
+          grabbed = end;
+          nearest = d;
+        }
+      }
+      if (grabbed) {
+        beginSnap(scene, selection);
+        selectDrag = {
+          kind: 'endpoint',
+          pointerId: event.pointerId,
+          ref,
+          end: grabbed[0],
+          start: point,
+          base: scene,
+          moved: false,
+        };
+        return;
+      }
+    }
+    const box = connector ? null : selectionBounds(scene, selection);
     if (box) {
       const pad = 3 * unit;
       const outline = {
@@ -1045,6 +1674,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       };
       const handle = handleAt(outline, point, HANDLE_HIT_RADIUS * unit);
       if (handle) {
+        beginSnap(scene, selection);
         selectDrag = {
           kind: 'resize',
           pointerId: event.pointerId,
@@ -1053,6 +1683,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
           from: outline,
           base: scene,
           moved: false,
+          scaled: nonLabelRefs(scene, selection),
         };
         return;
       }
@@ -1062,12 +1693,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (hit) {
       // Pressing on something already selected keeps the whole set — that is
       // what makes "drag the group" work.
+      // Shift toggles the WHOLE unit the hit belongs to (its group, its
+      // label or host): deselecting one member of a group would only see the
+      // expansion put it straight back.
       const next = event.shiftKey
-        ? toggleRef(selection, hit)
+        ? hasRef(selection, hit)
+          ? withoutRefs(selection, expanded([hit]))
+          : toggleRef(selection, hit)
         : hasRef(selection, hit)
           ? selection
           : [hit];
       setSelection(next);
+      // AFTER the selection settles: what is being dragged must never offer
+      // itself as something to line up with.
+      beginSnap(scene, selection);
       selectDrag = {
         kind: 'move',
         pointerId: event.pointerId,
@@ -1100,34 +1739,128 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       const drag = selectDrag;
       drag.current = point;
       const inside = scene ? elementsInRect(scene, marqueeRect(drag.start, point)) : [];
-      selection = drag.additive
-        ? [...drag.base, ...inside.filter((ref) => !hasRef(drag.base, ref))]
-        : inside;
+      selection = expanded(
+        drag.additive ? [...drag.base, ...inside.filter((ref) => !hasRef(drag.base, ref))] : inside,
+      );
       renderChrome();
       notifyState();
       return;
     }
     if (selectDrag.kind === 'move') {
-      const dx = point.x - selectDrag.start.x;
-      const dy = point.y - selectDrag.start.y;
+      const { dx, dy } = moveDelta(selectDrag, point);
       selectDrag.moved = selectDrag.moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
       // Re-derive from the drag's OWN starting document every frame, so the
       // move is one transform rather than an accumulating pile of them.
-      render(serializeWhiteboard(translateElements(selectDrag.base, selection, dx, dy)), false);
+      render(serializeWhiteboard(moved(selectDrag.base, dx, dy)), false);
       return;
     }
-    const target = resizeRect(
-      selectDrag.from,
-      selectDrag.handle,
-      point.x - selectDrag.start.x,
-      point.y - selectDrag.start.y,
-      MIN_SELECTION_SIZE,
-    );
+    if (selectDrag.kind === 'endpoint') {
+      selectDrag.moved = true;
+      render(serializeWhiteboard(endpointFrame(selectDrag, point)), false);
+      return;
+    }
+    const target = resizeTarget(selectDrag, point);
     selectDrag.moved = true;
     render(
-      serializeWhiteboard(scaleElements(selectDrag.base, selection, selectDrag.from, target)),
+      serializeWhiteboard(resized(selectDrag.base, selectDrag.scaled, selectDrag.from, target)),
       false,
     );
+  }
+
+  /**
+   * How far a move drag actually moves: the raw delta, plus whatever snapping
+   * adds. The SELECTION'S BOUNDS are what snaps — its edges and centre against
+   * the guides, its top-left against the grid — not the pointer, because what
+   * the user is lining up is the box they can see.
+   */
+  function moveDelta(
+    drag: Extract<SelectDrag, { kind: 'move' }>,
+    point: Point,
+  ): { dx: number; dy: number } {
+    let dx = point.x - drag.start.x;
+    let dy = point.y - drag.start.y;
+    const box = selectionBounds(drag.base, selection);
+    if (box) {
+      const snapped = snapRect({ ...box, x: box.x + dx, y: box.y + dy }, snapContext());
+      dx += snapped.dx;
+      dy += snapped.dy;
+      showGuides(snapped.guides);
+    }
+    return { dx, dy };
+  }
+
+  /**
+   * The box a resize drag is aiming at. The DRAGGED HANDLE is what snaps —
+   * only on the axes it actually moves, so dragging the north edge cannot
+   * summon a vertical guide it is not going to honour.
+   */
+  function resizeTarget(drag: Extract<SelectDrag, { kind: 'resize' }>, point: Point): Rect {
+    const origin = handlePoint(drag.from, drag.handle);
+    const raw = {
+      x: origin.x + (point.x - drag.start.x),
+      y: origin.y + (point.y - drag.start.y),
+    };
+    const horizontal = /[ew]/.test(drag.handle);
+    const vertical = /[ns]/.test(drag.handle);
+    const snapped = snapPoint(raw, snapContext());
+    const at = {
+      x: horizontal ? snapped.point.x : raw.x,
+      y: vertical ? snapped.point.y : raw.y,
+    };
+    showGuides(snapped.guides.filter((guide) => (guide.axis === 'x' ? horizontal : vertical)));
+    return resizeRect(drag.from, drag.handle, at.x - origin.x, at.y - origin.y, MIN_SELECTION_SIZE);
+  }
+
+  /**
+   * A resize: scale everything but the labels, re-aim the connectors into
+   * what moved, then re-centre the labels — `settle`, per frame, so arrows
+   * and labels follow the box live rather than jumping on release.
+   */
+  function resized(base: SceneDoc, refs: readonly ElementRef[], from: Rect, to: Rect): SceneDoc {
+    return settle(scaleElements(base, refs, from, to));
+  }
+
+  /** A move drag's frame: the translation, with the connectors following. */
+  function moved(base: SceneDoc, dx: number, dy: number): SceneDoc {
+    return reconnect(translateElements(base, selection, dx, dy));
+  }
+
+  /**
+   * An endpoint drag's frame. Over a host the end attaches there (the pure
+   * `setConnectorEnd` gives the host an id if it needs one and re-aims the
+   * line); over open board it detaches and snaps like any other point. The
+   * other end, when it is a `c` port, re-aims at wherever this one lands.
+   */
+  function endpointFrame(drag: Extract<SelectDrag, { kind: 'endpoint' }>, point: Point): SceneDoc {
+    const element = resolveElement(drag.base, drag.ref);
+    if (!element || !isLineShape(element)) {
+      return drag.base;
+    }
+    const otherEnd = drag.end === 'from' ? element.to : element.from;
+    const otherHostRef = otherEnd ? findElementById(drag.base, otherEnd.id) : null;
+    const otherHost = otherHostRef ? resolveElement(drag.base, otherHostRef) : null;
+    const g = element.geom;
+    const otherPoint =
+      drag.end === 'from' ? { x: g.x2 ?? 0, y: g.y2 ?? 0 } : { x: g.x1 ?? 0, y: g.y1 ?? 0 };
+    const aim = (otherHost && hostCentreOf(otherHost)) ?? otherPoint;
+    const target = connectorTarget(drag.base, point, PORT_SNAP_RADIUS * sceneUnitsPerPixel(), aim, [
+      drag.ref,
+    ]);
+    if (target) {
+      showGuides([], null, target);
+      return setConnectorEnd(drag.base, drag.ref, drag.end, target);
+    }
+    const snapped = snapPoint(point, snapContext());
+    showGuides(snapped.guides, snapped.port, null);
+    return setConnectorEnd(drag.base, drag.ref, drag.end, snapped.point);
+  }
+
+  /** `refs` minus labels whose host is alive — the part of a selection a resize scales. */
+  function nonLabelRefs(doc: SceneDoc, refs: readonly ElementRef[]): ElementRef[] {
+    return refs.filter((ref) => {
+      const element = resolveElement(doc, ref);
+      return !(element?.kind === 'text' && hostOf(doc, element) !== null);
+    });
   }
 
   function finishSelectDrag(point: Point): void {
@@ -1137,31 +1870,30 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (drag.kind === 'marquee') {
+      clearGuides();
       renderChrome();
       notifyState();
       return;
     }
     if (!drag.moved || !scene) {
+      clearGuides();
       renderChrome();
       return;
     }
     // The board already SHOWS the result (every frame painted it); committing
-    // is what makes it one undo step and schedules the write-back.
-    const next =
-      drag.kind === 'move'
-        ? translateElements(drag.base, selection, point.x - drag.start.x, point.y - drag.start.y)
-        : scaleElements(
-            drag.base,
-            selection,
-            drag.from,
-            resizeRect(
-              drag.from,
-              drag.handle,
-              point.x - drag.start.x,
-              point.y - drag.start.y,
-              MIN_SELECTION_SIZE,
-            ),
-          );
+    // is what makes it one undo step and schedules the write-back. The same
+    // snapping the last frame applied is recomputed here, so what lands is
+    // what was on screen.
+    let next: SceneDoc;
+    if (drag.kind === 'move') {
+      const { dx, dy } = moveDelta(drag, point);
+      next = moved(drag.base, dx, dy);
+    } else if (drag.kind === 'endpoint') {
+      next = endpointFrame(drag, point);
+    } else {
+      next = resized(drag.base, drag.scaled, drag.from, resizeTarget(drag, point));
+    }
+    clearGuides();
     if (next === drag.base) {
       render(serializeWhiteboard(drag.base), false);
       return;
@@ -1182,7 +1914,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    * fixed-width wrapping box was tried and reverted — it made the editor
    * promise a reflow the format cannot keep.
    */
-  function openTextEditor(at: Point, existing: ElementRef | null): void {
+  function openTextEditor(
+    at: Point,
+    existing: ElementRef | null,
+    host: ElementRef | null = null,
+  ): void {
     if (!canvas || !scene) {
       return;
     }
@@ -1190,14 +1926,36 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const settings = options.getTool();
     const current = existing ? resolveElement(scene, existing) : null;
     const element = current?.kind === 'text' ? current : null;
+    const hostElement = host ? resolveElement(scene, host) : null;
+    const fontSize = element ? element.fontSize : settings.fontSize;
+    // A label edits CENTRED on its host: the box sits where the block will
+    // be, growing both ways, so what you see typed is where the words land.
+    // An orphan label (host gone) still edits centred on its own `x` — that
+    // is how it renders, `text-anchor="middle"` and all.
+    let anchor: TextEdit['anchor'] = 'start';
+    let origin = element ? { x: element.x, y: element.y } : at;
+    const liveHost = element ? hostOf(scene, element) : null;
+    const liveHostElement = liveHost ? resolveElement(scene, liveHost) : null;
+    if (liveHostElement && hostCentre(liveHostElement)) {
+      anchor = 'middle';
+      origin = hostCentre(liveHostElement)!;
+    } else if (element && element.labelOf !== null) {
+      anchor = 'middle';
+      origin = { x: element.x, y: labelCentreY(element.y, fontSize, element.lines.length) };
+    } else if (!element && hostElement && hostCentre(hostElement)) {
+      anchor = 'middle';
+      origin = hostCentre(hostElement)!;
+    }
     textEdit = {
-      at: element ? { x: element.x, y: element.y } : at,
+      at: origin,
+      anchor,
       color: element ? element.fill : settings.color,
       // Reopening existing text adopts ITS type, so editing a label does not
       // silently restyle it to whatever the ribbon happens to say.
-      fontSize: element ? element.fontSize : settings.fontSize,
+      fontSize,
       fontFamily: element ? element.fontFamily : settings.fontFamily,
       ref: element ? existing : null,
+      host: element ? null : host,
     };
 
     const area = document.createElement('textarea');
@@ -1208,11 +1966,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     area.addEventListener('pointerdown', (e) => e.stopPropagation());
     area.addEventListener('keydown', onTextKeyDown);
     area.addEventListener('blur', () => commitText());
-    area.addEventListener('input', () => autoSizeText(area));
+    // A centred box moves its top as lines are added (the block stays centred
+    // on the host), so an input re-runs the placement, not just the sizing.
+    area.addEventListener('input', () => styleTextArea());
     // Editing EXISTING text sits on top of the glyphs it came from, so the box
     // paints the board colour behind itself; a new one stays transparent so
     // you can see what you are typing over.
     area.classList.toggle('wb-editing', element !== null);
+    area.classList.toggle('wb-centred', anchor === 'middle');
     canvas.append(area);
     textArea = area;
     styleTextArea();
@@ -1234,7 +1995,15 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const scale = boardScale();
-    const origin = sceneToBoard(edit.at);
+    // For a label `at` is the block's centre: the first baseline is wherever
+    // `labelBaseline` puts it for the lines typed so far — the same function
+    // the committed `<text y>` comes from, so the two agree on screen.
+    const lineCount = area.value.split('\n').length;
+    const origin = sceneToBoard(
+      edit.anchor === 'middle'
+        ? { x: edit.at.x, y: labelBaseline(edit.at.y, edit.fontSize, lineCount) }
+        : edit.at,
+    );
     area.style.left = `${origin.x}px`;
     // A textarea's first line sits about 0.8em above its own baseline at
     // line-height 1.2; line the two up so the caret is where the glyphs land.
@@ -1292,16 +2061,33 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (!area || !edit || !scene) {
       return;
     }
-    const element = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
+    const typed = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
+    // A centred block's first baseline depends on how many lines it has.
+    const element: TextElement | null =
+      typed && edit.anchor === 'middle'
+        ? { ...typed, y: labelBaseline(edit.at.y, edit.fontSize, typed.lines.length) }
+        : typed;
     if (edit.ref) {
-      // Editing existing text: empty means delete it.
-      commit(
-        element ? replaceElement(scene, edit.ref, element) : removeElements(scene, [edit.ref]),
-      );
+      // Editing existing text: empty means delete it. What survives is the
+      // element's IDENTITY — its id, its group, and which host it labels —
+      // so retyping a label keeps it a label (and `settle` re-centres it).
+      const current = resolveElement(scene, edit.ref);
+      const kept =
+        element && current?.kind === 'text'
+          ? { ...element, id: current.id, group: current.group, labelOf: current.labelOf }
+          : element;
+      commit(kept ? replaceElement(scene, edit.ref, kept) : removeElements(scene, [edit.ref]));
       return;
     }
     if (!element) {
       return;
+    }
+    if (edit.host) {
+      const attached = attachLabel(scene, edit.host, element);
+      if (attached) {
+        commit(attached.doc);
+        return;
+      }
     }
     const target = ensureDrawLayer(scene, activeLayerId);
     activeLayerId = target.layerId;
@@ -1331,9 +2117,32 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const point = scenePoint(event);
-    const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0];
-    if (hit && resolveElement(scene, hit)?.kind === 'text') {
+    // Selection hit-tests a hollow shape on its OUTLINE (so ink drawn inside a
+    // box stays pickable), but the empty inside of a box is exactly where a
+    // label goes — so when nothing is on the outline, fall back to the topmost
+    // body under the point, the same lookup a connector uses to find a host.
+    const hit =
+      hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0] ??
+      connectorTarget(scene, point, 0, point)?.ref ??
+      null;
+    const element = hit ? resolveElement(scene, hit) : null;
+    if (!hit || !element) {
+      return;
+    }
+    if (element.kind === 'text') {
       openTextEditor(point, hit);
+      return;
+    }
+    // A shape (or picture): edit its label if it has one, else start one —
+    // the box you double-click is the box you want words in.
+    if (canHostLabel(element)) {
+      const existing =
+        element.kind !== 'raw' && element.id !== null ? labelsOf(scene, element.id) : [];
+      if (existing.length > 0) {
+        openTextEditor(point, existing[0]!);
+      } else {
+        openTextEditor(point, null, hit);
+      }
     }
   }
 
@@ -1349,10 +2158,79 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (active.tool === 'pen' || active.tool === 'highlighter') {
       return makeStroke(active.tool, active.points, active.color, active.width);
     }
+    if (active.tool === 'line' || active.tool === 'arrow') {
+      return connectorFor(active, end);
+    }
     if (isShapeTool(active.tool)) {
-      return makeShape(active.tool, active.start, end, active.color, active.width);
+      // Snap FIRST, constrain second. Shift is a promise about the shape ("this
+      // is a square"), snapping is a promise about where it sits; a square that
+      // is not square would be the worse lie, so the constraint gets the last
+      // word and the snapped corner is only where the drag was aiming.
+      const snapped = snapPoint(end, snapContext());
+      showGuides(active.constrained ? [] : snapped.guides, snapped.port);
+      const corner = active.constrained
+        ? constrainShapeDrag(active.tool, active.start, snapped.point)
+        : snapped.point;
+      return makeShape(active.tool, active.start, corner, active.shapeStyle);
     }
     return null;
+  }
+
+  /**
+   * The line/arrow a drag would produce if it ended at `end`, with either end
+   * ATTACHED where it landed on a host. The host under the pointer wins over
+   * snapping (you are pointing at the box, not at a grid line); a `c` port at
+   * one end aims at the other end's host centre, exactly as `reconnect` will
+   * once the line is committed, so the preview is the result. The end target
+   * is remembered on the gesture for `finishGesture` to attach.
+   */
+  function connectorFor(active: Gesture, end: Point): SceneElement | null {
+    if (!scene || !(active.tool === 'line' || active.tool === 'arrow')) {
+      return null;
+    }
+    const fromHost = active.fromTarget ? resolveElement(scene, active.fromTarget.ref) : null;
+    const aimFrom = (fromHost && hostCentreOf(fromHost)) ?? active.start;
+    const toTarget = connectorTarget(
+      scene,
+      end,
+      PORT_SNAP_RADIUS * sceneUnitsPerPixel(),
+      aimFrom,
+      active.fromTarget ? [active.fromTarget.ref] : [],
+    );
+    active.toTarget = toTarget;
+    let endPoint: Point;
+    if (toTarget) {
+      showGuides([], null, toTarget);
+      endPoint = toTarget.point;
+    } else {
+      const snapped = snapPoint(end, snapContext());
+      showGuides(active.constrained ? [] : snapped.guides, snapped.port, null);
+      endPoint = active.constrained
+        ? constrainShapeDrag(active.tool, active.start, snapped.point)
+        : snapped.point;
+    }
+    const toHost = toTarget ? resolveElement(scene, toTarget.ref) : null;
+    const startPoint =
+      active.fromTarget && fromHost
+        ? (endpointOn(
+            fromHost,
+            active.fromTarget.port,
+            (toHost && hostCentreOf(toHost)) ?? endPoint,
+          ) ?? active.start)
+        : active.start;
+    const shape = makeShape(active.tool, startPoint, endPoint, active.shapeStyle);
+    if (!shape) {
+      return null;
+    }
+    // The preview carries the ports (an elbow routes by them); the ids are
+    // placeholders — `attachConnector` assigns the real ones at commit.
+    const idOf = (host: SceneElement | null): string =>
+      host && host.kind !== 'raw' && host.id !== null ? host.id : '?';
+    return {
+      ...shape,
+      from: active.fromTarget ? { id: idOf(fromHost), port: active.fromTarget.port } : null,
+      to: toTarget ? { id: idOf(toHost), port: toTarget.port } : null,
+    };
   }
 
   /** Redraw the overlay for the gesture in flight. No-op when there is none. */
@@ -1370,7 +2248,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (hits.length === 0) {
       return;
     }
-    gesture.working = removeElements(gesture.working, hits);
+    // A host's labels go with it: a label with nothing to label is litter.
+    // Its connectors stay, detached — an arrow is content of its own.
+    gesture.working = removeAndDetach(gesture.working, withLabels(gesture.working, hits));
     gesture.erased = true;
     // Show the removal immediately; the whole drag lands as ONE undo step when
     // the pointer lifts.
@@ -1382,6 +2262,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     gesture = null;
     setPreview(null);
     if (!active || !scene) {
+      clearGuides();
       return;
     }
     // Remember when a FINGER last put something down: if a pen lands in the
@@ -1390,12 +2271,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       lastTouchCommitAt = performance.now();
     }
     if (active.tool === 'eraser') {
+      clearGuides();
       if (active.erased && active.working) {
         commit(active.working);
       }
       return;
     }
     const element = elementFor(active, end);
+    clearGuides();
     if (!element) {
       return;
     }
@@ -1403,6 +2286,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // creates the layer it lands on — inside the same undo step.
     const target = ensureDrawLayer(scene, activeLayerId);
     activeLayerId = target.layerId;
+    if (element.kind === 'shape' && (active.fromTarget || active.toTarget)) {
+      // Attached where it landed: hosts get their ids, the ends are re-aimed
+      // — the same document the preview showed, now with the links in it.
+      commit(
+        attachConnector(target.doc, target.layerId, element, active.fromTarget, active.toTarget),
+      );
+      return;
+    }
     commit(addElement(target.doc, target.layerId, element));
   }
 
@@ -1411,6 +2302,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // needs the same restore-from-the-last-commit treatment as an erase.
     const wasDragging = selectDrag !== null && selectDrag.kind !== 'marquee' && selectDrag.moved;
     selectDrag = null;
+    clearGuides();
     if (!gesture) {
       if (wasDragging && history) {
         render(serializeWhiteboard(history.current()), false);
@@ -1487,12 +2379,68 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) {
+      if (event.altKey || event.shiftKey) {
+        return;
+      }
+      // Bare-letter tool hotkeys (V, P, H, E, T, R, O, L, A). The textarea's
+      // own keydown handler stops propagation, so typing never reaches here.
+      const tool = toolForHotkey(event.key);
+      if (tool !== null) {
+        event.preventDefault();
+        options.onToolHotkey?.(tool);
+        adapter.refreshTool();
+        return;
+      }
+      if (event.key.toLowerCase() === GRID_HOTKEY) {
+        // Not a tool hotkey — it changes the document, not the next press —
+        // which is why `TOOL_HOTKEYS` leaves G out and this is its own branch.
+        event.preventDefault();
+        if (scene) {
+          adapter.setGrid({ show: !gridOf(scene).show });
+        }
+      }
+      return;
+    }
+    // Ctrl+V is NOT here: the `paste` event carries the system clipboard's
+    // text, which the keydown cannot read, so `onPaste` owns it.
+    if (event.code === 'BracketRight' || event.code === 'BracketLeft') {
+      // `code`, not `key`: with Shift held the key reports `}` / `{` on a US
+      // layout and something else entirely on others.
+      event.preventDefault();
+      const forward = event.code === 'BracketRight';
+      adapter.reorderSelection(
+        event.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward',
+      );
       return;
     }
     const key = event.key.toLowerCase();
     if (key === 'a') {
       event.preventDefault();
       adapter.selectAll();
+      return;
+    }
+    if (key === 'c') {
+      event.preventDefault();
+      adapter.copySelection();
+      return;
+    }
+    if (key === 'x') {
+      event.preventDefault();
+      adapter.cutSelection();
+      return;
+    }
+    if (key === 'd') {
+      event.preventDefault();
+      adapter.duplicateSelection();
+      return;
+    }
+    if (key === 'g') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        adapter.ungroupSelection();
+      } else {
+        adapter.groupSelection();
+      }
       return;
     }
     if (key === 'z') {
@@ -1597,6 +2545,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const element: SceneElement = {
       kind: 'image',
       id: null,
+      group: null,
       x: area.x + (area.width - width) / 2,
       y: area.y + (area.height - height) / 2,
       width,
@@ -1718,24 +2667,208 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     return scanPanel;
   }
 
-  /** Clipboard image → the scan screen, skipping acquisition. */
+  /**
+   * Paste, in priority order: a clipboard IMAGE goes to the scan screen
+   * (skipping acquisition); text that parses as a whiteboard fragment lands
+   * as elements; failing both, whatever the board clipboard holds — which is
+   * what answers where the web view cannot read the system clipboard back.
+   * Text pasted into the text editor is the textarea's own business.
+   */
   function onPaste(event: ClipboardEvent): void {
-    if (!options.scan || scanPanel?.isOpen()) {
+    if (textArea && event.target === textArea) {
       return;
     }
-    const item = [...(event.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
-    const file = item?.getAsFile();
-    if (!file) {
+    if (options.scan && !scanPanel?.isOpen()) {
+      const item = [...(event.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (file) {
+        event.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            adapter.startScan({ dataUrl: reader.result, width: 0, height: 0 });
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+    if (pasteText(event.clipboardData?.getData('text/plain') ?? '')) {
+      event.preventDefault();
+    }
+  }
+
+  /**
+   * Paste `text` if it is one of ours, else the board clipboard when `text`
+   * is empty (unreadable) — but NOT when it is something else: prose copied
+   * after the last board copy means the user moved on, and pasting stale
+   * shapes over it would be a surprise. Returns whether anything landed.
+   */
+  function pasteText(text: string): boolean {
+    if (!scene) {
+      return false;
+    }
+    let clip = options.clipboard?.get() ?? null;
+    if (text.trim().length > 0 && text !== clip?.fragment) {
+      const parsed = parseFragment(text);
+      if (parsed === null) {
+        return false;
+      }
+      clip = { fragment: text, elements: parsed, pastes: 0 };
+    }
+    if (!clip) {
+      return false;
+    }
+    commitText();
+    const pastes = clip.pastes + 1;
+    const placed = pasteElements(scene, clip.elements, activeLayerId, PASTE_OFFSET * pastes);
+    options.clipboard?.set({ ...clip, pastes });
+    activeLayerId = placed.layerId;
+    // The refs are valid in the NEW document, which is what `render` checks
+    // them against — set them first so the commit's render keeps them.
+    selection = expandSelection(placed.doc, placed.refs);
+    commit(placed.doc);
+    return true;
+  }
+
+  /** The selection to both clipboards. Returns what was copied. */
+  function copyToClipboards(): SceneElement[] {
+    if (!scene || selection.length === 0) {
+      return [];
+    }
+    const elements = copyElements(scene, selection);
+    if (elements.length === 0) {
+      return [];
+    }
+    const fragment = serializeFragment(elements);
+    options.clipboard?.set({ fragment, elements, pastes: 0 });
+    // Best effort: the system clipboard is a courtesy to other tools, and a
+    // refusal (permissions, a headless view) must not make Ctrl+C fail.
+    void getClipboard()
+      .write(fragment)
+      .catch(() => undefined);
+    return elements;
+  }
+
+  /**
+   * The right-click menu. Pressing on something not yet selected selects it
+   * (the way every editor does), pressing on nothing clears the selection so
+   * the menu is honest about what it will act on. `preventDefault` here is
+   * what tells the app-wide guard that this surface owns the right-click.
+   */
+  function onContextMenu(event: MouseEvent): void {
+    if (!scene) {
       return;
     }
     event.preventDefault();
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        adapter.startScan({ dataUrl: reader.result, width: 0, height: 0 });
-      }
+    commitText();
+    const point = scenePoint(event);
+    const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0] ?? null;
+    if (hit && !hasRef(selection, hit)) {
+      setSelection([hit]);
+    } else if (!hit) {
+      setSelection([]);
+    }
+    openContextMenu(contextMenuItems(), event.clientX, event.clientY, () =>
+      stage?.focus({ preventScroll: true }),
+    );
+  }
+
+  /**
+   * What the menu offers, enabled from the pure predicates. THE extension
+   * point for later work: the connector items (route, Detach) live here too.
+   */
+  function contextMenuItems(): ContextMenuItem[] {
+    const doc = scene;
+    const some = doc !== null && selection.length > 0;
+    const chord = (keys: string): string => `${MOD_LABEL}+${keys}`;
+    const items: ContextMenuItem[] = [
+      { label: 'Cut', chord: chord('X'), disabled: !some, onSelect: () => adapter.cutSelection() },
+      {
+        label: 'Copy',
+        chord: chord('C'),
+        disabled: !some,
+        onSelect: () => adapter.copySelection(),
+      },
+      { label: 'Paste', chord: chord('V'), onSelect: () => adapter.pasteClipboard() },
+      {
+        label: 'Duplicate',
+        chord: chord('D'),
+        disabled: !some,
+        onSelect: () => adapter.duplicateSelection(),
+      },
+      'separator',
+    ];
+    const zChords: Record<ZOrderOp, string> = {
+      front: chord('Shift+]'),
+      forward: chord(']'),
+      backward: chord('['),
+      back: chord('Shift+['),
     };
-    reader.readAsDataURL(file);
+    for (const op of ['front', 'forward', 'backward', 'back'] as const) {
+      items.push({
+        label: Z_ORDER_LABELS[op],
+        chord: zChords[op],
+        disabled: !some,
+        onSelect: () => adapter.reorderSelection(op),
+      });
+    }
+    items.push('separator');
+    const alignable = doc !== null && canAlign(doc, selection);
+    for (const edge of ['left', 'center', 'right', 'top', 'middle', 'bottom'] as const) {
+      items.push({
+        label: ALIGN_LABELS[edge],
+        disabled: !alignable,
+        onSelect: () => adapter.alignSelection(edge),
+      });
+    }
+    const distributable = doc !== null && canDistribute(doc, selection);
+    for (const axis of ['horizontal', 'vertical'] as const) {
+      items.push({
+        label: DISTRIBUTE_LABELS[axis],
+        disabled: !distributable,
+        onSelect: () => adapter.distributeSelection(axis),
+      });
+    }
+    items.push(
+      'separator',
+      {
+        label: 'Group',
+        chord: chord('G'),
+        disabled: !canGroup(selection),
+        onSelect: () => adapter.groupSelection(),
+      },
+      {
+        label: 'Ungroup',
+        chord: chord('Shift+G'),
+        disabled: doc === null || !canUngroup(doc, selection),
+        onSelect: () => adapter.ungroupSelection(),
+      },
+    );
+    // Connectors: the route (the same choice the ribbon's style menu offers,
+    // here because a right-click on an arrow is where people look for it) and
+    // Detach, which cuts the links and leaves the line where it is.
+    const style = doc === null ? null : selectionStyle(doc, selection);
+    const lines = style?.hasLine ?? false;
+    items.push('separator');
+    for (const route of ['straight', 'elbow'] as const) {
+      items.push({
+        label: ROUTE_LABELS[route],
+        disabled: !lines,
+        checked: lines && style?.route === route,
+        onSelect: () => adapter.restyleSelection({ route }),
+      });
+    }
+    items.push(
+      {
+        label: 'Detach connector',
+        disabled: doc === null || !canDetach(doc, selection),
+        onSelect: () => adapter.detachSelection(),
+      },
+      'separator',
+      { label: 'Delete', chord: 'Del', disabled: !some, onSelect: () => adapter.deleteSelection() },
+    );
+    return items;
   }
 
   /**
@@ -1773,14 +2906,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         // so stepping through the timeline drops it rather than pointing it at
         // whatever now happens to sit at those positions.
         selection = [];
-        commit(history.undo(), false);
+        commit(restored(history.undo()), false);
       }
     },
 
     redo() {
       if (history?.canRedo()) {
         selection = [];
-        commit(history.redo(), false);
+        commit(restored(history.redo()), false);
       }
     },
 
@@ -1792,9 +2925,107 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       if (!scene || selection.length === 0) {
         return;
       }
-      const next = removeElements(scene, selection);
+      // The selection is already expanded (labels ride with hosts), and
+      // `withLabels` makes the promise explicit for a host whose label sits
+      // on a layer expansion could not reach. Connectors into a deleted host
+      // are DETACHED, not deleted: they were drawn on purpose too.
+      const next = removeAndDetach(scene, withLabels(scene, selection));
       selection = [];
       commit(next);
+    },
+
+    detachSelection() {
+      if (scene) {
+        const next = detachElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    copySelection() {
+      copyToClipboards();
+    },
+
+    cutSelection() {
+      if (copyToClipboards().length > 0) {
+        adapter.deleteSelection();
+      }
+    },
+
+    pasteClipboard() {
+      // The menu path has no ClipboardEvent, so ask the system clipboard —
+      // through the IPC seam, which is what works on WebKitGTK — and fall
+      // back to the board clipboard when it has nothing of ours.
+      void getClipboard()
+        .read()
+        .catch(() => '')
+        .then((text) => {
+          pasteText(text);
+        });
+    },
+
+    duplicateSelection() {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      const placed = pasteElements(
+        scene,
+        copyElements(scene, selection),
+        activeLayerId,
+        PASTE_OFFSET,
+      );
+      activeLayerId = placed.layerId;
+      selection = expandSelection(placed.doc, placed.refs);
+      commit(placed.doc);
+    },
+
+    reorderSelection(op) {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      const result = reorderElements(scene, selection, op);
+      if (result.doc === scene) {
+        return;
+      }
+      selection = result.refs;
+      commit(result.doc);
+    },
+
+    alignSelection(edge) {
+      if (scene) {
+        const next = alignElements(scene, selection, edge);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    distributeSelection(axis) {
+      if (scene) {
+        const next = distributeElements(scene, selection, axis);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    groupSelection() {
+      if (scene) {
+        const next = groupElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    ungroupSelection() {
+      if (scene) {
+        const next = ungroupElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
     },
 
     selectAll() {
@@ -1823,6 +3054,31 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.dataset.tool = options.getTool().tool;
       }
       renderChrome();
+    },
+
+    restyleSelection(patch) {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      // Refs survive a restyle (elements are replaced in place), so the
+      // selection — and the box around it — stay exactly where they were, and
+      // `commit`'s own re-render reports the new style back to the ribbon.
+      commit(restyleElements(scene, selection, patch));
+    },
+
+    setGrid(patch) {
+      if (!scene) {
+        return;
+      }
+      const next = setDocGrid(scene, patch);
+      if (next === scene) {
+        return;
+      }
+      // `record: false` — no undo step. `history.replace` keeps the timeline's
+      // CURRENT entry in step so an undo-then-redo doesn't resurrect the old
+      // setting either; older snapshots are handled by `restored`.
+      history?.replace(next);
+      commit(next, false);
     },
 
     applyTextStyle(style) {
@@ -1919,12 +3175,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       stage.addEventListener('keydown', onKeyDown);
       stage.addEventListener('keyup', onKeyUp);
       stage.addEventListener('dblclick', onDoubleClick);
+      stage.addEventListener('contextmenu', onContextMenu);
+      stage.addEventListener('paste', onPaste);
       if (options.scan) {
-        // Desktop paste and OS drag-drop both land a photo straight on the
-        // crop screen. `data-drop-scan` is what main.tsx hit-tests, exactly
-        // like the explorer's `data-drop-dir`.
+        // OS drag-drop lands a photo straight on the crop screen (paste does
+        // too, via `onPaste`). `data-drop-scan` is what main.tsx hit-tests,
+        // exactly like the explorer's `data-drop-dir`.
         stage.dataset.dropScan = '';
-        stage.addEventListener('paste', onPaste);
         stage.addEventListener('wb-drop-photo', onDropPhoto);
       }
 
@@ -2005,6 +3262,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.removeEventListener('keydown', onKeyDown);
         stage.removeEventListener('keyup', onKeyUp);
         stage.removeEventListener('dblclick', onDoubleClick);
+        stage.removeEventListener('contextmenu', onContextMenu);
         stage.removeEventListener('paste', onPaste);
         stage.removeEventListener('wb-drop-photo', onDropPhoto);
       }

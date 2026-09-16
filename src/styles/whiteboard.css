@@ -106,6 +106,30 @@
   background: none !important;
 }
 
+/* --------------------------------- the grid ------------------------------- */
+
+/* Injected INTO the adopted board `<svg>` after adoption, never into the file
+   (see `renderGrid` in editors/whiteboard.ts): the dots have to sit under the
+   ink and over the page rect, and a board that saved its own grid would stop
+   being a picture that renders identically anywhere.
+
+   The colour is the app's, not the board's palette — this is chrome, like the
+   selection box — and it is faint on purpose: a grid you notice while reading
+   the diagram is a grid that is too strong. */
+.wb-grid {
+  pointer-events: none;
+}
+
+.wb-grid-dot {
+  fill: var(--fg-muted, #888);
+  fill-opacity: 0.35;
+}
+
+/* Every fifth dot, so squares can be counted at a glance. */
+.wb-grid-dot-major {
+  fill-opacity: 0.6;
+}
+
 /* ---------------------------- selection chrome ---------------------------- */
 
 /* Drawn on the overlay in SCENE units — the adapter divides every size by the
@@ -130,6 +154,41 @@
 .wb-sel-handle {
   fill: var(--bg);
   stroke: var(--accent);
+}
+
+/* A matched smart guide, live only while the drag that matched it is. Thin and
+   accent-coloured: it is an explanation ("this edge lines up with that one"),
+   not a thing on the board. */
+.wb-guide {
+  stroke: var(--accent);
+  stroke-opacity: 0.9;
+  fill: none;
+}
+
+/* A single selected connector's endpoint handles — round, so they read as
+   "a point you can move" rather than a corner of a box. A filled one is an
+   end that is attached to a shape. */
+.wb-sel-end {
+  fill: var(--bg);
+  stroke: var(--accent);
+}
+
+.wb-sel-end-attached {
+  fill: var(--accent);
+}
+
+/* A shape's four ports: faint while merely selected (an invitation), solid
+   and larger for the one a line end is about to land on. */
+.wb-port {
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-opacity: 0.45;
+}
+
+.wb-port-hot {
+  fill: var(--accent);
+  fill-opacity: 0.35;
+  stroke-opacity: 1;
 }
 
 /* The text tool's editor. Parented to the TRANSFORMED .wb-canvas, so the
@@ -158,6 +217,27 @@
    from — paint the board colour behind it so the two don't ghost together. */
 .wb-text-input.wb-editing {
   background: var(--wb-bg, #ffffff);
+}
+
+/* A LABEL being typed: `left` is the host's centre and the box is centred on
+   it, growing both ways as the longest line grows — the on-screen twin of the
+   `text-anchor="middle"` the committed text will carry. */
+.wb-text-input.wb-centred {
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+/* The board's right-click menu: `.tab-menu` rows with a shortcut column, the
+   same layout the terminal pane's menu uses. */
+.wb-menu {
+  min-width: 220px;
+}
+
+.wb-menu .tab-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
 }
 
 /* ------------------------------- layers panel ----------------------------- */

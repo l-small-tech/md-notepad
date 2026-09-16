@@ -66,7 +66,16 @@ import {
   stopTornWindowFollow,
 } from '../tab-window-drag';
 import { globalCoordsTrusted } from '../global-coords';
-import { AppActionRows, AppMenuDivider, IS_MAC, NewTabRows, ThemesMenuPage } from './AppMenu';
+import {
+  AppActionRows,
+  AppMenuDivider,
+  HelpMenuPage,
+  IS_MAC,
+  NewTabRows,
+  PromptsMenuPage,
+  ThemesMenuPage,
+  type AppMenuPage,
+} from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
 
@@ -508,7 +517,8 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     tab !== undefined &&
     tab.kind !== 'image' &&
     tab.kind !== 'import' &&
-    docFamilyForTab(tab) === 'markdown';
+    // A deck is a markdown document too (its export is the slide HTML).
+    (docFamilyForTab(tab) === 'markdown' || docFamilyForTab(tab) === 'deck');
   const hasPath = tabPath(menu.tabId) !== null;
   // The move rows live on a drill-in page (same pattern as the explorer
   // menu's Import — one panel that behaves identically under finger and
@@ -789,7 +799,7 @@ function usePhoneLayout(): boolean {
  * always-visible menu affordance once the strip fills with tabs.
  */
 function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
-  const [page, setPage] = useState<'root' | 'themes'>('root');
+  const [page, setPage] = useState<AppMenuPage>('root');
   useMenuDismiss(onClose);
 
   return (
@@ -809,12 +819,24 @@ function NewTabMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
     >
       {page === 'themes' ? (
         <ThemesMenuPage onBack={() => setPage('root')} onClose={onClose} />
+      ) : page === 'help' ? (
+        <HelpMenuPage
+          onBack={() => setPage('root')}
+          onOpenPrompts={() => setPage('prompts')}
+          onClose={onClose}
+        />
+      ) : page === 'prompts' ? (
+        <PromptsMenuPage onBack={() => setPage('help')} onClose={onClose} />
       ) : (
         <>
           <div className="app-menu-heading">New tab</div>
           <NewTabRows onClose={onClose} />
           <AppMenuDivider />
-          <AppActionRows onOpenThemes={() => setPage('themes')} onClose={onClose} />
+          <AppActionRows
+            onOpenThemes={() => setPage('themes')}
+            onOpenHelp={() => setPage('help')}
+            onClose={onClose}
+          />
         </>
       )}
     </div>

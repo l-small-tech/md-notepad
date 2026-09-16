@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isMarpDocument } from '../../core/deck';
 import type { ExportFormat } from '../../core/export/doc-source';
 import { buildExportPreviewHtml, runExportFromPreview } from '../session';
 import { exportPreviewStore, useExportPreview } from '../stores/export-preview';
@@ -53,6 +54,12 @@ function ExportPreviewBody() {
   const builtOnce = useRef(false);
 
   const close = () => exportPreviewStore.getState().close();
+  // A Marp deck exports as slides, HTML only, in its own theme: the other
+  // formats and the theme controls are shown disabled rather than hidden,
+  // so the dialog keeps its shape from note to deck.
+  const deck = source !== null && isMarpDocument(source.markdown);
+  const effectiveFormat: ExportFormat = deck ? 'html' : format;
+  const themeOff = effectiveFormat === 'docx' || deck;
 
   useEffect(() => {
     if (!source) {
@@ -108,9 +115,10 @@ function ExportPreviewBody() {
             {FORMATS.map(({ value, label, hint }) => (
               <button
                 key={value}
-                className={`export-segment${format === value ? ' export-segment-active' : ''}`}
-                title={hint}
-                aria-pressed={format === value}
+                className={`export-segment${effectiveFormat === value ? ' export-segment-active' : ''}`}
+                title={deck && value !== 'html' ? 'A slide deck exports as HTML' : hint}
+                aria-pressed={effectiveFormat === value}
+                disabled={deck && value !== 'html'}
                 onClick={() => exportPreviewStore.getState().setFormat(value)}
               >
                 {label}
@@ -120,16 +128,20 @@ function ExportPreviewBody() {
 
           {/* DOCX keeps standard Word styles, so the theme can't apply there. */}
           <label
-            className={`export-theme-label${format === 'docx' ? ' export-theme-disabled' : ''}`}
+            className={`export-theme-label${themeOff ? ' export-theme-disabled' : ''}`}
             title={
-              format === 'docx' ? 'DOCX uses standard Word styles — themes do not apply' : undefined
+              deck
+                ? 'A slide deck uses its own Marp theme'
+                : format === 'docx'
+                  ? 'DOCX uses standard Word styles — themes do not apply'
+                  : undefined
             }
           >
             Theme
             <select
               className="settings-control export-theme-select"
               value={themeId}
-              disabled={format === 'docx'}
+              disabled={themeOff}
               onChange={(e) => exportPreviewStore.getState().setThemeId(e.target.value)}
             >
               {!known && <option value={themeId}>Default</option>}

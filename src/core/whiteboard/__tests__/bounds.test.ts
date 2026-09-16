@@ -23,12 +23,19 @@ import { serializeWhiteboard } from '../serialize';
 const RECT: SceneElement = {
   kind: 'shape',
   id: null,
+  group: null,
   shape: 'rect',
   geom: { x: 500, y: 400, width: 100, height: 50 },
   stroke: '#1a1a1a',
   strokeWidth: 2,
   fill: 'none',
   opacity: null,
+  dash: null,
+  rx: null,
+  markerStart: false,
+  from: null,
+  to: null,
+  route: 'straight',
 };
 
 function infiniteBoard(
@@ -47,6 +54,7 @@ describe('elementBounds', () => {
     const bounds = elementBounds({
       kind: 'stroke',
       id: null,
+      group: null,
       tool: 'pen',
       d: 'M10,20 L110,220',
       stroke: '#1a1a1a',
@@ -116,5 +124,26 @@ describe('infinite boards through the serializer', () => {
     const doc = createScene({ background: '#ffffff' });
     expect(setBackground(doc, null).background).toBeNull();
     expect(setBackground(doc, '#ffffff')).toBe(doc); // no-op keeps identity
+  });
+});
+
+describe('connector bounds', () => {
+  it('cover an elbow’s bends, and the viewBox fits them', () => {
+    const elbow: SceneElement = {
+      ...RECT,
+      shape: 'arrow',
+      geom: { x1: 100, y1: 100, x2: 400, y2: 300 },
+      from: { id: 'a', port: 's' },
+      to: { id: 'b', port: 's' },
+      route: 'elbow',
+    };
+    // s → s: down to the mid-y (200), across, back up — no bend leaves the
+    // rectangle between the ends, so the box is the ends' box plus the nib.
+    expect(elementBounds(elbow)).toEqual({ x: 99, y: 99, width: 302, height: 202 });
+    const straight = { ...elbow, route: 'straight' as const };
+    expect(elementBounds(straight)).toEqual(elementBounds(elbow));
+    const source = serializeWhiteboard(infiniteBoard([elbow]));
+    expect(source).toContain(`viewBox="${99 - CONTENT_MARGIN} ${99 - CONTENT_MARGIN}`);
+    expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
   });
 });

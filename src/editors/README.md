@@ -254,6 +254,135 @@ build instead of self-healing the session away.
     file's metadata is honoured read-only as the opening view.
 - `refreshTool()` exists because tool settings are PULLED per gesture: the
   cursor and the selection handles are what the ribbon has to announce.
+- **Styling lives in the ribbon (diagram phase A).** There is no floating
+  toolbar and no properties panel: a swatch, nib, fill, dash or arrow-head
+  click calls `restyleSelection(patch)` AND sets the tool default, so one click
+  changes what is selected and what the next shape will look like. The decision
+  is `core/whiteboard/style.ts`; this file only commits it, and the refs
+  survive because a restyle replaces elements in place.
+  - The traffic back up is `WhiteboardUiState.selectionStyle` — the style the
+    whole selection AGREES on, each field null when mixed. The ribbon shows the
+    selection when there is one and the tool's own settings otherwise, and
+    highlights nothing for null. It also carries `hasText`/`hasInk`/`hasLine`,
+    which is how the ribbon decides whether to show the type row, the nib row
+    or both; before this it swapped the nib row out for ANY selection, so
+    selecting a shape hid the control its outline needed.
+  - Ten shapes and three style controls would have pushed the strip past the
+    width it has to fit on a tablet, so they live behind two popovers (the
+    shape picker, whose button is the last shape you used, and the shape-style
+    menu). Both use the same dismiss contract as the other ribbon menus.
+  - Shift constrains a shape drag (square/circle, 45° line). It is read LIVE
+    on every move rather than latched at the press, because people reach for it
+    once they can see the shape is not square yet; the maths is
+    `constrainShapeDrag` in `tools.ts`.
+  - The drag-preview overlay carries its own copy of BOTH arrow markers — the
+    board's `<defs>` only exists once the file HAS an arrow, so without them
+    the first one would drag around headless.
+- **Layout ops, groups and labels (diagram phase B)** add no state model to
+  this file; they add three seams worth knowing:
+  - `expanded(refs)` / `setSelection` — every selection the user makes is
+    closed over groups and label ⇄ host links (`groups.ts`) before it is used.
+    That is the hook: a group moves as one and a label follows its host
+    because they were selected, not because move knows about them. Connectors
+    do NOT expand (an arrow is not part of the box it points at) — they follow
+    through `settle`.
+  - `settle(doc)` — the pure passes every RECORDED commit runs before the
+    document becomes the next snapshot: `reconnect`, then `relayoutLabels`
+    (a connector's label sits on its routed path, so the path settles first).
+    Undo/redo skip it (a snapshot was settled when it was recorded). A resize
+    drag runs the same `settle` per frame after scaling the selection MINUS
+    its labels (`nonLabelRefs`), and a move drag runs `reconnect` per frame,
+    so arrows and labels follow live rather than jumping on release.
+  - `contextMenuItems()` — the right-click menu (`whiteboard-menu.ts`, plain
+    DOM styled as a `.tab-menu`) is built from a list of items enabled by the
+    pure predicates in `arrange.ts` / `groups.ts`. Later phases append to the
+    list. The stage's `contextmenu` handler calls `preventDefault`, which is
+    what tells `ui/context-menu-guard.ts` this surface owns the right-click.
+  - The clipboard is reached through `options.clipboard` (the UI store holds
+    it, globally, so a copy on one board pastes on another) and the system
+    clipboard through the `ipc/clipboard` seam. Ctrl+V is deliberately NOT a
+    keydown chord: the `paste` event carries the system clipboard's text,
+    which a keydown cannot read, so `onPaste` owns it — images still go to
+    the scan screen first, a whiteboard fragment lands as elements, and only
+    an EMPTY system clipboard falls back to the board clipboard (prose copied
+    since the last board copy means the user moved on).
+  - The text editor gains an anchor: a label is typed CENTRED on its host
+    (`.wb-centred`: `left` is the centre, `translateX(-50%)`, and the box's
+    top follows `labelBaseline` for the lines typed so far), so the caret sits
+    where the committed `text-anchor="middle"` glyphs will land. Editing
+    existing text now keeps its id, group and `labelOf`.
+  - Bare-letter tool hotkeys (`TOOL_HOTKEYS`) are looked up on the stage's
+    keydown and reported UP through `onToolHotkey` — the ribbon's store owns
+    the tool, the adapter only asks. `G` is its own branch, not a tool hotkey:
+    it changes the document, so the adapter handles it directly.
+- **The grid and snapping (diagram phase C)** add one piece of DOM the file
+  does not have, and one rule to every gesture:
+  - `renderGrid()` injects a `<pattern>`-based dot grid INTO the adopted board
+    `<svg>`, after adoption — the one place the on-screen board deliberately
+    differs from the file. It is safe by construction: `renderedText` comes
+    from `serializeWhiteboard(scene)`, never from this DOM, so the injected
+    nodes cannot reach the file. It goes inside the board rather than on the
+    overlay because the dots have to sit UNDER the ink and over the page rect
+    (the insertion point is "before the first `wb:layer` group"), and a grid
+    painted over a drawing is one you have to turn off to read it. The dot
+    radius is a constant number of SCREEN pixels, like the selection handles,
+    and an infinite board's grid rectangle is the visible pane — so both are
+    redone on every `setView`. Pattern ids carry a per-adapter suffix: every
+    tab's editor is mounted at once (I7), and `url(#…)` resolves document-wide.
+  - `beginSnap` / `snapContext` / `showGuides` / `clearGuides` are the seam.
+    Candidates are computed ONCE per gesture (they come from the drag's base
+    document, which does not change) and the selection is excluded EXPANDED,
+    so a group being dragged never offers its own members to line up with.
+    Snapping is applied in `elementFor` (a shape's end — snap first, then
+    `constrainShapeDrag`, because a Shift-square that is not square would be
+    the worse lie), at the press for a shape's start and for text placement,
+    in `moveDelta` (the selection's BOUNDS snap, not the pointer — what the
+    user is aligning is the box they can see) and in `resizeTarget` (the
+    dragged handle, on the axes that handle actually moves). `beginSnap` also
+    collects every host's ports (`guidePorts`) into the context; `snapPoint`
+    lands on one within the threshold, both axes at once.
+  - `snapOff` is Alt, read LIVE on every pointer event for the same reason
+    `constrained` reads Shift live: people reach for it once they can see the
+    snap pulling something where they did not mean it to go.
+  - The ribbon's grid button goes through `WhiteboardUiState.grid` and
+    `adapter.setGrid(patch)` — per TAB, unlike the tool, because the grid is
+    stored in the document. That commit passes `record: false` and
+    `history.replace`, so the grid never costs an undo step, and `restored()`
+    carries the live grid over anything undo or redo brings back.
+- **Live connectors (diagram phase D)** add no rendering of their own — an
+  attached arrow is still a `<line>` (or an elbow `<path>`) the board draws
+  from the file — only gestures, all deciding through `core/whiteboard/
+  connectors.ts`:
+  - Drawing a line/arrow: the press asks `connectorTarget` whether it landed
+    on a host (a port within `PORT_SNAP_RADIUS` wins, else the body under the
+    pointer with `nearestPort`); if so the gesture carries a `fromTarget` and
+    starts ON the outline. `connectorFor` (the line branch of `elementFor`)
+    asks the same question about the pointer every frame for `toTarget`, and
+    aims a `c` port exactly the way `reconnect` will — at the other host's
+    centre — so the preview IS the result. A host under the pointer beats
+    grid and guide snapping: you are pointing at the box. On release
+    `attachConnector` gives hosts their ids and re-aims the ends inside the
+    same undo step. The preview element carries placeholder ids (`'?'`) so
+    an elbow routes by its ports before anything has an id; they never reach
+    the file.
+  - A single selected line/arrow shows two round ENDPOINT handles instead of
+    the resize box (`singleConnector` in `renderChrome`, filled when that end
+    is attached), and `beginSelectDrag` checks them before anything else:
+    dragging one is the `'endpoint'` select-drag, whose frame is
+    `endpointFrame` → `setConnectorEnd` (attach to the host under the pointer,
+    or detach to a snapped point). Committed once on release like every other
+    select drag.
+  - `hoverTarget` / `matchedPort` ride along with `matchedGuides` through
+    `showGuides` and are cleared by `clearGuides`: the candidate host's four
+    ports are drawn with the chosen one lit (a ring at the landing point for a
+    `c` port), and a single selected host shows its ports faintly as an
+    invitation. All chrome, none of it in the file.
+  - Delete and the eraser go through `removeAndDetach`, so an arrow into a
+    deleted box stays behind, detached. The context menu gains the route
+    (Straight / Elbow, ticked via the new `checked` item flag) and Detach; the
+    ribbon's shape-style popover gains a Route row that, like every control
+    there, restyles the selection AND sets the tool default (`route` in the
+    store and `ToolSettings`).
 
 ## Testing expectations
 

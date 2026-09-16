@@ -20,6 +20,8 @@ import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
 import { openTerminal } from '../terminal-open';
+import { copyPrompt, openPromptsDocs, PROMPTS } from '../prompts';
+import { openDocs } from '../session';
 import { harnessName } from '../../core/settings';
 import { HARNESS_PROFILE_ID } from '../../core/types';
 import { harnessInstalled, useHarnessAvailability } from '../stores/harness-availability';
@@ -35,6 +37,9 @@ import {
   selectTheme,
   unpinThemeFromWindow,
 } from '../theme-actions';
+
+/** The drill-in pages a popover that renders `AppActionRows` can show. */
+export type AppMenuPage = 'root' | 'themes' | 'help' | 'prompts';
 
 /** Which modifier the shortcut hints name. Shared so every menu agrees. */
 export const IS_MAC = detectPlatform(navigator.platform) === 'mac';
@@ -334,9 +339,11 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
  */
 export function AppActionRows({
   onOpenThemes,
+  onOpenHelp,
   onClose,
 }: {
   onOpenThemes: () => void;
+  onOpenHelp: () => void;
   onClose: () => void;
 }) {
   const stage = useUiStore((s) => s.fullscreenView);
@@ -398,6 +405,97 @@ export function AppActionRows({
           onClose={onClose}
         />
       )}
+      <AppMenuDivider />
+      <AppMenuItem
+        glyph="?"
+        label="Help…"
+        title="The user guide, and prompts to hand an AI agent"
+        shortcut="›"
+        onPick={onOpenHelp}
+        onClose={onClose}
+        keepOpen
+      />
+    </>
+  );
+}
+
+/**
+ * The Help page — the bundled user guide, the shortcuts page, and the Prompts
+ * page (a further drill-in). A page rather than a flyout for the same reason
+ * Themes is one (mouse and finger alike).
+ */
+export function HelpMenuPage({
+  onBack,
+  onOpenPrompts,
+  onClose,
+}: {
+  onBack: () => void;
+  onOpenPrompts: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <AppMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
+      <AppMenuDivider />
+      <AppMenuItem
+        glyph="📖"
+        label="User guide"
+        title="Open the documentation in the sidebar"
+        onPick={() => openDocs()}
+        onClose={onClose}
+      />
+      <AppMenuItem
+        glyph="⌨"
+        label="Keyboard shortcuts"
+        title="Every shortcut on one page"
+        onPick={() => openDocs('keyboard-shortcuts.md')}
+        onClose={onClose}
+      />
+      <AppMenuDivider />
+      <AppMenuItem
+        glyph={<AiGlyph />}
+        label="Prompts"
+        title="Ready-made briefs to paste into an AI agent"
+        shortcut="›"
+        onPick={onOpenPrompts}
+        onClose={onClose}
+        keepOpen
+      />
+    </>
+  );
+}
+
+/**
+ * The Prompts page — one row per bundled prompt (ui/prompts.ts). Picking a
+ * row copies the prompt to the clipboard for pasting into a harness terminal
+ * or a chat assistant; right-clicking opens its docs page instead. The last
+ * row opens the guide that explains them.
+ */
+export function PromptsMenuPage({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+  return (
+    <>
+      <AppMenuItem glyph="‹" label="Back" onPick={onBack} onClose={onClose} keepOpen />
+      <AppMenuDivider />
+      <div className="app-menu-heading">Click copies · right-click reads</div>
+      {PROMPTS.map((prompt) => (
+        <AppMenuItem
+          key={prompt.id}
+          glyph="📋"
+          label={prompt.label}
+          title={`${prompt.title} — click to copy, right-click to read`}
+          onPick={() => void copyPrompt(prompt)}
+          onSecondaryPick={() => openPromptsDocs(prompt)}
+          onClose={onClose}
+        />
+      ))}
+      <AppMenuDivider />
+      <AppMenuItem
+        glyph="?"
+        label="About prompts"
+        title="What these are and how to use them"
+        onPick={() => openPromptsDocs()}
+        onClose={onClose}
+      />
     </>
   );
 }

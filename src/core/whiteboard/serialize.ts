@@ -17,14 +17,17 @@
 
 import { escapeAttr, escapeText } from './xml';
 import { contentViewBox } from './bounds';
+import { boxShapePoints, connectorPoints, cylinderRimRy, shapeGeomRect } from './geometry';
 import { BOARD_BACKGROUND_DARK, PALETTE, PALETTE_DARK, paletteSlot } from './tool-settings';
 import {
   createScene,
   DEFAULT_BACKGROUND,
+  isBoxShape,
   SCENE_SCHEMA,
   SVG_NAMESPACE,
   WB_NAMESPACE,
   type BoardColorMode,
+  type BoxShapeKind,
   type ImageElement,
   type Layer,
   type SceneAttr,
@@ -37,6 +40,21 @@ import {
 
 /** Marker id for arrow heads; referenced by `marker-end`. */
 export const ARROW_MARKER_ID = 'wb-arrow';
+
+/**
+ * Marker id for a head at the START of a line (`marker-start`).
+ *
+ * This is a SECOND def whose triangle is drawn pointing the other way, not a
+ * reuse of `wb-arrow` under `orient="auto-start-reverse"`. Reversing one def is
+ * tidier and it is what the `wb-arrow` def already declares, but the attribute
+ * value is SVG 2: Chromium, Firefox and WebView2 honour it, while librsvg,
+ * resvg, older Inkscape and several SVG→PDF converters do not, and there it
+ * silently degrades to `auto` — a start head pointing backwards INTO the line.
+ * The one big idea is that the file renders identically anywhere, so the
+ * broadest-support option wins over the tidier one; a duplicated `<path>` in a
+ * def costs eighty bytes, once per file.
+ */
+export const ARROW_START_MARKER_ID = 'wb-arrow-start';
 
 const INDENT = '  ';
 
@@ -101,9 +119,7 @@ export function serializeWhiteboard(doc: SceneDoc): string {
     );
   }
 
-  if (needsArrowMarker(doc)) {
-    lines.push(...arrowDefs());
-  }
+  lines.push(...arrowDefs(doc));
 
   for (const chunk of doc.prelude) {
     lines.push(INDENT + chunk);
@@ -224,23 +240,45 @@ function metaJson(doc: SceneDoc): string {
   return JSON.stringify(ordered);
 }
 
-function needsArrowMarker(doc: SceneDoc): boolean {
-  const hasArrow = doc.layers.some((l) =>
-    l.elements.some((e) => e.kind === 'shape' && e.shape === 'arrow'),
-  );
-  // A file that already carries the marker (round-tripped prelude) must not
-  // get a second copy.
-  return hasArrow && !doc.prelude.some((chunk) => chunk.includes(`id="${ARROW_MARKER_ID}"`));
+/**
+ * The marker defs this document needs and does not already carry. A file that
+ * already holds one (round-tripped into the prelude) must not get a second
+ * copy; a file that grows its FIRST reversed head later gets a second `<defs>`
+ * holding only that one, which is legal SVG and keeps every earlier byte where
+ * it was.
+ */
+function arrowDefs(doc: SceneDoc): string[] {
+  let end = false;
+  let start = false;
+  for (const layer of doc.layers) {
+    for (const element of layer.elements) {
+      if (element.kind === 'shape') {
+        end ||= element.shape === 'arrow';
+        start ||= element.markerStart;
+      }
+    }
+  }
+  const carried = (id: string): boolean =>
+    doc.prelude.some((chunk) => chunk.includes(`id="${id}"`));
+  const markers: string[] = [];
+  if (end && !carried(ARROW_MARKER_ID)) {
+    markers.push(...markerDef(ARROW_MARKER_ID, 'M0,0 L10,5 L0,10 z', 9, 'auto-start-reverse'));
+  }
+  if (start && !carried(ARROW_START_MARKER_ID)) {
+    // Mirrored geometry with plain `orient="auto"` — reversing it AGAIN with
+    // `auto-start-reverse` would point it back down the line. See
+    // ARROW_START_MARKER_ID for why the mirror, not the attribute, is the head.
+    markers.push(...markerDef(ARROW_START_MARKER_ID, 'M10,0 L0,5 L10,10 z', 1, 'auto'));
+  }
+  return markers.length === 0 ? [] : [`${INDENT}<defs>`, ...markers, `${INDENT}</defs>`];
 }
 
-function arrowDefs(): string[] {
+function markerDef(id: string, d: string, refX: number, orient: string): string[] {
   return [
-    `${INDENT}<defs>`,
-    `${INDENT}${INDENT}<marker id="${ARROW_MARKER_ID}" viewBox="0 0 10 10" refX="9" refY="5" ` +
-      `markerWidth="6" markerHeight="6" orient="auto-start-reverse">`,
-    `${INDENT}${INDENT}${INDENT}<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/>`,
+    `${INDENT}${INDENT}<marker id="${id}" viewBox="0 0 10 10" refX="${refX}" refY="5" ` +
+      `markerWidth="6" markerHeight="6" orient="${orient}">`,
+    `${INDENT}${INDENT}${INDENT}<path d="${d}" fill="context-stroke"/>`,
     `${INDENT}${INDENT}</marker>`,
-    `${INDENT}</defs>`,
   ];
 }
 
@@ -298,11 +336,24 @@ export function serializeElement(element: SceneElement, themed = true): string {
   }
 }
 
-function serializeStroke(stroke: StrokeElement, themed: boolean): string {
+/**
+ * `wb:id` then `wb:group`, the two attributes every kind can carry, in that
+ * order — so an element's identity and its membership read first, before the
+ * kind-specific attributes begin. Both emit nothing when null.
+ */
+function identityAttrs(element: { id: string | null; group: string | null }): string[] {
   const attrs: string[] = [];
-  if (stroke.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(stroke.id)}"`);
+  if (element.id !== null) {
+    attrs.push(`wb:id="${escapeAttr(element.id)}"`);
   }
+  if (element.group !== null) {
+    attrs.push(`wb:group="${escapeAttr(element.group)}"`);
+  }
+  return attrs;
+}
+
+function serializeStroke(stroke: StrokeElement, themed: boolean): string {
+  const attrs: string[] = identityAttrs(stroke);
   if (stroke.tool === 'scanfill') {
     // A blob traced by contour: painted with FILL, not stroke, so it themes
     // through its own `wb-fN` class — the palette block's stroke rule would
@@ -341,26 +392,139 @@ function serializeStroke(stroke: StrokeElement, themed: boolean): string {
 }
 
 /** Geometry attribute order per shape — fixed, so output is byte-stable. */
-const GEOM_ORDER: Record<ShapeElement['shape'], readonly string[]> = {
+const GEOM_ORDER: Partial<Record<ShapeElement['shape'], readonly string[]>> = {
   rect: ['x', 'y', 'width', 'height'],
   ellipse: ['cx', 'cy', 'rx', 'ry'],
   line: ['x1', 'y1', 'x2', 'y2'],
   arrow: ['x1', 'y1', 'x2', 'y2'],
 };
 
-function serializeShape(shape: ShapeElement, themed: boolean): string {
-  const tag = shape.shape === 'rect' ? 'rect' : shape.shape === 'ellipse' ? 'ellipse' : 'line';
+/**
+ * A box shape's `<polygon points>` / `<path d>`.
+ *
+ * The four polygons need no help on the way back in: their vertices touch the
+ * box's edges by construction, so parse recovers `x/y/width/height` as the
+ * bounding box of the points. The CYLINDER cannot — its arcs bulge past the
+ * ends of the numbers in the `d` string, and reading a box back out of two
+ * elliptical arcs means trusting a template the user may have hand-edited. It
+ * carries `wb:box="x y w h"` instead: one editor-only attribute, ignored by
+ * every other renderer, and unambiguous.
+ */
+function boxShapeBody(shape: ShapeElement): string[] {
+  const rect = shapeGeomRect(shape.shape, shape.geom);
+  if (shape.shape !== 'cylinder') {
+    const points = boxShapePoints(shape.shape as BoxShapeKind, rect)
+      .map((p) => `${num(p.x)},${num(p.y)}`)
+      .join(' ');
+    return [`points="${points}"`];
+  }
+  const { x, y, width: w, height: h } = rect;
+  const ry = cylinderRimRy(rect);
+  const rx = w / 2;
+  const arc = (toX: number, toY: number, sweep: number): string =>
+    `A${num(rx)},${num(ry)} 0 0 ${sweep} ${num(toX)},${num(toY)}`;
+  const d =
+    `M${num(x)},${num(y + ry)}${arc(x + w, y + ry, 1)}` +
+    `L${num(x + w)},${num(y + h - ry)}${arc(x, y + h - ry, 1)}Z` +
+    // The visible front of the rim, as its own subpath.
+    `M${num(x)},${num(y + ry)}${arc(x + w, y + ry, 0)}`;
+  return [`wb:box="${num(x)} ${num(y)} ${num(w)} ${num(h)}"`, `d="${escapeAttr(d)}"`];
+}
+
+/**
+ * The class attribute a shape carries: its stroke's theme slot AND its fill's.
+ *
+ * An outline and a fill are two independent colours, so a shape can need two
+ * classes — `wb-cN` drives the palette block's stroke rule, `wb-fN` its fill
+ * rule (which already existed for scan blobs and needed no new scoping). A
+ * shape filled with the board's own surface colour gets `wb-bg` instead, the
+ * very rule the page rect themes through: that is what makes a "Paper"-filled
+ * box hide the lines behind it on a dark board as well as a light one.
+ */
+function shapeClassAttr(shape: ShapeElement, themed: boolean): string[] {
+  const tokens: string[] = [];
+  const strokeSlot = themed ? resolveSlot(shape.stroke, shape.slot) : -1;
+  if (strokeSlot >= 0) {
+    tokens.push(`wb-c${strokeSlot}`);
+  }
+  if (themed && shape.fill !== 'none') {
+    const fillSlot = paletteSlot(shape.fill);
+    if (fillSlot >= 0) {
+      tokens.push(`wb-f${fillSlot}`);
+    } else if (shape.fill === DEFAULT_BACKGROUND) {
+      tokens.push('wb-bg');
+    }
+  }
+  return tokens.length === 0 ? [] : [`class="${tokens.join(' ')}"`];
+}
+
+/**
+ * A connector's `wb:from` / `wb:to` / `wb:route`, right after its identity and
+ * before the tag names its shape: the link is a fact about the element, the
+ * route a fact about how it is drawn. Every one of them emits nothing at its
+ * default — detached, straight — so a line drawn before connectors existed
+ * re-serializes byte-for-byte.
+ */
+function connectorAttrs(shape: ShapeElement): string[] {
   const attrs: string[] = [];
-  if (shape.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(shape.id)}"`);
+  if (shape.from !== null) {
+    attrs.push(`wb:from="${escapeAttr(`${shape.from.id}:${shape.from.port}`)}"`);
   }
-  // Only the OUTLINE is themable — the palette block's class rule sets stroke.
-  // A shape fill stays literal (v1 shapes are fill="none" anyway).
-  attrs.push(...slotClassAttr(shape.stroke, themed, shape.slot));
-  for (const key of GEOM_ORDER[shape.shape]) {
-    attrs.push(`${key}="${num(shape.geom[key] ?? 0)}"`);
+  if (shape.to !== null) {
+    attrs.push(`wb:to="${escapeAttr(`${shape.to.id}:${shape.to.port}`)}"`);
   }
-  if (shape.shape === 'rect' || shape.shape === 'ellipse') {
+  if (shape.route === 'elbow') {
+    attrs.push('wb:route="elbow"');
+  }
+  return attrs;
+}
+
+function serializeShape(shape: ShapeElement, themed: boolean): string {
+  const box = isBoxShape(shape.shape);
+  const line = shape.shape === 'line' || shape.shape === 'arrow';
+  // An elbow is a `<path>` — the ONLY way SVG 1.1 draws a polyline that can
+  // carry markers at its ends — with its waypoints derived here by the pure
+  // router, never stored: the same ends and ports always route the same way.
+  const elbow = line && shape.route === 'elbow';
+  const tag = box
+    ? shape.shape === 'cylinder'
+      ? 'path'
+      : 'polygon'
+    : shape.shape === 'rect'
+      ? 'rect'
+      : shape.shape === 'ellipse'
+        ? 'ellipse'
+        : elbow
+          ? 'path'
+          : 'line';
+  const attrs: string[] = identityAttrs(shape);
+  if (line) {
+    attrs.push(...connectorAttrs(shape));
+  }
+  if (box || elbow) {
+    // Without this a re-opened polygon (or elbow path) is anonymous geometry
+    // and would come back as a RawElement — which is exactly what a foreign
+    // `<polygon>` or `<path>` does.
+    attrs.push(`wb:shape="${elbow ? 'elbow' : shape.shape}"`);
+  }
+  attrs.push(...shapeClassAttr(shape, themed));
+  if (box) {
+    attrs.push(...boxShapeBody(shape));
+  } else if (elbow) {
+    const d = connectorPoints(shape)
+      .map((p, index) => `${index === 0 ? 'M' : 'L'}${num(p.x)},${num(p.y)}`)
+      .join(' ');
+    // A `<path>` fills black by default; an open route must say it is a line.
+    attrs.push(`d="${d}"`, 'fill="none"');
+  } else {
+    for (const key of GEOM_ORDER[shape.shape] ?? []) {
+      attrs.push(`${key}="${num(shape.geom[key] ?? 0)}"`);
+    }
+    if (shape.shape === 'rect' && shape.rx !== null) {
+      attrs.push(`rx="${num(shape.rx)}"`);
+    }
+  }
+  if (box || shape.shape === 'rect' || shape.shape === 'ellipse') {
     attrs.push(`fill="${escapeAttr(shape.fill)}"`);
   }
   attrs.push(
@@ -368,6 +532,16 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
     `stroke-width="${num(shape.strokeWidth)}"`,
     'stroke-linecap="round"',
   );
+  if (elbow) {
+    attrs.push('stroke-linejoin="round"');
+  }
+  // Null dash emits nothing, which is what keeps every pre-dash file identical.
+  if (shape.dash !== null) {
+    attrs.push(`stroke-dasharray="${escapeAttr(shape.dash)}"`);
+  }
+  if (shape.markerStart) {
+    attrs.push(`marker-start="url(#${ARROW_START_MARKER_ID})"`);
+  }
   if (shape.shape === 'arrow') {
     attrs.push(`marker-end="url(#${ARROW_MARKER_ID})"`);
   }
@@ -378,9 +552,10 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
 }
 
 function serializeText(text: TextElement, themed: boolean): string {
-  const attrs: string[] = [];
-  if (text.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(text.id)}"`);
+  const attrs: string[] = identityAttrs(text);
+  const label = text.labelOf !== null;
+  if (label) {
+    attrs.push(`wb:label-of="${escapeAttr(text.labelOf!)}"`);
   }
   // Text paints with fill; the palette block themes it via `text.wb-cN`.
   attrs.push(...slotClassAttr(text.fill, themed, text.slot));
@@ -390,6 +565,13 @@ function serializeText(text: TextElement, themed: boolean): string {
   // byte-for-byte.
   if (text.fontFamily !== null) {
     attrs.push(`font-family="${escapeAttr(text.fontFamily)}"`);
+  }
+  // A label is centred on its host: `x` is the centre and every line's tspan
+  // repeats it, so `text-anchor="middle"` — plain SVG 1.1, honoured everywhere
+  // — is what makes each line centre itself without the editor measuring
+  // glyphs it has no font metrics for. Derived from `labelOf`, never stored.
+  if (label) {
+    attrs.push('text-anchor="middle"');
   }
   attrs.push(`fill="${escapeAttr(text.fill)}"`);
   const tspans = text.lines
@@ -402,10 +584,7 @@ function serializeText(text: TextElement, themed: boolean): string {
 }
 
 function serializeImage(image: ImageElement): string {
-  const attrs: string[] = [];
-  if (image.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(image.id)}"`);
-  }
+  const attrs: string[] = identityAttrs(image);
   attrs.push(
     `x="${num(image.x)}"`,
     `y="${num(image.y)}"`,

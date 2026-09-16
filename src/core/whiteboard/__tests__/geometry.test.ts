@@ -7,6 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   boundsOfPoints,
+  boxShapeOutline,
+  boxShapePoints,
   distanceToPolyline,
   distanceToSegment,
   ellipseOutline,
@@ -15,6 +17,7 @@ import {
   pointInRect,
   rectFromCorners,
   rectOutline,
+  shapeGeomRect,
 } from '../geometry';
 
 describe('distanceToSegment', () => {
@@ -160,5 +163,40 @@ describe('flattenPathData', () => {
   it('returns nothing for junk', () => {
     expect(flattenPathData('')).toEqual([]);
     expect(flattenPathData('nonsense')).toEqual([]);
+  });
+});
+
+describe('box shapes', () => {
+  const BOX = { x: 10, y: 20, width: 100, height: 60 };
+
+  it('puts every polygon vertex ON the box, which is how parse recovers it', () => {
+    for (const shape of ['diamond', 'triangle', 'parallelogram', 'hexagon'] as const) {
+      const points = boxShapePoints(shape, BOX);
+      expect(points.length).toBeGreaterThanOrEqual(3);
+      expect(boundsOfPoints(points)).toEqual(BOX);
+    }
+  });
+
+  it('samples the cylinder into a closed outline that fills its box', () => {
+    const outline = boxShapeOutline('cylinder', BOX);
+    expect(outline[0]).toEqual(outline[outline.length - 1]);
+    const bounds = boundsOfPoints(outline)!;
+    expect(bounds.x).toBeCloseTo(BOX.x);
+    expect(bounds.width).toBeCloseTo(BOX.width);
+    expect(bounds.y).toBeCloseTo(BOX.y);
+    expect(bounds.height).toBeCloseTo(BOX.height);
+  });
+
+  it('closes a polygon outline back to its first vertex', () => {
+    const outline = boxShapeOutline('diamond', BOX);
+    expect(outline).toHaveLength(5);
+    expect(outline[4]).toEqual(outline[0]);
+  });
+
+  it('decodes every shape family’s geom keys to the same kind of box', () => {
+    expect(shapeGeomRect('rect', BOX)).toEqual(BOX);
+    expect(shapeGeomRect('hexagon', BOX)).toEqual(BOX);
+    expect(shapeGeomRect('ellipse', { cx: 60, cy: 50, rx: 50, ry: 30 })).toEqual(BOX);
+    expect(shapeGeomRect('line', { x1: 110, y1: 80, x2: 10, y2: 20 })).toEqual(BOX);
   });
 });

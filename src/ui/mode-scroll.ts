@@ -61,6 +61,16 @@ export function captureScrollAnchor(tabId: string, mode: EditorMode): void {
 }
 
 /**
+ * Where a mode's surface is right now, without parking it — the full-screen
+ * show asks this on the way in (which slide to start on) and the deck pane's
+ * `scrollToLine` gets the answer back on the way out.
+ */
+export function readSurfaceTopLine(tabId: string, mode: EditorMode): number | null {
+  const surface = scrollSurfaceFor(mode);
+  return surface ? (ports.get(key(tabId, surface))?.getTopLine() ?? null) : null;
+}
+
+/**
  * The line parked for this tab, without consuming it — for a surface that
  * should follow the anchor but does not own it (split mode's preview column,
  * which rides along with the source editor's position).
