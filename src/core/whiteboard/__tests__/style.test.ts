@@ -100,6 +100,7 @@ describe('restyleElements', () => {
     const image: SceneElement = {
       kind: 'image',
       id: null,
+      group: null,
       x: 0,
       y: 0,
       width: 10,

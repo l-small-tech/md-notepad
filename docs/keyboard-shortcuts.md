@@ -79,6 +79,33 @@ exceptions.
 Still available from a terminal: new/close tab, next/previous tab, rename
 tab, Settings, the command palette, and full screen.
 
+## Drawing tabs (whiteboards)
+
+These work while the board has focus — click or tap it first. Single letters
+switch tools; none of them fire while you are typing text on the board.
+
+| Shortcut | What it does |
+| --- | --- |
+| V / P / H / E / T | Select / Pen / Highlighter / Eraser / Text |
+| R / O / L / A | Rectangle / Ellipse / Line / Arrow |
+| Ctrl+A | Select everything |
+| Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste the selection — each repeated paste lands a little further along, and a copy can be pasted onto another board (or, as SVG, into other apps) |
+| Ctrl+D | Duplicate the selection |
+| Ctrl+G / Ctrl+Shift+G | Group / ungroup the selection (selecting any member selects the group) |
+| Ctrl+] / Ctrl+[ | Bring forward / send backward |
+| Ctrl+Shift+] / Ctrl+Shift+[ | Bring to front / send to back |
+| Arrow keys | Nudge the selection one pixel (Shift: ten) |
+| Delete / Backspace | Delete the selection |
+| Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo |
+| Esc | Drop the selection, or cancel what you were typing |
+| Space (held) | Pan with the mouse |
+| Shift (while dragging a shape) | Keep it square / circular; a line snaps to 45° |
+| Enter / Ctrl+Enter (typing text) | New line / finish |
+
+Right-click the board for the same commands as a menu, plus align and
+distribute. Double-click a shape to label it — the words stay centred in it
+when it moves or resizes.
+
 ## Everything else
 
 | Shortcut | What it does |

@@ -650,7 +650,7 @@ function ShapePicker({
         aria-haspopup="menu"
         aria-expanded={anchor != null}
         data-active={active || undefined}
-        title={`${current.label} — click to draw it, or ⌄ for other shapes. Hold Shift while dragging to keep it square (a line snaps to 45°).`}
+        title={`${current.label} — click to draw it, or ⌄ for other shapes (R rect, O ellipse, L line, A arrow). Hold Shift while dragging to keep it square (a line snaps to 45°).`}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => onPick(current.id)}
       >
@@ -909,14 +909,18 @@ function DrawControls({ tabId }: { tabId: string | null }) {
 
   return (
     <div className="ribbon-center ribbon-center-draw">
-      {toolButton('select', '⬚', 'Select — drag to move, handles to resize, Delete to remove')}
-      {toolButton('pen', '✎', 'Pen')}
-      {toolButton('highlighter', '▤', 'Highlighter')}
-      {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
+      {toolButton(
+        'select',
+        '⬚',
+        'Select (V) — drag to move, handles to resize, right-click for arrange, Delete to remove',
+      )}
+      {toolButton('pen', '✎', 'Pen (P)')}
+      {toolButton('highlighter', '▤', 'Highlighter (H)')}
+      {toolButton('eraser', '⌫', 'Eraser (E) — removes a whole stroke')}
       {toolButton(
         'text',
         'T',
-        'Text — click to type, Enter for a new line, Ctrl/Cmd+Enter to finish',
+        'Text (T) — click to type, Enter for a new line, Ctrl/Cmd+Enter to finish. Double-click a shape to label it.',
       )}
 
       <span className="ribbon-divider" role="separator" />

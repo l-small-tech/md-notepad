@@ -278,6 +278,41 @@ build instead of self-healing the session away.
   - The drag-preview overlay carries its own copy of BOTH arrow markers — the
     board's `<defs>` only exists once the file HAS an arrow, so without them
     the first one would drag around headless.
+- **Layout ops, groups and labels (diagram phase B)** add no state model to
+  this file; they add three seams worth knowing:
+  - `expanded(refs)` / `setSelection` — every selection the user makes is
+    closed over groups and label ⇄ host links (`groups.ts`) before it is used.
+    That is the hook: a group moves as one and a label follows its host
+    because they were selected, not because move knows about them. Phase D's
+    connectors do NOT expand (an arrow is not part of the box it points at).
+  - `settle(doc)` — the pure passes every RECORDED commit runs before the
+    document becomes the next snapshot. Today that is `relayoutLabels`;
+    `reconnect` joins it there. Undo/redo skip it (a snapshot was settled when
+    it was recorded). A resize drag also runs `relayoutLabels` per frame after
+    scaling the selection MINUS its labels (`nonLabelRefs`), which is how a
+    stretched box keeps its type size.
+  - `contextMenuItems()` — the right-click menu (`whiteboard-menu.ts`, plain
+    DOM styled as a `.tab-menu`) is built from a list of items enabled by the
+    pure predicates in `arrange.ts` / `groups.ts`. Later phases append to the
+    list. The stage's `contextmenu` handler calls `preventDefault`, which is
+    what tells `ui/context-menu-guard.ts` this surface owns the right-click.
+  - The clipboard is reached through `options.clipboard` (the UI store holds
+    it, globally, so a copy on one board pastes on another) and the system
+    clipboard through the `ipc/clipboard` seam. Ctrl+V is deliberately NOT a
+    keydown chord: the `paste` event carries the system clipboard's text,
+    which a keydown cannot read, so `onPaste` owns it — images still go to
+    the scan screen first, a whiteboard fragment lands as elements, and only
+    an EMPTY system clipboard falls back to the board clipboard (prose copied
+    since the last board copy means the user moved on).
+  - The text editor gains an anchor: a label is typed CENTRED on its host
+    (`.wb-centred`: `left` is the centre, `translateX(-50%)`, and the box's
+    top follows `labelBaseline` for the lines typed so far), so the caret sits
+    where the committed `text-anchor="middle"` glyphs will land. Editing
+    existing text now keeps its id, group and `labelOf`.
+  - Bare-letter tool hotkeys (`TOOL_HOTKEYS`) are looked up on the stage's
+    keydown and reported UP through `onToolHotkey` — the ribbon's store owns
+    the tool, the adapter only asks. `G` is swallowed and reserved for phase
+    C's grid toggle.
 
 ## Testing expectations
 

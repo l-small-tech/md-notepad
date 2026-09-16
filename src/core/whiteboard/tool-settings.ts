@@ -67,6 +67,39 @@ export const SHAPE_OPTIONS: readonly ShapeOption[] = [
 /** The corner radius the Rounded rectangle tool starts a `rect` with. */
 export const DEFAULT_CORNER_RADIUS = 12;
 
+/* --------------------------------- hotkeys -------------------------------- */
+
+/**
+ * Single-key tool hotkeys, pressed with the board focused and no modifier
+ * held. The letters are the ones every diagram and vector editor has trained
+ * people on (V select, P pen, T text, R rect, O ellipse, L line, A arrow), so
+ * they are data here rather than a decision anywhere else — the ribbon shows
+ * them in its tooltips and the adapter looks them up. `G` is deliberately
+ * absent: phase C claims it for the grid toggle.
+ */
+export const TOOL_HOTKEYS: Readonly<Record<string, DrawTool>> = {
+  v: 'select',
+  p: 'pen',
+  h: 'highlighter',
+  e: 'eraser',
+  t: 'text',
+  r: 'rect',
+  o: 'ellipse',
+  l: 'line',
+  a: 'arrow',
+};
+
+/** The tool a bare key press selects, or null when the key is not a hotkey. */
+export function toolForHotkey(key: string): DrawTool | null {
+  return key.length === 1 ? (TOOL_HOTKEYS[key.toLowerCase()] ?? null) : null;
+}
+
+/** The hotkey letter for a tool (upper-case, for a tooltip), or null. */
+export function hotkeyForTool(tool: DrawTool): string | null {
+  const entry = Object.entries(TOOL_HOTKEYS).find(([, t]) => t === tool);
+  return entry ? entry[0].toUpperCase() : null;
+}
+
 /* --------------------------------- dashes --------------------------------- */
 
 export type DashStyle = 'solid' | 'dashed' | 'dotted';

@@ -67,10 +67,14 @@ export function elementBounds(element: SceneElement): Rect | null {
       // Estimated, not measured — core has no font metrics. Good enough to
       // erase or select by; phase 3's text tool measures for real in the DOM.
       const longest = element.lines.reduce((n, line) => Math.max(n, line.length), 0);
+      const width = longest * element.fontSize * TEXT_ADVANCE;
       return {
-        x: element.x,
+        // A label is `text-anchor="middle"`: its `x` is the centre, not the
+        // left edge, so its box straddles it — otherwise clicking the left
+        // half of a label would reach whatever is underneath instead.
+        x: element.labelOf === null ? element.x : element.x - width / 2,
         y: element.y - element.fontSize,
-        width: longest * element.fontSize * TEXT_ADVANCE,
+        width,
         height: Math.max(1, element.lines.length) * element.fontSize * TEXT_LINE_HEIGHT,
       };
     }

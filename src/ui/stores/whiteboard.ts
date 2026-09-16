@@ -31,7 +31,11 @@ import {
   type ToolSettings,
 } from '../../core/whiteboard/tool-settings';
 import type { DiagramView } from '../../core/diagram-zoom';
-import type { WhiteboardAdapter, WhiteboardUiState } from '../../editors/whiteboard';
+import type {
+  WhiteboardAdapter,
+  WhiteboardClipboard,
+  WhiteboardUiState,
+} from '../../editors/whiteboard';
 
 /** Per-tab draw state reported UP by the adapter (undo depth, layers panel). */
 export type DrawTabState = WhiteboardUiState;
@@ -88,6 +92,13 @@ interface WhiteboardState {
   viewByTab: Record<string, DiagramView>;
   /** tabId → what its draw adapter last reported. */
   byTab: Record<string, DrawTabState>;
+  /**
+   * The board clipboard (`WhiteboardClipboard` in `editors/whiteboard.ts`).
+   * GLOBAL like the tool: copy on one board, paste on another. The adapter
+   * reads and writes it through its options; the store only holds it.
+   */
+  clipboard: WhiteboardClipboard | null;
+  setClipboard: (clipboard: WhiteboardClipboard | null) => void;
   setTool: (tool: DrawTool) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
@@ -135,6 +146,8 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   penSeen: false,
   viewByTab: {},
   byTab: {},
+  clipboard: null,
+  setClipboard: (clipboard) => set({ clipboard }),
   // Picking a shape also remembers it, so the picker's one-click button is
   // always the shape you last reached for. Picking a line or an arrow sets the
   // heads to match: the shape kind IS the end head in the format, and two

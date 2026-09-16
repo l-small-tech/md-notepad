@@ -60,6 +60,47 @@
 
 import { parseWhiteboard, WhiteboardParseError } from '../core/whiteboard/parse';
 import {
+  ALIGN_LABELS,
+  alignElements,
+  canAlign,
+  canDistribute,
+  DISTRIBUTE_LABELS,
+  distributeElements,
+  reorderElements,
+  Z_ORDER_LABELS,
+  type AlignEdge,
+  type DistributeAxis,
+  type ZOrderOp,
+} from '../core/whiteboard/arrange';
+import {
+  copyElements,
+  parseFragment,
+  PASTE_OFFSET,
+  pasteElements,
+  serializeFragment,
+} from '../core/whiteboard/clipboard';
+import {
+  canGroup,
+  canUngroup,
+  expandSelection,
+  groupElements,
+  ungroupElements,
+  withoutRefs,
+} from '../core/whiteboard/groups';
+import {
+  attachLabel,
+  canHostLabel,
+  hostCentre,
+  hostOf,
+  labelBaseline,
+  labelCentreY,
+  labelsOf,
+  relayoutLabels,
+  withLabels,
+} from '../core/whiteboard/labels';
+import { getClipboard } from '../ipc/clipboard';
+import { openContextMenu, type ContextMenuItem } from './whiteboard-menu';
+import {
   ARROW_MARKER_ID,
   ARROW_START_MARKER_ID,
   colorModeOf,
@@ -67,7 +108,7 @@ import {
   serializeElement,
   serializeWhiteboard,
 } from '../core/whiteboard/serialize';
-import type { SceneDoc, SceneElement } from '../core/whiteboard/scene';
+import type { SceneDoc, SceneElement, TextElement } from '../core/whiteboard/scene';
 import { createHistory, type History } from '../core/whiteboard/history';
 import { hitTest } from '../core/whiteboard/hit-test';
 import {
@@ -100,6 +141,7 @@ import {
   makeText,
   MIN_SELECTION_SIZE,
   PALETTE,
+  toolForHotkey,
   type DrawTool,
   type ShapeStyle,
   type ToolSettings,
@@ -187,9 +229,34 @@ export interface WhiteboardUiState {
   readonly selectionStyle: SelectionStyle | null;
 }
 
+/**
+ * What Ctrl+C put on the board clipboard. Held by the UI store (GLOBAL, like
+ * the tool: copy on one board, paste on another) and reached through
+ * {@link WhiteboardAdapterOptions.clipboard}. `fragment` is the serialized
+ * `<svg>` that also went to the system clipboard, so a paste can tell "the
+ * same thing again" (which lands a step further along) from "something new";
+ * `pastes` is how many times this clipboard has landed so far.
+ */
+export interface WhiteboardClipboard {
+  readonly fragment: string;
+  readonly elements: readonly SceneElement[];
+  readonly pastes: number;
+}
+
 export interface WhiteboardAdapterOptions {
   /** The error card's escape hatch — the UI switches this tab to raw source. */
   onOpenAsText: () => void;
+  /**
+   * A single-key tool hotkey was pressed on the focused board (V, P, H, E, T,
+   * R, O, L, A — `TOOL_HOTKEYS`). The ribbon owns the tool, so the adapter
+   * asks it to switch rather than switching anything itself.
+   */
+  onToolHotkey?: (tool: DrawTool) => void;
+  /** The board clipboard — see {@link WhiteboardClipboard}. */
+  clipboard?: {
+    get: () => WhiteboardClipboard | null;
+    set: (clipboard: WhiteboardClipboard | null) => void;
+  };
   /** The ribbon's current tool/colour/width, read fresh at each gesture start. */
   getTool: () => ToolSettings;
   /** Undo availability etc., so the ribbon can disable what won't work. */
@@ -247,6 +314,24 @@ export interface WhiteboardAdapter extends EditorAdapter {
   /** Delete the current selection (the ribbon's bin button, and Delete). */
   deleteSelection(): void;
   selectAll(): void;
+  /** Ctrl+C: the selection to the board clipboard and, as SVG, the system's. */
+  copySelection(): void;
+  /** Ctrl+X: copy, then delete. */
+  cutSelection(): void;
+  /**
+   * Ctrl+V / the menu: paste the system clipboard if it holds a whiteboard
+   * fragment, else the board clipboard. Each repeat lands 16 units further.
+   */
+  pasteClipboard(): void;
+  /** Ctrl+D: a copy of the selection, 16 units along, without touching the clipboard. */
+  duplicateSelection(): void;
+  /** Ctrl+] / Ctrl+[ (Shift for front/back): restack within each layer. */
+  reorderSelection(op: ZOrderOp): void;
+  alignSelection(edge: AlignEdge): void;
+  distributeSelection(axis: DistributeAxis): void;
+  /** Ctrl+G / Ctrl+Shift+G: tag the selection as one group / clear the tags. */
+  groupSelection(): void;
+  ungroupSelection(): void;
   /**
    * The ribbon changed the tool. The adapter PULLS tool settings at each
    * gesture, so this is only about what is visible between gestures: the
@@ -338,18 +423,34 @@ type SelectDrag =
       from: Rect;
       base: SceneDoc;
       moved: boolean;
+      /**
+       * The selection minus labels that have a live host. A resize scales
+       * these and RE-CENTRES the labels on the result (`relayoutLabels`),
+       * because stretching a box must not stretch the type inside it.
+       */
+      scaled: readonly ElementRef[];
     };
 
-/** What the text tool is currently editing. `ref` is null for new text. */
+/**
+ * What the text tool is currently editing. `ref` is null for new text; `host`
+ * is the element a NEW label is being typed for. `at` is the first line's
+ * baseline origin for start-anchored text and the block's CENTRE for a label
+ * (`anchor: 'middle'`), whose baseline moves as lines are added.
+ */
 interface TextEdit {
   at: Point;
+  anchor: 'start' | 'middle';
   color: string;
   fontSize: number;
   fontFamily: string | null;
   ref: ElementRef | null;
+  host: ElementRef | null;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** The modifier name the context menu's shortcut column shows. */
+const MOD_LABEL = /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
 
 /** Arrow-key nudge directions, in SCREEN pixels (scaled by the zoom). */
 const NUDGE_KEYS: Record<string, Point | undefined> = {
@@ -800,8 +901,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     chromeGroup.innerHTML = parts.join('');
   }
 
+  /**
+   * The closure of `refs` over groups and label <-> host links — EVERY
+   * selection the user makes passes through here (click, shift-click,
+   * marquee, the context menu), which is the single mechanism that makes a
+   * group move as one and a label follow its host. Phase D's connectors do
+   * not expand (an arrow is not part of the box it points at); they follow by
+   * `reconnect` instead.
+   */
+  function expanded(refs: readonly ElementRef[]): ElementRef[] {
+    return scene ? expandSelection(scene, refs) : [...refs];
+  }
+
   function setSelection(next: readonly ElementRef[]): void {
-    selection = next;
+    selection = expanded(next);
     renderChrome();
     notifyState();
   }
@@ -831,12 +944,26 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    */
   function commit(next: SceneDoc, record = true): void {
     if (record) {
+      next = settle(next);
       history?.push(next);
     }
     render(serializeWhiteboard(next), false);
     pendingPush = true;
     schedulePush();
     notifyState();
+  }
+
+  /**
+   * The passes every RECORDED commit runs before the document becomes the
+   * next snapshot: today `relayoutLabels` (re-centre every label on its
+   * host, after whatever moved or resized the host); phase D's `reconnect`
+   * (re-aim every attached connector) joins it here. Each is a fixed point
+   * on a document it has nothing to do to, so running them on every commit
+   * costs nothing when nothing moved. Undo and redo skip this — a snapshot
+   * was settled when it was recorded.
+   */
+  function settle(doc: SceneDoc): SceneDoc {
+    return relayoutLabels(doc);
   }
 
   /**
@@ -1099,6 +1226,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
           from: outline,
           base: scene,
           moved: false,
+          scaled: nonLabelRefs(scene, selection),
         };
         return;
       }
@@ -1108,8 +1236,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (hit) {
       // Pressing on something already selected keeps the whole set — that is
       // what makes "drag the group" work.
+      // Shift toggles the WHOLE unit the hit belongs to (its group, its
+      // label or host): deselecting one member of a group would only see the
+      // expansion put it straight back.
       const next = event.shiftKey
-        ? toggleRef(selection, hit)
+        ? hasRef(selection, hit)
+          ? withoutRefs(selection, expanded([hit]))
+          : toggleRef(selection, hit)
         : hasRef(selection, hit)
           ? selection
           : [hit];
@@ -1146,9 +1279,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       const drag = selectDrag;
       drag.current = point;
       const inside = scene ? elementsInRect(scene, marqueeRect(drag.start, point)) : [];
-      selection = drag.additive
-        ? [...drag.base, ...inside.filter((ref) => !hasRef(drag.base, ref))]
-        : inside;
+      selection = expanded(
+        drag.additive ? [...drag.base, ...inside.filter((ref) => !hasRef(drag.base, ref))] : inside,
+      );
       renderChrome();
       notifyState();
       return;
@@ -1171,9 +1304,22 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     );
     selectDrag.moved = true;
     render(
-      serializeWhiteboard(scaleElements(selectDrag.base, selection, selectDrag.from, target)),
+      serializeWhiteboard(resized(selectDrag.base, selectDrag.scaled, selectDrag.from, target)),
       false,
     );
+  }
+
+  /** A resize: scale everything but the labels, then re-centre the labels. */
+  function resized(base: SceneDoc, refs: readonly ElementRef[], from: Rect, to: Rect): SceneDoc {
+    return relayoutLabels(scaleElements(base, refs, from, to));
+  }
+
+  /** `refs` minus labels whose host is alive — the part of a selection a resize scales. */
+  function nonLabelRefs(doc: SceneDoc, refs: readonly ElementRef[]): ElementRef[] {
+    return refs.filter((ref) => {
+      const element = resolveElement(doc, ref);
+      return !(element?.kind === 'text' && hostOf(doc, element) !== null);
+    });
   }
 
   function finishSelectDrag(point: Point): void {
@@ -1196,9 +1342,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const next =
       drag.kind === 'move'
         ? translateElements(drag.base, selection, point.x - drag.start.x, point.y - drag.start.y)
-        : scaleElements(
+        : resized(
             drag.base,
-            selection,
+            drag.scaled,
             drag.from,
             resizeRect(
               drag.from,
@@ -1228,7 +1374,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    * fixed-width wrapping box was tried and reverted — it made the editor
    * promise a reflow the format cannot keep.
    */
-  function openTextEditor(at: Point, existing: ElementRef | null): void {
+  function openTextEditor(
+    at: Point,
+    existing: ElementRef | null,
+    host: ElementRef | null = null,
+  ): void {
     if (!canvas || !scene) {
       return;
     }
@@ -1236,14 +1386,36 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const settings = options.getTool();
     const current = existing ? resolveElement(scene, existing) : null;
     const element = current?.kind === 'text' ? current : null;
+    const hostElement = host ? resolveElement(scene, host) : null;
+    const fontSize = element ? element.fontSize : settings.fontSize;
+    // A label edits CENTRED on its host: the box sits where the block will
+    // be, growing both ways, so what you see typed is where the words land.
+    // An orphan label (host gone) still edits centred on its own `x` — that
+    // is how it renders, `text-anchor="middle"` and all.
+    let anchor: TextEdit['anchor'] = 'start';
+    let origin = element ? { x: element.x, y: element.y } : at;
+    const liveHost = element ? hostOf(scene, element) : null;
+    const liveHostElement = liveHost ? resolveElement(scene, liveHost) : null;
+    if (liveHostElement && hostCentre(liveHostElement)) {
+      anchor = 'middle';
+      origin = hostCentre(liveHostElement)!;
+    } else if (element && element.labelOf !== null) {
+      anchor = 'middle';
+      origin = { x: element.x, y: labelCentreY(element.y, fontSize, element.lines.length) };
+    } else if (!element && hostElement && hostCentre(hostElement)) {
+      anchor = 'middle';
+      origin = hostCentre(hostElement)!;
+    }
     textEdit = {
-      at: element ? { x: element.x, y: element.y } : at,
+      at: origin,
+      anchor,
       color: element ? element.fill : settings.color,
       // Reopening existing text adopts ITS type, so editing a label does not
       // silently restyle it to whatever the ribbon happens to say.
-      fontSize: element ? element.fontSize : settings.fontSize,
+      fontSize,
       fontFamily: element ? element.fontFamily : settings.fontFamily,
       ref: element ? existing : null,
+      host: element ? null : host,
     };
 
     const area = document.createElement('textarea');
@@ -1254,11 +1426,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     area.addEventListener('pointerdown', (e) => e.stopPropagation());
     area.addEventListener('keydown', onTextKeyDown);
     area.addEventListener('blur', () => commitText());
-    area.addEventListener('input', () => autoSizeText(area));
+    // A centred box moves its top as lines are added (the block stays centred
+    // on the host), so an input re-runs the placement, not just the sizing.
+    area.addEventListener('input', () => styleTextArea());
     // Editing EXISTING text sits on top of the glyphs it came from, so the box
     // paints the board colour behind itself; a new one stays transparent so
     // you can see what you are typing over.
     area.classList.toggle('wb-editing', element !== null);
+    area.classList.toggle('wb-centred', anchor === 'middle');
     canvas.append(area);
     textArea = area;
     styleTextArea();
@@ -1280,7 +1455,15 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const scale = boardScale();
-    const origin = sceneToBoard(edit.at);
+    // For a label `at` is the block's centre: the first baseline is wherever
+    // `labelBaseline` puts it for the lines typed so far — the same function
+    // the committed `<text y>` comes from, so the two agree on screen.
+    const lineCount = area.value.split('\n').length;
+    const origin = sceneToBoard(
+      edit.anchor === 'middle'
+        ? { x: edit.at.x, y: labelBaseline(edit.at.y, edit.fontSize, lineCount) }
+        : edit.at,
+    );
     area.style.left = `${origin.x}px`;
     // A textarea's first line sits about 0.8em above its own baseline at
     // line-height 1.2; line the two up so the caret is where the glyphs land.
@@ -1338,16 +1521,33 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (!area || !edit || !scene) {
       return;
     }
-    const element = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
+    const typed = makeText(edit.at, area.value, edit.color, edit.fontSize, edit.fontFamily);
+    // A centred block's first baseline depends on how many lines it has.
+    const element: TextElement | null =
+      typed && edit.anchor === 'middle'
+        ? { ...typed, y: labelBaseline(edit.at.y, edit.fontSize, typed.lines.length) }
+        : typed;
     if (edit.ref) {
-      // Editing existing text: empty means delete it.
-      commit(
-        element ? replaceElement(scene, edit.ref, element) : removeElements(scene, [edit.ref]),
-      );
+      // Editing existing text: empty means delete it. What survives is the
+      // element's IDENTITY — its id, its group, and which host it labels —
+      // so retyping a label keeps it a label (and `settle` re-centres it).
+      const current = resolveElement(scene, edit.ref);
+      const kept =
+        element && current?.kind === 'text'
+          ? { ...element, id: current.id, group: current.group, labelOf: current.labelOf }
+          : element;
+      commit(kept ? replaceElement(scene, edit.ref, kept) : removeElements(scene, [edit.ref]));
       return;
     }
     if (!element) {
       return;
+    }
+    if (edit.host) {
+      const attached = attachLabel(scene, edit.host, element);
+      if (attached) {
+        commit(attached.doc);
+        return;
+      }
     }
     const target = ensureDrawLayer(scene, activeLayerId);
     activeLayerId = target.layerId;
@@ -1378,8 +1578,24 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     const point = scenePoint(event);
     const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0];
-    if (hit && resolveElement(scene, hit)?.kind === 'text') {
+    const element = hit ? resolveElement(scene, hit) : null;
+    if (!hit || !element) {
+      return;
+    }
+    if (element.kind === 'text') {
       openTextEditor(point, hit);
+      return;
+    }
+    // A shape (or picture): edit its label if it has one, else start one —
+    // the box you double-click is the box you want words in.
+    if (canHostLabel(element)) {
+      const existing =
+        element.kind !== 'raw' && element.id !== null ? labelsOf(scene, element.id) : [];
+      if (existing.length > 0) {
+        openTextEditor(point, existing[0]!);
+      } else {
+        openTextEditor(point, null, hit);
+      }
     }
   }
 
@@ -1419,7 +1635,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (hits.length === 0) {
       return;
     }
-    gesture.working = removeElements(gesture.working, hits);
+    // A host's labels go with it: a label with nothing to label is litter.
+    gesture.working = removeElements(gesture.working, withLabels(gesture.working, hits));
     gesture.erased = true;
     // Show the removal immediately; the whole drag lands as ONE undo step when
     // the pointer lifts.
@@ -1536,12 +1753,65 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) {
+      if (event.altKey || event.shiftKey) {
+        return;
+      }
+      // Bare-letter tool hotkeys (V, P, H, E, T, R, O, L, A). The textarea's
+      // own keydown handler stops propagation, so typing never reaches here.
+      const tool = toolForHotkey(event.key);
+      if (tool !== null) {
+        event.preventDefault();
+        options.onToolHotkey?.(tool);
+        adapter.refreshTool();
+        return;
+      }
+      if (event.key.toLowerCase() === 'g') {
+        // Reserved: phase C toggles the grid here (`TOOL_HOTKEYS` leaves G out
+        // for exactly this). Swallowed now so it cannot become a tool later.
+        event.preventDefault();
+      }
+      return;
+    }
+    // Ctrl+V is NOT here: the `paste` event carries the system clipboard's
+    // text, which the keydown cannot read, so `onPaste` owns it.
+    if (event.code === 'BracketRight' || event.code === 'BracketLeft') {
+      // `code`, not `key`: with Shift held the key reports `}` / `{` on a US
+      // layout and something else entirely on others.
+      event.preventDefault();
+      const forward = event.code === 'BracketRight';
+      adapter.reorderSelection(
+        event.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward',
+      );
       return;
     }
     const key = event.key.toLowerCase();
     if (key === 'a') {
       event.preventDefault();
       adapter.selectAll();
+      return;
+    }
+    if (key === 'c') {
+      event.preventDefault();
+      adapter.copySelection();
+      return;
+    }
+    if (key === 'x') {
+      event.preventDefault();
+      adapter.cutSelection();
+      return;
+    }
+    if (key === 'd') {
+      event.preventDefault();
+      adapter.duplicateSelection();
+      return;
+    }
+    if (key === 'g') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        adapter.ungroupSelection();
+      } else {
+        adapter.groupSelection();
+      }
       return;
     }
     if (key === 'z') {
@@ -1646,6 +1916,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const element: SceneElement = {
       kind: 'image',
       id: null,
+      group: null,
       x: area.x + (area.width - width) / 2,
       y: area.y + (area.height - height) / 2,
       width,
@@ -1767,24 +2038,187 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     return scanPanel;
   }
 
-  /** Clipboard image → the scan screen, skipping acquisition. */
+  /**
+   * Paste, in priority order: a clipboard IMAGE goes to the scan screen
+   * (skipping acquisition); text that parses as a whiteboard fragment lands
+   * as elements; failing both, whatever the board clipboard holds — which is
+   * what answers where the web view cannot read the system clipboard back.
+   * Text pasted into the text editor is the textarea's own business.
+   */
   function onPaste(event: ClipboardEvent): void {
-    if (!options.scan || scanPanel?.isOpen()) {
+    if (textArea && event.target === textArea) {
       return;
     }
-    const item = [...(event.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
-    const file = item?.getAsFile();
-    if (!file) {
+    if (options.scan && !scanPanel?.isOpen()) {
+      const item = [...(event.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (file) {
+        event.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            adapter.startScan({ dataUrl: reader.result, width: 0, height: 0 });
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+    if (pasteText(event.clipboardData?.getData('text/plain') ?? '')) {
+      event.preventDefault();
+    }
+  }
+
+  /**
+   * Paste `text` if it is one of ours, else the board clipboard when `text`
+   * is empty (unreadable) — but NOT when it is something else: prose copied
+   * after the last board copy means the user moved on, and pasting stale
+   * shapes over it would be a surprise. Returns whether anything landed.
+   */
+  function pasteText(text: string): boolean {
+    if (!scene) {
+      return false;
+    }
+    let clip = options.clipboard?.get() ?? null;
+    if (text.trim().length > 0 && text !== clip?.fragment) {
+      const parsed = parseFragment(text);
+      if (parsed === null) {
+        return false;
+      }
+      clip = { fragment: text, elements: parsed, pastes: 0 };
+    }
+    if (!clip) {
+      return false;
+    }
+    commitText();
+    const pastes = clip.pastes + 1;
+    const placed = pasteElements(scene, clip.elements, activeLayerId, PASTE_OFFSET * pastes);
+    options.clipboard?.set({ ...clip, pastes });
+    activeLayerId = placed.layerId;
+    // The refs are valid in the NEW document, which is what `render` checks
+    // them against — set them first so the commit's render keeps them.
+    selection = expandSelection(placed.doc, placed.refs);
+    commit(placed.doc);
+    return true;
+  }
+
+  /** The selection to both clipboards. Returns what was copied. */
+  function copyToClipboards(): SceneElement[] {
+    if (!scene || selection.length === 0) {
+      return [];
+    }
+    const elements = copyElements(scene, selection);
+    if (elements.length === 0) {
+      return [];
+    }
+    const fragment = serializeFragment(elements);
+    options.clipboard?.set({ fragment, elements, pastes: 0 });
+    // Best effort: the system clipboard is a courtesy to other tools, and a
+    // refusal (permissions, a headless view) must not make Ctrl+C fail.
+    void getClipboard()
+      .write(fragment)
+      .catch(() => undefined);
+    return elements;
+  }
+
+  /**
+   * The right-click menu. Pressing on something not yet selected selects it
+   * (the way every editor does), pressing on nothing clears the selection so
+   * the menu is honest about what it will act on. `preventDefault` here is
+   * what tells the app-wide guard that this surface owns the right-click.
+   */
+  function onContextMenu(event: MouseEvent): void {
+    if (!scene) {
       return;
     }
     event.preventDefault();
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        adapter.startScan({ dataUrl: reader.result, width: 0, height: 0 });
-      }
+    commitText();
+    const point = scenePoint(event);
+    const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0] ?? null;
+    if (hit && !hasRef(selection, hit)) {
+      setSelection([hit]);
+    } else if (!hit) {
+      setSelection([]);
+    }
+    openContextMenu(contextMenuItems(), event.clientX, event.clientY, () =>
+      stage?.focus({ preventScroll: true }),
+    );
+  }
+
+  /**
+   * What the menu offers, enabled from the pure predicates. THE extension
+   * point for later phases: phase D appends its connector items here.
+   */
+  function contextMenuItems(): ContextMenuItem[] {
+    const doc = scene;
+    const some = doc !== null && selection.length > 0;
+    const chord = (keys: string): string => `${MOD_LABEL}+${keys}`;
+    const items: ContextMenuItem[] = [
+      { label: 'Cut', chord: chord('X'), disabled: !some, onSelect: () => adapter.cutSelection() },
+      {
+        label: 'Copy',
+        chord: chord('C'),
+        disabled: !some,
+        onSelect: () => adapter.copySelection(),
+      },
+      { label: 'Paste', chord: chord('V'), onSelect: () => adapter.pasteClipboard() },
+      {
+        label: 'Duplicate',
+        chord: chord('D'),
+        disabled: !some,
+        onSelect: () => adapter.duplicateSelection(),
+      },
+      'separator',
+    ];
+    const zChords: Record<ZOrderOp, string> = {
+      front: chord('Shift+]'),
+      forward: chord(']'),
+      backward: chord('['),
+      back: chord('Shift+['),
     };
-    reader.readAsDataURL(file);
+    for (const op of ['front', 'forward', 'backward', 'back'] as const) {
+      items.push({
+        label: Z_ORDER_LABELS[op],
+        chord: zChords[op],
+        disabled: !some,
+        onSelect: () => adapter.reorderSelection(op),
+      });
+    }
+    items.push('separator');
+    const alignable = doc !== null && canAlign(doc, selection);
+    for (const edge of ['left', 'center', 'right', 'top', 'middle', 'bottom'] as const) {
+      items.push({
+        label: ALIGN_LABELS[edge],
+        disabled: !alignable,
+        onSelect: () => adapter.alignSelection(edge),
+      });
+    }
+    const distributable = doc !== null && canDistribute(doc, selection);
+    for (const axis of ['horizontal', 'vertical'] as const) {
+      items.push({
+        label: DISTRIBUTE_LABELS[axis],
+        disabled: !distributable,
+        onSelect: () => adapter.distributeSelection(axis),
+      });
+    }
+    items.push(
+      'separator',
+      {
+        label: 'Group',
+        chord: chord('G'),
+        disabled: !canGroup(selection),
+        onSelect: () => adapter.groupSelection(),
+      },
+      {
+        label: 'Ungroup',
+        chord: chord('Shift+G'),
+        disabled: doc === null || !canUngroup(doc, selection),
+        onSelect: () => adapter.ungroupSelection(),
+      },
+      'separator',
+      { label: 'Delete', chord: 'Del', disabled: !some, onSelect: () => adapter.deleteSelection() },
+    );
+    return items;
   }
 
   /**
@@ -1841,9 +2275,97 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       if (!scene || selection.length === 0) {
         return;
       }
-      const next = removeElements(scene, selection);
+      // The selection is already expanded (labels ride with hosts), and
+      // `withLabels` makes the promise explicit for a host whose label sits
+      // on a layer expansion could not reach.
+      const next = removeElements(scene, withLabels(scene, selection));
       selection = [];
       commit(next);
+    },
+
+    copySelection() {
+      copyToClipboards();
+    },
+
+    cutSelection() {
+      if (copyToClipboards().length > 0) {
+        adapter.deleteSelection();
+      }
+    },
+
+    pasteClipboard() {
+      // The menu path has no ClipboardEvent, so ask the system clipboard —
+      // through the IPC seam, which is what works on WebKitGTK — and fall
+      // back to the board clipboard when it has nothing of ours.
+      void getClipboard()
+        .read()
+        .catch(() => '')
+        .then((text) => {
+          pasteText(text);
+        });
+    },
+
+    duplicateSelection() {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      const placed = pasteElements(
+        scene,
+        copyElements(scene, selection),
+        activeLayerId,
+        PASTE_OFFSET,
+      );
+      activeLayerId = placed.layerId;
+      selection = expandSelection(placed.doc, placed.refs);
+      commit(placed.doc);
+    },
+
+    reorderSelection(op) {
+      if (!scene || selection.length === 0) {
+        return;
+      }
+      const result = reorderElements(scene, selection, op);
+      if (result.doc === scene) {
+        return;
+      }
+      selection = result.refs;
+      commit(result.doc);
+    },
+
+    alignSelection(edge) {
+      if (scene) {
+        const next = alignElements(scene, selection, edge);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    distributeSelection(axis) {
+      if (scene) {
+        const next = distributeElements(scene, selection, axis);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    groupSelection() {
+      if (scene) {
+        const next = groupElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
+    },
+
+    ungroupSelection() {
+      if (scene) {
+        const next = ungroupElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
     },
 
     selectAll() {
@@ -1978,12 +2500,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       stage.addEventListener('keydown', onKeyDown);
       stage.addEventListener('keyup', onKeyUp);
       stage.addEventListener('dblclick', onDoubleClick);
+      stage.addEventListener('contextmenu', onContextMenu);
+      stage.addEventListener('paste', onPaste);
       if (options.scan) {
-        // Desktop paste and OS drag-drop both land a photo straight on the
-        // crop screen. `data-drop-scan` is what main.tsx hit-tests, exactly
-        // like the explorer's `data-drop-dir`.
+        // OS drag-drop lands a photo straight on the crop screen (paste does
+        // too, via `onPaste`). `data-drop-scan` is what main.tsx hit-tests,
+        // exactly like the explorer's `data-drop-dir`.
         stage.dataset.dropScan = '';
-        stage.addEventListener('paste', onPaste);
         stage.addEventListener('wb-drop-photo', onDropPhoto);
       }
 
@@ -2064,6 +2587,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         stage.removeEventListener('keydown', onKeyDown);
         stage.removeEventListener('keyup', onKeyUp);
         stage.removeEventListener('dblclick', onDoubleClick);
+        stage.removeEventListener('contextmenu', onContextMenu);
         stage.removeEventListener('paste', onPaste);
         stage.removeEventListener('wb-drop-photo', onDropPhoto);
       }

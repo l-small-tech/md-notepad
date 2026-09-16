@@ -12,6 +12,7 @@ function stroke(d: string, strokeWidth = 4): SceneElement {
   return {
     kind: 'stroke',
     id: null,
+    group: null,
     tool: 'pen',
     d,
     stroke: '#1a1a1a',
@@ -25,6 +26,7 @@ function rect(fill: string): SceneElement {
   return {
     kind: 'shape',
     id: null,
+    group: null,
     shape: 'rect',
     geom: { x: 0, y: 0, width: 100, height: 50 },
     stroke: '#1a1a1a',
@@ -80,6 +82,7 @@ describe('hitTestElement — shapes', () => {
     const ellipse: SceneElement = {
       kind: 'shape',
       id: null,
+      group: null,
       shape: 'ellipse',
       geom: { cx: 100, cy: 100, rx: 50, ry: 25 },
       stroke: '#1a1a1a',
@@ -98,6 +101,7 @@ describe('hitTestElement — shapes', () => {
     const line: SceneElement = {
       kind: 'shape',
       id: null,
+      group: null,
       shape: 'arrow',
       geom: { x1: 0, y1: 0, x2: 100, y2: 100 },
       stroke: '#1a1a1a',
@@ -135,6 +139,8 @@ describe('elementBounds', () => {
     const bounds = elementBounds({
       kind: 'text',
       id: null,
+      group: null,
+      labelOf: null,
       fontFamily: null,
       x: 10,
       y: 100,

@@ -61,8 +61,19 @@ export type BoardColorMode = 'themed' | 'fixed';
  */
 export interface StrokeElement {
   readonly kind: 'stroke';
-  /** `wb:id`, present only inside scan layers (drawn strokes stay id-free). */
+  /**
+   * `wb:id`. Present inside scan layers (OCR metadata points at ink by id),
+   * and on any element something else refers to — a labelled shape, phase D's
+   * connector hosts. Drawn ink that nothing refers to stays id-free: every
+   * byte counts in a dense file.
+   */
   readonly id: string | null;
+  /**
+   * `wb:group` — a FLAT group tag (see `groups.ts`). Members of a group share
+   * the tag and nothing else: no `<g>` wrapper, no nesting. Null (the normal
+   * case) emits no attribute.
+   */
+  readonly group: string | null;
   readonly tool: 'pen' | 'highlighter' | 'scanfill';
   /** Path data, already in scene coordinates. */
   readonly d: string;
@@ -119,6 +130,8 @@ export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow' | BoxShapeKind;
 export interface ShapeElement {
   readonly kind: 'shape';
   readonly id: string | null;
+  /** `wb:group` — see {@link StrokeElement.group}. */
+  readonly group: string | null;
   readonly shape: ShapeKind;
   readonly geom: Readonly<Record<string, number>>;
   readonly stroke: string;
@@ -156,6 +169,18 @@ export interface ShapeElement {
 export interface TextElement {
   readonly kind: 'text';
   readonly id: string | null;
+  /** `wb:group` — see {@link StrokeElement.group}. */
+  readonly group: string | null;
+  /**
+   * `wb:label-of` — the `wb:id` of the element this text is the LABEL of, or
+   * null for free-standing text. A label is centred on its host (`labels.ts`
+   * lays it out from the host's geometry and re-centres it after every
+   * commit), serialized with `text-anchor="middle"`, and welded to the host
+   * for selection: moving, deleting or copying the host takes the label along.
+   * A label whose host no longer exists is just text.
+   */
+  readonly labelOf: string | null;
+  /** The anchor point: `<text x y>`. For a label, `x` is the host's centre. */
   readonly x: number;
   readonly y: number;
   readonly fontSize: number;
@@ -181,6 +206,8 @@ export interface TextElement {
 export interface ImageElement {
   readonly kind: 'image';
   readonly id: string | null;
+  /** `wb:group` — see {@link StrokeElement.group}. */
+  readonly group: string | null;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -278,6 +305,83 @@ export function freshLayerId(doc: SceneDoc, random: () => number = Math.random):
   }
   // Astronomically unlikely; still never return a duplicate.
   return `l${used.size + 1}`;
+}
+
+/**
+ * An element id (or group tag) used nowhere in `doc` — neither as a `wb:id`
+ * nor as a `wb:group`. One pool for both on purpose: an id that is unique
+ * across every reference the file can hold is one fewer thing a hand edit can
+ * confuse. Same injectable randomness as {@link makeLayerId}, same reason.
+ */
+export function freshElementId(doc: SceneDoc, random: () => number = Math.random): string {
+  return freshIdFrom(usedIds(doc), random);
+}
+
+/**
+ * An id not in `used` — and ADDED to it, so a caller allocating several in a
+ * row (the clipboard remapping a whole pasted set) cannot hand out the same
+ * one twice.
+ */
+export function freshIdFrom(used: Set<string>, random: () => number = Math.random): string {
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const id = makeLayerId(random);
+    if (!used.has(id)) {
+      used.add(id);
+      return id;
+    }
+  }
+  const fallback = `e${used.size + 1}`;
+  used.add(fallback);
+  return fallback;
+}
+
+/** Every `wb:id` and `wb:group` value in the document. */
+export function usedIds(doc: SceneDoc): Set<string> {
+  const used = new Set<string>();
+  for (const layer of doc.layers) {
+    for (const element of layer.elements) {
+      if (element.kind === 'raw') {
+        continue;
+      }
+      if (element.id !== null) {
+        used.add(element.id);
+      }
+      if (element.group !== null) {
+        used.add(element.group);
+      }
+    }
+  }
+  return used;
+}
+
+/**
+ * Rewrite every id and every id REFERENCE in `elements` through `mapping`.
+ *
+ * An element's own `id` maps when the mapping names it and is otherwise kept.
+ * A reference (`labelOf`, `group`, and phase D's connector `from`/`to`) maps
+ * when the mapping names its target and is otherwise DROPPED — a pasted label
+ * must not keep pointing at the shape it was copied from, and a pasted
+ * connector must not stay attached to a box it is no longer next to. The
+ * clipboard builds the mapping from every id and tag in the fragment, so
+ * within a pasted set every link survives and every link out of it is cut.
+ */
+export function remapIds(
+  elements: readonly SceneElement[],
+  mapping: ReadonlyMap<string, string>,
+): SceneElement[] {
+  const ref = (value: string | null): string | null =>
+    value === null ? null : (mapping.get(value) ?? null);
+  return elements.map((element) => {
+    if (element.kind === 'raw') {
+      return element;
+    }
+    const id = element.id === null ? null : (mapping.get(element.id) ?? element.id);
+    const group = ref(element.group);
+    if (element.kind === 'text') {
+      return { ...element, id, group, labelOf: ref(element.labelOf) };
+    }
+    return { ...element, id, group };
+  });
 }
 
 export function createLayer(init: Partial<Layer> & { id: string }): Layer {

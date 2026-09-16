@@ -44,6 +44,7 @@ export function makeStroke(
     // Drawn strokes stay id-free: ids exist so a scan layer's OCR metadata can
     // point at the ink it read, and every byte counts in a dense file.
     id: null,
+    group: null,
     tool,
     d,
     stroke: color,
@@ -87,6 +88,8 @@ export function makeText(
   return {
     kind: 'text',
     id: null,
+    group: null,
+    labelOf: null,
     x: at.x,
     y: at.y,
     fontSize,
@@ -131,6 +134,7 @@ export function makeShape(
   const base = {
     kind: 'shape',
     id: null,
+    group: null,
     stroke: color,
     strokeWidth: width,
     dash,

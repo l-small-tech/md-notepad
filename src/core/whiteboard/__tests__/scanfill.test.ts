@@ -15,6 +15,7 @@ import { hitTestElement } from '../hit-test';
 const DONUT: StrokeElement = {
   kind: 'stroke',
   id: null,
+  group: null,
   tool: 'scanfill',
   d: 'M10 10L90 10L90 90L10 90ZM40 40L60 40L60 60L40 60Z',
   stroke: '#1a1a1a',

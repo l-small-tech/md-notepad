@@ -150,6 +150,10 @@ describe('a board written before shape styling', () => {
     expect(first).not.toContain('stroke-dasharray');
     expect(first).not.toContain('marker-start');
     expect(first).not.toContain('wb:shape');
+    // Phase B: groups and labels are opt-in per element, too.
+    expect(first).not.toContain('wb:group');
+    expect(first).not.toContain('wb:label-of');
+    expect(first).not.toContain('text-anchor');
     // (an ellipse's own `rx` is geometry; only a rect's is a corner radius)
     expect(first).not.toMatch(/<rect[^>]* rx=/);
     expect(first).not.toContain(ARROW_START_MARKER_ID);
@@ -226,6 +230,56 @@ describe('shape styling', () => {
   });
 });
 
+describe('groups and labels (phase B)', () => {
+  const LABELLED_ELEMENTS = [
+    '<rect wb:id="bx1" wb:group="g1" class="wb-c0" x="100" y="100" width="200" height="100" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>',
+    '<text wb:group="g1" wb:label-of="bx1" class="wb-c0" x="200" y="157" font-size="20" text-anchor="middle" fill="#1a1a1a"><tspan x="200" dy="0">Service</tspan><tspan x="200" dy="1.2em">API</tspan></text>',
+    '<path wb:group="g1" wb:tool="pen" class="wb-c0" d="M1,1 L2,2" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    '<image wb:id="im1" wb:group="g2" x="0" y="0" width="10" height="10" href="data:image/png;base64,AAAA"/>',
+  ];
+
+  const LABELLED = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:wb="urn:md-notepad:whiteboard" viewBox="0 0 400 300" width="400" height="300">
+  <g wb:layer="a1B2" wb:name="L">
+    ${LABELLED_ELEMENTS.join('\n    ')}
+  </g>
+</svg>
+`;
+
+  it('reads the tags back and re-emits every element byte-for-byte, id then group first', () => {
+    const { first, second, doc } = stabilize(LABELLED);
+    expect(second).toBe(first);
+    for (const element of LABELLED_ELEMENTS) {
+      expect(first).toContain(element);
+    }
+    const [box, label, ink, picture] = doc.layers[0]!.elements;
+    expect(box).toMatchObject({ kind: 'shape', id: 'bx1', group: 'g1' });
+    expect(label).toMatchObject({
+      kind: 'text',
+      group: 'g1',
+      labelOf: 'bx1',
+      x: 200,
+      lines: ['Service', 'API'],
+    });
+    expect(ink).toMatchObject({ kind: 'stroke', group: 'g1', id: null });
+    expect(picture).toMatchObject({ kind: 'image', id: 'im1', group: 'g2' });
+  });
+
+  it('derives text-anchor from label-of rather than storing it', () => {
+    const doc = parseWhiteboard(LABELLED);
+    const label = doc.layers[0]!.elements[1]!;
+    const freed = { ...label, labelOf: null } as SceneElement;
+    const out = serializeWhiteboard({
+      ...doc,
+      layers: [{ ...doc.layers[0]!, elements: [freed] }],
+    });
+    expect(out).not.toContain('text-anchor');
+    expect(out).not.toContain('wb:label-of');
+    // And a label written without the anchor (a hand edit) gets it back.
+    const bare = LABELLED.replace(' text-anchor="middle"', '');
+    expect(serializeWhiteboard(parseWhiteboard(bare))).toContain(LABELLED_ELEMENTS[1]!);
+  });
+});
+
 describe('the box shapes', () => {
   function boardWith(element: SceneElement): SceneDoc {
     return createScene({ layers: [createLayer({ id: 'a1B2', elements: [element] })] });
@@ -234,6 +288,7 @@ describe('the box shapes', () => {
   const shape = (kind: ShapeKind): SceneElement => ({
     kind: 'shape',
     id: null,
+    group: null,
     shape: kind,
     geom: { x: 10, y: 20, width: 100, height: 60 },
     stroke: '#1a1a1a',
@@ -420,6 +475,8 @@ describe('degenerate input', () => {
             {
               kind: 'text',
               id: null,
+              group: null,
+              labelOf: null,
               fontFamily: null,
               x: 0,
               y: 0,

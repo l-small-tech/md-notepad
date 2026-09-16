@@ -23,6 +23,7 @@ import { serializeWhiteboard } from '../serialize';
 const RECT: SceneElement = {
   kind: 'shape',
   id: null,
+  group: null,
   shape: 'rect',
   geom: { x: 500, y: 400, width: 100, height: 50 },
   stroke: '#1a1a1a',
@@ -50,6 +51,7 @@ describe('elementBounds', () => {
     const bounds = elementBounds({
       kind: 'stroke',
       id: null,
+      group: null,
       tool: 'pen',
       d: 'M10,20 L110,220',
       stroke: '#1a1a1a',

@@ -336,11 +336,24 @@ export function serializeElement(element: SceneElement, themed = true): string {
   }
 }
 
-function serializeStroke(stroke: StrokeElement, themed: boolean): string {
+/**
+ * `wb:id` then `wb:group`, the two attributes every kind can carry, in that
+ * order — so an element's identity and its membership read first, before the
+ * kind-specific attributes begin. Both emit nothing when null.
+ */
+function identityAttrs(element: { id: string | null; group: string | null }): string[] {
   const attrs: string[] = [];
-  if (stroke.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(stroke.id)}"`);
+  if (element.id !== null) {
+    attrs.push(`wb:id="${escapeAttr(element.id)}"`);
   }
+  if (element.group !== null) {
+    attrs.push(`wb:group="${escapeAttr(element.group)}"`);
+  }
+  return attrs;
+}
+
+function serializeStroke(stroke: StrokeElement, themed: boolean): string {
+  const attrs: string[] = identityAttrs(stroke);
   if (stroke.tool === 'scanfill') {
     // A blob traced by contour: painted with FILL, not stroke, so it themes
     // through its own `wb-fN` class — the palette block's stroke rule would
@@ -456,10 +469,7 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
       : shape.shape === 'ellipse'
         ? 'ellipse'
         : 'line';
-  const attrs: string[] = [];
-  if (shape.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(shape.id)}"`);
-  }
+  const attrs: string[] = identityAttrs(shape);
   if (box) {
     // Without this a re-opened polygon is anonymous geometry and would come
     // back as a RawElement — which is exactly what a foreign `<polygon>` does.
@@ -501,9 +511,10 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
 }
 
 function serializeText(text: TextElement, themed: boolean): string {
-  const attrs: string[] = [];
-  if (text.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(text.id)}"`);
+  const attrs: string[] = identityAttrs(text);
+  const label = text.labelOf !== null;
+  if (label) {
+    attrs.push(`wb:label-of="${escapeAttr(text.labelOf!)}"`);
   }
   // Text paints with fill; the palette block themes it via `text.wb-cN`.
   attrs.push(...slotClassAttr(text.fill, themed, text.slot));
@@ -513,6 +524,13 @@ function serializeText(text: TextElement, themed: boolean): string {
   // byte-for-byte.
   if (text.fontFamily !== null) {
     attrs.push(`font-family="${escapeAttr(text.fontFamily)}"`);
+  }
+  // A label is centred on its host: `x` is the centre and every line's tspan
+  // repeats it, so `text-anchor="middle"` — plain SVG 1.1, honoured everywhere
+  // — is what makes each line centre itself without the editor measuring
+  // glyphs it has no font metrics for. Derived from `labelOf`, never stored.
+  if (label) {
+    attrs.push('text-anchor="middle"');
   }
   attrs.push(`fill="${escapeAttr(text.fill)}"`);
   const tspans = text.lines
@@ -525,10 +543,7 @@ function serializeText(text: TextElement, themed: boolean): string {
 }
 
 function serializeImage(image: ImageElement): string {
-  const attrs: string[] = [];
-  if (image.id !== null) {
-    attrs.push(`wb:id="${escapeAttr(image.id)}"`);
-  }
+  const attrs: string[] = identityAttrs(image);
   attrs.push(
     `x="${num(image.x)}"`,
     `y="${num(image.y)}"`,

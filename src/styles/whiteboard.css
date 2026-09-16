@@ -160,6 +160,27 @@
   background: var(--wb-bg, #ffffff);
 }
 
+/* A LABEL being typed: `left` is the host's centre and the box is centred on
+   it, growing both ways as the longest line grows — the on-screen twin of the
+   `text-anchor="middle"` the committed text will carry. */
+.wb-text-input.wb-centred {
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+/* The board's right-click menu: `.tab-menu` rows with a shortcut column, the
+   same layout the terminal pane's menu uses. */
+.wb-menu {
+  min-width: 220px;
+}
+
+.wb-menu .tab-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
 /* ------------------------------- layers panel ----------------------------- */
 
 .wb-layers {

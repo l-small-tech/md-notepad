@@ -18,6 +18,10 @@ what a whiteboard *is* lives here.
 | `hit-test.ts` | the eraser's aim, and selection's base |
 | `select.ts` | the selected set, resize handles, and BAKING a transform in |
 | `style.ts` | restyling a selection, and reading back what it currently IS |
+| `groups.ts` | flat groups by tag, and the selection EXPANSION that welds groups and labels together |
+| `labels.ts` | text centred on a host element: layout, re-centring after every commit, attach |
+| `arrange.ts` | z-order within a layer, align, distribute |
+| `clipboard.ts` | copy/paste as a document fragment, with ids remapped on the way in |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
@@ -152,6 +156,101 @@ expressed against the width.
 what is selected: every field is the value the whole selection agrees on, or
 null when it is mixed. Null lights nothing, which is the honest answer to "what
 colour is this?" for two differently-coloured shapes.
+
+## Layout ops, groups and labels (diagram phase B)
+
+Everything in this round is a `(doc, refs, …) → doc` over the existing model
+plus two nullable fields — `group` on every element kind (`wb:group`) and
+`labelOf` on text (`wb:label-of`). Both emit nothing when null, which is the
+same promise phase A made: a file written before them re-serializes
+byte-for-byte. Attribute order on every element is now `wb:id`, `wb:group`,
+then the kind's own attributes (`wb:label-of` follows `wb:group` on text).
+
+### Groups are flat, by tag — and will stay that way
+
+A group is a shared `wb:group="id"` on its members. No `<g>` wrapper, no
+nesting. A nested model would ripple through everything that names an
+element: an `ElementRef` is `layer + index`, hit-testing walks a flat list,
+transforms bake into flat elements, the serializer writes one element per
+line, the scan pipeline inserts flat strokes — all of it would grow a
+path-through-groups notion for a feature diagrams rarely need beyond one
+level, and one level is exactly what a tag gives. A tag also survives
+everything a wrapper would break: z-order ops, layer moves, copy/paste and a
+Raw-mode edit all leave members as ordinary elements, and a member deleted by
+hand simply leaves the group. Grouping a selection that already holds a group
+MERGES it (every member is re-tagged) — that is what "no nesting" means in
+practice.
+
+**Selection expansion is the one mechanism behind groups and labels.** Every
+selection the user makes — click, shift-click, marquee, the context menu —
+is closed over "same group" and "label ⇄ host" (`expandSelection`) before it
+is used. Moving a shape moves its label because the label was selected too,
+not because move knows about labels; `Delete` on a host takes its labels
+because they were in the set (and `withLabels` says so explicitly for the
+eraser, which never goes through a selection). Align and distribute act on
+UNITS (`selectionUnits`, the connected components under the same links), so a
+group lines up as one thing. Shift-click removes a whole unit, because
+removing one member would only see the expansion put it straight back.
+
+### Labels
+
+A label is a `TextElement` whose `labelOf` names its host's `wb:id`; the
+host gets an id the first time it is labelled (`freshElementId`, the same
+injected randomness `makeLayerId` uses, from one pool shared with group tags).
+It is serialized with `text-anchor="middle"` — plain SVG 1.1, derived from
+`labelOf` rather than stored — and its `x` is the host's centre, so each line
+centres itself in any renderer without the editor measuring glyphs it has no
+metrics for. The block is stacked at 1.2 line height around the host's
+centre (`labelBaseline`), shifted by a cap-centre constant so glyphs, not
+line boxes, look centred; a line's centre is its midpoint because a line's
+box is the box of its endpoints. Both `elementBounds` implementations know a
+label straddles its `x`.
+
+Two rules keep labels honest without a layout engine:
+
+- **A label is welded to its host in both directions.** A label dragged on
+  its own would be re-centred by the next commit, so it is never selectable
+  on its own. The cost is that recolouring a host+label selection recolours
+  both — for a diagram that is the usual intent.
+- **A resize re-centres the label; it never scales it.** The adapter leaves
+  labels out of the scale and runs `relayoutLabels` afterwards — the same
+  pure pass every recorded commit runs (the adapter's `settle`), so
+  whatever moved a host (align, nudge, a raw edit followed by any Draw-mode
+  edit) leaves its labels centred. `relayoutLabels` is a fixed point on a
+  document with nothing to do, so running it always costs nothing.
+
+A label whose host is gone (deleted in Raw mode, a hand-authored file) is just
+text with an anchor: every function treats a dangling `labelOf` as no host.
+
+### Z-order, align, distribute
+
+Z-order is the element order inside its layer and nothing else — layers are
+the coarse stack, elements the fine one — so `reorderElements` works per
+layer, never moves anything between layers, and returns the new refs. Forward
+and backward step the selection one element past its nearest unselected
+neighbour as a BLOCK, which is what makes repeated presses predictable. Align
+and distribute are translations only; distribute equalises gaps and falls
+back to even centres when the units overlap. All three live in the context
+menu, not the ribbon — the strip has to fit a tablet and already does not have
+a slot to spare.
+
+### The clipboard is the file format
+
+A copied selection serializes as a complete whiteboard `<svg>` holding one
+layer, and a paste is anything `parseWhiteboard` can read modeled elements out
+of. That means the fragment renders as a picture in any tool that accepts SVG
+text, a whole board's source pasted onto another board lands as elements, and
+there is no second grammar to keep in step with the serializer. The app keeps
+the parsed elements in memory too (the UI store), so pasting works where the
+web view cannot read the system clipboard back; each paste of the same
+clipboard lands `PASTE_OFFSET` further along.
+
+Ids are REMAPPED on paste (`remapIds`): every `wb:id` and `wb:group` in the
+fragment gets a fresh value, so a label pasted with its host still labels the
+copy, one pasted without it becomes plain text rather than a second label on
+the original, and a group of one is dropped. Phase D's connector `from`/`to`
+get the same treatment through the same function — a reference the mapping
+does not name is cut, never kept.
 
 ## Text is a point and some lines — that is all `<text>` is
 

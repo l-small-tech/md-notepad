@@ -274,6 +274,16 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                 // side has to subscribe to the other.
                 getTool: () => currentToolSettings(),
                 onStateChange: (state) => whiteboardStore.getState().reportTabState(tabId, state),
+                // Bare-letter hotkeys on the focused board (V, P, T, R…):
+                // the adapter only asks; the store — which the ribbon
+                // renders from — is what changes.
+                onToolHotkey: (tool) => whiteboardStore.getState().setTool(tool),
+                // The board clipboard lives in the store so a copy on one
+                // board can be pasted on another; the adapter just reaches it.
+                clipboard: {
+                  get: () => whiteboardStore.getState().clipboard,
+                  set: (clipboard) => whiteboardStore.getState().setClipboard(clipboard),
+                },
                 // Touch policy (phase 3): the preference lives in the store,
                 // the adapter resolves it against the pen it has actually
                 // seen, and tells the store so the ribbon can say so.

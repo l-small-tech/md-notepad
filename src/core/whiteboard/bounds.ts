@@ -39,10 +39,13 @@ export function elementBounds(element: SceneElement): Rect | null {
       // No DOM, so estimate: line height ≈ 1.2em, width ≈ 0.6em per character.
       // The content margin absorbs the error; exactness is not required here.
       const longest = element.lines.reduce((max, line) => Math.max(max, line.length), 0);
+      const width = Math.max(1, longest * element.fontSize * 0.6);
       return {
-        x: element.x,
+        // A label (`text-anchor="middle"`) straddles its `x`; free text
+        // starts there.
+        x: element.labelOf === null ? element.x : element.x - width / 2,
         y: element.y - element.fontSize,
-        width: Math.max(1, longest * element.fontSize * 0.6),
+        width,
         height: Math.max(1, element.lines.length * element.fontSize * 1.2),
       };
     }

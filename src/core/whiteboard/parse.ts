@@ -314,6 +314,7 @@ function readElement(source: string, node: XmlNode): SceneElement {
 function readModeled(source: string, element: XmlElement): SceneElement | null {
   const name = localName(element.name);
   const id = attr(element, 'wb:id');
+  const group = attr(element, 'wb:group');
   const opacity = optionalNum(element, 'opacity');
 
   if (name === 'polygon' || name === 'path') {
@@ -335,6 +336,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       return {
         kind: 'stroke',
         id,
+        group,
         tool,
         d: attr(element, 'd') ?? '',
         stroke: fill,
@@ -351,6 +353,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
     return {
       kind: 'stroke',
       id,
+      group,
       tool,
       d: attr(element, 'd') ?? '',
       stroke,
@@ -411,6 +414,8 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
     return {
       kind: 'text',
       id,
+      group,
+      labelOf: attr(element, 'wb:label-of'),
       x: numAttr(element, 'x', 0),
       y: numAttr(element, 'y', 0),
       fontSize: numAttr(element, 'font-size', 16),
@@ -429,6 +434,7 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
     return {
       kind: 'image',
       id,
+      group,
       x: numAttr(element, 'x', 0),
       y: numAttr(element, 'y', 0),
       width: numAttr(element, 'width', 0),
@@ -446,6 +452,7 @@ function shape(element: XmlElement, kind: ShapeKind, geom: Record<string, number
   return {
     kind: 'shape',
     id: attr(element, 'wb:id'),
+    group: attr(element, 'wb:group'),
     shape: kind,
     geom,
     stroke,
