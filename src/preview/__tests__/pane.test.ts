@@ -46,7 +46,7 @@ describe('attachPreviewPane', () => {
     const el = host();
     const pane = attachPreviewPane(el, model, { dark: false });
     await vi.runOnlyPendingTimersAsync();
-    expect(el.innerHTML).toContain('<h1>Hello</h1>');
+    expect(el.innerHTML).toContain('<h1 data-line="1">Hello</h1>');
     pane.dispose();
   });
 
@@ -260,7 +260,7 @@ describe('attachPreviewPane', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(readTextFileMock).toHaveBeenCalledWith('/ws/other.md');
-    expect(el.innerHTML).toContain('<h1>Linked Page</h1>');
+    expect(el.innerHTML).toContain('<h1 data-line="1">Linked Page</h1>');
     expect(onCanGoBackChange).toHaveBeenLastCalledWith(true);
     expect(onOpenExternal).not.toHaveBeenCalled();
     pane.dispose();
@@ -284,7 +284,7 @@ describe('attachPreviewPane', () => {
 
     pane.goBack();
     await vi.runOnlyPendingTimersAsync();
-    expect(el.innerHTML).toContain('<h1>Home</h1>');
+    expect(el.innerHTML).toContain('<h1 data-line="1">Home</h1>');
     expect(onCanGoBackChange).toHaveBeenLastCalledWith(false);
     pane.dispose();
   });
@@ -463,11 +463,14 @@ describe('press-and-hold line gesture (voice notes)', () => {
     target.dispatchEvent(ev);
   }
 
-  test('renders with data-line stamps only when onHoldLine is wired', async () => {
+  test('the live pane always renders with data-line stamps', async () => {
+    // Every live pane is stamped, whether or not a host wires the hold
+    // gesture: the mode-switch scroll anchor reads the same stamps in split
+    // mode, where there is no hold gesture (src/preview/README.md).
     const plain = host();
     attachPreviewPane(plain, createDocModel('# Hello'), { dark: false });
     await vi.runAllTimersAsync();
-    expect(plain.innerHTML).toBe('<h1>Hello</h1>');
+    expect(plain.innerHTML).toBe('<h1 data-line="1">Hello</h1>');
 
     const stamped = host();
     attachPreviewPane(stamped, createDocModel('# Hello'), { dark: false, onHoldLine: () => {} });

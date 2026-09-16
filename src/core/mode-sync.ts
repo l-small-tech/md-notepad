@@ -54,9 +54,12 @@ export interface EditorAdapter {
   revealLine?(line: number): void;
   /**
    * Scroll the nth rendered heading (0-based, document order) into view.
-   * Optional: rendered editors (Milkdown) implement it.
+   * Optional: rendered editors (Milkdown) implement it. `place` is where in
+   * the viewport it lands: 'center' for a jump the reader asked for (the
+   * outline panel), 'start' to restore a scroll position (the mode-switch
+   * anchor, `core/mode-scroll`).
    */
-  revealHeading?(index: number): void;
+  revealHeading?(index: number, place?: 'center' | 'start'): void;
 }
 
 /** Factories may lazy-import their chunk (invariant I8: milkdown loads on demand). */

@@ -18,7 +18,9 @@ import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
 import { docFamilyFor } from '../../core/doc-family';
 import { localImageToInline } from '../../core/images';
+import { headingIndexForLine, lineForHeadingIndex, scrollSurfaceFor } from '../../core/mode-scroll';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
+import { extractOutline } from '../../core/outline';
 import { dirName } from '../../core/session/plan-flush';
 import type { EditorMode } from '../../core/types';
 import { svgImageSources } from '../../core/whiteboard/color-mode';
@@ -29,6 +31,14 @@ import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
 import { attachPreviewPane } from '../../preview/pane';
 import { createReviewGit } from '../code-review-git';
+import {
+  clearScrollAnchor,
+  peekScrollAnchor,
+  registerScrollAnchor,
+  scrollSurfaceToLine,
+  takeScrollAnchor,
+  unregisterScrollAnchor,
+} from '../mode-scroll';
 import {
   registerRichAdapter,
   registerSourceAdapter,
@@ -326,6 +336,26 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
               richAdapterRef.current = adapter;
               registerRichAdapter(tabId, adapter);
+              // Scroll anchor: the rich editor has no source lines, so it
+              // trades in headings and this port does the translation
+              // (core/mode-scroll).
+              registerScrollAnchor(tabId, 'rich', {
+                getTopLine: () => {
+                  const index = adapter.getTopHeadingIndex();
+                  if (index === null) {
+                    return null;
+                  }
+                  return index < 0
+                    ? 1
+                    : lineForHeadingIndex(extractOutline(tab.model.getText()), index);
+                },
+                scrollToLine: (line) => {
+                  const index = headingIndexForLine(extractOutline(tab.model.getText()), line);
+                  if (index >= 0) {
+                    adapter.revealHeading?.(index, 'start');
+                  }
+                },
+              });
               return adapter;
             },
           };
@@ -362,6 +392,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
+          registerScrollAnchor(tabId, 'source', {
+            getTopLine: () => adapter.getTopLine(),
+            scrollToLine: (line) => adapter.scrollToLine(line),
+          });
           return adapter;
         },
       },
@@ -415,6 +449,9 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       richAdapterRef.current = null;
       unregisterSourceAdapter(tabId);
       unregisterRichAdapter(tabId);
+      unregisterScrollAnchor(tabId, 'source');
+      unregisterScrollAnchor(tabId, 'rich');
+      clearScrollAnchor(tabId);
       unregisterWhiteboardAdapter(tabId);
       unregisterImageRefresher(`${tabId}:rich`);
       void sync.dispose();
@@ -527,10 +564,21 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         }
       });
       reviewGit.refresh(true);
+      registerScrollAnchor(tabId, 'rendered', {
+        getTopLine: () => pane.getTopLine(),
+        scrollToLine: (line) => pane.scrollToLine(line),
+      });
+      // Arriving from Raw: land on the card covering the line that was on
+      // screen (the pane parks it until its first parse renders).
+      const anchor = takeScrollAnchor(tabId);
+      if (anchor !== null) {
+        pane.scrollToLine(anchor);
+      }
       if (wasActive) {
         host.focus();
       }
       return () => {
+        unregisterScrollAnchor(tabId, 'rendered');
         unsubscribeReview();
         unsubscribeReviewVoice();
         dropMarks(tabId);
@@ -600,12 +648,24 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       const t = tabsStore.getState().tabs.find((t) => t.id === tabId);
       pane.setDocPath(t ? (t.filePath ?? t.notePath) : null);
     });
+    registerScrollAnchor(tabId, 'rendered', {
+      getTopLine: () => pane.getTopLine(),
+      scrollToLine: (line) => pane.scrollToLine(line),
+    });
+    // Keep the reader's place across the switch. In Review the pane OWNS the
+    // scroll position, so it consumes the anchor; in split the source editor
+    // owns it and the preview column just rides along (peek, don't consume).
+    const anchor = mode === 'read' ? takeScrollAnchor(tabId) : peekScrollAnchor(tabId);
+    if (anchor !== null) {
+      pane.scrollToLine(anchor);
+    }
     // Review mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.
     if (mode === 'read' && tabsStore.getState().activeTabId === tabId) {
       host.focus();
     }
     return () => {
+      unregisterScrollAnchor(tabId, 'rendered');
       unsubscribeVoice();
       dropMarks(tabId);
       unsubscribeDark();
@@ -621,6 +681,35 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       }
     };
   }, [tabId, mode, composerSlot]);
+
+  // The other half of the mode-switch scroll anchor: the surfaces that are
+  // NOT created by the effect above. The preview pane consumes the anchor
+  // itself (it is built fresh and must park the line until it renders); the
+  // source editor and the rich editor are already attached — or are being
+  // re-attached by mode-sync — so this waits for the transition to settle and
+  // for the browser to lay the (until now `display: none`) pane out.
+  useEffect(() => {
+    const surface = scrollSurfaceFor(mode);
+    if (surface === null || surface === 'rendered') {
+      return;
+    }
+    const line = takeScrollAnchor(tabId);
+    if (line === null) {
+      return;
+    }
+    let cancelled = false;
+    const sync = tabsStore.getState().tabs.find((t) => t.id === tabId)?.modeSync;
+    void Promise.resolve(sync?.whenIdle()).then(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          scrollSurfaceToLine(tabId, surface, line);
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tabId, mode]);
 
   return (
     <div

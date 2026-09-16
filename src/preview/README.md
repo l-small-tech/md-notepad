@@ -38,12 +38,24 @@ Create the processor ONCE at module scope (it's stateless across runs);
 A second processor, identical but with a `rehypeSourceLines` step before the
 sanitizer, stamps every element with `data-line` = the 1-based source line it
 starts on (from the `position` remark keeps through remark-rehype).
-`renderMarkdownToHtml(text, { sourceLines: true })` selects it. Only the live
-pane asks for it, and only when a host wires `onHoldLine` — the export and
-markup-comparing tests render without stamps. It exists for one consumer: the
-Review-mode voice-note gesture, which maps a press-and-hold on rendered text back
-to a source line (`closest('[data-line]')`, innermost wins, so a wrapped
-paragraph's inline elements give the more precise line).
+`renderMarkdownToHtml(text, { sourceLines: true })` selects it. The LIVE pane
+always asks for it; the export and markup-comparing tests render without
+stamps. Two consumers read the stamps back:
+
+- the Review-mode voice-note gesture, which maps a press-and-hold on rendered
+  text back to a source line (`closest('[data-line]')`, innermost wins, so a
+  wrapped paragraph's inline elements give the more precise line);
+- the mode-switch scroll anchor (`core/mode-scroll`) — `getTopLine()` reads
+  the first top-level block still showing at the pane's top edge and
+  `scrollToLine(line)` puts that block back there. This one applies in split
+  mode too, where no host wires `onHoldLine`, which is why the stamps are
+  unconditional.
+
+`scrollToLine` keeps re-pinning its block as each render stage settles
+(text → mermaid → inlined images all move the heights below them), for
+`SCROLL_SETTLE_MS` or until the reader scrolls — a wheel, a touch drag or a
+key drops the anchor immediately. A line that has no block yet (the pane was
+just attached and has not rendered) waits for the render that gives it one.
 
 ## Sanitize schema (I6 — extend `defaultSchema` by exactly this much)
 
@@ -235,6 +247,12 @@ with `core/code/parse` and renders:
 - notes: a `.cr-warn` line when `parseErrors > 0`; above 5 000 lines a
   "large file" note and an exported-only outline; for a file `parseCode`
   cannot read (`.json`, `Makefile`…) a single note and nothing else.
+
+`getTopLine()` / `scrollToLine(line)` are the mode-switch scroll anchor's
+half of this pane (`core/mode-scroll`, same contract as `pane.ts`): the
+anchor is a card's `data-line`, so switching Raw ⇄ Review lands on the
+declaration you were reading. A line that arrives before the first parse
+renders waits for it, exactly like `pendingScroll` does for a unit id.
 
 State is NOT the pane's: it renders a `ReviewState` (`core/code/review-state
 .ts` — view, filter, expanded cards, x-ray depths, baseline) and reports

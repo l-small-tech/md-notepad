@@ -10,6 +10,11 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Switching modes keeps your place in the file.** Flipping between Raw,
+  Split, Review and Rich now lands you where you were reading instead of
+  jumping back to the top — it carries the line at the top of the screen
+  across. For a code file in Review it lands on the card for that line.
+
 - **Cut, copy and paste files and folders in the workspaces pane.** Right-click
   any row for Cut / Copy, then Paste into a folder or workspace header — or use
   Ctrl+X, Ctrl+C and Ctrl+V on the selected row, as in VS Code and File

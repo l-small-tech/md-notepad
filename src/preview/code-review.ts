@@ -51,6 +51,7 @@ import {
 } from '../core/code/review-state';
 import type { VoiceComment } from '../core/comments';
 import type { DocModel } from '../core/doc-model';
+import { stampedLineFor } from '../core/mode-scroll';
 import { notesForUnit, unitNoteLabel } from '../core/note-marks';
 import { renderMermaidBlocks } from './mermaid';
 import {
@@ -66,6 +67,13 @@ import {
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
+/**
+ * How long a `scrollToLine` keeps re-pinning its card to the top. The deck
+ * renders in stages — cards first, then mermaid, then the git badges and
+ * ghost cards — and each one moves the heights below it, so the anchor is
+ * re-applied as they land, until the window closes or the reader scrolls.
+ */
+const SCROLL_SETTLE_MS = 1500;
 /** Hold duration before `onHoldUnit` fires, and the drift that cancels it. */
 const HOLD_MS = 500;
 const HOLD_SLOP_PX = 10;
@@ -174,6 +182,14 @@ export interface CodeReviewPane {
   revealNotes(target: { line: number; unit?: string }): void;
   /** Bring a unit's card into view (switching to the Cards view first). */
   scrollToUnit(unitId: string): void;
+  /**
+   * The declaration line of the card at the top of the pane, for the
+   * mode-switch scroll anchor (`core/mode-scroll`). Null when no card is on
+   * screen (the Calls view, an empty deck, a pane laid out at zero height).
+   */
+  getTopLine(): number | null;
+  /** Land on the card covering that source line — the reader came from Raw. */
+  scrollToLine(line: number): void;
   /** The parse the pane currently shows (null before the first render / for a non-code file). */
   currentModel(): CodeModel | null;
   dispose(): void;
@@ -358,6 +374,10 @@ export function attachCodeReviewPane(
   let callNodes: { id: string; unitId: string }[] = [];
   // A card to scroll to once the next Cards render lands.
   let pendingScroll: string | null = null;
+  // A source line to land on once cards exist — the mode-switch anchor — and
+  // the moment that claim expires.
+  let pendingScrollLine: number | null = null;
+  let pendingScrollLineUntil = 0;
   // What-changed inputs, pushed by the host (null until git answers).
   let changes: ChangeMap | null = null;
   let changedIds = new Set<string>();
@@ -804,6 +824,75 @@ export function attachCodeReviewPane(
       pendingScroll = null;
       scrollToUnit(id);
     }
+    applyPendingScrollLine();
+  }
+
+  /* ---- mode-switch scroll anchor -------------------------------------- */
+
+  /** The cards on screen, in document order, with their declaration lines. */
+  function cardLines(): { line: number; card: HTMLElement }[] {
+    return [...host.querySelectorAll<HTMLElement>('.cr-card[data-line]')].map((card) => ({
+      line: Number(card.dataset.line),
+      card,
+    }));
+  }
+
+  /** The first card still showing at the pane's top edge — where the eye is. */
+  function topLine(): number | null {
+    const box = host.getBoundingClientRect();
+    if (box.height === 0) {
+      return null;
+    }
+    const cards = cardLines();
+    for (const { line, card } of cards) {
+      if (card.getBoundingClientRect().bottom > box.top + 1) {
+        return line;
+      }
+    }
+    return cards[0]?.line ?? null;
+  }
+
+  /**
+   * Land on the card covering a source line (the reader arrived from Raw).
+   * Before the first parse renders there are no cards, and the stages after
+   * it keep moving the deck, so the line is held and re-applied rather than
+   * used once — the same settle window the markdown pane uses.
+   */
+  function scrollToLine(line: number): void {
+    if (disposed) {
+      return;
+    }
+    pendingScrollLine = line;
+    pendingScrollLineUntil = Date.now() + SCROLL_SETTLE_MS;
+    applyPendingScrollLine();
+  }
+
+  function applyPendingScrollLine(): void {
+    if (pendingScrollLine === null) {
+      return;
+    }
+    if (Date.now() > pendingScrollLineUntil) {
+      pendingScrollLine = null;
+      return;
+    }
+    const cards = cardLines();
+    const target = stampedLineFor(
+      cards.map((c) => c.line),
+      pendingScrollLine,
+    );
+    const hit = cards.find((c) => c.line === target);
+    if (!hit) {
+      return; // no cards yet — the render that makes them retries
+    }
+    // 'instant', not 'auto': the pane scrolls smoothly by CSS, and an
+    // animated restore both looks wrong and loses its race with the renders
+    // that follow (each one re-applies the scroll position it measured).
+    hit.card.scrollIntoView({ block: 'start', behavior: 'instant' });
+  }
+
+  /** The reader took over — stop re-pinning the anchor under them. */
+  function dropPendingScrollLine(): void {
+    pendingScrollLine = null;
   }
 
   function scheduleRender(): void {
@@ -1253,6 +1342,9 @@ export function attachCodeReviewPane(
   host.addEventListener('pointerup', clearHold);
   host.addEventListener('pointercancel', clearHold);
   host.addEventListener('pointerleave', clearHold);
+  host.addEventListener('keydown', dropPendingScrollLine);
+  host.addEventListener('wheel', dropPendingScrollLine, { passive: true });
+  host.addEventListener('touchmove', dropPendingScrollLine, { passive: true });
   const unsubscribe = docModel.subscribe(scheduleRender);
   void render();
 
@@ -1308,6 +1400,8 @@ export function attachCodeReviewPane(
       }
     },
     scrollToUnit,
+    getTopLine: () => (disposed ? null : topLine()),
+    scrollToLine,
     currentModel: () => model,
     dispose() {
       disposed = true;
@@ -1326,6 +1420,9 @@ export function attachCodeReviewPane(
       host.removeEventListener('pointerup', clearHold);
       host.removeEventListener('pointercancel', clearHold);
       host.removeEventListener('pointerleave', clearHold);
+      host.removeEventListener('keydown', dropPendingScrollLine);
+      host.removeEventListener('wheel', dropPendingScrollLine);
+      host.removeEventListener('touchmove', dropPendingScrollLine);
     },
   };
 }
