@@ -61,8 +61,8 @@ describe('modeLabel', () => {
 });
 
 describe('allowedModesFor', () => {
-  it('offers Draw and Raw for a whiteboard, and never Rich/Split/Read', () => {
-    expect(allowedModesFor('svg')).toEqual(['draw', 'raw']);
+  it('offers Raw then Draw for a whiteboard, and never Rich/Split/Read', () => {
+    expect(allowedModesFor('svg')).toEqual(['raw', 'draw']);
   });
 
   it('leaves the markdown modes exactly as they were, with no Draw', () => {
