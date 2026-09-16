@@ -29,6 +29,7 @@ import { stampedLineFor } from '../core/mode-scroll';
 import { blockLineFor, notesByBlock } from '../core/note-marks';
 import { extractOutline } from '../core/outline';
 import { dirName } from '../core/session/plan-flush';
+import { injectBoardThemeVars, isThemableBoardSvg } from '../core/whiteboard/theme-inject';
 import {
   applyMarpBrowser,
   createImageResolver,
@@ -37,6 +38,7 @@ import {
   renderDeck,
   type DeckRender,
 } from './marp';
+import { readBoardThemeVars } from './pane';
 import {
   buildCallout,
   buildMark,
@@ -72,6 +74,14 @@ export interface DeckPaneOptions {
 export interface DeckPane {
   /** The document's path changed (an untitled note was saved). */
   setDocPath(docPath: string | null | undefined): void;
+  /**
+   * The app theme changed. Slide markup follows the theme's CSS variables
+   * live (they inherit into the shadow roots), but a whiteboard `.svg` shown
+   * through `<img>` has the `--wb-*` palette BAKED into its data URL, so every
+   * slide is remounted and its images re-inlined. Deferred a frame so the new
+   * theme's CSS is applied before the vars are read.
+   */
+  refreshTheme(): void;
   /**
    * The source editor's caret moved to this line: the slide containing it is
    * marked current and kept in view (Split only; the light table has no
@@ -112,7 +122,16 @@ export function attachDeckPane(
   let timer: ReturnType<typeof setTimeout> | null = null;
   const sequence = createRenderSequence();
   let docPath = options.docPath ?? null;
-  const resolveImage = createImageResolver();
+  /**
+   * A whiteboard board gets the app theme's resolved `--wb-*` palette baked
+   * into its root on the way past (see `refreshTheme`); any other SVG passes
+   * through byte-identical. Read per image, after the theme's CSS applied.
+   */
+  const themeSvg = (text: string): string =>
+    isThemableBoardSvg(text) ? injectBoardThemeVars(text, readBoardThemeVars(host)) : text;
+  let resolveImage = createImageResolver(themeSvg);
+  /** Set by `refreshTheme`: the next render remounts every slide. */
+  let remountAll = false;
   const cards: SlideCard[] = [];
   let ranges: SlideRange[] = splitSlides(model.getText());
   let cursorSlide: number | null = null;
@@ -175,7 +194,7 @@ export function attachDeckPane(
       card.wrapper.dataset.line = String(range?.start ?? 1);
       card.wrapper.dataset.slide = String(i);
       card.number.textContent = String(i + 1);
-      if (mountSlide(card.root, deck.css, slide.html)) {
+      if (mountSlide(card.root, deck.css, slide.html, remountAll)) {
         void inlineDeckImages(card.root, docDir, resolveImage);
       }
       if (card.notes) {
@@ -212,6 +231,7 @@ export function attachDeckPane(
     }
     ranges = nextRanges;
     applyRender(deck);
+    remountAll = false;
     applyNotes();
     applyCursor(false);
     applyPendingScroll();
@@ -540,6 +560,22 @@ export function attachDeckPane(
       docPath = path;
       clearTimer();
       void render();
+    },
+    refreshTheme() {
+      if (disposed) {
+        return;
+      }
+      // Next frame: the caller reacts to the same store tick that swaps the
+      // theme's stylesheet, and the vars must be READ after they are applied.
+      requestAnimationFrame(() => {
+        if (disposed) {
+          return;
+        }
+        resolveImage = createImageResolver(themeSvg); // the cache holds the old palette
+        remountAll = true;
+        clearTimer();
+        void render();
+      });
     },
     setCursorLine(line) {
       if (disposed) {

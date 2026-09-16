@@ -341,7 +341,7 @@ also drives the status bar's `Slide 4 / 12` and the show's start slide).
   CSS) and only re-touched when its markup changed, so a deck an agent is
   writing slide by slide grows without flashing. `inlineDeckImages` swaps
   local `<img>` sources and `url()`s in inline styles (Marp's `![bg]`
-  figures) for data URLs. `applyMarpBrowser` runs Marp's own helper on each
+  figures) for data URLs. A whiteboard `.svg` (`wb-board` root class — core/whiteboard/theme-inject.ts) gets the app theme's resolved `--wb-*` palette baked into its root on the way past, exactly as the markdown pane does, and `DeckPane.refreshTheme()` remounts every slide with a fresh resolver when the theme changes; the app's own CSS variables reach slide markup live (custom properties inherit through the shadow root; `all: initial` does not reset them), which is what docs/prompts/theme-marp-deck.md leans on. `applyMarpBrowser` runs Marp's own helper on each
   root: auto-scaling code blocks, and the foreignObject polyfill on WebKit.
 - **The sanitize exception (I6).** Marp output does NOT pass through
   `rehype-sanitize`: a deck is `<style>` and inline styles by nature. The
