@@ -29,7 +29,9 @@ const MODE_HINTS: Record<EditorMode, string> = {
   split: 'Source + preview (Ctrl/Cmd+2)',
   wysiwyg: 'WYSIWYG (Ctrl/Cmd+3)',
   read: 'Reader — read-only (Ctrl/Cmd+4)',
-  draw: 'Vector graphics (Ctrl/Cmd+1)',
+  // No digit chord: mod+1..4 are the markdown modes, and mod+1 is Raw on an
+  // .svg tab too.
+  draw: 'Vector graphics',
   // Never rendered: the status bar is hidden entirely on a terminal tab, and
   // 'term' is the only mode its family allows so there is nothing to pick.
   term: 'Shell',
