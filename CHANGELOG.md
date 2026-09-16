@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-09-15
+
 - **Switching modes keeps your place in the file.** Flipping between Raw,
   Split, Review and Edit now lands you where you were reading instead of
   jumping back to the top — it carries the line at the top of the screen
@@ -32,8 +34,6 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 - **Right-click menus near the bottom of the workspace pane stay whole.** A
   menu that would run off the bottom of the window now opens upwards (and
   scrolls if it is taller than the window) instead of being cut off.
-
-## [0.8.0] — 2026-09-11
 
 - **Review notes live in the document.** The Review-mode button is now
   "Review notes" (they are typed on desktop and spoken on the phone). Press
