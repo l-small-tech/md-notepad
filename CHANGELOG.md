@@ -10,6 +10,37 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Diagram editor.** Whiteboards are for drawing diagrams now, not just
+  sketching on. Five new shapes — diamond, triangle, parallelogram, hexagon and
+  cylinder — join rectangles, rounded rectangles, ellipses, lines and arrows in
+  a shape menu that keeps the ribbon the same size and remembers the shape you
+  last used. Shapes can be filled (including with the board's own colour, so a
+  box hides what is behind it on a light or a dark board), dashed or dotted,
+  and arrows can have a head at either end or both. Holding Shift while
+  dragging keeps a shape square and a line at 45°. With something selected, the
+  colour, width, fill, dash and arrow-head controls restyle it instead of only
+  setting what comes next — and they show what the selection currently is.
+  Diagrams can now be arranged, too: copy, cut, paste and duplicate (Ctrl+C /
+  X / V / D — a copy pastes onto another board, or into other apps as SVG),
+  bring forward and send back (Ctrl+] / [), align and distribute from the
+  board's new right-click menu, and group things so they select and move
+  together (Ctrl+G). Double-click a shape to give it a label that stays
+  centred as the shape moves and resizes. There is a grid, too (G, or the ⊞
+  button — each board remembers its own spacing and whether it snaps), and
+  things line up with each other whether or not the grid is on: drag a box
+  near another one's edge or centre and it lands on it, with a thin line
+  showing what it lined up with. Hold Alt to ignore all of that for one drag;
+  freehand ink never snaps. And lines and arrows are live connectors: start
+  or end one on a shape and it sticks — to the middle of a side, or aimed at
+  the centre — and follows the shape when it moves or resizes, landing on the
+  drawn edge of an ellipse or a diamond rather than the box around it. Select
+  an arrow to drag either end onto another shape (or off it); pick "Elbow" in
+  the style menu or the right-click menu for right-angled routing. Deleting a
+  shape leaves its arrows where they were. Single-letter hotkeys pick tools
+  (V, P, H, E, T, R, O, L, A) — see `docs/keyboard-shortcuts.md` and the new
+  `docs/diagrams.md`. Everything still saves as a plain `.svg` that renders
+  the same anywhere.
+
 - **Help… menu and Prompts.** The ⌄ menu beside the + button gains a Help…
   page: the user guide, the shortcuts page, and **Prompts** — ready-made
   briefs an AI agent can act on, copied to the clipboard with one click. The

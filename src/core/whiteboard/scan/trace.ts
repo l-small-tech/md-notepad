@@ -741,6 +741,7 @@ export function buildScanElements(
       elements.push({
         kind: 'stroke',
         id: null,
+        group: null,
         tool: 'scanfill',
         d,
         stroke,
@@ -760,6 +761,7 @@ export function buildScanElements(
       elements.push({
         kind: 'stroke',
         id: null,
+        group: null,
         tool: 'pen',
         d: strokePathData(points),
         stroke,

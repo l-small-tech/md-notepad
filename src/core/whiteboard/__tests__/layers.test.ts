@@ -24,6 +24,7 @@ import { createLayer, createScene, type SceneDoc, type SceneElement } from '../s
 const STROKE: SceneElement = {
   kind: 'stroke',
   id: null,
+  group: null,
   tool: 'pen',
   d: 'M0 0L10 10',
   stroke: '#1a1a1a',

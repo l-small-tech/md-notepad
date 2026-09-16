@@ -21,6 +21,7 @@ function stroke(color: string, slot?: number): StrokeElement {
   return {
     kind: 'stroke',
     id: null,
+    group: null,
     tool: 'pen',
     d: 'M1,1 C2,2 3,3 4,4',
     stroke: color,
@@ -124,16 +125,25 @@ describe('palette-slot classes', () => {
     const shape: SceneElement = {
       kind: 'shape',
       id: null,
+      group: null,
       shape: 'rect',
       geom: { x: 0, y: 0, width: 5, height: 5 },
       stroke: PALETTE[1]!,
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
+      from: null,
+      to: null,
+      route: 'straight',
     };
     const text: SceneElement = {
       kind: 'text',
       id: null,
+      group: null,
+      labelOf: null,
       fontFamily: null,
       x: 1,
       y: 2,
@@ -184,6 +194,7 @@ describe('the dual colour representation (stored slots + colorMode)', () => {
     const blob: StrokeElement = {
       kind: 'stroke',
       id: null,
+      group: null,
       tool: 'scanfill',
       d: 'M0 0L4 0L4 4Z',
       stroke: '#5a4d3c',

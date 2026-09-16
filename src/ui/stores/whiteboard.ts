@@ -16,17 +16,28 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   DEFAULT_COLOR,
+  DEFAULT_GRID,
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
   DEFAULT_STROKE_WIDTH,
+  isShapeTool,
+  NO_FILL,
   PALETTE,
   STATIC_PALETTE,
+  type ArrowHeads,
+  type DashStyle,
   type DrawTool,
   type PaletteKind,
+  type ShapeTool,
   type ToolSettings,
 } from '../../core/whiteboard/tool-settings';
+import type { ConnectorRoute } from '../../core/whiteboard/scene';
 import type { DiagramView } from '../../core/diagram-zoom';
-import type { WhiteboardAdapter, WhiteboardUiState } from '../../editors/whiteboard';
+import type {
+  WhiteboardAdapter,
+  WhiteboardClipboard,
+  WhiteboardUiState,
+} from '../../editors/whiteboard';
 
 /** Per-tab draw state reported UP by the adapter (undo depth, layers panel). */
 export type DrawTabState = WhiteboardUiState;
@@ -37,6 +48,10 @@ const IDLE: DrawTabState = {
   layersOpen: false,
   activeLayerName: null,
   selectionCount: 0,
+  selectionStyle: null,
+  // The grid is DOCUMENT state, so a tab with no board reported yet shows the
+  // default rather than whatever the last board happened to use.
+  grid: DEFAULT_GRID,
 };
 
 interface WhiteboardState {
@@ -48,6 +63,25 @@ interface WhiteboardState {
   fontFamily: string;
   /** Which swatch row the ribbon offers: themable slots or fixed named colours. */
   paletteKind: PaletteKind;
+  /** Shape tools: the fill the next shape gets (`'none'` or a colour). */
+  fill: string;
+  /** Shape tools: the outline pattern the next shape gets. */
+  dash: DashStyle;
+  /**
+   * Line tools: which heads the next line gets — AND, because the format keeps
+   * the end head in the shape kind, whether the line tool draws a `line` or an
+   * `arrow`. Picking either from the shape menu sets this, so the two controls
+   * cannot disagree.
+   */
+  heads: ArrowHeads;
+  /** Line tools: whether the next line is straight or an elbow. */
+  route: ConnectorRoute;
+  /**
+   * The shape the picker's button offers with one click — the last one used.
+   * Ten shapes as ten buttons would double the ribbon's width; one button that
+   * remembers keeps the four originals as cheap as they were.
+   */
+  lastShape: ShapeTool;
   /**
    * "Draw with finger": true/false once the user has chosen, null while they
    * have not — see `fingerDrawsEnabled` in `core/whiteboard/input.ts`, which
@@ -65,12 +99,23 @@ interface WhiteboardState {
   viewByTab: Record<string, DiagramView>;
   /** tabId → what its draw adapter last reported. */
   byTab: Record<string, DrawTabState>;
+  /**
+   * The board clipboard (`WhiteboardClipboard` in `editors/whiteboard.ts`).
+   * GLOBAL like the tool: copy on one board, paste on another. The adapter
+   * reads and writes it through its options; the store only holds it.
+   */
+  clipboard: WhiteboardClipboard | null;
+  setClipboard: (clipboard: WhiteboardClipboard | null) => void;
   setTool: (tool: DrawTool) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (stack: string) => void;
   setPaletteKind: (kind: PaletteKind) => void;
+  setFill: (fill: string) => void;
+  setDash: (dash: DashStyle) => void;
+  setHeads: (heads: ArrowHeads) => void;
+  setRoute: (route: ConnectorRoute) => void;
   setFingerDraws: (value: boolean | null) => void;
   notePenSeen: () => void;
   saveView: (tabId: string, view: DiagramView) => void;
@@ -101,15 +146,54 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   fontSize: DEFAULT_FONT_SIZE,
   fontFamily: DEFAULT_FONT_FAMILY,
   paletteKind: 'themed',
+  fill: NO_FILL,
+  dash: 'solid',
+  heads: 'end',
+  route: 'straight',
+  lastShape: 'rect',
   fingerDraws: null,
   penSeen: false,
   viewByTab: {},
   byTab: {},
-  setTool: (tool) => set({ tool }),
+  clipboard: null,
+  setClipboard: (clipboard) => set({ clipboard }),
+  // Picking a shape also remembers it, so the picker's one-click button is
+  // always the shape you last reached for. Picking a line or an arrow sets the
+  // heads to match: the shape kind IS the end head in the format, and two
+  // controls disagreeing about that is a bug waiting to be reported.
+  setTool: (tool) =>
+    set((s) =>
+      isShapeTool(tool)
+        ? {
+            tool,
+            lastShape: tool,
+            heads:
+              tool === 'line'
+                ? 'none'
+                : tool === 'arrow' && s.heads === 'none'
+                  ? // Picking Arrow while the heads say "none" means the end
+                    // head; picking it while they say "both" leaves both.
+                    'end'
+                  : s.heads,
+          }
+        : { tool },
+    ),
   setColor: (color) => set({ color }),
   setWidth: (width) => set({ width }),
   setFontSize: (fontSize) => set({ fontSize }),
   setFontFamily: (fontFamily) => set({ fontFamily }),
+  setFill: (fill) => set({ fill }),
+  setDash: (dash) => set({ dash }),
+  // The heads control also picks the line TOOL, for the same reason setTool
+  // picks the heads — one truth, reachable from either control.
+  setHeads: (heads) =>
+    set((s) => ({
+      heads,
+      ...(s.tool === 'line' || s.tool === 'arrow'
+        ? { tool: (heads === 'none' ? 'line' : 'arrow') as DrawTool }
+        : {}),
+    })),
+  setRoute: (route) => set({ route }),
   setPaletteKind: (kind) =>
     set((s) =>
       s.paletteKind === kind ? s : { paletteKind: kind, color: carryColor(s.color, kind) },
@@ -138,8 +222,9 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
 
 /** What the adapter reads at the start of every gesture. */
 export function currentToolSettings(): ToolSettings {
-  const { tool, color, width, fontSize, fontFamily } = whiteboardStore.getState();
-  return { tool, color, width, fontSize, fontFamily };
+  const { tool, color, width, fontSize, fontFamily, fill, dash, heads, route } =
+    whiteboardStore.getState();
+  return { tool, color, width, fontSize, fontFamily, fill, dash, heads, route };
 }
 
 export function drawStateFor(tabId: string | null): DrawTabState {

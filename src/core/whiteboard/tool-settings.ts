@@ -9,15 +9,242 @@
  * CONSTRUCTORS live next door in `tools.ts`, which does the lazy-loaded work.
  */
 
-import type { ShapeKind } from './scene';
+import type { ConnectorRoute, ShapeKind } from './scene';
 
-export type DrawTool = 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | ShapeKind;
+/**
+ * What the shape picker offers. `'roundrect'` is the one entry that is not a
+ * {@link ShapeKind}: a rounded rectangle is a `rect` carrying an `rx`, not a
+ * shape of its own, so the FORMAT never learns about it — only the tool does.
+ */
+export type ShapeTool = ShapeKind | 'roundrect';
 
-export const SHAPE_TOOLS: readonly ShapeKind[] = ['rect', 'ellipse', 'line', 'arrow'];
+export type DrawTool = 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | ShapeTool;
 
-export function isShapeTool(tool: DrawTool): tool is ShapeKind {
+export const SHAPE_TOOLS: readonly ShapeTool[] = [
+  'rect',
+  'roundrect',
+  'ellipse',
+  'diamond',
+  'triangle',
+  'parallelogram',
+  'hexagon',
+  'cylinder',
+  'line',
+  'arrow',
+];
+
+export function isShapeTool(tool: DrawTool): tool is ShapeTool {
   return (SHAPE_TOOLS as readonly string[]).includes(tool);
 }
+
+/** A shape-picker entry: what to call it and what to draw on the button. */
+export interface ShapeOption {
+  readonly id: ShapeTool;
+  readonly label: string;
+  /** A single glyph — the picker is a grid of them, and so is its button. */
+  readonly glyph: string;
+}
+
+/**
+ * The picker's menu, in the order it is drawn. Ten shapes would double the
+ * ribbon's width as buttons, so they live behind one button that shows the
+ * last one you used — the four originals are still one click away because the
+ * picker remembers, not because they each got a slot.
+ */
+export const SHAPE_OPTIONS: readonly ShapeOption[] = [
+  { id: 'rect', label: 'Rectangle', glyph: '▭' },
+  { id: 'roundrect', label: 'Rounded rectangle', glyph: '▢' },
+  { id: 'ellipse', label: 'Ellipse', glyph: '◯' },
+  { id: 'diamond', label: 'Diamond', glyph: '◇' },
+  { id: 'triangle', label: 'Triangle', glyph: '△' },
+  { id: 'parallelogram', label: 'Parallelogram', glyph: '▱' },
+  { id: 'hexagon', label: 'Hexagon', glyph: '⬡' },
+  { id: 'cylinder', label: 'Cylinder', glyph: '⛁' },
+  { id: 'line', label: 'Line', glyph: '╱' },
+  { id: 'arrow', label: 'Arrow', glyph: '➜' },
+];
+
+/** The corner radius the Rounded rectangle tool starts a `rect` with. */
+export const DEFAULT_CORNER_RADIUS = 12;
+
+/* --------------------------------- hotkeys -------------------------------- */
+
+/**
+ * Single-key tool hotkeys, pressed with the board focused and no modifier
+ * held. The letters are the ones every diagram and vector editor has trained
+ * people on (V select, P pen, T text, R rect, O ellipse, L line, A arrow), so
+ * they are data here rather than a decision anywhere else — the ribbon shows
+ * them in its tooltips and the adapter looks them up. `G` is deliberately
+ * absent: phase C claims it for the grid toggle.
+ */
+export const TOOL_HOTKEYS: Readonly<Record<string, DrawTool>> = {
+  v: 'select',
+  p: 'pen',
+  h: 'highlighter',
+  e: 'eraser',
+  t: 'text',
+  r: 'rect',
+  o: 'ellipse',
+  l: 'line',
+  a: 'arrow',
+};
+
+/** The tool a bare key press selects, or null when the key is not a hotkey. */
+export function toolForHotkey(key: string): DrawTool | null {
+  return key.length === 1 ? (TOOL_HOTKEYS[key.toLowerCase()] ?? null) : null;
+}
+
+/** The hotkey letter for a tool (upper-case, for a tooltip), or null. */
+export function hotkeyForTool(tool: DrawTool): string | null {
+  const entry = Object.entries(TOOL_HOTKEYS).find(([, t]) => t === tool);
+  return entry ? entry[0].toUpperCase() : null;
+}
+
+/**
+ * The grid toggle's key. Not in {@link TOOL_HOTKEYS} because it is not a tool —
+ * it changes the DOCUMENT, not what the next press draws — but it lives here
+ * with the rest of the vocabulary so the ribbon's tooltip and the adapter's
+ * keydown read it from one place.
+ */
+export const GRID_HOTKEY = 'g';
+
+/* ---------------------------------- grid ---------------------------------- */
+
+/**
+ * The grid, as stored per DOCUMENT in the `wb:doc` metadata (`grid.ts` reads
+ * and writes it). Per document rather than per app because a grid is a
+ * property of the diagram: a flowchart drawn on 20-unit squares should come
+ * back on 20-unit squares next week, on another machine, for another person.
+ */
+export interface GridSettings {
+  /** Draw the dots. Also the master switch for snapping — see `grid.ts`. */
+  readonly show: boolean;
+  /** Spacing in scene units. Any positive number; {@link GRID_SIZES} is the menu. */
+  readonly size: number;
+  /** Snap while the grid is shown. On by default: a visible grid you don't land on is decoration. */
+  readonly snap: boolean;
+}
+
+export const DEFAULT_GRID_SIZE = 20;
+
+/**
+ * Hidden, 20, snapping. A board written before the grid existed has no `grid`
+ * key and reads back as exactly this, which is also what a default-grid
+ * document emits — nothing.
+ */
+export const DEFAULT_GRID: GridSettings = { show: false, size: DEFAULT_GRID_SIZE, snap: true };
+
+/**
+ * The spacings the ribbon offers. Chosen so the common page geometries land on
+ * the grid: 8/16/32 for power-of-two layouts, 10/20/50 for round decimals, 25
+ * for quarters of 100. The tool accepts any positive number a hand edit puts
+ * in the file — this is a menu, not a validator.
+ */
+export const GRID_SIZES: readonly number[] = [8, 10, 16, 20, 25, 32, 50];
+
+/**
+ * How close, in SCREEN pixels, a smart guide has to be before it takes over.
+ * In screen pixels rather than scene units because it is a question about the
+ * user's hand, not about the drawing: the adapter divides by the zoom, so the
+ * pull feels the same at 30% and at 400%.
+ */
+export const SNAP_THRESHOLD = 6;
+
+/* --------------------------------- dashes --------------------------------- */
+
+export type DashStyle = 'solid' | 'dashed' | 'dotted';
+
+export const DASH_STYLES: readonly DashStyle[] = ['solid', 'dashed', 'dotted'];
+
+export const DASH_LABELS: Record<DashStyle, string> = {
+  solid: 'Solid',
+  dashed: 'Dashed',
+  dotted: 'Dotted',
+};
+
+/**
+ * The `stroke-dasharray` for a preset, computed against the stroke width at
+ * construction time — a 1-unit dash pattern on an 8-unit nib is a solid line,
+ * and a fixed pattern would make the presets mean different things at
+ * different nib sizes. Solid is null, which emits no attribute at all.
+ *
+ * Dotted is zero-length dashes: our shapes carry `stroke-linecap="round"`, so
+ * each one paints as a round dot the width of the nib.
+ */
+export function dashArray(style: DashStyle, strokeWidth: number): string | null {
+  const w = strokeWidth > 0 ? strokeWidth : 1;
+  const round = (n: number): string => String(Math.round(n * 100) / 100);
+  switch (style) {
+    case 'solid':
+      return null;
+    case 'dashed':
+      return `${round(w * 4)} ${round(w * 2.5)}`;
+    case 'dotted':
+      return `0 ${round(w * 2)}`;
+  }
+}
+
+/**
+ * Which preset a stored dasharray IS, or null when it is one somebody else
+ * wrote. The ribbon uses it to light the right button; a pattern it cannot
+ * name simply lights none, which is the same thing a mixed selection does.
+ */
+export function dashStyleOf(dash: string | null, strokeWidth: number): DashStyle | null {
+  if (dash === null) {
+    return 'solid';
+  }
+  return DASH_STYLES.find((style) => dashArray(style, strokeWidth) === dash) ?? null;
+}
+
+/* ------------------------------- arrow heads ------------------------------- */
+
+/** What a line carries at its ends. The ribbon offers exactly these three. */
+export type ArrowHeads = 'none' | 'end' | 'both';
+
+export const ARROW_HEADS: readonly ArrowHeads[] = ['none', 'end', 'both'];
+
+export const ARROW_HEAD_LABELS: Record<ArrowHeads, string> = {
+  none: 'No arrow heads',
+  end: 'Arrow head at the end',
+  both: 'Arrow heads at both ends',
+};
+
+export const ARROW_HEAD_GLYPHS: Record<ArrowHeads, string> = {
+  none: '─',
+  end: '→',
+  both: '↔',
+};
+
+/* ---------------------------------- routes -------------------------------- */
+
+export const CONNECTOR_ROUTES: readonly ConnectorRoute[] = ['straight', 'elbow'];
+
+export const ROUTE_LABELS: Record<ConnectorRoute, string> = {
+  straight: 'Straight line',
+  elbow: 'Elbow — turns at right angles',
+};
+
+/**
+ * How close, in SCREEN pixels, a line's end has to come to a shape's port to
+ * land on it — wider than {@link SNAP_THRESHOLD} because a port is a target
+ * you aim at, not a coincidence you accept.
+ */
+export const PORT_SNAP_RADIUS = 10;
+
+/* ---------------------------------- fills --------------------------------- */
+
+/**
+ * The board's own surface colour, offered as a shape fill so a box can hide
+ * the lines behind it on a light AND a dark board. It is the literal
+ * `DEFAULT_BACKGROUND` from `scene.ts` — duplicated here rather than imported
+ * because this module is a dependency-free leaf on purpose (see the header),
+ * and pinned equal by a test. The serializer gives a shape filled with it the
+ * `wb-bg` class, which is the same rule the page rect already themes through.
+ */
+export const PAPER_FILL = '#ffffff';
+
+/** `'none'` for an outline-only shape — the value `fill` holds, not a label. */
+export const NO_FILL = 'none';
 
 /**
  * The marker palette. Deliberately the same eight colours the scan pipeline
@@ -174,4 +401,16 @@ export interface ToolSettings {
   /** Text tool only — the nib size says nothing useful about type. */
   readonly fontSize: number;
   readonly fontFamily: string;
+  /** Shape tools: `'none'`, {@link PAPER_FILL}, or a palette/custom colour. */
+  readonly fill: string;
+  /** Shape tools: which outline pattern the next shape gets. */
+  readonly dash: DashStyle;
+  /**
+   * Line tools: the heads the next line gets — and the single source of truth
+   * for whether the line family draws a `line` or an `arrow`, so the picker
+   * and this control can never disagree about what the next drag produces.
+   */
+  readonly heads: ArrowHeads;
+  /** Line tools: straight, or routed as an elbow. */
+  readonly route: ConnectorRoute;
 }

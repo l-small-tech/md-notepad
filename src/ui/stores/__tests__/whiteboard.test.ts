@@ -8,7 +8,12 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_COLOR, PALETTE, STATIC_PALETTE } from '../../../core/whiteboard/tool-settings';
+import {
+  DEFAULT_COLOR,
+  DEFAULT_GRID,
+  PALETTE,
+  STATIC_PALETTE,
+} from '../../../core/whiteboard/tool-settings';
 import { fingerDrawsEnabled } from '../../../core/whiteboard/input';
 import { carryColor, drawStateFor, whiteboardStore } from '../whiteboard';
 
@@ -20,6 +25,39 @@ beforeEach(() => {
     penSeen: false,
     viewByTab: {},
     byTab: {},
+    tool: 'select',
+    lastShape: 'rect',
+    heads: 'end',
+  });
+});
+
+describe('the shape tool and the arrow heads', () => {
+  it('remembers the last shape, so the picker button is always the one you use', () => {
+    whiteboardStore.getState().setTool('hexagon');
+    expect(whiteboardStore.getState().lastShape).toBe('hexagon');
+    whiteboardStore.getState().setTool('pen');
+    // Switching to a non-shape tool leaves the remembered shape alone.
+    expect(whiteboardStore.getState().lastShape).toBe('hexagon');
+  });
+
+  it('keeps the shape picker and the heads control telling the same story', () => {
+    whiteboardStore.getState().setTool('line');
+    expect(whiteboardStore.getState().heads).toBe('none');
+    whiteboardStore.getState().setTool('arrow');
+    expect(whiteboardStore.getState().heads).toBe('end');
+    // Picking Arrow again does not throw away a "both" you chose.
+    whiteboardStore.getState().setHeads('both');
+    whiteboardStore.getState().setTool('arrow');
+    expect(whiteboardStore.getState().heads).toBe('both');
+    // And asking for no heads puts you back on the line tool.
+    whiteboardStore.getState().setHeads('none');
+    expect(whiteboardStore.getState().tool).toBe('line');
+  });
+
+  it('leaves a non-line tool alone when the heads change', () => {
+    whiteboardStore.getState().setTool('rect');
+    whiteboardStore.getState().setHeads('both');
+    expect(whiteboardStore.getState().tool).toBe('rect');
   });
 });
 
@@ -81,6 +119,8 @@ describe('per-tab state', () => {
       layersOpen: false,
       activeLayerName: 'Layer 1',
       selectionCount: 3,
+      selectionStyle: null,
+      grid: DEFAULT_GRID,
     });
     whiteboardStore.getState().clearTab('t1');
     expect(whiteboardStore.getState().viewByTab.t1).toBeUndefined();

@@ -37,15 +37,32 @@ import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
 import { toggleOverview, useNotesOverview } from '../notes-overview';
 import { stopVoiceTyping, toggleVoiceTyping, useVoiceTypingStore } from '../voice-typing';
 import {
+  ARROW_HEAD_GLYPHS,
+  ARROW_HEAD_LABELS,
+  ARROW_HEADS,
+  CONNECTOR_ROUTES,
+  DASH_LABELS,
+  DASH_STYLES,
+  DEFAULT_GRID,
   FONT_FAMILIES,
+  GRID_SIZES,
+  NO_FILL,
   PALETTE,
   paletteSlot,
+  PAPER_FILL,
+  ROUTE_LABELS,
+  SHAPE_OPTIONS,
   STATIC_PALETTE,
   STROKE_WIDTHS,
   TEXT_SIZES,
   THEMED_SLOT_NAMES,
+  type ArrowHeads,
+  type DashStyle,
   type DrawTool,
+  type GridSettings,
+  type ShapeTool,
 } from '../../core/whiteboard/tool-settings';
+import type { ConnectorRoute } from '../../core/whiteboard/scene';
 // Also a dependency-free leaf (the same I8 constraint tool-settings is under):
 // the ribbon needs the finger-toggle's resolution rule, nothing more.
 import { fingerDrawsEnabled } from '../../core/whiteboard/input';
@@ -557,6 +574,413 @@ function VoiceTypingButton() {
 }
 
 /**
+ * A ribbon popover: a `.tab-menu` anchored under the button that opened it,
+ * dismissed by the same three things every other menu in the app is (a press
+ * outside, Escape, the window moving under it). Draw mode has two — the shape
+ * picker and the shape-style menu — and they exist so ten shapes and three
+ * style controls cost two ribbon slots instead of thirteen.
+ */
+function RibbonPopover({
+  anchor,
+  label,
+  className,
+  onClose,
+  children,
+}: {
+  anchor: DOMRect;
+  label: string;
+  className?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className={`tab-menu wb-popover${className ? ` ${className}` : ''}`}
+      role="menu"
+      aria-label={label}
+      // Right-aligned would run off a narrow window; left of the button is
+      // where every other ribbon menu opens.
+      style={{ left: Math.max(4, anchor.left - 60), top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The shape tool, as one button plus a grid.
+ *
+ * Ten shapes as ten buttons would push the ribbon past the width it has to fit
+ * on a tablet, so the button shows the LAST shape used and one click draws it
+ * again; the grid is one more click away. That keeps the original four exactly
+ * as cheap as they were while the other six cost nothing until you want them.
+ */
+function ShapePicker({
+  tool,
+  lastShape,
+  onPick,
+}: {
+  tool: DrawTool;
+  lastShape: ShapeTool;
+  onPick: (shape: ShapeTool) => void;
+}) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const current = SHAPE_OPTIONS.find((s) => s.id === lastShape) ?? SHAPE_OPTIONS[0]!;
+  const active = SHAPE_OPTIONS.some((s) => s.id === tool);
+  return (
+    <>
+      <button
+        className="ribbon-btn"
+        aria-label={`Shape — ${current.label}`}
+        aria-pressed={active}
+        aria-haspopup="menu"
+        aria-expanded={anchor != null}
+        data-active={active || undefined}
+        title={`${current.label} — click to draw it, or ⌄ for other shapes (R rect, O ellipse, L line, A arrow). Hold Shift while dragging to keep it square (a line snaps to 45°).`}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onPick(current.id)}
+      >
+        {current.glyph}
+      </button>
+      <button
+        className="ribbon-btn ribbon-caret"
+        aria-label="Choose a shape"
+        aria-haspopup="menu"
+        aria-expanded={anchor != null}
+        title="Choose a shape"
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) =>
+          setAnchor((open) => (open ? null : e.currentTarget.getBoundingClientRect()))
+        }
+      >
+        ⌄
+      </button>
+      {anchor && (
+        <RibbonPopover
+          anchor={anchor}
+          label="Shapes"
+          className="wb-shape-grid"
+          onClose={() => setAnchor(null)}
+        >
+          {SHAPE_OPTIONS.map((shape) => (
+            <button
+              key={shape.id}
+              className="ribbon-btn"
+              role="menuitemradio"
+              aria-checked={tool === shape.id}
+              data-active={tool === shape.id || undefined}
+              aria-label={shape.label}
+              title={shape.label}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onPick(shape.id);
+                setAnchor(null);
+              }}
+            >
+              {shape.glyph}
+            </button>
+          ))}
+        </RibbonPopover>
+      )}
+    </>
+  );
+}
+
+/**
+ * Fill, dash, arrow heads and route — the shape properties that are not a
+ * colour or a nib, behind one button.
+ *
+ * They act on the SELECTION when there is one and always set the tool default,
+ * which is the whole styling model for the board: no floating toolbar, no
+ * properties panel, one strip that means "this is what that looks like".
+ */
+function ShapeStyleMenu({
+  fill,
+  dash,
+  heads,
+  route,
+  onFill,
+  onDash,
+  onHeads,
+  onRoute,
+}: {
+  fill: string | null;
+  dash: DashStyle | null;
+  heads: ArrowHeads | null;
+  route: ConnectorRoute | null;
+  onFill: (fill: string) => void;
+  onDash: (dash: DashStyle) => void;
+  onHeads: (heads: ArrowHeads) => void;
+  onRoute: (route: ConnectorRoute) => void;
+}) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  return (
+    <>
+      <button
+        className="ribbon-btn"
+        aria-label="Shape style — fill, dashes, arrow heads, route"
+        aria-haspopup="menu"
+        aria-expanded={anchor != null}
+        title="Shape style — fill, dashes, arrow heads and how a line routes. With something selected, these restyle it."
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) =>
+          setAnchor((open) => (open ? null : e.currentTarget.getBoundingClientRect()))
+        }
+      >
+        ◧
+      </button>
+      {anchor && (
+        <RibbonPopover
+          anchor={anchor}
+          label="Shape style"
+          className="wb-style-menu"
+          onClose={() => setAnchor(null)}
+        >
+          <div className="wb-style-label">Fill</div>
+          <div className="ribbon-swatches" role="group" aria-label="Fill">
+            <button
+              className="ribbon-swatch wb-swatch-none"
+              aria-label="No fill"
+              aria-pressed={fill === NO_FILL}
+              data-active={fill === NO_FILL || undefined}
+              title="No fill — the shape is an outline"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onFill(NO_FILL)}
+            />
+            <button
+              className="ribbon-swatch"
+              style={{ background: `var(--wb-bg, ${PAPER_FILL})` }}
+              aria-label="Paper fill"
+              aria-pressed={fill === PAPER_FILL}
+              data-active={fill === PAPER_FILL || undefined}
+              title="Paper — the board's own colour, so the box hides what is behind it on a light or a dark board"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onFill(PAPER_FILL)}
+            />
+            {PALETTE.map((swatch, slot) => (
+              <button
+                key={swatch}
+                className="ribbon-swatch"
+                style={{ background: `var(--wb-c${slot}, ${swatch})` }}
+                aria-label={`Fill ${THEMED_SLOT_NAMES[slot] ?? swatch}`}
+                aria-pressed={fill === swatch}
+                data-active={fill === swatch || undefined}
+                title={THEMED_SLOT_NAMES[slot] ?? swatch}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onFill(swatch)}
+              />
+            ))}
+          </div>
+
+          <div className="wb-style-label">Outline</div>
+          <div className="ribbon-swatches" role="group" aria-label="Outline">
+            {DASH_STYLES.map((style) => (
+              <button
+                key={style}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={dash === style}
+                data-active={dash === style || undefined}
+                aria-label={DASH_LABELS[style]}
+                title={DASH_LABELS[style]}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onDash(style)}
+              >
+                <svg className="ribbon-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <line
+                    x1="2"
+                    y1="10"
+                    x2="18"
+                    y2="10"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={
+                      style === 'dashed' ? '6 3' : style === 'dotted' ? '0 4' : undefined
+                    }
+                  />
+                </svg>
+              </button>
+            ))}
+          </div>
+
+          <div className="wb-style-label">Arrow heads</div>
+          <div className="ribbon-swatches" role="group" aria-label="Arrow heads">
+            {ARROW_HEADS.map((kind) => (
+              <button
+                key={kind}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={heads === kind}
+                data-active={heads === kind || undefined}
+                aria-label={ARROW_HEAD_LABELS[kind]}
+                title={ARROW_HEAD_LABELS[kind]}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onHeads(kind)}
+              >
+                {ARROW_HEAD_GLYPHS[kind]}
+              </button>
+            ))}
+          </div>
+
+          <div className="wb-style-label">Route</div>
+          <div className="ribbon-swatches" role="group" aria-label="Line route">
+            {CONNECTOR_ROUTES.map((kind) => (
+              <button
+                key={kind}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={route === kind}
+                data-active={route === kind || undefined}
+                aria-label={ROUTE_LABELS[kind]}
+                title={`${ROUTE_LABELS[kind]}. A line that starts or ends on a shape stays attached to it.`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onRoute(kind)}
+              >
+                <svg className="ribbon-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <polyline
+                    points={kind === 'elbow' ? '3,16 10,16 10,4 17,4' : '3,16 17,4'}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </RibbonPopover>
+      )}
+    </>
+  );
+}
+
+/**
+ * The grid: one toggle, plus a caret for the two things you set once and
+ * forget (whether it snaps, and how big it is).
+ *
+ * The strip has to fit a tablet and has no room for three controls, so the
+ * split follows what people actually do — the grid gets turned on and off all
+ * the time, its spacing almost never. Unlike every other control here, this
+ * one edits the DOCUMENT: the grid is stored in the file and comes back with
+ * it, which is why the state arrives per tab through `WhiteboardUiState`
+ * rather than living in the store.
+ */
+function GridControl({
+  grid,
+  onChange,
+}: {
+  grid: GridSettings;
+  onChange: (patch: Partial<GridSettings>) => void;
+}) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  return (
+    <>
+      <button
+        className="ribbon-btn"
+        aria-label={grid.show ? 'Hide the grid' : 'Show the grid'}
+        aria-pressed={grid.show}
+        data-active={grid.show || undefined}
+        title={
+          (grid.show
+            ? `Grid on, ${grid.size} units${grid.snap ? ', snapping' : ', not snapping'}. `
+            : 'Grid off. ') +
+          'Toggle with G. Hold Alt while dragging to ignore snapping; ' +
+          'things also snap to other shapes’ edges and centres.'
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onChange({ show: !grid.show })}
+      >
+        ⊞
+      </button>
+      <button
+        className="ribbon-btn ribbon-caret"
+        aria-label="Grid settings"
+        aria-haspopup="menu"
+        aria-expanded={anchor != null}
+        title="Grid settings — snapping and spacing"
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) =>
+          setAnchor((open) => (open ? null : e.currentTarget.getBoundingClientRect()))
+        }
+      >
+        ⌄
+      </button>
+      {anchor && (
+        <RibbonPopover
+          anchor={anchor}
+          label="Grid"
+          className="wb-style-menu"
+          onClose={() => setAnchor(null)}
+        >
+          <div className="wb-style-label">Snapping</div>
+          <div className="ribbon-swatches" role="group" aria-label="Snapping">
+            <button
+              className="ribbon-btn wb-grid-snap"
+              role="menuitemcheckbox"
+              aria-checked={grid.snap}
+              data-active={grid.snap || undefined}
+              title={
+                grid.snap
+                  ? 'Snapping on — shapes land on the grid and on other shapes’ edges. Alt ignores it for one drag.'
+                  : 'Snapping off — nothing is pulled anywhere.'
+              }
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onChange({ snap: !grid.snap })}
+            >
+              {grid.snap ? 'Snap on' : 'Snap off'}
+            </button>
+          </div>
+
+          <div className="wb-style-label">Spacing</div>
+          <div className="ribbon-swatches" role="group" aria-label="Grid spacing">
+            {GRID_SIZES.map((size) => (
+              <button
+                key={size}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={grid.size === size}
+                data-active={grid.size === size || undefined}
+                aria-label={`Grid ${size} units`}
+                title={`${size} units`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onChange({ size })}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </RibbonPopover>
+      )}
+    </>
+  );
+}
+
+/**
  * Center cluster for DRAW mode — the whiteboard's toolbar.
  *
  * The ribbon IS the draw toolbar (a Phase 1 QA decision): the same strip that
@@ -577,14 +1001,32 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const fingerDraws = fingerDrawsEnabled(fingerDrawsPref, penSeen);
   const fontSize = useWhiteboardStore((s) => s.fontSize);
   const fontFamily = useWhiteboardStore((s) => s.fontFamily);
-  // The type row shows for the text tool, and whenever a selection could
-  // contain text to restyle.
-  const typeControls = tool === 'text' || (tool === 'select' && !!tabState?.selectionCount);
+  const fill = useWhiteboardStore((s) => s.fill);
+  const dash = useWhiteboardStore((s) => s.dash);
+  const heads = useWhiteboardStore((s) => s.heads);
+  const route = useWhiteboardStore((s) => s.route);
+  const lastShape = useWhiteboardStore((s) => s.lastShape);
+  // The type row shows for the text tool, and whenever the selection actually
+  // HOLDS text to restyle — before phase A it showed for any selection, which
+  // meant selecting a shape hid the nib the shape's outline needed.
+  const typeControls = tool === 'text' || (tabState?.selectionStyle?.hasText ?? false);
   const adapter = tabId !== null ? getWhiteboardAdapter(tabId) : undefined;
   // Themed slots preview through their --wb-* var; static/custom stay literal.
   const colorSlot = paletteSlot(color);
   const nibColor = colorSlot < 0 ? color : `var(--wb-c${colorSlot}, ${color})`;
   const themedRow = paletteKind === 'themed';
+
+  // With a selection active the ribbon shows what is SELECTED, not what the
+  // tool would draw next — and shows nothing at all where the selection
+  // disagrees with itself (`null` from `selectionStyle`). Without one it is the
+  // tool's own settings, exactly as before.
+  const selected = tabState?.selectionStyle ?? null;
+  const shownColor = selected ? selected.stroke : color;
+  const shownWidth = selected ? selected.strokeWidth : width;
+  const shownFill = selected ? selected.fill : fill;
+  const shownDash = selected ? selected.dash : dash;
+  const shownHeads = selected ? selected.heads : heads;
+  const shownRoute = selected ? selected.route : route;
 
   function toolButton(id: DrawTool, label: ReactNode, title: string) {
     return (
@@ -609,22 +1051,64 @@ function DrawControls({ tabId }: { tabId: string | null }) {
 
   return (
     <div className="ribbon-center ribbon-center-draw">
-      {toolButton('select', '⬚', 'Select — drag to move, handles to resize, Delete to remove')}
-      {toolButton('pen', '✎', 'Pen')}
-      {toolButton('highlighter', '▤', 'Highlighter')}
-      {toolButton('eraser', '⌫', 'Eraser — removes a whole stroke')}
+      {toolButton(
+        'select',
+        '⬚',
+        'Select (V) — drag to move, handles to resize, right-click for arrange, Delete to remove',
+      )}
+      {toolButton('pen', '✎', 'Pen (P)')}
+      {toolButton('highlighter', '▤', 'Highlighter (H)')}
+      {toolButton('eraser', '⌫', 'Eraser (E) — removes a whole stroke')}
       {toolButton(
         'text',
         'T',
-        'Text — click to type, Enter for a new line, Ctrl/Cmd+Enter to finish',
+        'Text (T) — click to type, Enter for a new line, Ctrl/Cmd+Enter to finish. Double-click a shape to label it.',
       )}
 
       <span className="ribbon-divider" role="separator" />
 
-      {toolButton('rect', '▭', 'Rectangle')}
-      {toolButton('ellipse', '◯', 'Ellipse')}
-      {toolButton('line', '╱', 'Line')}
-      {toolButton('arrow', '➜', 'Arrow')}
+      <ShapePicker
+        tool={tool}
+        lastShape={lastShape}
+        onPick={(shape) => {
+          whiteboardStore.getState().setTool(shape);
+          adapter?.refreshTool();
+        }}
+      />
+
+      <ShapeStyleMenu
+        fill={shownFill}
+        dash={shownDash}
+        heads={shownHeads}
+        route={shownRoute}
+        onRoute={(next) => {
+          whiteboardStore.getState().setRoute(next);
+          adapter?.restyleSelection({ route: next });
+        }}
+        onFill={(next) => {
+          whiteboardStore.getState().setFill(next);
+          adapter?.restyleSelection({ fill: next });
+        }}
+        onDash={(next) => {
+          whiteboardStore.getState().setDash(next);
+          adapter?.restyleSelection({ dash: next });
+        }}
+        onHeads={(next) => {
+          whiteboardStore.getState().setHeads(next);
+          adapter?.refreshTool();
+          // The end head lives in the shape KIND, so "none" is a line and
+          // anything else an arrow — see core/whiteboard/style.ts.
+          adapter?.restyleSelection({
+            markerEnd: next !== 'none',
+            markerStart: next === 'both',
+          });
+        }}
+      />
+
+      <GridControl
+        grid={tabState?.grid ?? DEFAULT_GRID}
+        onChange={(patch) => adapter?.setGrid(patch)}
+      />
 
       <span className="ribbon-divider" role="separator" />
 
@@ -655,11 +1139,17 @@ function DrawControls({ tabId }: { tabId: string | null }) {
               className="ribbon-swatch"
               style={{ background: themedRow ? `var(--wb-c${slot}, ${swatch})` : swatch }}
               aria-label={`Colour ${name}`}
-              aria-pressed={color === swatch}
-              data-active={color === swatch || undefined}
+              aria-pressed={shownColor === swatch}
+              data-active={shownColor === swatch || undefined}
               title={name}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => whiteboardStore.getState().setColor(swatch)}
+              onClick={() => {
+                whiteboardStore.getState().setColor(swatch);
+                // One click, both meanings: restyle what is selected AND set
+                // the colour the next stroke will use. A no-op when nothing
+                // is selected, which is the common case.
+                adapter?.restyleSelection({ stroke: swatch });
+              }}
             />
           );
         })}
@@ -711,18 +1201,21 @@ function DrawControls({ tabId }: { tabId: string | null }) {
       {/* Not `hidden` — `.ribbon-swatches` sets `display:flex`, which beats the
           UA sheet's `[hidden]{display:none}`, so the nib row stayed on screen
           next to the type controls it was supposed to make room for. */}
-      {!typeControls && (
+      {(!typeControls || (selected?.hasInk ?? false)) && (
         <div className="ribbon-swatches" role="group" aria-label="Stroke width">
           {STROKE_WIDTHS.map((size) => (
             <button
               key={size}
               className="ribbon-nib"
               aria-label={`Width ${size}`}
-              aria-pressed={width === size}
-              data-active={width === size || undefined}
+              aria-pressed={shownWidth === size}
+              data-active={shownWidth === size || undefined}
               title={`Width ${size}`}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => whiteboardStore.getState().setWidth(size)}
+              onClick={() => {
+                whiteboardStore.getState().setWidth(size);
+                adapter?.restyleSelection({ strokeWidth: size });
+              }}
             >
               {/* The dot is the nib at (a readable multiple of) its size. */}
               <span

@@ -174,6 +174,35 @@ export interface ElementRef {
 }
 
 /**
+ * Splice `elements` into a layer at `index` (clamped; `Infinity` appends) and
+ * return where they landed — a paste needs the refs to make them the
+ * selection, a new label needs to sit just above its host. One document, so
+ * the whole insertion is one undo step.
+ */
+export function insertElements(
+  doc: SceneDoc,
+  layerId: string,
+  index: number,
+  elements: readonly SceneElement[],
+): { doc: SceneDoc; refs: ElementRef[] } {
+  if (elements.length === 0) {
+    return { doc, refs: [] };
+  }
+  let at = -1;
+  const next = mapLayer(doc, layerId, (layer) => {
+    at = Math.max(0, Math.min(layer.elements.length, index));
+    return {
+      ...layer,
+      elements: [...layer.elements.slice(0, at), ...elements, ...layer.elements.slice(at)],
+    };
+  });
+  if (at < 0) {
+    return { doc, refs: [] }; // no such layer
+  }
+  return { doc: next, refs: elements.map((_, i) => ({ layerId, index: at + i })) };
+}
+
+/**
  * Delete a set of elements in one step (the eraser can cross several strokes in
  * a single drag, and that must be one undo). Indices are resolved against the
  * document as passed in — refs are collected and applied against the same

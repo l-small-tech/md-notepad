@@ -17,6 +17,14 @@ what a whiteboard *is* lives here.
 | `layers.ts` | pure `(doc, …) → doc` layer and element operations |
 | `hit-test.ts` | the eraser's aim, and selection's base |
 | `select.ts` | the selected set, resize handles, and BAKING a transform in |
+| `style.ts` | restyling a selection, and reading back what it currently IS |
+| `groups.ts` | flat groups by tag, and the selection EXPANSION that welds groups and labels together |
+| `labels.ts` | text centred on a host element: layout, re-centring after every commit, attach |
+| `arrange.ts` | z-order within a layer, align, distribute |
+| `clipboard.ts` | copy/paste as a document fragment, with ids remapped on the way in |
+| `grid.ts` | the per-document grid, as typed accessors over the `wb:doc` metadata |
+| `snap.ts` | grid snapping, smart guides, ports, and which one wins |
+| `connectors.ts` | live connectors: ends that land on a host's OUTLINE and follow it; ports, attach, detach |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
@@ -71,6 +79,321 @@ One thing the adapter must keep doing, learned the hard way: **cancelling
 compatibility `mousedown` that `preventDefault()` suppresses. The stage focuses
 itself explicitly on every accepted press; without that, every keyboard path
 (Delete, Ctrl+Z, nudge) dies silently after the first click.
+
+## Shapes: one box, many outlines (diagram phase A)
+
+The five diagram shapes — diamond, triangle, parallelogram, hexagon, cylinder —
+all keep `x/y/width/height` geometry, the same keys `rect` uses. That is the
+whole design: `transformElement`, `elementBounds` and the resize path each got
+ONE new branch rather than five, and the sixth shape will cost a vertex list.
+`shapeGeomRect` in `geometry.ts` is the single decoder of the geom-key
+convention, so "what does it cover" and "what can I click" cannot drift apart.
+
+They serialize as `<polygon wb:shape="diamond" points="…">`, and the cylinder
+as `<path wb:shape="cylinder" wb:box="x y w h" d="…">`. The asymmetry is
+deliberate: a polygon's vertices touch the box's edges **by construction**, so
+parse recovers the geometry as the bounding box of the points and no
+editor-only attribute is needed — a polygon someone nudged in a text editor
+still comes back with the box it now occupies. The cylinder's arcs bulge past
+the numbers in its `d`, and recovering a box from two elliptical arcs means
+trusting a template a hand edit may already have broken, so it says its box out
+loud instead. A `<polygon>` with no `wb:shape` — or one naming a shape we don't
+know — stays a `RawElement`, which is the same promise the format has always
+made about content it did not write.
+
+Hit-testing follows the OUTLINE (`boxShapeOutline`), not the box: the corners
+of a diamond's box are empty space, and a click there should reach whatever is
+drawn underneath.
+
+**A rounded rectangle is a `rect` with an `rx`, not a shape kind.** The tool is
+`'roundrect'` (a `ShapeTool`, which the FORMAT never sees); the element is a
+rect. That keeps hit-testing, transforms and connectors shared between square
+and rounded boxes. `rx` scales by the
+geometric mean √(sx·sy) under a non-uniform resize, the same compromise
+`stroke-width` makes and for the same reason: one number cannot follow two
+axes.
+
+### Dashes, heads and a themable fill
+
+- `dash` is the `stroke-dasharray` string, verbatim, or null for solid — and
+  **null emits no attribute**, which is what keeps every shape written before
+  this round-tripping byte-for-byte. The presets in `tool-settings.ts` are
+  computed against the stroke width at construction time: a fixed pattern would
+  mean something different on every nib, and a 1-unit dash on an 8-unit nib is
+  a solid line. A pattern we cannot name (`dashStyleOf` → null) is somebody
+  else's and is never rewritten.
+- The head at the END of a line is still the `arrow` KIND — that is where every
+  board written before this keeps it, and changing that would have rewritten
+  them all. `markerStart` is the new field, so the ribbon's none/end/both is
+  `(line, false)` / `(arrow, false)` / `(arrow, true)`.
+- The start head is a **second marker def with mirrored geometry and plain
+  `orient="auto"`**, not `wb-arrow` under `orient="auto-start-reverse"`. The
+  attribute is SVG 2: Chromium, Firefox and WebView2 honour it; librsvg, resvg,
+  older Inkscape and several SVG→PDF converters degrade it to `auto` and draw
+  the head pointing backwards into the line. The file rendering identically
+  anywhere outranks the tidier def, and the duplicate costs eighty bytes once.
+- A shape's fill themes through its own class: `wb-fN` **alongside** the
+  stroke's `wb-cN` (`class="wb-c1 wb-f3"`). The `.wb-fN` rule already existed
+  for scan blobs and needed no new scoping. A fill equal to the board's
+  background gets `wb-bg` instead — the very rule the page rect themes through
+  — which is what makes a **Paper**-filled box hide the lines behind it on a
+  dark board as well as a light one, while the literal attribute stays white
+  for a CSS-less renderer. `PAPER_FILL` is duplicated in `tool-settings.ts`
+  rather than imported, because that module is a dependency-free leaf; a test
+  pins the two equal.
+
+### Restyling is a patch, applied per kind
+
+`restyleElements(doc, refs, patch)` in `style.ts` is the whole styling model:
+the ribbon IS the properties panel, so a swatch/nib/fill/dash/head click
+restyles the selection and sets the tool default in one go, one undo step. The
+patch is partial — an absent field is left alone — and every kind ignores what
+it cannot express rather than growing a field it never renders: a stroke has no
+fill, text maps the colour control onto its `fill`, an image has no style at
+all. Two rules are less obvious and both are tested: recolouring **drops a
+stored palette slot** (it was a scan's "this hex means that theme colour" note
+and is now a lie), and a nib change **redraws the dash pattern**, which is
+expressed against the width.
+
+`selectionStyle(doc, refs)` is the inverse, and the reason the ribbon can show
+what is selected: every field is the value the whole selection agrees on, or
+null when it is mixed. Null lights nothing, which is the honest answer to "what
+colour is this?" for two differently-coloured shapes.
+
+## Layout ops, groups and labels (diagram phase B)
+
+Everything in this round is a `(doc, refs, …) → doc` over the existing model
+plus two nullable fields — `group` on every element kind (`wb:group`) and
+`labelOf` on text (`wb:label-of`). Both emit nothing when null, which is the
+same promise phase A made: a file written before them re-serializes
+byte-for-byte. Attribute order on every element is now `wb:id`, `wb:group`,
+then the kind's own attributes (`wb:label-of` follows `wb:group` on text).
+
+### Groups are flat, by tag — and will stay that way
+
+A group is a shared `wb:group="id"` on its members. No `<g>` wrapper, no
+nesting. A nested model would ripple through everything that names an
+element: an `ElementRef` is `layer + index`, hit-testing walks a flat list,
+transforms bake into flat elements, the serializer writes one element per
+line, the scan pipeline inserts flat strokes — all of it would grow a
+path-through-groups notion for a feature diagrams rarely need beyond one
+level, and one level is exactly what a tag gives. A tag also survives
+everything a wrapper would break: z-order ops, layer moves, copy/paste and a
+Raw-mode edit all leave members as ordinary elements, and a member deleted by
+hand simply leaves the group. Grouping a selection that already holds a group
+MERGES it (every member is re-tagged) — that is what "no nesting" means in
+practice.
+
+**Selection expansion is the one mechanism behind groups and labels.** Every
+selection the user makes — click, shift-click, marquee, the context menu —
+is closed over "same group" and "label ⇄ host" (`expandSelection`) before it
+is used. Moving a shape moves its label because the label was selected too,
+not because move knows about labels; `Delete` on a host takes its labels
+because they were in the set (and `withLabels` says so explicitly for the
+eraser, which never goes through a selection). Align and distribute act on
+UNITS (`selectionUnits`, the connected components under the same links), so a
+group lines up as one thing. Shift-click removes a whole unit, because
+removing one member would only see the expansion put it straight back.
+
+### Labels
+
+A label is a `TextElement` whose `labelOf` names its host's `wb:id`; the
+host gets an id the first time it is labelled (`freshElementId`, the same
+injected randomness `makeLayerId` uses, from one pool shared with group tags).
+It is serialized with `text-anchor="middle"` — plain SVG 1.1, derived from
+`labelOf` rather than stored — and its `x` is the host's centre, so each line
+centres itself in any renderer without the editor measuring glyphs it has no
+metrics for. The block is stacked at 1.2 line height around the host's
+centre (`labelBaseline`), shifted by a cap-centre constant so glyphs, not
+line boxes, look centred; a line's centre is its midpoint because a line's
+box is the box of its endpoints. Both `elementBounds` implementations know a
+label straddles its `x`.
+
+Two rules keep labels honest without a layout engine:
+
+- **A label is welded to its host in both directions.** A label dragged on
+  its own would be re-centred by the next commit, so it is never selectable
+  on its own. The cost is that recolouring a host+label selection recolours
+  both — for a diagram that is the usual intent.
+- **A resize re-centres the label; it never scales it.** The adapter leaves
+  labels out of the scale and runs `relayoutLabels` afterwards — the same
+  pure pass every recorded commit runs (the adapter's `settle`), so
+  whatever moved a host (align, nudge, a raw edit followed by any Draw-mode
+  edit) leaves its labels centred. `relayoutLabels` is a fixed point on a
+  document with nothing to do, so running it always costs nothing.
+
+A label whose host is gone (deleted in Raw mode, a hand-authored file) is just
+text with an anchor: every function treats a dangling `labelOf` as no host.
+
+### Z-order, align, distribute
+
+Z-order is the element order inside its layer and nothing else — layers are
+the coarse stack, elements the fine one — so `reorderElements` works per
+layer, never moves anything between layers, and returns the new refs. Forward
+and backward step the selection one element past its nearest unselected
+neighbour as a BLOCK, which is what makes repeated presses predictable. Align
+and distribute are translations only; distribute equalises gaps and falls
+back to even centres when the units overlap. All three live in the context
+menu, not the ribbon — the strip has to fit a tablet and already does not have
+a slot to spare.
+
+### The clipboard is the file format
+
+A copied selection serializes as a complete whiteboard `<svg>` holding one
+layer, and a paste is anything `parseWhiteboard` can read modeled elements out
+of. That means the fragment renders as a picture in any tool that accepts SVG
+text, a whole board's source pasted onto another board lands as elements, and
+there is no second grammar to keep in step with the serializer. The app keeps
+the parsed elements in memory too (the UI store), so pasting works where the
+web view cannot read the system clipboard back; each paste of the same
+clipboard lands `PASTE_OFFSET` further along.
+
+Ids are REMAPPED on paste (`remapIds`): every `wb:id` and `wb:group` in the
+fragment gets a fresh value, so a label pasted with its host still labels the
+copy, one pasted without it becomes plain text rather than a second label on
+the original, and a group of one is dropped. A connector's `from`/`to` get the
+same treatment through the same function — a reference the mapping does not
+name is cut, never kept, so an arrow pasted without its box arrives detached
+where it was rather than attached to the original.
+
+## The grid, and snapping (diagram phase C)
+
+### The grid is in the document and never in the picture
+
+`grid` in the `wb:doc` metadata — `{ show, size, snap }`, default hidden / 20 /
+snapping — because a grid is a property of the DIAGRAM, not of the app: a
+flowchart drawn on 20-unit squares should come back on 20-unit squares next
+week, on another machine, for whoever opens it. It is written the same way
+every field added since phase A is: only what differs from the default, in a
+fixed key order, so a default grid emits **no key at all** and a board written
+before this round re-serializes byte-for-byte. A corrupt value degrades field
+by field (`"grid": "on"` is simply not a grid), exactly like the rest of the
+blob.
+
+What is NOT in the file is the grid itself. The dots are chrome the adapter
+injects into the adopted DOM after adoption; nothing here knows their
+geometry and the serializer never sees them, so a board with the grid showing
+saves identically to the same board with it hidden. Rendering a grid into the
+file would trade the one big idea — a picture that renders identically
+anywhere — for a convenience the editor can provide for free.
+
+**Grid changes are not undo steps, and undo carries the current grid**
+(`carryGrid`). The history stack is whole documents and the grid rides in the
+document, so a plain undo would restore the grid the snapshot was taken with
+— turning the dots back on as a side effect of undoing a stroke. Showing a
+grid is a view decision, so every restore wears the live settings instead.
+Nothing else in the metadata gets this treatment, because nothing else in it
+is a view preference.
+
+### Guides beat the grid, and one axis knows nothing about the other
+
+`snap.ts` is per-axis and nothing else, which is why it is short: an x snap and
+a y snap are decided independently, so a box can land on a neighbour's left
+edge while its top stays exactly where the hand put it. Per axis the order is
+**smart guide within the threshold → grid → nothing**. A guide wins because
+aligning to a thing you can SEE beats aligning to an abstraction — that is the
+whole reason editors that already have a grid grew guides.
+
+The threshold arrives in scene units, converted by the adapter from
+`SNAP_THRESHOLD` screen pixels, so the pull feels identical at 30% and at 400%
+while the grid, which belongs to the drawing, scales with it. Candidates are
+the left/centre/right and top/middle/bottom of every other element's bounds,
+and a returned `GuideLine` carries the span of both the match and the
+moving geometry, so the adapter can draw a line that reaches them both rather
+than crossing the board.
+
+Two exclusions are decisions rather than omissions. **Freehand ink is never a
+guide**: a scribble's bounding box is not an alignment anyone meant, and
+flattening every path on the board per gesture would cost more than the
+feature is worth. **Locked, hidden and foreign layers are out** as well — you
+cannot move that content, so offering to line up with it is a promise about
+something the editor does not own. Ink does not snap either, for the same
+reason it is not a guide: a pen stroke pulled onto a lattice is not the stroke
+anyone drew.
+
+## Live connectors (diagram phase D)
+
+A connector is a `line`/`arrow` with two nullable fields, `from` and `to`,
+each naming a host's `wb:id` and a port on it (`wb:from="bx1:e"`), plus a
+`route` (`wb:route="elbow"`; straight emits nothing). Both default to
+nothing, so — the same promise every phase has made — a line drawn before this
+round re-serializes byte-for-byte, and a line drawn free today is
+indistinguishable from one drawn last year.
+
+### The coordinates stay in the file
+
+An attached end still has real `x1/y1` numbers in it, and they are what every
+renderer draws. The attachment is a `wb:` note saying where those numbers came
+from; `reconnect` recomputes them from the host's current outline after every
+commit (the adapter's `settle`, before `relayoutLabels`, because a connector's
+label sits on its routed path). A host that no longer exists — deleted in Raw
+mode, or a reference in a hand-authored file — simply leaves the end where
+the file says it is, and its id stays reserved (`usedIds`) so a fresh element
+can never inherit a stale arrow. Nothing here is a second rendering path: a
+board with connectors is still a picture that renders identically anywhere.
+
+### Following is NOT selection expansion
+
+Groups and labels weld through `expandSelection`: selecting one selects the
+others. Connectors deliberately do not. An arrow is not part of the box it
+points at — selecting a box must not drag its arrows into the selection, and
+deleting a box must not delete them. So moving a host moves only the arrow
+ends that touch it, and deleting a host **detaches** its connectors
+(`detachFrom`, run by `removeAndDetach` for Delete and the eraser): the lines
+keep their last coordinates, because they were drawn on purpose too. The
+clipboard follows from `remapIds`: a host and its arrow copied together stay
+attached (fresh ids, same link); an arrow copied alone arrives detached.
+
+### Ends land on the outline, never the box
+
+`endpointOn(host, port, toward)` intersects a ray from the host's centre with
+the phase-A outline (`shapeOutline`), so an arrow into an ellipse or a diamond
+ends on the drawn edge, not on the corner of the rectangle around it (the
+ellipse is solved exactly rather than sampled — its ports are the one case
+where a chord's sag would show). Ports `n`/`e`/`s`/`w` are where the axes
+cross that outline; `c` aims at the centre and slides around the outline to
+face the other end — the other end's host centre when it has one, the free
+endpoint otherwise. `nearestPort` turns a press into a port: within 30° of an
+axis (measured on the box normalised to a square, so a wide box's `e` port is
+not a sliver) it is that side, anywhere else it is `c`. `connectorTarget` is
+the whole targeting rule in one place: a port within reach wins on whichever
+host, otherwise the topmost body under the point — an UNFILLED box counts,
+because the box is what the user sees.
+
+### The elbow is routed, never stored
+
+An elbow connector serializes as `<path wb:shape="elbow" d="M… L… L…">` —
+a `<path>` because it is the only SVG 1.1 element that draws a polyline AND
+takes markers at its ends — with `fill="none"` (a path fills black by default)
+and the waypoints derived at serialize time by `routeElbow` in `geometry.ts`:
+leave each end along its port's axis (a free end or a `c` port takes the
+direction the other end mostly is), one bend when the two axes differ, two
+bends turning at the midpoint when they agree, no bend when the ends are
+already in line. Deterministic and geometry-only, so the same ends and ports
+always draw the same path and nothing about the route is state a hand edit
+could desynchronise. Parse recovers `x1/y1/x2/y2` from the path's first and
+last point and the kind from `marker-end`. It names itself with `wb:shape`
+exactly as the box polygons do, so a foreign `<path>` stays raw; `wb:route`
+is emitted as well because the route is a field of the element, and a
+hand-edited `<line wb:route="elbow">` is honoured. Hit-testing, bounds and the
+label midpoint all follow the routed polyline (`connectorPoints`), which is
+why the router lives below `hit-test.ts` in the import order rather than in
+`connectors.ts` (which re-exports it).
+
+The router does not add a stub when the target lies behind a port — an `e`
+port aimed at something on the left runs back across its own host. That would
+cost two more bends per end and a stub length nobody agrees on; the ports a
+press picks face the pointer, so it takes deliberately choosing the wrong
+side to reach it.
+
+### Ports are strong guides
+
+`snap.ts` gained `ports` beside `guides`: a point within the threshold of a
+port lands exactly on it, both axes at once, and the edge guides do not get a
+say — a port is a target you aim at, not a coincidence you accept. Connector
+ends have a wider radius still (`PORT_SNAP_RADIUS`) and skip general snapping
+altogether when a host is under the pointer, because you are pointing at the
+box, not at a grid line.
 
 ## Text is a point and some lines — that is all `<text>` is
 

@@ -12,6 +12,7 @@ function stroke(d: string, strokeWidth = 4): SceneElement {
   return {
     kind: 'stroke',
     id: null,
+    group: null,
     tool: 'pen',
     d,
     stroke: '#1a1a1a',
@@ -25,12 +26,19 @@ function rect(fill: string): SceneElement {
   return {
     kind: 'shape',
     id: null,
+    group: null,
     shape: 'rect',
     geom: { x: 0, y: 0, width: 100, height: 50 },
     stroke: '#1a1a1a',
     strokeWidth: 2,
     fill,
     opacity: null,
+    dash: null,
+    rx: null,
+    markerStart: false,
+    from: null,
+    to: null,
+    route: 'straight',
   };
 }
 
@@ -77,12 +85,19 @@ describe('hitTestElement — shapes', () => {
     const ellipse: SceneElement = {
       kind: 'shape',
       id: null,
+      group: null,
       shape: 'ellipse',
       geom: { cx: 100, cy: 100, rx: 50, ry: 25 },
       stroke: '#1a1a1a',
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
+      from: null,
+      to: null,
+      route: 'straight',
     };
     expect(hitTestElement(ellipse, { x: 150, y: 100 }, 1)).toBe(true);
     expect(hitTestElement(ellipse, { x: 100, y: 100 }, 1)).toBe(false);
@@ -92,12 +107,19 @@ describe('hitTestElement — shapes', () => {
     const line: SceneElement = {
       kind: 'shape',
       id: null,
+      group: null,
       shape: 'arrow',
       geom: { x1: 0, y1: 0, x2: 100, y2: 100 },
       stroke: '#1a1a1a',
       strokeWidth: 2,
       fill: 'none',
       opacity: null,
+      dash: null,
+      rx: null,
+      markerStart: false,
+      from: null,
+      to: null,
+      route: 'straight',
     };
     expect(hitTestElement(line, { x: 50, y: 50 }, 1)).toBe(true);
     expect(hitTestElement(line, { x: 50, y: 60 }, 1)).toBe(false);
@@ -126,6 +148,8 @@ describe('elementBounds', () => {
     const bounds = elementBounds({
       kind: 'text',
       id: null,
+      group: null,
+      labelOf: null,
       fontFamily: null,
       x: 10,
       y: 100,
@@ -168,5 +192,44 @@ describe('hitTest over a document', () => {
 
   it('reports nothing on empty board space', () => {
     expect(hitTest(doc, { x: 500, y: 500 }, 2)).toEqual([]);
+  });
+});
+
+describe('hitTestElement — connectors', () => {
+  const elbow: SceneElement = {
+    kind: 'shape',
+    id: null,
+    group: null,
+    shape: 'arrow',
+    geom: { x1: 0, y1: 0, x2: 100, y2: 100 },
+    stroke: '#1a1a1a',
+    strokeWidth: 2,
+    fill: 'none',
+    opacity: null,
+    dash: null,
+    rx: null,
+    markerStart: false,
+    from: { id: 'a', port: 'e' },
+    to: { id: 'b', port: 'w' },
+    route: 'elbow',
+  };
+
+  it('follows an elbow’s bends, not the chord between its ends', () => {
+    // e → w: out along y=0 to x=50, down to y=100, on to (100,100).
+    expect(hitTestElement(elbow, { x: 50, y: 50 }, 1)).toBe(true);
+    expect(hitTestElement(elbow, { x: 25, y: 0 }, 1)).toBe(true);
+    // The diagonal a straight line would take is empty space.
+    expect(hitTestElement(elbow, { x: 25, y: 25 }, 1)).toBe(false);
+    expect(hitTestElement({ ...elbow, route: 'straight' }, { x: 25, y: 25 }, 1)).toBe(true);
+  });
+
+  it('bounds an elbow by its route', () => {
+    // One-bend route h→v between (0,0) and (100,40): the bend is at (100,0).
+    const bent: SceneElement = {
+      ...elbow,
+      geom: { x1: 0, y1: 0, x2: 100, y2: 40 },
+      to: { id: 'b', port: 'n' },
+    };
+    expect(elementBounds(bent)).toEqual({ x: -1, y: -1, width: 102, height: 42 });
   });
 });

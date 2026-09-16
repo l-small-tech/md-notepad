@@ -234,27 +234,37 @@ export function transformElement(
     case 'shape': {
       const g = element.geom;
       const geom: Record<string, number> =
-        element.shape === 'rect'
+        element.shape === 'ellipse'
           ? {
-              x: (g.x ?? 0) * sx + tx,
-              y: (g.y ?? 0) * sy + ty,
-              width: (g.width ?? 0) * sx,
-              height: (g.height ?? 0) * sy,
+              cx: (g.cx ?? 0) * sx + tx,
+              cy: (g.cy ?? 0) * sy + ty,
+              rx: (g.rx ?? 0) * Math.abs(sx),
+              ry: (g.ry ?? 0) * Math.abs(sy),
             }
-          : element.shape === 'ellipse'
+          : element.shape === 'line' || element.shape === 'arrow'
             ? {
-                cx: (g.cx ?? 0) * sx + tx,
-                cy: (g.cy ?? 0) * sy + ty,
-                rx: (g.rx ?? 0) * Math.abs(sx),
-                ry: (g.ry ?? 0) * Math.abs(sy),
-              }
-            : {
                 x1: (g.x1 ?? 0) * sx + tx,
                 y1: (g.y1 ?? 0) * sy + ty,
                 x2: (g.x2 ?? 0) * sx + tx,
                 y2: (g.y2 ?? 0) * sy + ty,
+              }
+            : // rect and every box shape share these keys, which is the whole
+              // reason five new shapes cost one branch and not five.
+              {
+                x: (g.x ?? 0) * sx + tx,
+                y: (g.y ?? 0) * sy + ty,
+                width: (g.width ?? 0) * sx,
+                height: (g.height ?? 0) * sy,
               };
-      return { ...element, geom, strokeWidth: element.strokeWidth * scale };
+      return {
+        ...element,
+        geom,
+        strokeWidth: element.strokeWidth * scale,
+        // A corner radius is one number under a two-axis stretch, exactly like
+        // a stroke width — so it takes the same geometric mean, and a squashed
+        // rounded box keeps corners that still look like corners.
+        rx: element.rx === null ? null : element.rx * scale,
+      };
     }
     case 'text':
       return {
