@@ -123,3 +123,14 @@ webkit2gtk = "2.0"
 tauri-plugin-androidfs = { path = "plugins/tauri-plugin-androidfs" }
 # CPU-only whisper.cpp for now (see the per-platform note above).
 whisper-rs = { version = "0.16", features = ["log_backend"] }
+
+# Dev-loop build time. This crate is one big compilation unit, so its own
+# codegen and link dominate an incremental `tauri:dev` rebuild, and full
+# debuginfo is a good slice of that. Line tables still give panic backtraces a
+# real file:line -- what you actually read during development -- while a
+# measured incremental rebuild here goes ~12.5s -> ~10.5s (5 warm runs each).
+# Going further to `debug = 0` measured no faster, and stripping debuginfo from
+# dependencies (`[profile.dev.package."*"]`) measured no faster either, so
+# neither is worth the debuggability.
+[profile.dev.package.md-notepad]
+debug = "line-tables-only"
