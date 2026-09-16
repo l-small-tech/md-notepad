@@ -2117,7 +2117,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const point = scenePoint(event);
-    const hit = hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0];
+    // Selection hit-tests a hollow shape on its OUTLINE (so ink drawn inside a
+    // box stays pickable), but the empty inside of a box is exactly where a
+    // label goes — so when nothing is on the outline, fall back to the topmost
+    // body under the point, the same lookup a connector uses to find a host.
+    const hit =
+      hitTest(scene, point, ERASER_RADIUS * sceneUnitsPerPixel())[0] ??
+      connectorTarget(scene, point, 0, point)?.ref ??
+      null;
     const element = hit ? resolveElement(scene, hit) : null;
     if (!hit || !element) {
       return;
