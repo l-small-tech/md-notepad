@@ -9,10 +9,10 @@
  *   renders as slides never pays for it.
  * - The sanitize exception (src/preview/README.md "Marp decks"): Marp output
  *   is NOT run through rehype-sanitize — it has to carry `<style>` and inline
- *   styles to be a deck at all. The equivalent posture is `html: false` (no
- *   author HTML gets through; Marp itself emits only what its themes need)
- *   and a shadow root around every slide so the theme CSS and the app CSS
- *   never see each other.
+ *   styles to be a deck at all. The equivalent posture is Marp's own HTML
+ *   allowlist (`DECK_HTML_ALLOWLIST`: known-safe elements and attributes, no
+ *   scripts, handlers or non-http links) and a shadow root around every slide
+ *   so the theme CSS and the app CSS never see each other.
  * - Nothing here touches the network: emoji stay as unicode text (Marp's
  *   default swaps them for CDN images) and the browser helper is bundled.
  * - A render never throws at the caller: a half-written document mid-edit
@@ -30,12 +30,27 @@ type MarpInstance = InstanceType<MarpModule['Marp']>;
 
 let marpLoad: Promise<MarpInstance> | null = null;
 
+/**
+ * Author HTML in a deck passes Marp's default allowlist (I6's posture: an
+ * allowlist, not a blocklist — `<div class>`, `<span>`, `<img>`, tables…;
+ * never `<script>`, `<iframe>`, `on*` handlers, or `javascript:` links) plus
+ * the `style` attribute on every allowed element. Slides are layout, and a
+ * deck's `<style>` block cannot reach an element it has no hook on; the
+ * shadow root's `contain: content` keeps any inline style inside its slide.
+ */
+function deckHtmlAllowlist(Marp: MarpModule['Marp']): MarpModule['Marp']['html'] {
+  const allow: MarpModule['Marp']['html'] = {};
+  for (const [tag, attrs] of Object.entries(Marp.html)) {
+    allow[tag] = Array.isArray(attrs) ? [...attrs, 'style'] : { ...attrs, style: true };
+  }
+  return allow;
+}
+
 function loadMarp(): Promise<MarpInstance> {
   marpLoad ??= import('@marp-team/marp-core').then(
     ({ Marp }) =>
       new Marp({
-        // No author HTML (I6's posture); Marp's own output is trusted.
-        html: false,
+        html: deckHtmlAllowlist(Marp),
         // Scales each slide to its container with no JS (the SVG viewBox).
         inlineSVG: true,
         // Never inject Marp's own <script> into the HTML — `applyMarpBrowser`

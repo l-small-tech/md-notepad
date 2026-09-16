@@ -45,11 +45,27 @@ describe('renderDeck', () => {
     expect(deck.css).toContain('div.marpit > svg > foreignObject > section');
   });
 
-  test('author HTML never reaches the DOM (html: false), and nothing is injected as script', async () => {
-    const deck = await renderDeck('---\nmarp: true\n---\n<script>alert(1)</script>\n\n<b>bold</b>');
-    expect(deck.slides[0]!.html).not.toContain('<script');
-    expect(deck.slides[0]!.html).not.toContain('<b>');
-    expect(deck.slides[0]!.html).toContain('&lt;b&gt;bold&lt;/b&gt;');
+  test('author HTML passes the allowlist: layout markup stays, scripts and handlers do not', async () => {
+    const deck = await renderDeck(
+      [
+        '---',
+        'marp: true',
+        '---',
+        '<script>alert(1)</script>',
+        '',
+        '<div class="cols"><p class="kicker" style="color:#9a6a16" onclick="alert(2)">Kicker</p></div>',
+        '',
+        '<a href="javascript:alert(3)">x</a> <iframe src="https://example.com"></iframe>',
+      ].join('\n'),
+    );
+    const html = deck.slides[0]!.html;
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<iframe');
+    expect(html).not.toContain('onclick');
+    expect(html).not.toContain('javascript:');
+    expect(html).toContain('<div class="cols">');
+    expect(html).toContain('<p class="kicker" style="color:#9a6a16">Kicker</p>');
+    expect(html).not.toContain('&lt;div');
   });
 
   test('a theme file beside the document registers under its @theme name', async () => {

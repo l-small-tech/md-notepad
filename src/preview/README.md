@@ -345,10 +345,14 @@ also drives the status bar's `Slide 4 / 12` and the show's start slide).
   root: auto-scaling code blocks, and the foreignObject polyfill on WebKit.
 - **The sanitize exception (I6).** Marp output does NOT pass through
   `rehype-sanitize`: a deck is `<style>` and inline styles by nature. The
-  equivalent posture is `html: false` (author HTML never reaches the DOM;
-  only Marp's own markup does) plus the shadow root, which keeps the theme
-  CSS in and the app CSS out. This is the one rendering path in `preview/`
-  that bypasses the pipeline, and it must stay the only one.
+  equivalent posture is Marp's own HTML allowlist (`Marp.html`: known-safe
+  elements and attributes, `href` limited to http(s), `img src` to http(s)
+  and `data:image/`; never `<script>`, `<iframe>`, `on*` handlers) extended
+  with the `style` attribute, because slide authors lay out with
+  `<div class="cols">` and the odd inline style — see `deckHtmlAllowlist` in
+  `marp.ts`. The shadow root's `contain: content` keeps an inline style
+  inside its slide, and the app CSS out. This is the one rendering path in
+  `preview/` that bypasses the pipeline, and it must stay the only one.
 - The full-screen **show** (`ui/components/DeckShow`) is the `'screen'`
   stage on a deck tab: one slide letterboxed on a dark stage, rendered
   through the same `renderDeck` + `mountSlide`, keyboard driven.
