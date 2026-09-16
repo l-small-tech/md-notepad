@@ -1360,6 +1360,10 @@ body.tab-drag-live * {
   flex-direction: column;
   min-width: 140px;
   padding: 4px;
+  /* Placement is measured in ContextMenu.tsx (core/menu-position) and applied
+     inline as fixed top/left/max-height; a menu too tall for either side of
+     its row scrolls here rather than running off the bottom of the window. */
+  overflow-y: auto;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;

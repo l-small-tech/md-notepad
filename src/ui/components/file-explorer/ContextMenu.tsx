@@ -12,8 +12,9 @@
  * the created row can jump straight into an inline rename).
  */
 
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { placeMenu, type MenuPlacement } from '../../../core/menu-position';
 import { baseName, dirName } from '../../../core/session/plan-flush';
 import { harnessName } from '../../../core/settings';
 import { isMarkdownPath } from '../../../core/text-files';
@@ -97,6 +98,39 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   const aiName = useSettingsStore((s) => harnessName(s.settings));
   const clipboard = useExplorerStore((s) => s.clipboard);
   const harnessReady = useHarnessAvailability(harnessInstalled);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  /** Viewport-fixed placement, measured after the menu renders (null = first pass). */
+  const [pos, setPos] = useState<MenuPlacement | null>(null);
+
+  /**
+   * Keep the whole menu on screen: a row near the bottom of the drawer used to
+   * push the menu's tail below the viewport (and out of the scrolling tree),
+   * so measure the row and the menu and hand the geometry to placeMenu. The
+   * anchor is the row wrapper the menu renders into; the menu itself is out of
+   * flow once fixed, so it doesn't inflate that rect. Re-runs per page — the
+   * drill-in pages are different heights.
+   */
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    const anchor = el?.parentElement;
+    if (!el || !anchor) {
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    // scrollHeight (+ borders) is the CONTENT height — offsetHeight would be
+    // the capped one once a previous pass applied a maxHeight.
+    const height = Math.max(el.offsetHeight, el.scrollHeight + 2);
+    setPos(
+      placeMenu(
+        rect,
+        { width: el.offsetWidth, height },
+        {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+      ),
+    );
+  }, [page]);
 
   /** Overlay + popover shared by every context menu in the drawer. */
   function menuShell(children: ReactNode): ReactNode {
@@ -104,7 +138,16 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
       <>
         {/* Click-away layer under the menu. */}
         <div className="context-menu-overlay" onClick={onClose} />
-        <div className="context-menu" role="menu">
+        <div
+          ref={menuRef}
+          className="context-menu"
+          role="menu"
+          style={
+            pos
+              ? { position: 'fixed', top: pos.top, left: pos.left, maxHeight: pos.maxHeight }
+              : undefined
+          }
+        >
           {children}
         </div>
       </>
