@@ -54,15 +54,15 @@ describe('modeLabel', () => {
     expect(modeLabel('raw', 'code')).toBe('Raw');
     expect(modeLabel('raw', 'markdown')).toBe('Raw');
     expect(modeLabel('split', 'markdown')).toBe('Split');
-    expect(modeLabel('wysiwyg', 'markdown')).toBe('Rich');
+    expect(modeLabel('wysiwyg', 'markdown')).toBe('Edit');
     expect(modeLabel('draw', 'svg')).toBe('Draw');
     expect(modeLabel('term', 'terminal')).toBe('Terminal');
   });
 });
 
 describe('allowedModesFor', () => {
-  it('offers Draw and Raw for a whiteboard, and never Rich/Split/Read', () => {
-    expect(allowedModesFor('svg')).toEqual(['draw', 'raw']);
+  it('offers Raw then Draw for a whiteboard, and never Edit/Split/Read', () => {
+    expect(allowedModesFor('svg')).toEqual(['raw', 'draw']);
   });
 
   it('leaves the markdown modes exactly as they were, with no Draw', () => {

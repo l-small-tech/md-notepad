@@ -202,6 +202,8 @@ describe('Live Edit — merging changes from disk', () => {
       detach() {},
       focus() {},
       revealLine() {},
+      getTopLine: () => null,
+      scrollToLine() {},
       getSelection: () => ({ anchor: 0, head: 0 }),
       setSelection() {},
       setWordWrap() {},

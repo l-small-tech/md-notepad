@@ -71,6 +71,33 @@ Rules:
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
 
+### Keeping your place across a mode switch
+
+Every mode shows the same document, but each surface scrolls in its own
+coordinate space, so a switch used to drop the reader at the top of the
+incoming one. `ui/mode-scroll.ts` (the per-tab port registry) and
+`core/mode-scroll.ts` (the pure mapping) carry ONE coordinate across:
+the 1-based source line at the top of the outgoing surface.
+
+- `tabsStore.setMode` calls `captureScrollAnchor(id, tab.mode)` **before**
+  the store update — the old surface is still on screen, which is the only
+  moment it can be measured.
+- Each live surface registers a `{ getTopLine, scrollToLine }` port under
+  its `ScrollSurface`: `source` (the CM6 adapter's own two methods),
+  `rendered` (either preview pane's), `edit` (the Milkdown adapter's
+  `getTopHeadingIndex` / `revealHeading`, translated through the document's
+  outline — ProseMirror nodes have no line numbers, so headings are the
+  finest landmark both sides share).
+- `scrollSurfaceFor(mode)` says who owns the anchor. Split maps to `source`:
+  both panes are up, but the editor is what the reader drives, so the
+  preview column only *peeks* at the anchor and rides along.
+- Applying it is split in two, because the surfaces become ready at
+  different times: the preview effect takes the anchor as it attaches the
+  pane (which parks the line until it has rendered blocks to measure),
+  while a separate `[tabId, mode]` effect waits on `modeSync.whenIdle()` and
+  one animation frame — the editor pane was `display: none` until this
+  render committed — before scrolling the source or Edit editor.
+
 ### Review mode for code files
 
 A code-family tab's `read` mode (labelled *Review* by `core/doc-family
@@ -821,7 +848,7 @@ in core or the stores.
 
 ## Voice typing (edit modes)
 
-`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Rich: the
+`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Edit: the
 same `dictationEngine()` engines, but the transcript goes into the document
 at the caret instead of a sidecar. It types into the tab the capture started
 on, through the editor that tab shows when the words arrive — the CM6

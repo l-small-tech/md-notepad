@@ -45,6 +45,7 @@ import type { ModeSync } from '../../core/mode-sync';
 import type { EditorMode, TabKind, TabState, TerminalSnapshot } from '../../core/types';
 import { orderTabsByWorkspace } from '../../core/tab-workspaces';
 import { workspaceCueFor } from '../workspace-cues';
+import { captureScrollAnchor } from '../mode-scroll';
 import { settingsStore } from './settings';
 import { activePaneCwd, terminalsStore } from './terminals';
 import { liveEditStore } from './live-edit';
@@ -724,11 +725,15 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
-      // A mode the document family doesn't have (Rich on an .svg, Draw on a
+      // A mode the document family doesn't have (Edit on an .svg, Draw on a
       // note) can only arrive from a stale keybinding or an old manifest.
       if (!isModeAllowed(docFamilyFor(tab.filePath ?? tab.notePath), mode)) {
         return;
       }
+      // Where the reader is, measured while the OUTGOING mode is still on
+      // screen: the incoming surface puts that source line back on top
+      // (ui/mode-scroll, core/mode-scroll).
+      captureScrollAnchor(id, tab.mode);
       // Remember this choice so the next file opened adopts it (see
       // lastFileMode) — but only for markdown modes: 'draw' means "this file is
       // a whiteboard", not "open the next note differently".

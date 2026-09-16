@@ -13,8 +13,17 @@
  * settings entry. Removing a workspace only forgets it — files are never
  * touched.
  *
+ * Cut/copy/paste (the drawer's own clipboard, `ui/stores/explorer.ts`): a
+ * file or folder row's context menu offers Cut/Copy, any writable folder or
+ * workspace header offers Paste, and Ctrl+X/C/V do the same to the row last
+ * clicked (`is-row-selected`; a cut row dims until the paste). A cut moves and
+ * empties the clipboard; a copy duplicates under a free "… copy" name and
+ * keeps it, so it can be pasted into several folders. It is an IN-APP
+ * clipboard — the OS one can't carry a file list from a webview.
+ *
  * Getting files IN:
- * - Paste (Ctrl+V with focus in the drawer): clipboard images/files are
+ * - Paste (Ctrl+V with focus in the drawer, and nothing on the drawer's own
+ *   clipboard): clipboard images/files are
  *   written into the SELECTED workspace/folder (click a folder row to select;
  *   workspace headers require an explicit action — right-click → "Set
  *   active" — since a plain click only collapses/expands, and adding a
@@ -55,6 +64,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { bytesToBase64, isImagePath } from '../../core/images';
+import { baseName, dirName } from '../../core/session/plan-flush';
 import { isImportablePath } from '../../core/import/registry';
 import { stripExtension } from '../../core/title';
 import {
@@ -75,11 +85,13 @@ import {
   getDefaultWorkspacePath,
   openNotePath,
   openNotePathPinned,
+  pasteExplorerEntryInto,
   refreshWorkspaces,
   renameExplorerEntry,
   savePastedFileInto,
   type ExplorerEntry,
 } from '../session';
+import { explorerStore, useExplorerStore } from '../stores/explorer';
 import { settingsStore, useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { uiStore, useUiStore } from '../stores/ui';
@@ -174,7 +186,13 @@ export function FileExplorer() {
    * `terminal-open.ts` reads it too.
    */
   const selectedDir = useUiStore((s) => s.selectedExplorerDir);
+  /** The row the keyboard acts on, and what is on the explorer clipboard. */
+  const selectedRow = useExplorerStore((s) => s.selected);
+  const clipboard = useExplorerStore((s) => s.clipboard);
   const setSelectedDir = (dir: string | null) => uiStore.getState().setSelectedExplorerDir(dir);
+  /** Remember the row the keyboard should act on (Ctrl+X / Ctrl+C / Ctrl+V). */
+  const selectRow = (path: string, isDir: boolean) =>
+    explorerStore.getState().select({ path, isDir });
   /** True while a manual refresh is in flight (Drive re-fetch can take seconds). */
   const [refreshing, setRefreshing] = useState(false);
   const { rootRef, dragConsumedClick, explorerWidth, startResizeDrag, startFileDrag } =
@@ -347,6 +365,63 @@ export function FileExplorer() {
   }
 
   /**
+   * The explorer clipboard's keyboard half: Ctrl/Cmd+X, +C and +V acting on the
+   * selected row (`stores/explorer.ts`). Ctrl+V with an EMPTY explorer
+   * clipboard deliberately falls through to `handlePaste` — the OS clipboard's
+   * images and files — so pasting a screenshot into a folder still works.
+   * Reached by bubbling from the focused row button; the global keymap in
+   * main.tsx binds none of these three, so nothing has to be fought for.
+   */
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    const mod = event.ctrlKey || event.metaKey;
+    if (!mod || event.altKey || event.shiftKey) {
+      return;
+    }
+    // An inline rename is a text field: its own cut/copy/paste wins.
+    if ((event.target as HTMLElement).tagName === 'INPUT') {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (key === 'v') {
+      if (!clipboard) {
+        return;
+      }
+      // A file row pastes into the folder it lives in, like VSCode; with no row
+      // picked at all, the paste destination is the active workspace.
+      const dest = selectedRow
+        ? selectedRow.isDir
+          ? selectedRow.path
+          : dirName(selectedRow.path)
+        : pasteDir;
+      if (!dest || isReadOnlyDir(dest)) {
+        return;
+      }
+      event.preventDefault();
+      void pasteExplorerEntryInto(clipboard, dest);
+      return;
+    }
+    if ((key !== 'c' && key !== 'x') || !selectedRow) {
+      return;
+    }
+    // A workspace root goes on the clipboard at neither end: its path anchors
+    // the settings entry, so it is removed, never moved — and copying a whole
+    // workspace is not what "Copy" means here (its context menu agrees).
+    const isRoot = workspaces.some((w) => fileKey(w.path) === fileKey(selectedRow.path));
+    if (isRoot || (key === 'x' && isReadOnlyDir(selectedRow.path))) {
+      return;
+    }
+    event.preventDefault();
+    const name = baseName(selectedRow.path);
+    explorerStore
+      .getState()
+      .put(
+        { path: selectedRow.path, name, isDir: selectedRow.isDir },
+        key === 'x' ? 'cut' : 'copy',
+      );
+    uiStore.getState().showNotice(`${key === 'x' ? 'Cut' : 'Copied'} "${name}".`);
+  }
+
+  /**
    * Refresh button: re-fetch every workspace root and expanded subfolder from
    * its backend, then re-list. Synced (Drive) dirs otherwise serve a stale
    * cached listing, so a note added on another device never shows up until this
@@ -394,6 +469,19 @@ export function FileExplorer() {
     return next;
   };
 
+  /** Clipboard-related row states, shared by file and folder rows: the row the
+   *  keyboard acts on, and a row waiting to be moved by a paste. */
+  const rowMarks = (path: string): string => {
+    let cls = '';
+    if (selectedRow && fileKey(selectedRow.path) === fileKey(path)) {
+      cls += ' is-row-selected';
+    }
+    if (clipboard?.mode === 'cut' && fileKey(clipboard.path) === fileKey(path)) {
+      cls += ' is-cut';
+    }
+    return cls;
+  };
+
   const rowClass = (base: string, dir: string): string => {
     let cls = base;
     if (dir === pasteDir) {
@@ -402,7 +490,7 @@ export function FileExplorer() {
     if (dir === dropTargetDir) {
       cls += ' is-drop-target';
     }
-    return cls;
+    return cls + rowMarks(dir);
   };
 
   /** Commit an inline rename (null = cancelled). No-op when nothing changed. */
@@ -532,10 +620,12 @@ export function FileExplorer() {
                 aria-expanded={expandedDirs.has(entry.path)}
                 onClick={() => {
                   setSelectedDir(entry.path);
+                  selectRow(entry.path, true);
                   setExpandedDirs((prev) => toggleSet(prev, entry.path));
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
+                  selectRow(entry.path, true);
                   if (!readOnly) {
                     setMenuFor(menuFor === entry.path ? null : entry.path);
                   }
@@ -576,7 +666,8 @@ export function FileExplorer() {
                 (openFileKeys.has(fileKey(entry.path)) ? ' is-open' : '') +
                 (fileKey(entry.path) === activeFileKey ? ' is-active' : '') +
                 (isImportablePath(entry.path) ? ' is-importable' : '') +
-                (entry.path === dropTargetDir ? ' is-drop-target' : '')
+                (entry.path === dropTargetDir ? ' is-drop-target' : '') +
+                rowMarks(entry.path)
               }
               style={indent}
               title={
@@ -601,16 +692,19 @@ export function FileExplorer() {
                   return;
                 }
                 setSelectedDir(dirPath);
+                selectRow(entry.path, false);
                 // Single-click opens (as a preview tab when that setting is on);
                 // a double-click below promotes it to a permanent tab.
                 openNotePath(entry.path);
               }}
               onDoubleClick={() => {
                 setSelectedDir(dirPath);
+                selectRow(entry.path, false);
                 openNotePathPinned(entry.path);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
+                selectRow(entry.path, false);
                 if (!readOnly) {
                   setMenuFor(menuFor === entry.path ? null : entry.path);
                 }
@@ -653,6 +747,7 @@ export function FileExplorer() {
         style={{ width: `${explorerWidth}px` }}
         aria-label="File explorer"
         onPaste={handlePaste}
+        onKeyDown={handleKeyDown}
       >
         <div className="file-explorer-header">
           {/* Android has no persistent ribbon in reach of the thumb, so give the
@@ -832,6 +927,9 @@ export function FileExplorer() {
                       // Right-click (the native Windows gesture) opens the
                       // context menu instead of the webview's own.
                       e.preventDefault();
+                      // A plain header click only collapses/expands, so the
+                      // right-click is what points the keyboard at the root.
+                      selectRow(ws.path, true);
                       setMenuFor(menuFor === ws.path ? null : ws.path);
                     }}
                   >

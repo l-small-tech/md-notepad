@@ -60,7 +60,7 @@ remembered. Press Esc or click outside the panel to close it.
 
 - **Default mode (new tabs)** — which of the four viewing modes
   ([explained here](editing-modes.md)) a new tab starts in: Raw, Split,
-  Rich, or Review.
+  Edit, or Review.
 - **Live save** — when on, files you've opened save themselves as you type,
   just like notes do. When off (the default), files wait for Ctrl+S. You can
   also flip it without opening Settings: press and hold the toolbar's save

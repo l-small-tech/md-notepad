@@ -44,7 +44,7 @@ Tab leaves it where it is.
 | --- | --- |
 | Ctrl+1 | Raw — plain markdown text |
 | Ctrl+2 | Split — text and preview side by side |
-| Ctrl+3 | Rich — word-processor style |
+| Ctrl+3 | Edit — word-processor style |
 | Ctrl+4 | Review — read-only, full-width |
 
 ## Display

@@ -56,7 +56,7 @@ describe('buildCommands', () => {
       'export',
       'mode-raw',
       'mode-split',
-      'mode-rich',
+      'mode-edit',
       'mode-read',
       'font-increase',
       'font-decrease',

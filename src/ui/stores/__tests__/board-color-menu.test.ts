@@ -44,11 +44,11 @@ describe('image refresh registry', () => {
     const a = vi.fn();
     const b = vi.fn();
     registerImageRefresher('t1:preview', a);
-    registerImageRefresher('t1:rich', b);
+    registerImageRefresher('t1:edit', b);
     refreshImagesEverywhere(['C:/a.svg']);
     expect(a).toHaveBeenCalledWith(['C:/a.svg']);
     expect(b).toHaveBeenCalledWith(['C:/a.svg']);
-    unregisterImageRefresher('t1:rich');
+    unregisterImageRefresher('t1:edit');
     refreshImagesEverywhere(['C:/b.svg']);
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(1);

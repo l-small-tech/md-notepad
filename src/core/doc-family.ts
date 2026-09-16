@@ -22,11 +22,17 @@ import type { EditorMode, TabKind } from './types';
 
 export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal';
 
+/**
+ * Order matters: this is the order the mode segments are drawn in. Every
+ * family leads with `raw`, so the source view sits in the same place on every
+ * kind of tab. It is NOT the default-mode order — that lives in
+ * `FAMILY_DEFAULTS` below.
+ */
 const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
-const SVG_MODES: readonly EditorMode[] = ['draw', 'raw'];
+const SVG_MODES: readonly EditorMode[] = ['raw', 'draw'];
 /**
  * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
- * unsupported files. It is not markdown, so rendering it (Rich, split preview)
+ * unsupported files. It is not markdown, so rendering it (Edit, split preview)
  * would mangle it: the source editor applies, plus `read`, which for this
  * family is *Review* — the structural, read-only view of a code file
  * (`preview/code-review.ts`; review_plan.md §1). The mode VALUE stays `read`
@@ -90,7 +96,7 @@ export function isModeAllowed(family: DocFamily, mode: EditorMode): boolean {
 const MODE_LABELS: Record<EditorMode, string> = {
   raw: 'Raw',
   split: 'Split',
-  wysiwyg: 'Rich',
+  wysiwyg: 'Edit',
   read: 'Review',
   draw: 'Draw',
   term: 'Terminal',
@@ -107,12 +113,24 @@ export function modeLabel(mode: EditorMode, _family: DocFamily): string {
 }
 
 /**
+ * The mode a family falls back to. Kept separate from the segment order in
+ * the tables above, because for SVG the two disagree: Raw is drawn first (so
+ * it lines up with every other family's first segment) but opening a drawing
+ * should land you in Draw.
+ */
+const FAMILY_DEFAULTS: Record<DocFamily, EditorMode> = {
+  markdown: 'raw',
+  svg: 'draw',
+  code: 'raw',
+  terminal: 'term',
+};
+
+/**
  * `preferred` if this family supports it, else the family's natural default
  * (Draw for a whiteboard, the caller's markdown mode otherwise). This is the
  * self-heal for a manifest — or a `lastFileMode` — carrying a mode from the
  * other family.
  */
 export function defaultModeFor(family: DocFamily, preferred: EditorMode): EditorMode {
-  const allowed = allowedModesFor(family);
-  return allowed.includes(preferred) ? preferred : allowed[0]!;
+  return allowedModesFor(family).includes(preferred) ? preferred : FAMILY_DEFAULTS[family];
 }

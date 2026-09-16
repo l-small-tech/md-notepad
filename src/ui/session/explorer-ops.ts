@@ -1,15 +1,22 @@
 /**
- * Explorer operations — the FileExplorer's context-menu and drag-drop disk
- * surgery: new file/folder, rename (routed through the owning tab when one
- * exists), move (with tab retargeting and the comments sidecar following), and
+ * Explorer operations — the FileExplorer's context-menu, clipboard and
+ * drag-drop disk surgery: new file/folder, rename (routed through the owning
+ * tab when one exists), move (with tab retargeting and the comments sidecar
+ * following), cut/copy paste (`pasteEntry`, files and whole folders) and
  * delete (owning tab closed first so it can't write the bytes back).
  */
 
 import { baseName, dirName, extName, joinPath } from '../../core/session/plan-flush';
 import { commentsPathFor, isCommentsPath } from '../../core/comments';
+import {
+  checkPaste,
+  duplicateName,
+  type ExplorerClipboardEntry,
+} from '../../core/explorer-clipboard';
 import { withErrorDetail } from '../../core/error-text';
 import { blankWhiteboardSource } from '../../core/whiteboard/serialize';
 import { dropTrailingExtension, sanitizeFileBaseName } from '../../core/title';
+import { explorerStore } from '../stores/explorer';
 import { settingsStore } from '../stores/settings';
 import { tabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
@@ -245,31 +252,42 @@ export function createExplorerOps(
       await moveCommentsSidecar(path, newPath);
     }
     if (isDir) {
-      // Retarget open tabs whose files lived under the renamed folder. Key
-      // comparison for the prefix match, raw-path surgery for the new value
-      // (pathKey preserves length, so slicing by `path.length` is safe).
-      const oldPrefix = `${pathKey(path)}/`;
-      const renamedNotePaths: Record<string, string> = {};
-      for (const t of tabsStore.getState().tabs) {
-        if (t.filePath && pathKey(t.filePath).startsWith(oldPrefix)) {
-          tabsStore.getState().retargetFilePath(t.id, {
-            filePath: newPath + t.filePath.slice(path.length),
-            mtimeMs: t.savedMtimeMs ?? ctx.now(),
-          });
-        } else if (t.notePath && pathKey(t.notePath).startsWith(oldPrefix)) {
-          renamedNotePaths[t.notePath] = newPath + t.notePath.slice(path.length);
-        }
-      }
-      if (Object.keys(renamedNotePaths).length > 0) {
-        tabsStore.getState().applyFlushResult({
-          assignedNotePaths: {},
-          renamedPaths: renamedNotePaths,
-          consumedClosedNotePaths: [],
-          consumedObsoleteBufferTabIds: [],
-        });
-      }
+      retargetTabsUnder(path, newPath);
     }
     uiStore.getState().refreshExplorer();
+  }
+
+  /**
+   * Point every open tab whose file lived under the folder `oldPath` at its new
+   * home under `newPath` — what a folder rename and a folder move both owe the
+   * flusher and restore. Key comparison for the prefix match, raw-path surgery
+   * for the new value (pathKey preserves length, so slicing by `oldPath.length`
+   * is safe). A note tab can only be caught by the note branch if the notes dir
+   * ITSELF moved (note files live directly in it), which the explorer doesn't
+   * offer — it is kept for the same reason renameEntry had it: correctness if
+   * that ever becomes possible.
+   */
+  function retargetTabsUnder(oldPath: string, newPath: string): void {
+    const oldPrefix = `${pathKey(oldPath)}/`;
+    const renamedNotePaths: Record<string, string> = {};
+    for (const t of tabsStore.getState().tabs) {
+      if (t.filePath && pathKey(t.filePath).startsWith(oldPrefix)) {
+        tabsStore.getState().retargetFilePath(t.id, {
+          filePath: newPath + t.filePath.slice(oldPath.length),
+          mtimeMs: t.savedMtimeMs ?? ctx.now(),
+        });
+      } else if (t.notePath && pathKey(t.notePath).startsWith(oldPrefix)) {
+        renamedNotePaths[t.notePath] = newPath + t.notePath.slice(oldPath.length);
+      }
+    }
+    if (Object.keys(renamedNotePaths).length > 0) {
+      tabsStore.getState().applyFlushResult({
+        assignedNotePaths: {},
+        renamedPaths: renamedNotePaths,
+        consumedClosedNotePaths: [],
+        consumedObsoleteBufferTabIds: [],
+      });
+    }
   }
 
   /**
@@ -292,9 +310,13 @@ export function createExplorerOps(
    *   next title change drag the file back there, and closing the tab would
    *   delete it out of its new workspace.
    */
-  async function moveEntry(sourcePath: string, destDir: string): Promise<void> {
+  async function moveEntry(
+    sourcePath: string,
+    destDir: string,
+    opts: { confirm?: boolean } = {},
+  ): Promise<boolean> {
     if (ctx.refuseReadOnly(sourcePath) || ctx.refuseReadOnly(destDir)) {
-      return;
+      return false;
     }
     // A note tab's file is written LAZILY (and renamed to follow the title) by
     // the flusher: drain it first, so the bytes being moved are current and no
@@ -310,28 +332,30 @@ export function createExplorerOps(
       }
     }
     if (pathKey(dirName(source)) === pathKey(destDir)) {
-      return; // already in this folder
+      return false; // already in this folder
     }
     const newPath = joinPath(destDir, baseName(source));
     if (pathKey(newPath) === pathKey(source)) {
-      return;
+      return false;
     }
     try {
       if ((await ctx.ipc.statPath(newPath)).exists) {
         uiStore.getState().showNotice(`"${baseName(newPath)}" already exists in that folder.`);
-        return;
+        return false;
       }
     } catch {
       // A transient stat failure must not block the move; renamePath surfaces
       // any real problem below.
     }
-    if (settingsStore.getState().settings.confirmFileMove) {
+    // A cut+paste passes `confirm: false`: choosing "Cut" and then "Paste" IS
+    // the confirmation, so the drag-drop prompt would only be in the way.
+    if ((opts.confirm ?? true) && settingsStore.getState().settings.confirmFileMove) {
       const ok = await ctx.confirm(
         `Move "${baseName(source)}" to "${baseName(destDir)}"?`,
         'Move file',
       );
       if (!ok) {
-        return;
+        return false;
       }
     }
     const owner = ctx.tabOwning(pathKey(source));
@@ -340,7 +364,7 @@ export function createExplorerOps(
     } catch (error) {
       uiStore.getState().showNotice(withErrorDetail(`Could not move "${baseName(source)}"`, error));
       ctx.deps.onError?.(error);
-      return;
+      return false;
     }
     await moveCommentsSidecar(source, newPath);
     if (owner && (owner.kind === 'file' || owner.kind === 'image' || owner.kind === 'import')) {
@@ -363,6 +387,155 @@ export function createExplorerOps(
       }
     }
     uiStore.getState().refreshExplorer();
+    return true;
+  }
+
+  /**
+   * Move a whole FOLDER into `destDir` — the cut+paste counterpart of
+   * {@link moveEntry}. Never confirms (the cut did), refuses a collision, and
+   * retargets every open tab whose file lived under it. Note tabs are drained
+   * first for the same reason a file move drains them: the flusher writes
+   * lazily, and a file that appears mid-move would be left behind.
+   */
+  async function moveFolder(source: string, destDir: string): Promise<boolean> {
+    if (ctx.refuseReadOnly(source) || ctx.refuseReadOnly(destDir)) {
+      return false;
+    }
+    const newPath = joinPath(destDir, baseName(source));
+    if (pathKey(newPath) === pathKey(source)) {
+      return false;
+    }
+    try {
+      if ((await ctx.ipc.statPath(newPath)).exists) {
+        uiStore.getState().showNotice(`"${baseName(newPath)}" already exists in that folder.`);
+        return false;
+      }
+    } catch {
+      // A transient stat failure must not block the move; renamePath surfaces
+      // any real problem below.
+    }
+    await ctx.flusher.flushNow();
+    try {
+      await ctx.ipc.renamePath(source, newPath);
+    } catch (error) {
+      uiStore.getState().showNotice(withErrorDetail(`Could not move "${baseName(source)}"`, error));
+      ctx.deps.onError?.(error);
+      return false;
+    }
+    retargetTabsUnder(source, newPath);
+    // The selection (and so the paste destination, and a new terminal's cwd)
+    // may have pointed inside the folder that just moved.
+    uiStore.getState().dropSelectedExplorerDirUnder(source);
+    uiStore.getState().refreshExplorer();
+    return true;
+  }
+
+  /** First free name for a copy of `name` in `dir`: the name itself, then
+   *  "x copy", "x copy 2", … (core/explorer-clipboard's duplicateName). */
+  async function uniqueCopyPathIn(dir: string, name: string, isDir: boolean): Promise<string> {
+    for (let attempt = 0; ; attempt++) {
+      const candidate = joinPath(dir, duplicateName(name, isDir, attempt));
+      try {
+        if (!(await ctx.ipc.statPath(candidate)).exists) {
+          return candidate;
+        }
+      } catch {
+        // Can't stat → let copyPath itself report the real problem.
+        return candidate;
+      }
+    }
+  }
+
+  /**
+   * Copy an entry into `destDir` under a free name. Files copy their voice-note
+   * sidecar too (best effort, like a move); folders copy recursively, which
+   * `copy_path` does on the Rust side — a synced (SAF) tree has no recursive
+   * copy, so a folder there is refused rather than half-copied.
+   */
+  async function copyInto(
+    entry: { path: string; name: string; isDir: boolean },
+    destDir: string,
+  ): Promise<boolean> {
+    if (ctx.refuseReadOnly(destDir)) {
+      return false;
+    }
+    if (entry.isDir && (entry.path.startsWith('saf://') || destDir.startsWith('saf://'))) {
+      uiStore.getState().showNotice('Folders can’t be copied in a synced workspace.');
+      return false;
+    }
+    const target = await uniqueCopyPathIn(destDir, entry.name, entry.isDir);
+    try {
+      await ctx.ipc.copyPath(entry.path, target);
+    } catch (error) {
+      uiStore.getState().showNotice(withErrorDetail(`Could not copy "${entry.name}"`, error));
+      ctx.deps.onError?.(error);
+      return false;
+    }
+    if (!entry.isDir) {
+      await copyCommentsSidecar(entry.path, target);
+    }
+    uiStore.getState().showNotice(`Pasted "${baseName(target)}".`);
+    uiStore.getState().refreshExplorer();
+    return true;
+  }
+
+  /** Best-effort twin of {@link moveCommentsSidecar} for a copied note: the
+   *  duplicate keeps the original's voice notes. Any failure is swallowed —
+   *  the copy itself already succeeded. */
+  async function copyCommentsSidecar(oldNotePath: string, newNotePath: string): Promise<void> {
+    if (isCommentsPath(oldNotePath) || extName(oldNotePath).toLowerCase() !== '.md') {
+      return;
+    }
+    const from = sidecarFor(oldNotePath);
+    const to = sidecarFor(newNotePath);
+    if (from === to) {
+      return;
+    }
+    try {
+      if ((await ctx.ipc.statPath(from)).exists) {
+        await ctx.ipc.copyPath(from, to);
+      }
+    } catch {
+      // Best effort — see the doc comment.
+    }
+  }
+
+  /**
+   * Explorer clipboard "Paste": drop the cut/copied entry into `destDir`. A cut
+   * moves (and empties the clipboard, so a second paste can't move it twice); a
+   * copy duplicates and KEEPS the clipboard, so the same thing can be pasted
+   * into several folders — VSCode's behaviour in both cases. Pasting a folder
+   * into itself, and a cut back into its own folder, are refused up front
+   * (`checkPaste`); a vanished source says so rather than failing obscurely.
+   */
+  async function pasteEntry(entry: ExplorerClipboardEntry, destDir: string): Promise<void> {
+    switch (checkPaste(entry, destDir)) {
+      case 'noop':
+        return;
+      case 'into-self':
+        uiStore.getState().showNotice('A folder can’t be pasted into itself.');
+        return;
+    }
+    try {
+      if (!(await ctx.ipc.statPath(entry.path)).exists) {
+        uiStore.getState().showNotice(`"${entry.name}" is no longer there.`);
+        explorerStore.getState().clearClipboard();
+        return;
+      }
+    } catch {
+      // Can't stat → let the copy/move below report the real problem.
+    }
+    if (entry.mode === 'copy') {
+      await copyInto(entry, destDir);
+      return;
+    }
+    const moved = entry.isDir
+      ? await moveFolder(entry.path, destDir)
+      : await moveEntry(entry.path, destDir, { confirm: false });
+    if (moved) {
+      uiStore.getState().showNotice(`Moved "${entry.name}" here.`);
+      explorerStore.getState().clearClipboard();
+    }
   }
 
   /**
@@ -395,6 +568,7 @@ export function createExplorerOps(
       return;
     }
     uiStore.getState().showNotice(`Deleted "${baseName(path)}".`);
+    explorerStore.getState().dropUnder(path);
     uiStore.getState().refreshExplorer();
   }
 
@@ -433,6 +607,7 @@ export function createExplorerOps(
     }
     uiStore.getState().showNotice(`Deleted "${baseName(path)}".`);
     uiStore.getState().dropSelectedExplorerDirUnder(path);
+    explorerStore.getState().dropUnder(path);
     uiStore.getState().refreshExplorer();
   }
 
@@ -444,6 +619,7 @@ export function createExplorerOps(
     createNewFolder,
     renameEntry,
     moveEntry,
+    pasteEntry,
     deleteEntry,
     deleteFolder,
   };

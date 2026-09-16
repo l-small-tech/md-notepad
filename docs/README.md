@@ -19,7 +19,7 @@ Read these in order the first time, or jump straight to what you need:
 2. **[Notes, tabs, and saving](notes-tabs-and-saving.md)** — how notes work,
    what's saved automatically, and how to work with regular files.
 3. **[The four viewing modes](editing-modes.md)** — plain text, side-by-side
-   preview, rich editing, and a distraction-free reading view.
+   preview, Edit-mode editing, and a distraction-free reading view.
 4. **[Writing markdown](writing-markdown.md)** — a gentle introduction to
    markdown, with every formatting trick the app supports.
 5. **[Workspaces and the file browser](workspaces-and-files.md)** — organizing

@@ -9,7 +9,7 @@
  * preview, without touching the tabs store on every keystroke. The click's
  * HOW is the pure `planOutlineJump` (ui/outline-jump.ts): source line for
  * raw/split, rendered-heading index for read (via the preview-nav registered
- * reveal) and rich mode (via the adapter's optional revealHeading).
+ * reveal) and Edit mode (via the adapter's optional revealHeading).
  *
  * Image/import tabs have no markdown model — the panel shows the empty state.
  */

@@ -6,10 +6,10 @@
  * everything from `--crepe-*` custom properties. Rather than ship one of its
  * bundled color themes, we map those properties onto OUR variables (base.css).
  * Because `--bg`/`--fg`/`--accent`/… already flip with `data-theme` on <html>,
- * a light⇄dark toggle restyles the rich editor for free — same trick as CM6's
+ * a light⇄dark toggle restyles the Edit-mode editor for free — same trick as CM6's
  * CSS-variable-driven theme (no per-theme import, no reconfiguration).
  *
- * Content stays monospace even in rich mode — that's the product's look
+ * Content stays monospace even in Edit mode — that's the product's look
  * (src/editors/README.md).
  */
 
@@ -70,7 +70,7 @@
 }
 
 /* ---- Content parity with Review mode --------------------------------------
- * Read and Rich render the same document, so they should read the same.
+ * Read and Edit render the same document, so they should read the same.
  * Crepe ships its own content typography (fixed 16px text, 42px
  * regular-weight headings, red inline code, grey pill blockquotes); the
  * rules below restate the Review-mode look. Crepe's reset also zeroes every

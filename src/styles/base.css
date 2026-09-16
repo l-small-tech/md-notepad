@@ -31,7 +31,7 @@
      a green-charcoal ink softer than the plugin's pure black for everyday use. */
   --bg: #eaf1e4; /* app chrome: pale green-grey */
   /* A brighter surface, a hair off the chrome (--bg), used by the diff view,
-     the terminal, and the whiteboard. The text views (Rich/Raw/Read/Split)
+     the terminal, and the whiteboard. The text views (Edit/Raw/Read/Split)
      paint on --bg itself so every mode shares one paper colour. */
   --editor-bg: #fbfdf8; /* near-white, faint green warmth */
   --bg-alt: #e0ebd8;

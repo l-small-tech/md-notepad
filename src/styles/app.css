@@ -1360,6 +1360,10 @@ body.tab-drag-live * {
   flex-direction: column;
   min-width: 140px;
   padding: 4px;
+  /* Placement is measured in ContextMenu.tsx (core/menu-position) and applied
+     inline as fixed top/left/max-height; a menu too tall for either side of
+     its row scrolls here rather than running off the bottom of the window. */
+  overflow-y: auto;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1614,6 +1618,23 @@ body.explorer-dragging * {
   color: var(--fg-muted);
 }
 
+/* The row the explorer keyboard acts on (Ctrl+X / Ctrl+C / Ctrl+V). A ring,
+   not a wash: the selected DIRECTORY (the paste destination) already owns the
+   background, and a file row can be open/active at the same time. */
+.workspace-toggle.is-row-selected,
+.file-explorer-dir.is-row-selected,
+.file-explorer-item.is-row-selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Cut and waiting for a paste — nothing has moved yet, so the row stays in
+   place and dims, the way a file manager shows a pending move. */
+.workspace-toggle.is-cut,
+.file-explorer-dir.is-cut,
+.file-explorer-item.is-cut {
+  opacity: 0.5;
+}
+
 /* Live OS-drag hover target — must read at a glance mid-drag. On an md file
    row it signals "drop an image to embed it at the end of this file". */
 .workspace-toggle.is-drop-target,
@@ -1790,7 +1811,7 @@ body.explorer-dragging * {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  /* The writing surface. Every text view — Rich, Raw, Read, Split — paints
+  /* The writing surface. Every text view — Edit, Raw, Read, Split — paints
      on the chrome colour (--bg) so switching modes never changes the paper;
      --editor-bg is reserved for the diff view, terminal, and whiteboard. */
   background: var(--bg);

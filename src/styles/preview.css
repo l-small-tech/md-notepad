@@ -18,7 +18,7 @@
 /* ---- Reader mode: full-width, read-only reading view -------------------- */
 
 /* The centered reading column, shared by Review mode (.reader-preview) and the
-   Rich editor (wysiwyg.css) so both render the document in the same column.
+   Edit-mode editor (wysiwyg.css) so both render the document in the same column.
    Side gutters grow with the window so lines never sprawl edge-to-edge; each
    "Review mode margins" mode (mirrored onto <html data-reader-margins> by
    main.tsx) caps the text column (ch) and the gutters (rem). The % and ch

@@ -18,7 +18,9 @@ import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
 import { docFamilyFor } from '../../core/doc-family';
 import { localImageToInline } from '../../core/images';
+import { headingIndexForLine, lineForHeadingIndex, scrollSurfaceFor } from '../../core/mode-scroll';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
+import { extractOutline } from '../../core/outline';
 import { dirName } from '../../core/session/plan-flush';
 import type { EditorMode } from '../../core/types';
 import { svgImageSources } from '../../core/whiteboard/color-mode';
@@ -30,9 +32,17 @@ import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-re
 import { attachPreviewPane } from '../../preview/pane';
 import { createReviewGit } from '../code-review-git';
 import {
-  registerRichAdapter,
+  clearScrollAnchor,
+  peekScrollAnchor,
+  registerScrollAnchor,
+  scrollSurfaceToLine,
+  takeScrollAnchor,
+  unregisterScrollAnchor,
+} from '../mode-scroll';
+import {
+  registerEditAdapter,
   registerSourceAdapter,
-  unregisterRichAdapter,
+  unregisterEditAdapter,
   unregisterSourceAdapter,
 } from '../editor-registry';
 import {
@@ -159,7 +169,7 @@ function clampSplitRatio(ratio: number): number {
 
 /**
  * A board image in this tab's document was right-clicked (preview pane or
- * rich editor): open the colour-mode menu, handing it every board the
+ * Edit-mode editor): open the colour-mode menu, handing it every board the
  * document references so "all boards in this document" can act on them.
  */
 function openBoardColorMenu(
@@ -189,8 +199,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   // changes (word wrap) can reconfigure it without re-mounting (I7). Font size
   // needs no hook here — it rides the `--editor-font-size` CSS variable.
   const sourceAdapterRef = useRef<Cm6Adapter | null>(null);
-  /** The rich adapter once created (lazy chunk) — for theme-driven image refreshes. */
-  const richAdapterRef = useRef<MilkdownAdapter | null>(null);
+  /** The Edit adapter once created (lazy chunk) — for theme-driven image refreshes. */
+  const editAdapterRef = useRef<MilkdownAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
   // The inline review-note composer renders into this element; the Review
   // pane places it under the held line (`mountComposer`) — a portal, so the
@@ -242,7 +252,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
 
     // Only the adapters this document family can actually use are supplied. An
     // .svg tab gets Draw (+ Raw, which is a free SVG source editor); a markdown
-    // tab gets Rich. Anything else is a mode the status bar never offers.
+    // tab gets Edit. Anything else is a mode the status bar never offers.
     const family = docFamilyFor(tab.filePath ?? tab.notePath);
     const familyAdapters: Partial<Record<AdapterKind, AdapterFactory>> =
       family === 'svg'
@@ -309,7 +319,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           }
         : {
             // Lazy import keeps @milkdown/crepe out of the entry chunk (I8); the
-            // module loads on the first switch to rich mode, never at startup.
+            // module loads on the first switch to Edit mode, never at startup.
             wysiwyg: async () => {
               const { createMilkdownAdapter } = await import('../../editors/milkdown');
               const adapter = createMilkdownAdapter({
@@ -323,9 +333,29 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               });
               // The colour-mode toggle rewrites board files; the live image
               // nodes reload theirs. Unregistered with the mode-sync below.
-              registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
-              richAdapterRef.current = adapter;
-              registerRichAdapter(tabId, adapter);
+              registerImageRefresher(`${tabId}:edit`, (paths) => adapter.refreshImages(paths));
+              editAdapterRef.current = adapter;
+              registerEditAdapter(tabId, adapter);
+              // Scroll anchor: the Edit editor has no source lines, so it
+              // trades in headings and this port does the translation
+              // (core/mode-scroll).
+              registerScrollAnchor(tabId, 'edit', {
+                getTopLine: () => {
+                  const index = adapter.getTopHeadingIndex();
+                  if (index === null) {
+                    return null;
+                  }
+                  return index < 0
+                    ? 1
+                    : lineForHeadingIndex(extractOutline(tab.model.getText()), index);
+                },
+                scrollToLine: (line) => {
+                  const index = headingIndexForLine(extractOutline(tab.model.getText()), line);
+                  if (index >= 0) {
+                    adapter.revealHeading?.(index, 'start');
+                  }
+                },
+              });
               return adapter;
             },
           };
@@ -362,6 +392,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           });
           sourceAdapterRef.current = adapter;
           registerSourceAdapter(tabId, adapter);
+          registerScrollAnchor(tabId, 'source', {
+            getTopLine: () => adapter.getTopLine(),
+            scrollToLine: (line) => adapter.scrollToLine(line),
+          });
           return adapter;
         },
       },
@@ -399,24 +433,27 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         lastLineNumbers = s.settings.lineNumbers;
         sourceAdapterRef.current?.setLineNumbers(lastLineNumbers);
       }
-      // Rich-mode boards bake the theme palette into their data URLs (like
+      // Edit-mode boards bake the theme palette into their data URLs (like
       // the preview pane) — a palette change must re-bake them.
       if (s.settings.colorScheme !== lastScheme) {
         lastScheme = s.settings.colorScheme;
-        richAdapterRef.current?.refreshTheme();
+        editAdapterRef.current?.refreshTheme();
       }
     });
     let lastScheme = settingsStore.getState().settings.colorScheme;
-    const unsubscribeRichDark = subscribeDark(() => richAdapterRef.current?.refreshTheme());
+    const unsubscribeEditDark = subscribeDark(() => editAdapterRef.current?.refreshTheme());
 
     return () => {
       unsubscribeSettings();
-      unsubscribeRichDark();
-      richAdapterRef.current = null;
+      unsubscribeEditDark();
+      editAdapterRef.current = null;
       unregisterSourceAdapter(tabId);
-      unregisterRichAdapter(tabId);
+      unregisterEditAdapter(tabId);
+      unregisterScrollAnchor(tabId, 'source');
+      unregisterScrollAnchor(tabId, 'edit');
+      clearScrollAnchor(tabId);
       unregisterWhiteboardAdapter(tabId);
-      unregisterImageRefresher(`${tabId}:rich`);
+      unregisterImageRefresher(`${tabId}:edit`);
       void sync.dispose();
     };
     // tab.id only — see I7. Adding reactive deps would re-mount the editor.
@@ -527,10 +564,21 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         }
       });
       reviewGit.refresh(true);
+      registerScrollAnchor(tabId, 'rendered', {
+        getTopLine: () => pane.getTopLine(),
+        scrollToLine: (line) => pane.scrollToLine(line),
+      });
+      // Arriving from Raw: land on the card covering the line that was on
+      // screen (the pane parks it until its first parse renders).
+      const anchor = takeScrollAnchor(tabId);
+      if (anchor !== null) {
+        pane.scrollToLine(anchor);
+      }
       if (wasActive) {
         host.focus();
       }
       return () => {
+        unregisterScrollAnchor(tabId, 'rendered');
         unsubscribeReview();
         unsubscribeReviewVoice();
         dropMarks(tabId);
@@ -600,12 +648,24 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       const t = tabsStore.getState().tabs.find((t) => t.id === tabId);
       pane.setDocPath(t ? (t.filePath ?? t.notePath) : null);
     });
+    registerScrollAnchor(tabId, 'rendered', {
+      getTopLine: () => pane.getTopLine(),
+      scrollToLine: (line) => pane.scrollToLine(line),
+    });
+    // Keep the reader's place across the switch. In Review the pane OWNS the
+    // scroll position, so it consumes the anchor; in split the source editor
+    // owns it and the preview column just rides along (peek, don't consume).
+    const anchor = mode === 'read' ? takeScrollAnchor(tabId) : peekScrollAnchor(tabId);
+    if (anchor !== null) {
+      pane.scrollToLine(anchor);
+    }
     // Review mode: move focus onto the scrollable reading pane so keyboard
     // scrolling works and the hidden source editor can never take a keystroke.
     if (mode === 'read' && tabsStore.getState().activeTabId === tabId) {
       host.focus();
     }
     return () => {
+      unregisterScrollAnchor(tabId, 'rendered');
       unsubscribeVoice();
       dropMarks(tabId);
       unsubscribeDark();
@@ -621,6 +681,35 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
       }
     };
   }, [tabId, mode, composerSlot]);
+
+  // The other half of the mode-switch scroll anchor: the surfaces that are
+  // NOT created by the effect above. The preview pane consumes the anchor
+  // itself (it is built fresh and must park the line until it renders); the
+  // source editor and the rich editor are already attached — or are being
+  // re-attached by mode-sync — so this waits for the transition to settle and
+  // for the browser to lay the (until now `display: none`) pane out.
+  useEffect(() => {
+    const surface = scrollSurfaceFor(mode);
+    if (surface === null || surface === 'rendered') {
+      return;
+    }
+    const line = takeScrollAnchor(tabId);
+    if (line === null) {
+      return;
+    }
+    let cancelled = false;
+    const sync = tabsStore.getState().tabs.find((t) => t.id === tabId)?.modeSync;
+    void Promise.resolve(sync?.whenIdle()).then(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          scrollSurfaceToLine(tabId, surface, line);
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tabId, mode]);
 
   return (
     <div

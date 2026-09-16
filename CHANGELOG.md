@@ -10,7 +10,30 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
-## [0.8.0] — 2026-09-11
+## [0.8.1] — 2026-09-15
+
+- **Switching modes keeps your place in the file.** Flipping between Raw,
+  Split, Review and Edit now lands you where you were reading instead of
+  jumping back to the top — it carries the line at the top of the screen
+  across. For a code file in Review it lands on the card for that line.
+
+- **"Rich" mode is now called "Edit".** The word-processor view for markdown
+  files keeps the same Ctrl+3 shortcut and behaviour — only the name in the
+  status bar, the command palette and Settings changes.
+
+- **Cut, copy and paste files and folders in the workspaces pane.** Right-click
+  any row for Cut / Copy, then Paste into a folder or workspace header — or use
+  Ctrl+X, Ctrl+C and Ctrl+V on the selected row, as in VS Code and File
+  Explorer. A cut row dims until you paste it; a copy lands as "name copy" when
+  something with that name is already there, and can be pasted into as many
+  folders as you like. Whole folders come along with everything inside them.
+
+- **Copy a folder's path.** "Copy path" is now on folder and workspace
+  right-click menus too, not just files.
+
+- **Right-click menus near the bottom of the workspace pane stay whole.** A
+  menu that would run off the bottom of the window now opens upwards (and
+  scrolls if it is taller than the window) instead of being cut off.
 
 - **Review notes live in the document.** The Review-mode button is now
   "Review notes" (they are typed on desktop and spoken on the phone). Press

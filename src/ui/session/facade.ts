@@ -13,6 +13,7 @@ import type { DocSource } from '../../core/export/doc-source';
 import { dirName } from '../../core/session/plan-flush';
 import type { PersistedTab } from '../../core/session/plan-flush';
 import { appendMentions } from '../../core/link-mentions';
+import type { ExplorerClipboardEntry } from '../../core/explorer-clipboard';
 import type { CursorPos, WorkspaceColor } from '../../core/types';
 import { getSourceAdapter } from '../editor-registry';
 import { settingsStore } from '../stores/settings';
@@ -375,7 +376,11 @@ let renameEntryDispatch: (
   newName: string,
   isDir: boolean,
 ) => Promise<void> = async () => {};
-let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<void> = async () => {};
+let moveEntryDispatch: (sourcePath: string, destDir: string) => Promise<unknown> = async () => {};
+let pasteEntryDispatch: (
+  entry: ExplorerClipboardEntry,
+  destDir: string,
+) => Promise<void> = async () => {};
 let deleteEntryDispatch: (path: string) => Promise<void> = async () => {};
 let deleteFolderDispatch: (path: string) => Promise<void> = async () => {};
 let refreshWorkspacesDispatch: (dirs: string[]) => Promise<void> = async () => {};
@@ -443,9 +448,14 @@ export function setRenameEntryDispatch(
   renameEntryDispatch = fn;
 }
 export function setMoveEntryDispatch(
-  fn: (sourcePath: string, destDir: string) => Promise<void>,
+  fn: (sourcePath: string, destDir: string) => Promise<unknown>,
 ): void {
   moveEntryDispatch = fn;
+}
+export function setPasteEntryDispatch(
+  fn: (entry: ExplorerClipboardEntry, destDir: string) => Promise<void>,
+): void {
+  pasteEntryDispatch = fn;
 }
 export function setDeleteEntryDispatch(fn: (path: string) => Promise<void>): void {
   deleteEntryDispatch = fn;
@@ -719,8 +729,19 @@ export function renameExplorerEntry(path: string, newName: string, isDir: boolea
  * confirming first (VSCode-style) unless the user has suppressed that prompt.
  * Open tabs owning the file are retargeted; collisions and no-ops are refused.
  */
-export function moveExplorerEntryInto(sourcePath: string, destDir: string): Promise<void> {
-  return moveEntryDispatch(sourcePath, destDir);
+export async function moveExplorerEntryInto(sourcePath: string, destDir: string): Promise<void> {
+  await moveEntryDispatch(sourcePath, destDir);
+}
+/**
+ * FileExplorer clipboard → controller: paste the cut/copied entry into
+ * `destDir`. A cut moves and empties the clipboard; a copy duplicates under a
+ * free "… copy" name and keeps it. Folders included.
+ */
+export function pasteExplorerEntryInto(
+  entry: ExplorerClipboardEntry,
+  destDir: string,
+): Promise<void> {
+  return pasteEntryDispatch(entry, destDir);
 }
 /**
  * FileExplorer context menu → controller: delete a file/image, confirming

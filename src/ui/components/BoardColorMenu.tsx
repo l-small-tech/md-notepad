@@ -1,6 +1,6 @@
 /**
  * BoardColorMenu — the right-click menu on a whiteboard image inside a
- * markdown document (preview pane in read/split, rich editor). Switches the
+ * markdown document (preview pane in read/split, Edit-mode editor). Switches the
  * clicked board between the app theme's colours and the colours it was drawn
  * or scanned with, and offers the same for every board the document
  * references. Each choice rewrites the `.svg` itself (the board's `colorMode`

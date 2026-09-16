@@ -11,6 +11,7 @@ import type { DocModel } from '../core/doc-model';
 import { isExternalHref } from '../core/external-links';
 import { imageMimeType, isImagePath, localImageToInline } from '../core/images';
 import { isLocalLinkTarget } from '../core/link-mentions';
+import { stampedLineFor } from '../core/mode-scroll';
 import { dirName, toAbsolutePath } from '../core/session/plan-flush';
 import { boardColorModeOf } from '../core/whiteboard/color-mode';
 import type { BoardColorMode } from '../core/whiteboard/scene';
@@ -38,6 +39,14 @@ import {
 import { createRenderSequence, renderMarkdownToHtml } from './pipeline';
 
 const RENDER_DEBOUNCE_MS = 200;
+/**
+ * How long a `scrollToLine` keeps re-pinning its block to the top. The first
+ * render lands text immediately but mermaid diagrams and inlined images
+ * arrive later and change every height below them, so the anchor is re-applied
+ * as each stage settles — until the window closes, or the reader scrolls and
+ * takes over.
+ */
+const SCROLL_SETTLE_MS = 1500;
 
 export interface PreviewPaneOptions {
   dark: boolean;
@@ -186,6 +195,19 @@ export interface PreviewPane {
    * are untouched). Before the first render lands, the reveal waits for it.
    */
   revealNotes(target: { line: number }): void;
+  /**
+   * The 1-based source line of the block at the top of the pane, for the
+   * mode-switch scroll anchor (`core/mode-scroll`). Null before the first
+   * render lands, while browsing a followed link (those lines are not the
+   * document's), and for a pane laid out at zero height.
+   */
+  getTopLine(): number | null;
+  /**
+   * Scroll the block owning that source line to the top. The anchor is held
+   * for a moment so late-arriving diagrams and images can't drift it away
+   * (`SCROLL_SETTLE_MS`), and is dropped the instant the reader scrolls.
+   */
+  scrollToLine(line: number): void;
   dispose(): void;
 }
 
@@ -334,9 +356,7 @@ export function attachPreviewPane(
 
   async function render(): Promise<void> {
     const token = sequence.start();
-    const html = await renderMarkdownToHtml(currentText(), {
-      sourceLines: options.onHoldLine !== undefined,
-    });
+    const html = await renderMarkdownToHtml(currentText(), { sourceLines: true });
     if (disposed || !sequence.isCurrent(token)) {
       return; // a newer render (text or theme change) already superseded this one
     }
@@ -345,8 +365,13 @@ export function attachPreviewPane(
     // toolbar in normal mode, the fullscreen cluster in full screen) — surfaced
     // via `onCanGoBackChange` — so nothing is injected into the content here.
     applyNotes();
+    // A mode-switch anchor is re-pinned as each stage settles: the text is
+    // laid out now, the diagrams and images move everything below them later.
+    applyPendingScroll();
     await renderMermaidBlocks(host, { dark });
+    applyPendingScroll();
     await inlineLocalImages(token);
+    applyPendingScroll();
   }
 
   /* ---- review-note markers ------------------------------------------- */
@@ -452,6 +477,61 @@ export function attachPreviewPane(
     flashBlock = owner;
     applyNotes();
     blockAt(owner)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  /* ---- mode-switch scroll anchor -------------------------------------- */
+
+  /** The line to pin to the top, and the moment that claim expires. */
+  let pendingScroll: number | null = null;
+  let pendingScrollUntil = 0;
+
+  /** The first block still showing at the pane's top edge — where the eye is. */
+  function topLine(): number | null {
+    if (navStack.length > 0) {
+      return null; // a followed link: its lines aren't the document's
+    }
+    const box = host.getBoundingClientRect();
+    if (box.height === 0) {
+      return null;
+    }
+    let first: number | null = null;
+    for (const el of host.querySelectorAll<HTMLElement>(':scope > [data-line]')) {
+      const line = Number(el.dataset.line);
+      if (first === null) {
+        first = line;
+      }
+      if (el.getBoundingClientRect().bottom > box.top + 1) {
+        return line;
+      }
+    }
+    return first; // scrolled past the end, or nothing rendered
+  }
+
+  function applyPendingScroll(): void {
+    if (pendingScroll === null) {
+      return;
+    }
+    if (Date.now() > pendingScrollUntil) {
+      pendingScroll = null;
+      return;
+    }
+    const target = stampedLineFor(blockLines(), pendingScroll);
+    const block = target === null ? null : blockAt(target);
+    if (!block) {
+      return; // nothing rendered yet — the render that lands blocks retries
+    }
+    // 'instant' beats 'auto', which would inherit `.reader-preview`'s smooth
+    // scrolling: restoring a position should not be a visible ride, and an
+    // animation would still be running when the next render stage lands.
+    host.scrollTo({
+      top: host.scrollTop + block.getBoundingClientRect().top - host.getBoundingClientRect().top,
+      behavior: 'instant',
+    });
+  }
+
+  /** The reader took over — stop re-pinning the anchor under them. */
+  function dropPendingScroll(): void {
+    pendingScroll = null;
   }
 
   /** A tap on a marker or one of its callout's buttons; true when it was one. */
@@ -716,6 +796,9 @@ export function attachPreviewPane(
   host.addEventListener('pointerup', clearHold);
   host.addEventListener('pointercancel', clearHold);
   host.addEventListener('pointerleave', clearHold);
+  host.addEventListener('wheel', dropPendingScroll, { passive: true });
+  host.addEventListener('touchmove', dropPendingScroll, { passive: true });
+  host.addEventListener('keydown', dropPendingScroll);
   const unsubscribe = model.subscribe(onModelChange);
   void render(); // first paint, no need to wait out the typing debounce
 
@@ -827,6 +910,17 @@ export function attachPreviewPane(
         revealNotes(target.line);
       }
     },
+    getTopLine() {
+      return disposed ? null : topLine();
+    },
+    scrollToLine(line) {
+      if (disposed || navStack.length > 0) {
+        return;
+      }
+      pendingScroll = line;
+      pendingScrollUntil = Date.now() + SCROLL_SETTLE_MS;
+      applyPendingScroll();
+    },
     dispose() {
       disposed = true;
       clearTimer();
@@ -842,6 +936,9 @@ export function attachPreviewPane(
       host.removeEventListener('pointerup', clearHold);
       host.removeEventListener('pointercancel', clearHold);
       host.removeEventListener('pointerleave', clearHold);
+      host.removeEventListener('wheel', dropPendingScroll);
+      host.removeEventListener('touchmove', dropPendingScroll);
+      host.removeEventListener('keydown', dropPendingScroll);
     },
   };
 }

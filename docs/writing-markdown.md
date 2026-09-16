@@ -2,7 +2,7 @@
 
 Markdown is plain text with a few extra symbols for formatting. You can
 read it as-is, and MD Notepad turns it into clean, styled text in Split,
-Rich, and Review modes.
+Edit, and Review modes.
 
 The easiest way to learn: put a tab in **Split mode** (Ctrl+2) and copy the
 examples below into it.
@@ -86,7 +86,7 @@ flowchart LR
 ````
 
 In Split and Review modes this appears as an actual diagram with boxes and
-arrows. (In Rich mode it stays as text — that's expected.) Mermaid can do
+arrows. (In Edit mode it stays as text — that's expected.) Mermaid can do
 much more — pie charts, timelines, sequence diagrams; searching the web for
 "mermaid diagrams" will find a full guide.
 
@@ -101,7 +101,7 @@ You don't have to remember any of this:
   an image. Links use the file's full (absolute) path, so AI tools and other
   apps can always find the file. (Hold Alt while clicking to use a relative
   path instead — useful if the note and the file move around together.)
-- In **Rich mode**, select text and a mini formatting toolbar appears right
+- In **Edit mode**, select text and a mini formatting toolbar appears right
   next to it.
 
 ## Copying your work elsewhere
