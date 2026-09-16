@@ -140,6 +140,13 @@ export interface MilkdownAdapter extends EditorAdapter {
   refreshTheme(): void;
   /** Voice typing: put a dictated phrase at the caret (`joinDictation` spacing). */
   insertText(text: string): void;
+  /**
+   * The heading whose section is at the top of the viewport, as an index into
+   * the document's headings (what `revealHeading` takes back). -1 = above the
+   * first heading; null while detached or hidden. The mode-switch scroll
+   * anchor's Edit-editor half — see `core/mode-scroll`.
+   */
+  getTopHeadingIndex(): number | null;
 }
 
 /** Everything an image node view needs from its adapter, shared by all of them. */
@@ -546,7 +553,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
       view.dispatch(state.tr.insertText(insert, from, to).scrollIntoView());
       view.focus();
     },
-    revealHeading(index) {
+    revealHeading(index, place = 'center') {
       // The outline indexes headings in document order; the rendered DOM lists
       // them in the same order, so the nth h1–h6 in the ProseMirror root is the
       // one. Out-of-range (outline a debounce behind the doc) is a no-op.
@@ -554,7 +561,33 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
         return;
       }
       const heading = view.dom.querySelectorAll('h1,h2,h3,h4,h5,h6')[index];
-      heading?.scrollIntoView({ block: 'center', behavior: 'auto' });
+      heading?.scrollIntoView({ block: place, behavior: 'auto' });
+    },
+    getTopHeadingIndex() {
+      // The inverse of revealHeading, for the mode-switch scroll anchor: the
+      // last heading at or above the viewport's top edge is the section being
+      // read. -1 means "above the first heading" — the top of the document.
+      // Rendered nodes carry no source lines, so headings are the finest
+      // landmark this editor and a line-addressed surface both understand
+      // (`core/mode-scroll`).
+      const scroller = view?.dom.closest<HTMLElement>('.milkdown');
+      if (!view || !scroller) {
+        return null;
+      }
+      const box = scroller.getBoundingClientRect();
+      if (box.height === 0) {
+        return null; // hidden (display:none) — every rect reads zero
+      }
+      const headings = view.dom.querySelectorAll('h1,h2,h3,h4,h5,h6');
+      let index = -1;
+      for (let i = 0; i < headings.length; i++) {
+        if (headings[i]!.getBoundingClientRect().top <= box.top + 1) {
+          index = i;
+        } else {
+          break;
+        }
+      }
+      return index;
     },
   };
 }

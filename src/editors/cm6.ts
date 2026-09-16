@@ -98,6 +98,18 @@ export type FormatAction =
 export interface Cm6Adapter extends EditorAdapter {
   /** Center the given 1-based line, put the caret at its start, and focus. */
   revealLine(line: number): void;
+  /**
+   * The 1-based line at the top of the viewport, for the mode-switch scroll
+   * anchor (`core/mode-scroll`). Null while detached or laid out at zero
+   * height (a hidden tab) — a measurement nobody should act on.
+   */
+  getTopLine(): number | null;
+  /**
+   * Put that line back at the top of the viewport. Unlike `revealLine` this
+   * moves nothing but the scroll: no caret, no focus — the reader is arriving
+   * from another mode, not jumping to a search hit.
+   */
+  scrollToLine(line: number): void;
   getSelection(): CursorPos;
   setSelection(anchor: number, head: number): void;
   setWordWrap(on: boolean): void;
@@ -120,6 +132,13 @@ export interface Cm6Adapter extends EditorAdapter {
   /** Drop every highlight of that kind now (the merge landed). */
   clearFlash(kind: FlashKind): void;
 }
+
+/**
+ * How far below the viewport's top edge `getTopLine` samples. A line the
+ * scroll anchor just aligned to the edge sits at height 0 of the viewport,
+ * where sub-pixel rounding can still report the line above it.
+ */
+const TOP_LINE_SLOP_PX = 2;
 
 /* ---- Live Edit merge highlight ------------------------------------------ */
 
@@ -763,6 +782,34 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         effects: EditorView.scrollIntoView(target.from, { y: 'center' }),
       });
       view.focus();
+    },
+    getTopLine() {
+      if (!view) {
+        return null;
+      }
+      const box = view.scrollDOM.getBoundingClientRect();
+      if (box.height === 0) {
+        return null; // hidden (display:none) — every rect reads zero
+      }
+      // CM6 block heights are measured from the top of the DOCUMENT, while
+      // `documentTop` is where that top currently sits on screen: the
+      // difference is how far the viewport's top edge is into the document.
+      // Sample a couple of pixels IN, or a line aligned exactly to the top
+      // edge reads as the one above it and every round trip drifts up a line.
+      const block = view.lineBlockAtHeight(box.top - view.documentTop + TOP_LINE_SLOP_PX);
+      return view.state.doc.lineAt(block.from).number;
+    },
+    scrollToLine(line) {
+      if (!view) {
+        return;
+      }
+      const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+      // yMargin: 0 — the default 5px would park the line just below the top
+      // edge, leaving the line above it on screen, and every round trip
+      // through another mode would then drift up by one.
+      view.dispatch({
+        effects: EditorView.scrollIntoView(target.from, { y: 'start', yMargin: 0 }),
+      });
     },
     getSelection() {
       const sel = view?.state.selection.main;
