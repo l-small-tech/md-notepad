@@ -90,6 +90,7 @@ import {
 import {
   attachLabel,
   canHostLabel,
+  findElementById,
   hostCentre,
   hostOf,
   labelBaseline,
@@ -98,6 +99,21 @@ import {
   relayoutLabels,
   withLabels,
 } from '../core/whiteboard/labels';
+import {
+  attachConnector,
+  AXIS_PORTS,
+  canDetach,
+  canHostConnector,
+  connectorTarget,
+  detachElements,
+  endpointOn,
+  hostCentreOf,
+  portPoints,
+  reconnect,
+  removeAndDetach,
+  setConnectorEnd,
+  type ConnectorTarget,
+} from '../core/whiteboard/connectors';
 import { getClipboard } from '../ipc/clipboard';
 import { openContextMenu, type ContextMenuItem } from './whiteboard-menu';
 import {
@@ -108,7 +124,13 @@ import {
   serializeElement,
   serializeWhiteboard,
 } from '../core/whiteboard/serialize';
-import type { SceneDoc, SceneElement, TextElement } from '../core/whiteboard/scene';
+import {
+  isLineShape,
+  type LineShapeElement,
+  type SceneDoc,
+  type SceneElement,
+  type TextElement,
+} from '../core/whiteboard/scene';
 import { createHistory, type History } from '../core/whiteboard/history';
 import { hitTest } from '../core/whiteboard/hit-test';
 import {
@@ -138,6 +160,7 @@ import {
   type GridSettings,
 } from '../core/whiteboard/grid';
 import {
+  guidePorts,
   guideRects,
   NO_SNAP,
   snapPoint,
@@ -158,6 +181,8 @@ import {
   makeText,
   MIN_SELECTION_SIZE,
   PALETTE,
+  PORT_SNAP_RADIUS,
+  ROUTE_LABELS,
   toolForHotkey,
   type DrawTool,
   type ShapeStyle,
@@ -356,6 +381,8 @@ export interface WhiteboardAdapter extends EditorAdapter {
   /** Ctrl+G / Ctrl+Shift+G: tag the selection as one group / clear the tags. */
   groupSelection(): void;
   ungroupSelection(): void;
+  /** Cut every selected connector loose from its hosts; the lines stay put. */
+  detachSelection(): void;
   /**
    * The ribbon changed the tool. The adapter PULLS tool settings at each
    * gesture, so this is only about what is visible between gestures: the
@@ -413,6 +440,13 @@ interface Gesture {
   shapeStyle: ShapeStyle;
   /** Shift held: the shape is constrained (square/circle, 45° line). */
   constrained: boolean;
+  /**
+   * Line/arrow tools: the host the press landed on, and the host under the
+   * pointer right now (recomputed every frame by `elementFor`). Either end
+   * that has one is attached when the line is committed.
+   */
+  fromTarget: ConnectorTarget | null;
+  toTarget: ConnectorTarget | null;
   /** 1€-filtered samples in scene coordinates (freehand tools). */
   points: Point[];
   filter: (point: Point, timeMs: number) => Point;
@@ -460,6 +494,20 @@ type SelectDrag =
        * because stretching a box must not stretch the type inside it.
        */
       scaled: readonly ElementRef[];
+    }
+  | {
+      /**
+       * One end of a single selected connector, dragged by its handle. Over a
+       * host it re-attaches (the candidate port lights up); over open board it
+       * detaches and snaps like any point.
+       */
+      kind: 'endpoint';
+      pointerId: number;
+      ref: ElementRef;
+      end: 'from' | 'to';
+      start: Point;
+      base: SceneDoc;
+      moved: boolean;
     };
 
 /**
@@ -588,6 +636,19 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let gestureGuides: readonly Rect[] = [];
   /** The guides currently MATCHED — drawn as chrome, cleared on release. */
   let matchedGuides: readonly GuideLine[] = [];
+
+  /* ------------------------------ phase D state --------------------------- */
+
+  /** The ports the gesture in flight may land on — same lifetime as the guides. */
+  let gesturePorts: readonly Point[] = [];
+  /** The port a snap landed on this frame, drawn as a ring. */
+  let matchedPort: Point | null = null;
+  /**
+   * The host a connector end is about to attach to — while drawing a line or
+   * dragging an endpoint handle. Its ports are drawn with the chosen one lit,
+   * so the user can see WHERE the line will land before letting go.
+   */
+  let hoverTarget: ConnectorTarget | null = null;
   /**
    * Pattern ids have to be unique across the DOCUMENT, not the board: every
    * tab's editor is mounted at once (I7), so two boards showing a grid would
@@ -1031,7 +1092,10 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       );
     }
 
-    const box = scene ? selectionBounds(scene, selection) : null;
+    const tool = options.getTool().tool;
+    const selecting = tool === 'select' && selectDrag?.kind !== 'marquee';
+    const connector = selecting ? singleConnector() : null;
+    const box = scene && !connector ? selectionBounds(scene, selection) : null;
     if (box) {
       const pad = 3 * unit;
       const outline = {
@@ -1047,7 +1111,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       );
       // Handles only make sense while the SELECT tool is live; with the pen in
       // hand the box is just a reminder of what Delete would take.
-      if (options.getTool().tool === 'select' && selectDrag?.kind !== 'marquee') {
+      if (selecting) {
         const size = HANDLE_SIZE * unit;
         for (const handle of RESIZE_HANDLES) {
           const p = handlePoint(outline, handle);
@@ -1058,15 +1122,89 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         }
       }
     }
+    // A single connector gets its two ENDPOINT handles instead of a resize
+    // box — stretching a line by its box is never what anyone means, moving
+    // where it ends is. A filled handle is an attached end.
+    if (connector) {
+      const r = (HANDLE_SIZE * unit) / 2 + unit;
+      for (const [x, y, attached] of [
+        [connector.geom.x1 ?? 0, connector.geom.y1 ?? 0, connector.from !== null],
+        [connector.geom.x2 ?? 0, connector.geom.y2 ?? 0, connector.to !== null],
+      ] as const) {
+        parts.push(
+          `<circle class="wb-sel-end${attached ? ' wb-sel-end-attached' : ''}" ` +
+            `cx="${x}" cy="${y}" r="${r}" stroke-width="${unit}"/>`,
+        );
+      }
+    }
+    // A single selected host shows its four ports faintly: an invitation to
+    // start an arrow from one (so with the line tools in hand as well), and a
+    // reminder of where one would land.
+    const lineTool = tool === 'line' || tool === 'arrow';
+    const host = (selecting || lineTool) && !connector ? singleHost() : null;
+    if (host) {
+      parts.push(...portMarkup(host, null, unit));
+    }
+    // The host a line end is about to attach to: every port, the chosen one
+    // lit — or, for a `c` port, a ring where the end will land.
+    if (hoverTarget && scene) {
+      const element = resolveElement(scene, hoverTarget.ref);
+      if (element) {
+        parts.push(
+          ...portMarkup(element, hoverTarget.port === 'c' ? null : hoverTarget.port, unit),
+        );
+        if (hoverTarget.port === 'c') {
+          parts.push(portRing(hoverTarget.point, unit, true));
+        }
+      }
+    }
+    if (matchedPort) {
+      parts.push(portRing(matchedPort, unit, true));
+    }
     chromeGroup.innerHTML = parts.join('');
+  }
+
+  /** The four ports of `host`, `hot` (if any) drawn emphasised. */
+  function portMarkup(host: SceneElement, hot: string | null, unit: number): string[] {
+    const ports = portPoints(host);
+    if (!ports) {
+      return [];
+    }
+    return AXIS_PORTS.map((port) => portRing(ports[port], unit, port === hot));
+  }
+
+  function portRing(at: Point, unit: number, hot: boolean): string {
+    const r = (hot ? 5 : 3.5) * unit;
+    return (
+      `<circle class="wb-port${hot ? ' wb-port-hot' : ''}" cx="${at.x}" cy="${at.y}" ` +
+      `r="${r}" stroke-width="${unit}"/>`
+    );
+  }
+
+  /** The one selected line/arrow, when the selection is exactly that. */
+  function singleConnector(): LineShapeElement | null {
+    if (!scene || selection.length !== 1) {
+      return null;
+    }
+    const element = resolveElement(scene, selection[0]!);
+    return element && isLineShape(element) ? element : null;
+  }
+
+  /** The one selected element that can host a connector, when there is exactly one. */
+  function singleHost(): SceneElement | null {
+    if (!scene || selection.length !== 1) {
+      return null;
+    }
+    const element = resolveElement(scene, selection[0]!);
+    return element && canHostConnector(element) ? element : null;
   }
 
   /**
    * The closure of `refs` over groups and label <-> host links — EVERY
    * selection the user makes passes through here (click, shift-click,
    * marquee, the context menu), which is the single mechanism that makes a
-   * group move as one and a label follow its host. Phase D's connectors do
-   * not expand (an arrow is not part of the box it points at); they follow by
+   * group move as one and a label follow its host. Connectors do NOT expand
+   * (an arrow is not part of the box it points at); they follow by
    * `reconnect` instead.
    */
   function expanded(refs: readonly ElementRef[]): ElementRef[] {
@@ -1088,7 +1226,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    */
   function beginSnap(doc: SceneDoc | null, exclude: readonly ElementRef[]): void {
     gestureGuides = doc ? guideRects(doc, exclude) : [];
+    gesturePorts = doc ? guidePorts(doc, exclude) : [];
     matchedGuides = [];
+    matchedPort = null;
   }
 
   /**
@@ -1104,32 +1244,60 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     return {
       grid: gridOf(scene),
       guides: gestureGuides,
+      ports: gesturePorts,
       threshold: SNAP_THRESHOLD * sceneUnitsPerPixel(),
       enabled: true,
     };
   }
 
-  /** Record what a snap matched, and redraw the chrome if it changed. */
-  function showGuides(guides: readonly GuideLine[]): void {
-    const same =
+  /**
+   * Record what a snap matched — guide lines, a port, the host a connector end
+   * is over — and redraw the chrome if any of it changed.
+   */
+  function showGuides(
+    guides: readonly GuideLine[],
+    port: Point | null = null,
+    target: ConnectorTarget | null = null,
+  ): void {
+    const sameGuides =
       guides.length === matchedGuides.length &&
       guides.every((g, i) => {
         const was = matchedGuides[i]!;
         return g.axis === was.axis && g.at === was.at && g.from === was.from && g.to === was.to;
       });
+    const samePort =
+      port === matchedPort ||
+      (port !== null &&
+        matchedPort !== null &&
+        port.x === matchedPort.x &&
+        port.y === matchedPort.y);
+    const sameTarget =
+      target === hoverTarget ||
+      (target !== null &&
+        hoverTarget !== null &&
+        target.port === hoverTarget.port &&
+        target.ref.layerId === hoverTarget.ref.layerId &&
+        target.ref.index === hoverTarget.ref.index &&
+        target.point.x === hoverTarget.point.x &&
+        target.point.y === hoverTarget.point.y);
     matchedGuides = guides;
-    if (!same) {
+    matchedPort = port;
+    hoverTarget = target;
+    if (!sameGuides || !samePort || !sameTarget) {
       renderChrome();
     }
   }
 
-  /** Every gesture ends the same way: no guides on screen. */
+  /** Every gesture ends the same way: no guides, ports or candidates on screen. */
   function clearGuides(): void {
-    if (matchedGuides.length > 0) {
+    if (matchedGuides.length > 0 || matchedPort !== null || hoverTarget !== null) {
       matchedGuides = [];
+      matchedPort = null;
+      hoverTarget = null;
       renderChrome();
     }
     gestureGuides = [];
+    gesturePorts = [];
   }
 
   /* --------------------------------- editing ------------------------------ */
@@ -1169,15 +1337,16 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   /**
    * The passes every RECORDED commit runs before the document becomes the
-   * next snapshot: today `relayoutLabels` (re-centre every label on its
-   * host, after whatever moved or resized the host); phase D's `reconnect`
-   * (re-aim every attached connector) joins it here. Each is a fixed point
+   * next snapshot: `reconnect` (re-aim every attached connector end at its
+   * host's current outline) and then `relayoutLabels` (re-centre every label
+   * on its host) — in that order, because a connector's label sits on its
+   * routed path, which reconnect may have just moved. Each is a fixed point
    * on a document it has nothing to do to, so running them on every commit
    * costs nothing when nothing moved. Undo and redo skip this — a snapshot
    * was settled when it was recorded.
    */
   function settle(doc: SceneDoc): SceneDoc {
-    return relayoutLabels(doc);
+    return relayoutLabels(reconnect(doc));
   }
 
   /**
@@ -1337,7 +1506,17 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // Ink never snaps — a pen stroke pulled onto a lattice is not the stroke
     // anyone drew. Shapes do, and their guides are fixed for the whole drag.
     beginSnap(isShapeTool(tool) ? scene : null, []);
-    const start = isShapeTool(tool) ? snapPoint(point, snapContext()).point : point;
+    // A line pressed on a shape starts ATTACHED to it, at the port the press
+    // picked; the end is decided the same way on release (`elementFor`).
+    const fromTarget =
+      tool === 'line' || tool === 'arrow'
+        ? connectorTarget(scene, point, PORT_SNAP_RADIUS * sceneUnitsPerPixel(), point)
+        : null;
+    const start = fromTarget
+      ? fromTarget.point
+      : isShapeTool(tool)
+        ? snapPoint(point, snapContext()).point
+        : point;
     const filter = createOneEuroFilter();
     gesture = {
       pointerId: event.pointerId,
@@ -1351,8 +1530,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         fill: settings.fill,
         dash: settings.dash,
         heads: settings.heads,
+        route: settings.route,
       },
       constrained: event.shiftKey,
+      fromTarget,
+      toTarget: null,
       points: [filter(point, event.timeStamp)],
       filter,
       start,
@@ -1449,7 +1631,39 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     const unit = sceneUnitsPerPixel();
-    const box = selectionBounds(scene, selection);
+    // A single connector has endpoint handles, not a box: a press on one
+    // starts moving that end (re-attaching it, or cutting it loose).
+    const connector = singleConnector();
+    if (connector) {
+      const ref = selection[0]!;
+      const ends = [
+        ['from', { x: connector.geom.x1 ?? 0, y: connector.geom.y1 ?? 0 }],
+        ['to', { x: connector.geom.x2 ?? 0, y: connector.geom.y2 ?? 0 }],
+      ] as const;
+      let grabbed: (typeof ends)[number] | null = null;
+      let nearest = HANDLE_HIT_RADIUS * unit;
+      for (const end of ends) {
+        const d = Math.hypot(point.x - end[1].x, point.y - end[1].y);
+        if (d <= nearest) {
+          grabbed = end;
+          nearest = d;
+        }
+      }
+      if (grabbed) {
+        beginSnap(scene, selection);
+        selectDrag = {
+          kind: 'endpoint',
+          pointerId: event.pointerId,
+          ref,
+          end: grabbed[0],
+          start: point,
+          base: scene,
+          moved: false,
+        };
+        return;
+      }
+    }
+    const box = connector ? null : selectionBounds(scene, selection);
     if (box) {
       const pad = 3 * unit;
       const outline = {
@@ -1537,7 +1751,12 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       selectDrag.moved = selectDrag.moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
       // Re-derive from the drag's OWN starting document every frame, so the
       // move is one transform rather than an accumulating pile of them.
-      render(serializeWhiteboard(translateElements(selectDrag.base, selection, dx, dy)), false);
+      render(serializeWhiteboard(moved(selectDrag.base, dx, dy)), false);
+      return;
+    }
+    if (selectDrag.kind === 'endpoint') {
+      selectDrag.moved = true;
+      render(serializeWhiteboard(endpointFrame(selectDrag, point)), false);
       return;
     }
     const target = resizeTarget(selectDrag, point);
@@ -1592,9 +1811,48 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     return resizeRect(drag.from, drag.handle, at.x - origin.x, at.y - origin.y, MIN_SELECTION_SIZE);
   }
 
-  /** A resize: scale everything but the labels, then re-centre the labels. */
+  /**
+   * A resize: scale everything but the labels, re-aim the connectors into
+   * what moved, then re-centre the labels — `settle`, per frame, so arrows
+   * and labels follow the box live rather than jumping on release.
+   */
   function resized(base: SceneDoc, refs: readonly ElementRef[], from: Rect, to: Rect): SceneDoc {
-    return relayoutLabels(scaleElements(base, refs, from, to));
+    return settle(scaleElements(base, refs, from, to));
+  }
+
+  /** A move drag's frame: the translation, with the connectors following. */
+  function moved(base: SceneDoc, dx: number, dy: number): SceneDoc {
+    return reconnect(translateElements(base, selection, dx, dy));
+  }
+
+  /**
+   * An endpoint drag's frame. Over a host the end attaches there (the pure
+   * `setConnectorEnd` gives the host an id if it needs one and re-aims the
+   * line); over open board it detaches and snaps like any other point. The
+   * other end, when it is a `c` port, re-aims at wherever this one lands.
+   */
+  function endpointFrame(drag: Extract<SelectDrag, { kind: 'endpoint' }>, point: Point): SceneDoc {
+    const element = resolveElement(drag.base, drag.ref);
+    if (!element || !isLineShape(element)) {
+      return drag.base;
+    }
+    const otherEnd = drag.end === 'from' ? element.to : element.from;
+    const otherHostRef = otherEnd ? findElementById(drag.base, otherEnd.id) : null;
+    const otherHost = otherHostRef ? resolveElement(drag.base, otherHostRef) : null;
+    const g = element.geom;
+    const otherPoint =
+      drag.end === 'from' ? { x: g.x2 ?? 0, y: g.y2 ?? 0 } : { x: g.x1 ?? 0, y: g.y1 ?? 0 };
+    const aim = (otherHost && hostCentreOf(otherHost)) ?? otherPoint;
+    const target = connectorTarget(drag.base, point, PORT_SNAP_RADIUS * sceneUnitsPerPixel(), aim, [
+      drag.ref,
+    ]);
+    if (target) {
+      showGuides([], null, target);
+      return setConnectorEnd(drag.base, drag.ref, drag.end, target);
+    }
+    const snapped = snapPoint(point, snapContext());
+    showGuides(snapped.guides, snapped.port, null);
+    return setConnectorEnd(drag.base, drag.ref, drag.end, snapped.point);
   }
 
   /** `refs` minus labels whose host is alive — the part of a selection a resize scales. */
@@ -1629,7 +1887,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     let next: SceneDoc;
     if (drag.kind === 'move') {
       const { dx, dy } = moveDelta(drag, point);
-      next = translateElements(drag.base, selection, dx, dy);
+      next = moved(drag.base, dx, dy);
+    } else if (drag.kind === 'endpoint') {
+      next = endpointFrame(drag, point);
     } else {
       next = resized(drag.base, drag.scaled, drag.from, resizeTarget(drag, point));
     }
@@ -1891,19 +2151,79 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     if (active.tool === 'pen' || active.tool === 'highlighter') {
       return makeStroke(active.tool, active.points, active.color, active.width);
     }
+    if (active.tool === 'line' || active.tool === 'arrow') {
+      return connectorFor(active, end);
+    }
     if (isShapeTool(active.tool)) {
       // Snap FIRST, constrain second. Shift is a promise about the shape ("this
       // is a square"), snapping is a promise about where it sits; a square that
       // is not square would be the worse lie, so the constraint gets the last
       // word and the snapped corner is only where the drag was aiming.
       const snapped = snapPoint(end, snapContext());
-      showGuides(active.constrained ? [] : snapped.guides);
+      showGuides(active.constrained ? [] : snapped.guides, snapped.port);
       const corner = active.constrained
         ? constrainShapeDrag(active.tool, active.start, snapped.point)
         : snapped.point;
       return makeShape(active.tool, active.start, corner, active.shapeStyle);
     }
     return null;
+  }
+
+  /**
+   * The line/arrow a drag would produce if it ended at `end`, with either end
+   * ATTACHED where it landed on a host. The host under the pointer wins over
+   * snapping (you are pointing at the box, not at a grid line); a `c` port at
+   * one end aims at the other end's host centre, exactly as `reconnect` will
+   * once the line is committed, so the preview is the result. The end target
+   * is remembered on the gesture for `finishGesture` to attach.
+   */
+  function connectorFor(active: Gesture, end: Point): SceneElement | null {
+    if (!scene || !(active.tool === 'line' || active.tool === 'arrow')) {
+      return null;
+    }
+    const fromHost = active.fromTarget ? resolveElement(scene, active.fromTarget.ref) : null;
+    const aimFrom = (fromHost && hostCentreOf(fromHost)) ?? active.start;
+    const toTarget = connectorTarget(
+      scene,
+      end,
+      PORT_SNAP_RADIUS * sceneUnitsPerPixel(),
+      aimFrom,
+      active.fromTarget ? [active.fromTarget.ref] : [],
+    );
+    active.toTarget = toTarget;
+    let endPoint: Point;
+    if (toTarget) {
+      showGuides([], null, toTarget);
+      endPoint = toTarget.point;
+    } else {
+      const snapped = snapPoint(end, snapContext());
+      showGuides(active.constrained ? [] : snapped.guides, snapped.port, null);
+      endPoint = active.constrained
+        ? constrainShapeDrag(active.tool, active.start, snapped.point)
+        : snapped.point;
+    }
+    const toHost = toTarget ? resolveElement(scene, toTarget.ref) : null;
+    const startPoint =
+      active.fromTarget && fromHost
+        ? (endpointOn(
+            fromHost,
+            active.fromTarget.port,
+            (toHost && hostCentreOf(toHost)) ?? endPoint,
+          ) ?? active.start)
+        : active.start;
+    const shape = makeShape(active.tool, startPoint, endPoint, active.shapeStyle);
+    if (!shape) {
+      return null;
+    }
+    // The preview carries the ports (an elbow routes by them); the ids are
+    // placeholders — `attachConnector` assigns the real ones at commit.
+    const idOf = (host: SceneElement | null): string =>
+      host && host.kind !== 'raw' && host.id !== null ? host.id : '?';
+    return {
+      ...shape,
+      from: active.fromTarget ? { id: idOf(fromHost), port: active.fromTarget.port } : null,
+      to: toTarget ? { id: idOf(toHost), port: toTarget.port } : null,
+    };
   }
 
   /** Redraw the overlay for the gesture in flight. No-op when there is none. */
@@ -1922,7 +2242,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     // A host's labels go with it: a label with nothing to label is litter.
-    gesture.working = removeElements(gesture.working, withLabels(gesture.working, hits));
+    // Its connectors stay, detached — an arrow is content of its own.
+    gesture.working = removeAndDetach(gesture.working, withLabels(gesture.working, hits));
     gesture.erased = true;
     // Show the removal immediately; the whole drag lands as ONE undo step when
     // the pointer lifts.
@@ -1958,6 +2279,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // creates the layer it lands on — inside the same undo step.
     const target = ensureDrawLayer(scene, activeLayerId);
     activeLayerId = target.layerId;
+    if (element.kind === 'shape' && (active.fromTarget || active.toTarget)) {
+      // Attached where it landed: hosts get their ids, the ends are re-aimed
+      // — the same document the preview showed, now with the links in it.
+      commit(
+        attachConnector(target.doc, target.layerId, element, active.fromTarget, active.toTarget),
+      );
+      return;
+    }
     commit(addElement(target.doc, target.layerId, element));
   }
 
@@ -2440,7 +2769,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   /**
    * What the menu offers, enabled from the pure predicates. THE extension
-   * point for later phases: phase D appends its connector items here.
+   * point for later work: the connector items (route, Detach) live here too.
    */
   function contextMenuItems(): ContextMenuItem[] {
     const doc = scene;
@@ -2508,6 +2837,27 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         disabled: doc === null || !canUngroup(doc, selection),
         onSelect: () => adapter.ungroupSelection(),
       },
+    );
+    // Connectors: the route (the same choice the ribbon's style menu offers,
+    // here because a right-click on an arrow is where people look for it) and
+    // Detach, which cuts the links and leaves the line where it is.
+    const style = doc === null ? null : selectionStyle(doc, selection);
+    const lines = style?.hasLine ?? false;
+    items.push('separator');
+    for (const route of ['straight', 'elbow'] as const) {
+      items.push({
+        label: ROUTE_LABELS[route],
+        disabled: !lines,
+        checked: lines && style?.route === route,
+        onSelect: () => adapter.restyleSelection({ route }),
+      });
+    }
+    items.push(
+      {
+        label: 'Detach connector',
+        disabled: doc === null || !canDetach(doc, selection),
+        onSelect: () => adapter.detachSelection(),
+      },
       'separator',
       { label: 'Delete', chord: 'Del', disabled: !some, onSelect: () => adapter.deleteSelection() },
     );
@@ -2570,10 +2920,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       }
       // The selection is already expanded (labels ride with hosts), and
       // `withLabels` makes the promise explicit for a host whose label sits
-      // on a layer expansion could not reach.
-      const next = removeElements(scene, withLabels(scene, selection));
+      // on a layer expansion could not reach. Connectors into a deleted host
+      // are DETACHED, not deleted: they were drawn on purpose too.
+      const next = removeAndDetach(scene, withLabels(scene, selection));
       selection = [];
       commit(next);
+    },
+
+    detachSelection() {
+      if (scene) {
+        const next = detachElements(scene, selection);
+        if (next !== scene) {
+          commit(next);
+        }
+      }
     },
 
     copySelection() {

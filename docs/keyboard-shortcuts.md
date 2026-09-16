@@ -113,6 +113,12 @@ grid says, things also line up with other shapes' edges and centres, and a
 thin line shows what they lined up with. Freehand ink never snaps. The grid's
 spacing and its snap toggle are behind the ⌄ next to the grid button.
 
+A line or arrow that starts or ends on a shape stays attached to it and
+follows it around; select the arrow and drag either end to move it to another
+shape or off into open space. Straight or elbow routing is in the shape-style
+menu (◧) and the right-click menu. The whole drawing toolkit is described in
+[Drawings and diagrams](diagrams.md).
+
 ## Everything else
 
 | Shortcut | What it does |

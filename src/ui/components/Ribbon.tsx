@@ -40,6 +40,7 @@ import {
   ARROW_HEAD_GLYPHS,
   ARROW_HEAD_LABELS,
   ARROW_HEADS,
+  CONNECTOR_ROUTES,
   DASH_LABELS,
   DASH_STYLES,
   DEFAULT_GRID,
@@ -49,6 +50,7 @@ import {
   PALETTE,
   paletteSlot,
   PAPER_FILL,
+  ROUTE_LABELS,
   SHAPE_OPTIONS,
   STATIC_PALETTE,
   STROKE_WIDTHS,
@@ -60,6 +62,7 @@ import {
   type GridSettings,
   type ShapeTool,
 } from '../../core/whiteboard/tool-settings';
+import type { ConnectorRoute } from '../../core/whiteboard/scene';
 // Also a dependency-free leaf (the same I8 constraint tool-settings is under):
 // the ribbon needs the finger-toggle's resolution rule, nothing more.
 import { fingerDrawsEnabled } from '../../core/whiteboard/input';
@@ -705,7 +708,7 @@ function ShapePicker({
 }
 
 /**
- * Fill, dash and arrow heads — the three shape properties that are not a
+ * Fill, dash, arrow heads and route — the shape properties that are not a
  * colour or a nib, behind one button.
  *
  * They act on the SELECTION when there is one and always set the tool default,
@@ -716,26 +719,30 @@ function ShapeStyleMenu({
   fill,
   dash,
   heads,
+  route,
   onFill,
   onDash,
   onHeads,
+  onRoute,
 }: {
   fill: string | null;
   dash: DashStyle | null;
   heads: ArrowHeads | null;
+  route: ConnectorRoute | null;
   onFill: (fill: string) => void;
   onDash: (dash: DashStyle) => void;
   onHeads: (heads: ArrowHeads) => void;
+  onRoute: (route: ConnectorRoute) => void;
 }) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   return (
     <>
       <button
         className="ribbon-btn"
-        aria-label="Shape style — fill, dashes, arrow heads"
+        aria-label="Shape style — fill, dashes, arrow heads, route"
         aria-haspopup="menu"
         aria-expanded={anchor != null}
-        title="Shape style — fill, dashes and arrow heads. With something selected, these restyle it."
+        title="Shape style — fill, dashes, arrow heads and how a line routes. With something selected, these restyle it."
         onMouseDown={(e) => e.preventDefault()}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) =>
@@ -834,6 +841,34 @@ function ShapeStyleMenu({
                 onClick={() => onHeads(kind)}
               >
                 {ARROW_HEAD_GLYPHS[kind]}
+              </button>
+            ))}
+          </div>
+
+          <div className="wb-style-label">Route</div>
+          <div className="ribbon-swatches" role="group" aria-label="Line route">
+            {CONNECTOR_ROUTES.map((kind) => (
+              <button
+                key={kind}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={route === kind}
+                data-active={route === kind || undefined}
+                aria-label={ROUTE_LABELS[kind]}
+                title={`${ROUTE_LABELS[kind]}. A line that starts or ends on a shape stays attached to it.`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onRoute(kind)}
+              >
+                <svg className="ribbon-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <polyline
+                    points={kind === 'elbow' ? '3,16 10,16 10,4 17,4' : '3,16 17,4'}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
             ))}
           </div>
@@ -969,6 +1004,7 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const fill = useWhiteboardStore((s) => s.fill);
   const dash = useWhiteboardStore((s) => s.dash);
   const heads = useWhiteboardStore((s) => s.heads);
+  const route = useWhiteboardStore((s) => s.route);
   const lastShape = useWhiteboardStore((s) => s.lastShape);
   // The type row shows for the text tool, and whenever the selection actually
   // HOLDS text to restyle — before phase A it showed for any selection, which
@@ -990,6 +1026,7 @@ function DrawControls({ tabId }: { tabId: string | null }) {
   const shownFill = selected ? selected.fill : fill;
   const shownDash = selected ? selected.dash : dash;
   const shownHeads = selected ? selected.heads : heads;
+  const shownRoute = selected ? selected.route : route;
 
   function toolButton(id: DrawTool, label: ReactNode, title: string) {
     return (
@@ -1043,6 +1080,11 @@ function DrawControls({ tabId }: { tabId: string | null }) {
         fill={shownFill}
         dash={shownDash}
         heads={shownHeads}
+        route={shownRoute}
+        onRoute={(next) => {
+          whiteboardStore.getState().setRoute(next);
+          adapter?.restyleSelection({ route: next });
+        }}
         onFill={(next) => {
           whiteboardStore.getState().setFill(next);
           adapter?.restyleSelection({ fill: next });

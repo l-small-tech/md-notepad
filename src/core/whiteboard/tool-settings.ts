@@ -9,7 +9,7 @@
  * CONSTRUCTORS live next door in `tools.ts`, which does the lazy-loaded work.
  */
 
-import type { ShapeKind } from './scene';
+import type { ConnectorRoute, ShapeKind } from './scene';
 
 /**
  * What the shape picker offers. `'roundrect'` is the one entry that is not a
@@ -215,6 +215,22 @@ export const ARROW_HEAD_GLYPHS: Record<ArrowHeads, string> = {
   both: '↔',
 };
 
+/* ---------------------------------- routes -------------------------------- */
+
+export const CONNECTOR_ROUTES: readonly ConnectorRoute[] = ['straight', 'elbow'];
+
+export const ROUTE_LABELS: Record<ConnectorRoute, string> = {
+  straight: 'Straight line',
+  elbow: 'Elbow — turns at right angles',
+};
+
+/**
+ * How close, in SCREEN pixels, a line's end has to come to a shape's port to
+ * land on it — wider than {@link SNAP_THRESHOLD} because a port is a target
+ * you aim at, not a coincidence you accept.
+ */
+export const PORT_SNAP_RADIUS = 10;
+
 /* ---------------------------------- fills --------------------------------- */
 
 /**
@@ -395,4 +411,6 @@ export interface ToolSettings {
    * and this control can never disagree about what the next drag produces.
    */
   readonly heads: ArrowHeads;
+  /** Line tools: straight, or routed as an elbow. */
+  readonly route: ConnectorRoute;
 }

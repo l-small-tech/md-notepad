@@ -23,7 +23,8 @@ what a whiteboard *is* lives here.
 | `arrange.ts` | z-order within a layer, align, distribute |
 | `clipboard.ts` | copy/paste as a document fragment, with ids remapped on the way in |
 | `grid.ts` | the per-document grid, as typed accessors over the `wb:doc` metadata |
-| `snap.ts` | grid snapping, smart guides, and which one wins |
+| `snap.ts` | grid snapping, smart guides, ports, and which one wins |
+| `connectors.ts` | live connectors: ends that land on a host's OUTLINE and follow it; ports, attach, detach |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
@@ -106,8 +107,8 @@ drawn underneath.
 
 **A rounded rectangle is a `rect` with an `rx`, not a shape kind.** The tool is
 `'roundrect'` (a `ShapeTool`, which the FORMAT never sees); the element is a
-rect. That keeps hit-testing, transforms and — when phase D arrives —
-connectors shared between square and rounded boxes. `rx` scales by the
+rect. That keeps hit-testing, transforms and connectors shared between square
+and rounded boxes. `rx` scales by the
 geometric mean √(sx·sy) under a non-uniform resize, the same compromise
 `stroke-width` makes and for the same reason: one number cannot follow two
 axes.
@@ -250,9 +251,10 @@ clipboard lands `PASTE_OFFSET` further along.
 Ids are REMAPPED on paste (`remapIds`): every `wb:id` and `wb:group` in the
 fragment gets a fresh value, so a label pasted with its host still labels the
 copy, one pasted without it becomes plain text rather than a second label on
-the original, and a group of one is dropped. Phase D's connector `from`/`to`
-get the same treatment through the same function — a reference the mapping
-does not name is cut, never kept.
+the original, and a group of one is dropped. A connector's `from`/`to` get the
+same treatment through the same function — a reference the mapping does not
+name is cut, never kept, so an arrow pasted without its box arrives detached
+where it was rather than attached to the original.
 
 ## The grid, and snapping (diagram phase C)
 
@@ -308,6 +310,90 @@ cannot move that content, so offering to line up with it is a promise about
 something the editor does not own. Ink does not snap either, for the same
 reason it is not a guide: a pen stroke pulled onto a lattice is not the stroke
 anyone drew.
+
+## Live connectors (diagram phase D)
+
+A connector is a `line`/`arrow` with two nullable fields, `from` and `to`,
+each naming a host's `wb:id` and a port on it (`wb:from="bx1:e"`), plus a
+`route` (`wb:route="elbow"`; straight emits nothing). Both default to
+nothing, so — the same promise every phase has made — a line drawn before this
+round re-serializes byte-for-byte, and a line drawn free today is
+indistinguishable from one drawn last year.
+
+### The coordinates stay in the file
+
+An attached end still has real `x1/y1` numbers in it, and they are what every
+renderer draws. The attachment is a `wb:` note saying where those numbers came
+from; `reconnect` recomputes them from the host's current outline after every
+commit (the adapter's `settle`, before `relayoutLabels`, because a connector's
+label sits on its routed path). A host that no longer exists — deleted in Raw
+mode, or a reference in a hand-authored file — simply leaves the end where
+the file says it is, and its id stays reserved (`usedIds`) so a fresh element
+can never inherit a stale arrow. Nothing here is a second rendering path: a
+board with connectors is still a picture that renders identically anywhere.
+
+### Following is NOT selection expansion
+
+Groups and labels weld through `expandSelection`: selecting one selects the
+others. Connectors deliberately do not. An arrow is not part of the box it
+points at — selecting a box must not drag its arrows into the selection, and
+deleting a box must not delete them. So moving a host moves only the arrow
+ends that touch it, and deleting a host **detaches** its connectors
+(`detachFrom`, run by `removeAndDetach` for Delete and the eraser): the lines
+keep their last coordinates, because they were drawn on purpose too. The
+clipboard follows from `remapIds`: a host and its arrow copied together stay
+attached (fresh ids, same link); an arrow copied alone arrives detached.
+
+### Ends land on the outline, never the box
+
+`endpointOn(host, port, toward)` intersects a ray from the host's centre with
+the phase-A outline (`shapeOutline`), so an arrow into an ellipse or a diamond
+ends on the drawn edge, not on the corner of the rectangle around it (the
+ellipse is solved exactly rather than sampled — its ports are the one case
+where a chord's sag would show). Ports `n`/`e`/`s`/`w` are where the axes
+cross that outline; `c` aims at the centre and slides around the outline to
+face the other end — the other end's host centre when it has one, the free
+endpoint otherwise. `nearestPort` turns a press into a port: within 30° of an
+axis (measured on the box normalised to a square, so a wide box's `e` port is
+not a sliver) it is that side, anywhere else it is `c`. `connectorTarget` is
+the whole targeting rule in one place: a port within reach wins on whichever
+host, otherwise the topmost body under the point — an UNFILLED box counts,
+because the box is what the user sees.
+
+### The elbow is routed, never stored
+
+An elbow connector serializes as `<path wb:shape="elbow" d="M… L… L…">` —
+a `<path>` because it is the only SVG 1.1 element that draws a polyline AND
+takes markers at its ends — with `fill="none"` (a path fills black by default)
+and the waypoints derived at serialize time by `routeElbow` in `geometry.ts`:
+leave each end along its port's axis (a free end or a `c` port takes the
+direction the other end mostly is), one bend when the two axes differ, two
+bends turning at the midpoint when they agree, no bend when the ends are
+already in line. Deterministic and geometry-only, so the same ends and ports
+always draw the same path and nothing about the route is state a hand edit
+could desynchronise. Parse recovers `x1/y1/x2/y2` from the path's first and
+last point and the kind from `marker-end`. It names itself with `wb:shape`
+exactly as the box polygons do, so a foreign `<path>` stays raw; `wb:route`
+is emitted as well because the route is a field of the element, and a
+hand-edited `<line wb:route="elbow">` is honoured. Hit-testing, bounds and the
+label midpoint all follow the routed polyline (`connectorPoints`), which is
+why the router lives below `hit-test.ts` in the import order rather than in
+`connectors.ts` (which re-exports it).
+
+The router does not add a stub when the target lies behind a port — an `e`
+port aimed at something on the left runs back across its own host. That would
+cost two more bends per end and a stub length nobody agrees on; the ports a
+press picks face the pointer, so it takes deliberately choosing the wrong
+side to reach it.
+
+### Ports are strong guides
+
+`snap.ts` gained `ports` beside `guides`: a point within the threshold of a
+port lands exactly on it, both axes at once, and the edge guides do not get a
+say — a port is a target you aim at, not a coincidence you accept. Connector
+ends have a wider radius still (`PORT_SNAP_RADIUS`) and skip general snapping
+altogether when a host is under the pointer, because you are pointing at the
+box, not at a grid line.
 
 ## Text is a point and some lines — that is all `<text>` is
 

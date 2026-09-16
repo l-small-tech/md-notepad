@@ -63,9 +63,9 @@ export interface StrokeElement {
   readonly kind: 'stroke';
   /**
    * `wb:id`. Present inside scan layers (OCR metadata points at ink by id),
-   * and on any element something else refers to — a labelled shape, phase D's
-   * connector hosts. Drawn ink that nothing refers to stays id-free: every
-   * byte counts in a dense file.
+   * and on any element something else refers to — a labelled shape, a shape a
+   * connector is attached to. Drawn ink that nothing refers to stays id-free:
+   * every byte counts in a dense file.
    */
   readonly id: string | null;
   /**
@@ -120,6 +120,33 @@ export function isBoxShape(shape: string): shape is BoxShapeKind {
 export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow' | BoxShapeKind;
 
 /**
+ * Where on a host a connector lands. `n`/`e`/`s`/`w` are the midpoints of the
+ * host's outline on its four axes; `c` means "aim at the centre" — the end
+ * slides around the outline to face wherever the other end is, which is what
+ * a line between two boxes usually wants.
+ */
+export type ConnectorPort = 'n' | 'e' | 's' | 'w' | 'c';
+
+export const CONNECTOR_PORTS: readonly ConnectorPort[] = ['n', 'e', 's', 'w', 'c'];
+
+export function isConnectorPort(value: string): value is ConnectorPort {
+  return (CONNECTOR_PORTS as readonly string[]).includes(value);
+}
+
+/** One attached end of a line/arrow: the host's `wb:id` and the port on it. */
+export interface ConnectorEnd {
+  readonly id: string;
+  readonly port: ConnectorPort;
+}
+
+/**
+ * How a line/arrow travels between its ends: one straight segment, or an
+ * axis-aligned ELBOW routed at serialize time (`geometry.ts` → `routeElbow`).
+ * Straight is the default and emits nothing.
+ */
+export type ConnectorRoute = 'straight' | 'elbow';
+
+/**
  * A primitive shape. Geometry is BAKED into the element's own coordinates —
  * there are no stacked transforms anywhere in the format, which is what keeps
  * hit-testing, resizing and foreign-renderer fidelity all trivial.
@@ -162,8 +189,27 @@ export interface ShapeElement {
    * (line, false) / (arrow, false) / (arrow, true).
    */
   readonly markerStart: boolean;
+  /**
+   * `wb:from="<id>:<port>"` / `wb:to` — a `line`/`arrow` end ATTACHED to the
+   * element carrying that `wb:id`. Null (every other shape, and every line
+   * drawn free) emits nothing. The coordinates in `geom` are still the truth
+   * a renderer draws; `connectors.ts` recomputes them from the host's outline
+   * after every commit, so the file always holds the picture as well as the
+   * link. A host that no longer exists leaves the end where it was.
+   */
+  readonly from: ConnectorEnd | null;
+  readonly to: ConnectorEnd | null;
+  /** `wb:route` — see {@link ConnectorRoute}. Only meaningful on a line/arrow. */
+  readonly route: ConnectorRoute;
   /** Stored palette slot — see {@link StrokeElement.slot}. */
   readonly slot?: number;
+}
+
+/** A line or an arrow — the two kinds that can be connectors. */
+export type LineShapeElement = ShapeElement & { readonly shape: 'line' | 'arrow' };
+
+export function isLineShape(element: SceneElement): element is LineShapeElement {
+  return element.kind === 'shape' && (element.shape === 'line' || element.shape === 'arrow');
 }
 
 export interface TextElement {
@@ -335,7 +381,12 @@ export function freshIdFrom(used: Set<string>, random: () => number = Math.rando
   return fallback;
 }
 
-/** Every `wb:id` and `wb:group` value in the document. */
+/**
+ * Every `wb:id` and `wb:group` value in the document — and every id a
+ * connector end REFERS to, so a dangling `wb:from` (its host deleted in Raw
+ * mode) can never be handed to a new element the connector would then leap
+ * onto.
+ */
 export function usedIds(doc: SceneDoc): Set<string> {
   const used = new Set<string>();
   for (const layer of doc.layers) {
@@ -349,6 +400,14 @@ export function usedIds(doc: SceneDoc): Set<string> {
       if (element.group !== null) {
         used.add(element.group);
       }
+      if (element.kind === 'shape') {
+        if (element.from !== null) {
+          used.add(element.from.id);
+        }
+        if (element.to !== null) {
+          used.add(element.to.id);
+        }
+      }
     }
   }
   return used;
@@ -358,12 +417,13 @@ export function usedIds(doc: SceneDoc): Set<string> {
  * Rewrite every id and every id REFERENCE in `elements` through `mapping`.
  *
  * An element's own `id` maps when the mapping names it and is otherwise kept.
- * A reference (`labelOf`, `group`, and phase D's connector `from`/`to`) maps
- * when the mapping names its target and is otherwise DROPPED — a pasted label
- * must not keep pointing at the shape it was copied from, and a pasted
- * connector must not stay attached to a box it is no longer next to. The
- * clipboard builds the mapping from every id and tag in the fragment, so
- * within a pasted set every link survives and every link out of it is cut.
+ * A reference (`labelOf`, `group`, a connector's `from`/`to`) maps when the
+ * mapping names its target and is otherwise DROPPED — a pasted label must not
+ * keep pointing at the shape it was copied from, and a pasted connector must
+ * not stay attached to a box it is no longer next to (it arrives DETACHED,
+ * keeping its coordinates). The clipboard builds the mapping from every id and
+ * tag in the fragment, so within a pasted set every link survives and every
+ * link out of it is cut.
  */
 export function remapIds(
   elements: readonly SceneElement[],
@@ -371,6 +431,10 @@ export function remapIds(
 ): SceneElement[] {
   const ref = (value: string | null): string | null =>
     value === null ? null : (mapping.get(value) ?? null);
+  const end = (value: ConnectorEnd | null): ConnectorEnd | null => {
+    const id = value === null ? null : ref(value.id);
+    return id === null ? null : { id, port: value!.port };
+  };
   return elements.map((element) => {
     if (element.kind === 'raw') {
       return element;
@@ -379,6 +443,9 @@ export function remapIds(
     const group = ref(element.group);
     if (element.kind === 'text') {
       return { ...element, id, group, labelOf: ref(element.labelOf) };
+    }
+    if (element.kind === 'shape') {
+      return { ...element, id, group, from: end(element.from), to: end(element.to) };
     }
     return { ...element, id, group };
   });

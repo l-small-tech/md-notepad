@@ -6,8 +6,8 @@
  * is markup and dismissal wiring and nothing else. It decides nothing — the
  * adapter hands it a list of items already marked enabled or disabled from
  * the pure predicates in `core/whiteboard/{arrange,groups}.ts`, and each item
- * calls back into the adapter. That list is the extension point: phase D adds
- * its connector items by pushing onto it.
+ * calls back into the adapter. That list is the extension point: the connector
+ * items (route, Detach) were added by pushing onto it.
  *
  * Dismissal follows the ribbon popovers: a press anywhere outside, Escape, the
  * window resizing or losing focus. The stage keeps its own contextmenu event
@@ -21,6 +21,8 @@ export type ContextMenuItem =
       /** The keyboard shortcut, shown right-aligned. */
       readonly chord?: string;
       readonly disabled?: boolean;
+      /** A radio-style item that is the current choice (a tick in front). */
+      readonly checked?: boolean;
       readonly onSelect: () => void;
     }
   | 'separator';
@@ -85,8 +87,12 @@ export function openContextMenu(
     row.className = 'tab-menu-item';
     row.setAttribute('role', 'menuitem');
     row.disabled = item.disabled === true;
+    if (item.checked !== undefined) {
+      row.setAttribute('role', 'menuitemradio');
+      row.setAttribute('aria-checked', String(item.checked));
+    }
     const label = document.createElement('span');
-    label.textContent = item.label;
+    label.textContent = item.checked ? `✓ ${item.label}` : item.label;
     row.append(label);
     if (item.chord) {
       const chord = document.createElement('span');

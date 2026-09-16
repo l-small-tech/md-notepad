@@ -10,10 +10,17 @@
  * whole units.
  */
 
-import { boundsOfPoints, flattenPathData, shapeGeomRect, type Rect } from './geometry';
+import {
+  boundsOfPoints,
+  connectorPoints,
+  flattenPathData,
+  shapeGeomRect,
+  type Rect,
+} from './geometry';
 import {
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
+  isLineShape,
   type SceneDoc,
   type SceneElement,
 } from './scene';
@@ -34,7 +41,14 @@ export function elementBounds(element: SceneElement): Rect | null {
       return bounds === null ? null : padded(bounds, element.strokeWidth / 2);
     }
     case 'shape':
-      return padded(shapeGeomRect(element.shape, element.geom), element.strokeWidth / 2);
+      // A connector's box is its route's (an elbow bends outside the line
+      // between its ends); every other shape's is its geometry's.
+      return padded(
+        isLineShape(element)
+          ? (boundsOfPoints(connectorPoints(element)) ?? shapeGeomRect(element.shape, element.geom))
+          : shapeGeomRect(element.shape, element.geom),
+        element.strokeWidth / 2,
+      );
     case 'text': {
       // No DOM, so estimate: line height ≈ 1.2em, width ≈ 0.6em per character.
       // The content margin absorbs the error; exactness is not required here.

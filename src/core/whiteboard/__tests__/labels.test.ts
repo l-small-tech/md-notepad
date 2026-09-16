@@ -154,3 +154,24 @@ describe('withLabels', () => {
     expect(withLabels(doc, [REF(1)])).toEqual([REF(1)]);
   });
 });
+
+describe('a label on a connector', () => {
+  it('sits halfway along an ELBOW’s route, not between its ends', () => {
+    const elbow: SceneElement = {
+      ...makeShape('arrow', P(0, 0), P(100, 100), { color: INK, width: 2 })!,
+      from: { id: 'a', port: 'e' },
+      to: { id: 'b', port: 'w' },
+      route: 'elbow',
+    };
+    // Route: (0,0) → (50,0) → (50,100) → (100,100); length 200, halfway is (50,50).
+    const at = labelPosition(elbow, 20, 1)!;
+    expect(at.x).toBe(50);
+    expect(at.y).toBe(labelBaseline(50, 20, 1));
+    // The straight version centres between the ends — the same point here,
+    // but for a one-bend route it is not.
+    const bent: SceneElement = { ...elbow, to: { id: 'b', port: 'n' } };
+    // (0,0) → (100,0) → (100,100): halfway is the bend itself.
+    expect(labelPosition(bent, 20, 1)!.x).toBe(100);
+    expect(labelPosition({ ...bent, route: 'straight' }, 20, 1)!.x).toBe(50);
+  });
+});

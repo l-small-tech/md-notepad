@@ -275,3 +275,18 @@ describe('what the tools produce round-trips through the format', () => {
     expect(parsed).toEqual(highlighter);
   });
 });
+
+describe('connector routes', () => {
+  it('a line takes the route it was asked for and defaults to straight', () => {
+    const style = { color: PALETTE[0]!, width: 2 };
+    expect(makeShape('arrow', P(0, 0), P(50, 50), style)!.route).toBe('straight');
+    const elbow = makeShape('line', P(0, 0), P(50, 50), { ...style, route: 'elbow' })!;
+    expect(elbow.route).toBe('elbow');
+    expect(elbow.from).toBeNull();
+    expect(elbow.to).toBeNull();
+    // A box ignores the route: it is not a line.
+    expect(makeShape('rect', P(0, 0), P(50, 50), { ...style, route: 'elbow' })!.route).toBe(
+      'straight',
+    );
+  });
+});

@@ -26,13 +26,16 @@ Read these in order the first time, or jump straight to what you need:
    notes into folders and browsing them in the sidebar.
 6. **[Pictures in your notes](pictures-and-images.md)** — pasting screenshots
    and adding images.
-7. **[Settings](settings.md)** — every option explained, plus how updates work.
-8. **[Themes](themes.md)** — pick a theme, or make your own (an AI can write one
+7. **[Drawings and diagrams](diagrams.md)** — the whiteboard: sketching with a
+   pen, and drawing diagrams with shapes, labels, connectors and a grid. Every
+   drawing is a plain `.svg` you can put in a note.
+8. **[Settings](settings.md)** — every option explained, plus how updates work.
+9. **[Themes](themes.md)** — pick a theme, or make your own (an AI can write one
    for you).
-9. **[Terminal tabs](terminal.md)** — a shell (or an AI agent) beside your
-   notes: workspace colors that follow `cd`, and right-click helpers that type
-   the command for you.
-10. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
+10. **[Terminal tabs](terminal.md)** — a shell (or an AI agent) beside your
+    notes: workspace colors that follow `cd`, and right-click helpers that type
+    the command for you.
+11. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
 
 ## About this documentation
 

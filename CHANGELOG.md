@@ -30,9 +30,16 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   things line up with each other whether or not the grid is on: drag a box
   near another one's edge or centre and it lands on it, with a thin line
   showing what it lined up with. Hold Alt to ignore all of that for one drag;
-  freehand ink never snaps. Single-letter hotkeys pick tools (V, P, H, E, T,
-  R, O, L, A) — see `docs/keyboard-shortcuts.md`. Everything still saves as a
-  plain `.svg` that renders the same anywhere.
+  freehand ink never snaps. And lines and arrows are live connectors: start
+  or end one on a shape and it sticks — to the middle of a side, or aimed at
+  the centre — and follows the shape when it moves or resizes, landing on the
+  drawn edge of an ellipse or a diamond rather than the box around it. Select
+  an arrow to drag either end onto another shape (or off it); pick "Elbow" in
+  the style menu or the right-click menu for right-angled routing. Deleting a
+  shape leaves its arrows where they were. Single-letter hotkeys pick tools
+  (V, P, H, E, T, R, O, L, A) — see `docs/keyboard-shortcuts.md` and the new
+  `docs/diagrams.md`. Everything still saves as a plain `.svg` that renders
+  the same anywhere.
 
 - **Marp slide decks.** A markdown file with `marp: true` in its frontmatter
   is a slide deck: Split shows the slides beside the text (the one under your

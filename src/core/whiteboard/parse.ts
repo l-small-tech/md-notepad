@@ -26,13 +26,15 @@ import {
   type XmlElement,
   type XmlNode,
 } from './xml';
-import { boundsOfPoints, type Point } from './geometry';
+import { boundsOfPoints, flattenPathData, type Point } from './geometry';
 import {
   DEFAULT_BOARD_HEIGHT,
   DEFAULT_BOARD_WIDTH,
   isBoxShape,
+  isConnectorPort,
   SCENE_SCHEMA,
   type BoxShapeKind,
+  type ConnectorEnd,
   type ImageElement,
   type Layer,
   type LayerKind,
@@ -326,6 +328,19 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
       const box = boxGeometry(element, declared);
       return box === null ? null : shape(element, declared, box);
     }
+    if (name === 'path' && declared === 'elbow') {
+      // An elbow connector: the waypoints are derived, so only the first and
+      // last point of the path are geometry. Fewer than two and there is no
+      // line to recover — it stays raw rather than collapsing to a point.
+      const points = flattenPathData(attr(element, 'd') ?? '').flat();
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (first === undefined || last === undefined || points.length < 2) {
+        return null;
+      }
+      const kind: ShapeKind = attr(element, 'marker-end') ? 'arrow' : 'line';
+      return shape(element, kind, { x1: first.x, y1: first.y, x2: last.x, y2: last.y }, 'elbow');
+    }
   }
 
   if (name === 'path') {
@@ -447,8 +462,14 @@ function readModeled(source: string, element: XmlElement): SceneElement | null {
   return null;
 }
 
-function shape(element: XmlElement, kind: ShapeKind, geom: Record<string, number>): ShapeElement {
+function shape(
+  element: XmlElement,
+  kind: ShapeKind,
+  geom: Record<string, number>,
+  declaredRoute: 'straight' | 'elbow' = 'straight',
+): ShapeElement {
   const stroke = attr(element, 'stroke') ?? '#000000';
+  const line = kind === 'line' || kind === 'arrow';
   return {
     kind: 'shape',
     id: attr(element, 'wb:id'),
@@ -457,7 +478,9 @@ function shape(element: XmlElement, kind: ShapeKind, geom: Record<string, number
     geom,
     stroke,
     strokeWidth: numAttr(element, 'stroke-width', 1),
-    fill: attr(element, 'fill') ?? 'none',
+    // An elbow path says `fill="none"` for the renderer's sake; a line's fill
+    // is always none, so neither is read back.
+    fill: line ? 'none' : (attr(element, 'fill') ?? 'none'),
     opacity: optionalNum(element, 'opacity'),
     // Verbatim: a hand-authored pattern we cannot name is still a pattern, and
     // dropping it would rewrite somebody's file on the next save.
@@ -466,10 +489,36 @@ function shape(element: XmlElement, kind: ShapeKind, geom: Record<string, number
     // already been read as such.
     rx: kind === 'rect' ? optionalNum(element, 'rx') : null,
     markerStart: attr(element, 'marker-start') !== null,
+    // Connector ends and the route belong to the line family only; a `wb:from`
+    // on a box means nothing and is not carried.
+    from: line ? connectorEnd(attr(element, 'wb:from')) : null,
+    to: line ? connectorEnd(attr(element, 'wb:to')) : null,
+    route:
+      line && (declaredRoute === 'elbow' || attr(element, 'wb:route') === 'elbow')
+        ? 'elbow'
+        : 'straight',
     // The stroke slot only — a `wb-fN` token beside it names the FILL's slot,
     // which is always derivable from the literal fill and never stored.
     ...storedSlot(element, stroke, /^wb-c([0-7])$/),
   };
+}
+
+/**
+ * `"<id>:<port>"` → a connector end, or null for anything else. Split at the
+ * LAST colon (ids are alphanumeric, but a hand-typed one need not be); an
+ * unknown port makes the whole reference invalid rather than guessing one.
+ */
+function connectorEnd(raw: string | null): ConnectorEnd | null {
+  if (raw === null) {
+    return null;
+  }
+  const at = raw.lastIndexOf(':');
+  if (at <= 0) {
+    return null;
+  }
+  const id = raw.slice(0, at);
+  const port = raw.slice(at + 1);
+  return isConnectorPort(port) ? { id, port } : null;
 }
 
 /**

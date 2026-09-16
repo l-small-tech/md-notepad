@@ -15,7 +15,13 @@
 import type { Point } from './geometry';
 import { rectFromCorners } from './geometry';
 import { buildStrokePath } from './smoothing';
-import { isBoxShape, type ShapeElement, type StrokeElement, type TextElement } from './scene';
+import {
+  isBoxShape,
+  type ConnectorRoute,
+  type ShapeElement,
+  type StrokeElement,
+  type TextElement,
+} from './scene';
 import {
   dashArray,
   DEFAULT_CORNER_RADIUS,
@@ -113,6 +119,8 @@ export interface ShapeStyle {
    * disagree about what the next drag will produce.
    */
   readonly heads?: ArrowHeads;
+  /** Line family only: straight (the default) or an elbow route. */
+  readonly route?: ConnectorRoute;
 }
 
 /**
@@ -141,6 +149,11 @@ export function makeShape(
     rx: null,
     markerStart: false,
     opacity: null,
+    // Drawn free; the adapter attaches ends that landed on a host afterwards
+    // (`connectors.ts` → `attachConnector`).
+    from: null,
+    to: null,
+    route: 'straight',
   } as const;
 
   if (tool === 'line' || tool === 'arrow') {
@@ -154,6 +167,7 @@ export function makeShape(
       markerStart: heads === 'both',
       geom: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
       fill: NO_FILL,
+      route: style.route ?? 'straight',
     };
   }
 

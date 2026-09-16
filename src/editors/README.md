@@ -283,14 +283,16 @@ build instead of self-healing the session away.
   - `expanded(refs)` / `setSelection` — every selection the user makes is
     closed over groups and label ⇄ host links (`groups.ts`) before it is used.
     That is the hook: a group moves as one and a label follows its host
-    because they were selected, not because move knows about them. Phase D's
-    connectors do NOT expand (an arrow is not part of the box it points at).
+    because they were selected, not because move knows about them. Connectors
+    do NOT expand (an arrow is not part of the box it points at) — they follow
+    through `settle`.
   - `settle(doc)` — the pure passes every RECORDED commit runs before the
-    document becomes the next snapshot. Today that is `relayoutLabels`;
-    `reconnect` joins it there. Undo/redo skip it (a snapshot was settled when
-    it was recorded). A resize drag also runs `relayoutLabels` per frame after
-    scaling the selection MINUS its labels (`nonLabelRefs`), which is how a
-    stretched box keeps its type size.
+    document becomes the next snapshot: `reconnect`, then `relayoutLabels`
+    (a connector's label sits on its routed path, so the path settles first).
+    Undo/redo skip it (a snapshot was settled when it was recorded). A resize
+    drag runs the same `settle` per frame after scaling the selection MINUS
+    its labels (`nonLabelRefs`), and a move drag runs `reconnect` per frame,
+    so arrows and labels follow live rather than jumping on release.
   - `contextMenuItems()` — the right-click menu (`whiteboard-menu.ts`, plain
     DOM styled as a `.tab-menu`) is built from a list of items enabled by the
     pure predicates in `arrange.ts` / `groups.ts`. Later phases append to the
@@ -336,9 +338,9 @@ build instead of self-healing the session away.
     the worse lie), at the press for a shape's start and for text placement,
     in `moveDelta` (the selection's BOUNDS snap, not the pointer — what the
     user is aligning is the box they can see) and in `resizeTarget` (the
-    dragged handle, on the axes that handle actually moves). Phase D's ports
-    belong in `snapContext`'s candidate list, as guides with a smaller
-    threshold.
+    dragged handle, on the axes that handle actually moves). `beginSnap` also
+    collects every host's ports (`guidePorts`) into the context; `snapPoint`
+    lands on one within the threshold, both axes at once.
   - `snapOff` is Alt, read LIVE on every pointer event for the same reason
     `constrained` reads Shift live: people reach for it once they can see the
     snap pulling something where they did not mean it to go.
@@ -347,6 +349,40 @@ build instead of self-healing the session away.
     stored in the document. That commit passes `record: false` and
     `history.replace`, so the grid never costs an undo step, and `restored()`
     carries the live grid over anything undo or redo brings back.
+- **Live connectors (diagram phase D)** add no rendering of their own — an
+  attached arrow is still a `<line>` (or an elbow `<path>`) the board draws
+  from the file — only gestures, all deciding through `core/whiteboard/
+  connectors.ts`:
+  - Drawing a line/arrow: the press asks `connectorTarget` whether it landed
+    on a host (a port within `PORT_SNAP_RADIUS` wins, else the body under the
+    pointer with `nearestPort`); if so the gesture carries a `fromTarget` and
+    starts ON the outline. `connectorFor` (the line branch of `elementFor`)
+    asks the same question about the pointer every frame for `toTarget`, and
+    aims a `c` port exactly the way `reconnect` will — at the other host's
+    centre — so the preview IS the result. A host under the pointer beats
+    grid and guide snapping: you are pointing at the box. On release
+    `attachConnector` gives hosts their ids and re-aims the ends inside the
+    same undo step. The preview element carries placeholder ids (`'?'`) so
+    an elbow routes by its ports before anything has an id; they never reach
+    the file.
+  - A single selected line/arrow shows two round ENDPOINT handles instead of
+    the resize box (`singleConnector` in `renderChrome`, filled when that end
+    is attached), and `beginSelectDrag` checks them before anything else:
+    dragging one is the `'endpoint'` select-drag, whose frame is
+    `endpointFrame` → `setConnectorEnd` (attach to the host under the pointer,
+    or detach to a snapped point). Committed once on release like every other
+    select drag.
+  - `hoverTarget` / `matchedPort` ride along with `matchedGuides` through
+    `showGuides` and are cleared by `clearGuides`: the candidate host's four
+    ports are drawn with the chosen one lit (a ring at the landing point for a
+    `c` port), and a single selected host shows its ports faintly as an
+    invitation. All chrome, none of it in the file.
+  - Delete and the eraser go through `removeAndDetach`, so an arrow into a
+    deleted box stays behind, detached. The context menu gains the route
+    (Straight / Elbow, ticked via the new `checked` item flag) and Detach; the
+    ribbon's shape-style popover gains a Route row that, like every control
+    there, restyles the selection AND sets the tool default (`route` in the
+    store and `ToolSettings`).
 
 ## Testing expectations
 

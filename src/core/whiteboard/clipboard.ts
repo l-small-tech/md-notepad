@@ -14,8 +14,9 @@
  * Ids are REMAPPED on paste (`remapIds`): every `wb:id` and `wb:group` in the
  * fragment gets a fresh value in the target document, so a label pasted with
  * its host still labels the copy — and one pasted without it becomes plain
- * text rather than a second label on the original. Phase D's connectors get
- * the same treatment through the same function.
+ * text rather than a second label on the original. A connector's `from`/`to`
+ * get the same treatment through the same function: a pasted arrow stays
+ * attached only to a host that was pasted with it.
  */
 
 import { ensureDrawLayer, insertElements, type ElementRef } from './layers';

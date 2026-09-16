@@ -31,6 +31,7 @@ import {
   type ShapeTool,
   type ToolSettings,
 } from '../../core/whiteboard/tool-settings';
+import type { ConnectorRoute } from '../../core/whiteboard/scene';
 import type { DiagramView } from '../../core/diagram-zoom';
 import type {
   WhiteboardAdapter,
@@ -73,6 +74,8 @@ interface WhiteboardState {
    * cannot disagree.
    */
   heads: ArrowHeads;
+  /** Line tools: whether the next line is straight or an elbow. */
+  route: ConnectorRoute;
   /**
    * The shape the picker's button offers with one click — the last one used.
    * Ten shapes as ten buttons would double the ribbon's width; one button that
@@ -112,6 +115,7 @@ interface WhiteboardState {
   setFill: (fill: string) => void;
   setDash: (dash: DashStyle) => void;
   setHeads: (heads: ArrowHeads) => void;
+  setRoute: (route: ConnectorRoute) => void;
   setFingerDraws: (value: boolean | null) => void;
   notePenSeen: () => void;
   saveView: (tabId: string, view: DiagramView) => void;
@@ -145,6 +149,7 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   fill: NO_FILL,
   dash: 'solid',
   heads: 'end',
+  route: 'straight',
   lastShape: 'rect',
   fingerDraws: null,
   penSeen: false,
@@ -188,6 +193,7 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
         ? { tool: (heads === 'none' ? 'line' : 'arrow') as DrawTool }
         : {}),
     })),
+  setRoute: (route) => set({ route }),
   setPaletteKind: (kind) =>
     set((s) =>
       s.paletteKind === kind ? s : { paletteKind: kind, color: carryColor(s.color, kind) },
@@ -216,9 +222,9 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
 
 /** What the adapter reads at the start of every gesture. */
 export function currentToolSettings(): ToolSettings {
-  const { tool, color, width, fontSize, fontFamily, fill, dash, heads } =
+  const { tool, color, width, fontSize, fontFamily, fill, dash, heads, route } =
     whiteboardStore.getState();
-  return { tool, color, width, fontSize, fontFamily, fill, dash, heads };
+  return { tool, color, width, fontSize, fontFamily, fill, dash, heads, route };
 }
 
 export function drawStateFor(tabId: string | null): DrawTabState {

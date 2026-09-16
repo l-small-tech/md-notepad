@@ -17,7 +17,7 @@
 
 import { escapeAttr, escapeText } from './xml';
 import { contentViewBox } from './bounds';
-import { boxShapePoints, cylinderRimRy, shapeGeomRect } from './geometry';
+import { boxShapePoints, connectorPoints, cylinderRimRy, shapeGeomRect } from './geometry';
 import { BOARD_BACKGROUND_DARK, PALETTE, PALETTE_DARK, paletteSlot } from './tool-settings';
 import {
   createScene,
@@ -458,8 +458,34 @@ function shapeClassAttr(shape: ShapeElement, themed: boolean): string[] {
   return tokens.length === 0 ? [] : [`class="${tokens.join(' ')}"`];
 }
 
+/**
+ * A connector's `wb:from` / `wb:to` / `wb:route`, right after its identity and
+ * before the tag names its shape: the link is a fact about the element, the
+ * route a fact about how it is drawn. Every one of them emits nothing at its
+ * default — detached, straight — so a line drawn before connectors existed
+ * re-serializes byte-for-byte.
+ */
+function connectorAttrs(shape: ShapeElement): string[] {
+  const attrs: string[] = [];
+  if (shape.from !== null) {
+    attrs.push(`wb:from="${escapeAttr(`${shape.from.id}:${shape.from.port}`)}"`);
+  }
+  if (shape.to !== null) {
+    attrs.push(`wb:to="${escapeAttr(`${shape.to.id}:${shape.to.port}`)}"`);
+  }
+  if (shape.route === 'elbow') {
+    attrs.push('wb:route="elbow"');
+  }
+  return attrs;
+}
+
 function serializeShape(shape: ShapeElement, themed: boolean): string {
   const box = isBoxShape(shape.shape);
+  const line = shape.shape === 'line' || shape.shape === 'arrow';
+  // An elbow is a `<path>` — the ONLY way SVG 1.1 draws a polyline that can
+  // carry markers at its ends — with its waypoints derived here by the pure
+  // router, never stored: the same ends and ports always route the same way.
+  const elbow = line && shape.route === 'elbow';
   const tag = box
     ? shape.shape === 'cylinder'
       ? 'path'
@@ -468,16 +494,28 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
       ? 'rect'
       : shape.shape === 'ellipse'
         ? 'ellipse'
-        : 'line';
+        : elbow
+          ? 'path'
+          : 'line';
   const attrs: string[] = identityAttrs(shape);
-  if (box) {
-    // Without this a re-opened polygon is anonymous geometry and would come
-    // back as a RawElement — which is exactly what a foreign `<polygon>` does.
-    attrs.push(`wb:shape="${shape.shape}"`);
+  if (line) {
+    attrs.push(...connectorAttrs(shape));
+  }
+  if (box || elbow) {
+    // Without this a re-opened polygon (or elbow path) is anonymous geometry
+    // and would come back as a RawElement — which is exactly what a foreign
+    // `<polygon>` or `<path>` does.
+    attrs.push(`wb:shape="${elbow ? 'elbow' : shape.shape}"`);
   }
   attrs.push(...shapeClassAttr(shape, themed));
   if (box) {
     attrs.push(...boxShapeBody(shape));
+  } else if (elbow) {
+    const d = connectorPoints(shape)
+      .map((p, index) => `${index === 0 ? 'M' : 'L'}${num(p.x)},${num(p.y)}`)
+      .join(' ');
+    // A `<path>` fills black by default; an open route must say it is a line.
+    attrs.push(`d="${d}"`, 'fill="none"');
   } else {
     for (const key of GEOM_ORDER[shape.shape] ?? []) {
       attrs.push(`${key}="${num(shape.geom[key] ?? 0)}"`);
@@ -494,6 +532,9 @@ function serializeShape(shape: ShapeElement, themed: boolean): string {
     `stroke-width="${num(shape.strokeWidth)}"`,
     'stroke-linecap="round"',
   );
+  if (elbow) {
+    attrs.push('stroke-linejoin="round"');
+  }
   // Null dash emits nothing, which is what keeps every pre-dash file identical.
   if (shape.dash !== null) {
     attrs.push(`stroke-dasharray="${escapeAttr(shape.dash)}"`);

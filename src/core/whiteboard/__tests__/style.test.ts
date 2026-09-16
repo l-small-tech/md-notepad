@@ -178,3 +178,21 @@ describe('the Paper fill', () => {
     expect(PAPER_FILL).toBe(DEFAULT_BACKGROUND);
   });
 });
+
+describe('connector routes', () => {
+  it('reroutes a line and leaves its attachments alone', () => {
+    const attached: SceneElement = { ...arrow, from: { id: 'a', port: 'e' } };
+    const [out] = restyled([attached], { route: 'elbow' });
+    expect(out).toMatchObject({ route: 'elbow', from: { id: 'a', port: 'e' } });
+    // A box has no route to change.
+    expect(restyled([rect], { route: 'elbow' })[0]).toMatchObject({ route: 'straight' });
+  });
+
+  it('reports the route the lines agree on, and null when they do not', () => {
+    expect(selectionStyle(board(arrow), [REF(0)])!.route).toBe('straight');
+    const elbow: SceneElement = { ...line, route: 'elbow' };
+    expect(selectionStyle(board(elbow), [REF(0)])!.route).toBe('elbow');
+    expect(selectionStyle(board(arrow, elbow), [REF(0), REF(1)])!.route).toBeNull();
+    expect(selectionStyle(board(rect), [REF(0)])!.route).toBeNull();
+  });
+});

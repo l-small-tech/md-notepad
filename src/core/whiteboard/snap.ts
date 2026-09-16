@@ -29,11 +29,12 @@
  * content the editor does not own.
  */
 
-import type { Point, Rect } from './geometry';
+import { distance, type Point, type Rect } from './geometry';
 import { elementBounds } from './hit-test';
 import { isEditable, type ElementRef } from './layers';
 import { DEFAULT_GRID, gridSnaps, snapToGrid, type GridSettings } from './grid';
 import type { SceneDoc } from './scene';
+import { AXIS_PORTS, portPoints } from './connectors';
 
 export { SNAP_THRESHOLD } from './tool-settings';
 
@@ -59,6 +60,12 @@ export interface SnapContext {
   readonly grid: GridSettings;
   /** Candidate rectangles — see {@link guideRects}. */
   readonly guides: readonly Rect[];
+  /**
+   * Candidate PORTS (`guidePorts`): the four axis points of every host. A
+   * point within the threshold of one lands exactly on it, both axes at once
+   * — a port is a target, not a coincidence, so it beats the edge guides.
+   */
+  readonly ports: readonly Point[];
   /** Match distance in SCENE units (screen pixels ÷ zoom). */
   readonly threshold: number;
   /** False turns the whole thing off — Alt held, or a pen stroke. */
@@ -68,6 +75,8 @@ export interface SnapContext {
 export interface SnapPointResult {
   readonly point: Point;
   readonly guides: readonly GuideLine[];
+  /** The port the point landed on, when one won — the adapter highlights it. */
+  readonly port: Point | null;
 }
 
 export interface SnapRectResult {
@@ -82,9 +91,37 @@ export interface SnapRectResult {
 export const NO_SNAP: SnapContext = {
   grid: DEFAULT_GRID,
   guides: [],
+  ports: [],
   threshold: 0,
   enabled: false,
 };
+
+/**
+ * The ports a gesture may land on: the four axis points of every element
+ * that can host a connector, on editable layers, minus `exclude` (expanded,
+ * like {@link guideRects}). Computed once per gesture for the same reason.
+ */
+export function guidePorts(doc: SceneDoc, exclude: readonly ElementRef[] = []): Point[] {
+  const skip = new Set(exclude.map((ref) => `${ref.layerId}:${ref.index}`));
+  const points: Point[] = [];
+  for (const layer of doc.layers) {
+    if (!isEditable(layer)) {
+      continue;
+    }
+    layer.elements.forEach((element, index) => {
+      if (skip.has(`${layer.id}:${index}`)) {
+        return;
+      }
+      const ports = portPoints(element);
+      if (ports !== null) {
+        for (const port of AXIS_PORTS) {
+          points.push(ports[port]);
+        }
+      }
+    });
+  }
+  return points;
+}
 
 /**
  * The rectangles a gesture may align to: every shape, text and image on an
@@ -124,13 +161,28 @@ export function guideRects(doc: SceneDoc, exclude: readonly ElementRef[] = []): 
  */
 export function snapPoint(point: Point, context: SnapContext): SnapPointResult {
   if (!context.enabled) {
-    return { point, guides: [] };
+    return { point, guides: [], port: null };
+  }
+  // A port within reach takes the point whole. Nearest wins; strictly nearer
+  // so two coincident ports cannot flicker.
+  let port: Point | null = null;
+  let best = context.threshold;
+  for (const candidate of context.ports) {
+    const d = distance(point, candidate);
+    if (d <= best && (port === null || d < best)) {
+      port = candidate;
+      best = d;
+    }
+  }
+  if (port !== null) {
+    return { point: port, guides: [], port };
   }
   const x = snapAxis('x', [point.x], point.y, point.y, context);
   const y = snapAxis('y', [point.y], point.x, point.x, context);
   return {
     point: { x: point.x + x.delta, y: point.y + y.delta },
     guides: [...x.guides, ...y.guides],
+    port: null,
   };
 }
 

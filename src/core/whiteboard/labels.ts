@@ -27,9 +27,15 @@
 
 import { elementBounds } from './hit-test';
 import { insertElements, type ElementRef } from './layers';
-import { freshElementId, type SceneDoc, type SceneElement, type TextElement } from './scene';
+import {
+  freshElementId,
+  isLineShape,
+  type SceneDoc,
+  type SceneElement,
+  type TextElement,
+} from './scene';
 import { mapElements, resolveElement } from './select';
-import type { Point } from './geometry';
+import { connectorPoints, polylineMidpoint, type Point } from './geometry';
 
 /** Line pitch as a multiple of font size — the `dy="1.2em"` the tspans use. */
 export const LABEL_LINE_HEIGHT = 1.2;
@@ -64,8 +70,17 @@ export function canHostLabel(element: SceneElement): boolean {
   return element.kind === 'shape' || element.kind === 'image';
 }
 
-/** The point a host's labels centre on, or null for an element with no box. */
+/**
+ * The point a host's labels centre on, or null for an element with no box.
+ * A line's is the midpoint of its ROUTE — for a straight line that is the
+ * midpoint of its ends, for an elbow it is halfway along the bends, so the
+ * label sits on the drawn line rather than floating in the corner between
+ * them.
+ */
 export function hostCentre(host: SceneElement): Point | null {
+  if (isLineShape(host)) {
+    return polylineMidpoint(connectorPoints(host));
+  }
   const box = elementBounds(host);
   return box === null ? null : { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
@@ -136,7 +151,8 @@ export function withLabels(doc: SceneDoc, refs: readonly ElementRef[]): ElementR
 /**
  * Re-centre every label on its host. Returns the SAME document when nothing
  * moved, so a commit that touched no host costs no new snapshot. The adapter
- * runs this after every commit; phase D's `reconnect` joins it there.
+ * runs this after every commit, after `reconnect` (connectors.ts) — a
+ * connector's label sits on its routed path, so the path settles first.
  */
 export function relayoutLabels(doc: SceneDoc): SceneDoc {
   const hosts = new Map<string, SceneElement | null>();

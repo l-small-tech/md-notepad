@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_GRID, type GridSettings } from '../grid';
-import { guideRects, NO_SNAP, snapPoint, snapRect, type SnapContext } from '../snap';
+import { guidePorts, guideRects, NO_SNAP, snapPoint, snapRect, type SnapContext } from '../snap';
 import { createLayer, createScene, type SceneElement } from '../scene';
 import { makeShape, makeStroke, makeText } from '../tools';
 
 const GRID_ON: GridSettings = { show: true, size: 20, snap: true };
 
 function context(over: Partial<SnapContext> = {}): SnapContext {
-  return { grid: DEFAULT_GRID, guides: [], threshold: 6, enabled: true, ...over };
+  return { grid: DEFAULT_GRID, guides: [], ports: [], threshold: 6, enabled: true, ...over };
 }
 
 const box = (x: number, y: number, w = 40, h = 40) => ({ x, y, width: w, height: h });
@@ -158,5 +158,46 @@ describe('guideRects', () => {
   test('a bounds includes the stroke width, so edges match what you SEE', () => {
     const doc = createScene({ layers: [createLayer({ id: 'a', elements: [shape(100)] })] });
     expect(guideRects(doc)[0]!.x).toBe(99); // 100 minus half of a 2-unit nib
+  });
+});
+
+describe('ports', () => {
+  test('a port within the threshold takes the point on BOTH axes and beats the guides', () => {
+    const result = snapPoint(
+      { x: 104, y: 47 },
+      context({ ports: [{ x: 100, y: 50 }], guides: [box(103, 0)] }),
+    );
+    expect(result.point).toEqual({ x: 100, y: 50 });
+    expect(result.port).toEqual({ x: 100, y: 50 });
+    expect(result.guides).toEqual([]);
+  });
+
+  test('the nearest port wins, and one out of reach does nothing', () => {
+    const ports = [
+      { x: 100, y: 50 },
+      { x: 106, y: 50 },
+    ];
+    expect(snapPoint({ x: 105, y: 50 }, context({ ports })).port).toEqual({ x: 106, y: 50 });
+    const far = snapPoint({ x: 120, y: 50 }, context({ ports }));
+    expect(far.port).toBeNull();
+    expect(far.point).toEqual({ x: 120, y: 50 });
+  });
+
+  test('guidePorts lists every host’s four ports, minus the excluded ones', () => {
+    const doc = createScene({
+      layers: [
+        createLayer({
+          id: 'a',
+          elements: [
+            makeShape('rect', { x: 0, y: 0 }, { x: 100, y: 60 }, { color: '#1a1a1a', width: 2 })!,
+            makeShape('line', { x: 0, y: 0 }, { x: 100, y: 60 }, { color: '#1a1a1a', width: 2 })!,
+          ],
+        }),
+      ],
+    });
+    const ports = guidePorts(doc);
+    expect(ports).toHaveLength(4); // the line is not a host
+    expect(ports).toContainEqual({ x: 100, y: 30 });
+    expect(guidePorts(doc, [{ layerId: 'a', index: 0 }])).toEqual([]);
   });
 });

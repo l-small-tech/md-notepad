@@ -157,6 +157,10 @@ describe('a board written before shape styling', () => {
     // (an ellipse's own `rx` is geometry; only a rect's is a corner radius)
     expect(first).not.toMatch(/<rect[^>]* rx=/);
     expect(first).not.toContain(ARROW_START_MARKER_ID);
+    // Phase D: a line drawn free, straight, says nothing about connectors.
+    expect(first).not.toContain('wb:from=');
+    expect(first).not.toContain('wb:to=');
+    expect(first).not.toContain('wb:route');
   });
 });
 
@@ -298,6 +302,9 @@ describe('the box shapes', () => {
     dash: null,
     rx: null,
     markerStart: false,
+    from: null,
+    to: null,
+    route: 'straight',
   });
 
   it('round-trips every one of them, box and all', () => {
@@ -512,5 +519,90 @@ describe('createScene', () => {
     const source = serializeWhiteboard(createScene());
     expect(serializeWhiteboard(parseWhiteboard(source))).toBe(source);
     expect(parseWhiteboard(source).layers).toHaveLength(1);
+  });
+});
+
+describe('connectors (phase D)', () => {
+  const CONNECTED_ELEMENTS = [
+    '<rect wb:id="a" class="wb-c0" x="0" y="0" width="100" height="60" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>',
+    '<ellipse wb:id="b" class="wb-c0" cx="350" cy="130" rx="50" ry="30" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>',
+    // A straight connector is still a <line>; the links ride in wb: attributes.
+    '<line wb:from="a:e" wb:to="b:w" class="wb-c0" x1="100" y1="30" x2="300" y2="130" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" marker-end="url(#wb-arrow)"/>',
+    // An elbow is a <path> whose waypoints the router derived; it names itself
+    // so parse can tell it from foreign geometry.
+    '<path wb:from="a:s" wb:to="b:n" wb:route="elbow" wb:shape="elbow" class="wb-c0" d="M50,60 L50,80 L350,80 L350,100" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#wb-arrow)"/>',
+    // A free elbow line: no links, no marker, still routed.
+    '<path wb:route="elbow" wb:shape="elbow" class="wb-c0" d="M0,200 L50,200 L50,260 L100,260" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  ];
+
+  const CONNECTED = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:wb="urn:md-notepad:whiteboard" viewBox="0 0 400 300" width="400" height="300">
+  <g wb:layer="a1B2" wb:name="L">
+    ${CONNECTED_ELEMENTS.join('\n    ')}
+  </g>
+</svg>
+`;
+
+  it('re-emits every element byte-for-byte and reads the links back', () => {
+    const { first, second, doc } = stabilize(CONNECTED);
+    expect(second).toBe(first);
+    for (const element of CONNECTED_ELEMENTS) {
+      expect(first).toContain(element);
+    }
+    const [, , straight, elbow, free] = doc.layers[0]!.elements;
+    expect(straight).toMatchObject({
+      shape: 'arrow',
+      route: 'straight',
+      from: { id: 'a', port: 'e' },
+      to: { id: 'b', port: 'w' },
+      geom: { x1: 100, y1: 30, x2: 300, y2: 130 },
+    });
+    // The elbow's geometry is its first and last point; the bends are derived.
+    expect(elbow).toMatchObject({
+      shape: 'arrow',
+      route: 'elbow',
+      from: { id: 'a', port: 's' },
+      to: { id: 'b', port: 'n' },
+      geom: { x1: 50, y1: 60, x2: 350, y2: 100 },
+    });
+    expect(free).toMatchObject({
+      shape: 'line',
+      route: 'elbow',
+      from: null,
+      to: null,
+      geom: { x1: 0, y1: 200, x2: 100, y2: 260 },
+    });
+  });
+
+  it('routes an elbow from its ports when it writes the path', () => {
+    const doc = parseWhiteboard(CONNECTED);
+    const elbow = doc.layers[0]!.elements[3]!;
+    // Same ends, but leaving `a` sideways: one bend instead of two.
+    const bent = { ...elbow, from: { id: 'a', port: 'e' } } as SceneElement;
+    const out = serializeWhiteboard({ ...doc, layers: [{ ...doc.layers[0]!, elements: [bent] }] });
+    expect(out).toContain('d="M50,60 L350,60 L350,100"');
+  });
+
+  it('drops a reference it cannot read rather than guessing a port', () => {
+    const source = CONNECTED.replace('wb:from="a:e"', 'wb:from="a:x"').replace(
+      'wb:to="b:w"',
+      'wb:to="nocolon"',
+    );
+    const line = parseWhiteboard(source).layers[0]!.elements[2]!;
+    expect(line).toMatchObject({ from: null, to: null });
+    expect(serializeWhiteboard(parseWhiteboard(source))).not.toContain('wb:from="a:x"');
+  });
+
+  it('keeps an elbow path with no line in it as raw content', () => {
+    const doc = parseWhiteboard(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g wb:layer="aaaa" wb:name="L"><path wb:shape="elbow" d="M1,1"/></g></svg>`,
+    );
+    expect(doc.layers[0]!.elements[0]).toMatchObject({ kind: 'raw' });
+  });
+
+  it('ignores connector attributes on a shape that is not a line', () => {
+    const doc = parseWhiteboard(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g wb:layer="aaaa" wb:name="L"><rect wb:from="a:e" wb:route="elbow" x="0" y="0" width="5" height="5"/></g></svg>`,
+    );
+    expect(doc.layers[0]!.elements[0]).toMatchObject({ from: null, to: null, route: 'straight' });
   });
 });

@@ -15,7 +15,7 @@
 
 import type { ElementRef } from './layers';
 import { mapElements, resolveElement } from './select';
-import type { SceneDoc, SceneElement, ShapeElement } from './scene';
+import type { ConnectorRoute, SceneDoc, SceneElement, ShapeElement } from './scene';
 import {
   dashArray,
   dashStyleOf,
@@ -39,6 +39,8 @@ export interface StylePatch {
   readonly dash?: DashStyle;
   readonly markerStart?: boolean;
   readonly markerEnd?: boolean;
+  /** Lines only: straight or elbow. The attachments are untouched either way. */
+  readonly route?: ConnectorRoute;
   readonly rx?: number | null;
   readonly fontSize?: number;
   readonly fontFamily?: string | null;
@@ -122,6 +124,9 @@ export function restyleElement(element: SceneElement, patch: StylePatch): SceneE
         if (patch.markerStart !== undefined) {
           next.markerStart = patch.markerStart;
         }
+        if (patch.route !== undefined) {
+          next.route = patch.route;
+        }
       }
       return next;
     }
@@ -161,7 +166,9 @@ export interface SelectionStyle {
   readonly strokeWidth: number | null;
   readonly dash: DashStyle | null;
   readonly heads: ArrowHeads | null;
-  /** True when the selection holds a line or arrow — the heads control's gate. */
+  /** The route every line in the selection takes, or null when mixed / no lines. */
+  readonly route: ConnectorRoute | null;
+  /** True when the selection holds a line or arrow — the heads and route controls' gate. */
   readonly hasLine: boolean;
   /** True when the selection holds something with a fill (a closed shape). */
   readonly hasFill: boolean;
@@ -200,6 +207,7 @@ export function selectionStyle(doc: SceneDoc, refs: readonly ElementRef[]): Sele
   const widths: number[] = [];
   const dashes: (DashStyle | null)[] = [];
   const heads: ArrowHeads[] = [];
+  const routes: ConnectorRoute[] = [];
   for (const element of elements) {
     if (element.kind === 'stroke') {
       strokes.push(element.stroke);
@@ -214,6 +222,7 @@ export function selectionStyle(doc: SceneDoc, refs: readonly ElementRef[]): Sele
       dashes.push(dashStyleOf(element.dash, element.strokeWidth));
       if (element.shape === 'line' || element.shape === 'arrow') {
         heads.push(headsOf(element));
+        routes.push(element.route);
       } else {
         fills.push(element.fill);
       }
@@ -227,6 +236,7 @@ export function selectionStyle(doc: SceneDoc, refs: readonly ElementRef[]): Sele
     strokeWidth: agreed(widths),
     dash: agreed(dashes),
     heads: agreed(heads),
+    route: agreed(routes),
     hasLine: heads.length > 0,
     hasFill: fills.length > 0,
     hasText: elements.some((e) => e.kind === 'text'),

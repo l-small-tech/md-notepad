@@ -165,6 +165,32 @@
   fill: none;
 }
 
+/* A single selected connector's endpoint handles — round, so they read as
+   "a point you can move" rather than a corner of a box. A filled one is an
+   end that is attached to a shape. */
+.wb-sel-end {
+  fill: var(--bg);
+  stroke: var(--accent);
+}
+
+.wb-sel-end-attached {
+  fill: var(--accent);
+}
+
+/* A shape's four ports: faint while merely selected (an invitation), solid
+   and larger for the one a line end is about to land on. */
+.wb-port {
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-opacity: 0.45;
+}
+
+.wb-port-hot {
+  fill: var(--accent);
+  fill-opacity: 0.35;
+  stroke-opacity: 1;
+}
+
 /* The text tool's editor. Parented to the TRANSFORMED .wb-canvas, so the
    browser pans and zooms it with the board and the type size on screen is the
    type size that will be committed. */

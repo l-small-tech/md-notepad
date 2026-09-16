@@ -14,7 +14,9 @@
  */
 
 import {
+  boundsOfPoints,
   boxShapeOutline,
+  connectorPoints,
   distanceToPolyline,
   ellipseOutline,
   flattenPathData,
@@ -27,7 +29,7 @@ import {
   type Rect,
 } from './geometry';
 import { isEditable, type ElementRef } from './layers';
-import { isBoxShape, type SceneDoc, type SceneElement } from './scene';
+import { isBoxShape, isLineShape, type SceneDoc, type SceneElement } from './scene';
 
 /** Rough advance width of a glyph as a fraction of font size — text bounds only. */
 const TEXT_ADVANCE = 0.55;
@@ -60,9 +62,15 @@ export function elementBounds(element: SceneElement): Rect | null {
       };
     }
     case 'shape':
-      // Every shape's box comes from one decoder, so "what does it cover" and
-      // "what can I click" can never drift apart (`shapeGeomRect`).
-      return padRect(shapeGeomRect(element.shape, element.geom), element.strokeWidth / 2);
+      // A connector covers its ROUTE (an elbow's bends included); every other
+      // shape's box comes from one decoder, so "what does it cover" and "what
+      // can I click" can never drift apart (`shapeGeomRect`).
+      return padRect(
+        isLineShape(element)
+          ? (boundsOfPoints(connectorPoints(element)) ?? shapeGeomRect(element.shape, element.geom))
+          : shapeGeomRect(element.shape, element.geom),
+        element.strokeWidth / 2,
+      );
     case 'text': {
       // Estimated, not measured — core has no font metrics. Good enough to
       // erase or select by; phase 3's text tool measures for real in the DOM.
@@ -137,12 +145,8 @@ export function hitTestElement(element: SceneElement, point: Point, radius: numb
         }
         return distanceToPolyline(point, ellipseOutline(cx, cy, rx, ry)) <= reach;
       }
-      return (
-        distanceToPolyline(point, [
-          { x: g.x1 ?? 0, y: g.y1 ?? 0 },
-          { x: g.x2 ?? 0, y: g.y2 ?? 0 },
-        ]) <= reach
-      );
+      // A line or arrow: its route — the two endpoints, or the elbow's bends.
+      return distanceToPolyline(point, connectorPoints(element)) <= reach;
     }
     case 'text':
     case 'image': {
