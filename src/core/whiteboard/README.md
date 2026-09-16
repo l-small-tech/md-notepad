@@ -22,6 +22,8 @@ what a whiteboard *is* lives here.
 | `labels.ts` | text centred on a host element: layout, re-centring after every commit, attach |
 | `arrange.ts` | z-order within a layer, align, distribute |
 | `clipboard.ts` | copy/paste as a document fragment, with ids remapped on the way in |
+| `grid.ts` | the per-document grid, as typed accessors over the `wb:doc` metadata |
+| `snap.ts` | grid snapping, smart guides, and which one wins |
 | `input.ts` | pointer routing and palm rejection. **A dependency-free leaf** |
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
@@ -251,6 +253,61 @@ copy, one pasted without it becomes plain text rather than a second label on
 the original, and a group of one is dropped. Phase D's connector `from`/`to`
 get the same treatment through the same function — a reference the mapping
 does not name is cut, never kept.
+
+## The grid, and snapping (diagram phase C)
+
+### The grid is in the document and never in the picture
+
+`grid` in the `wb:doc` metadata — `{ show, size, snap }`, default hidden / 20 /
+snapping — because a grid is a property of the DIAGRAM, not of the app: a
+flowchart drawn on 20-unit squares should come back on 20-unit squares next
+week, on another machine, for whoever opens it. It is written the same way
+every field added since phase A is: only what differs from the default, in a
+fixed key order, so a default grid emits **no key at all** and a board written
+before this round re-serializes byte-for-byte. A corrupt value degrades field
+by field (`"grid": "on"` is simply not a grid), exactly like the rest of the
+blob.
+
+What is NOT in the file is the grid itself. The dots are chrome the adapter
+injects into the adopted DOM after adoption; nothing here knows their
+geometry and the serializer never sees them, so a board with the grid showing
+saves identically to the same board with it hidden. Rendering a grid into the
+file would trade the one big idea — a picture that renders identically
+anywhere — for a convenience the editor can provide for free.
+
+**Grid changes are not undo steps, and undo carries the current grid**
+(`carryGrid`). The history stack is whole documents and the grid rides in the
+document, so a plain undo would restore the grid the snapshot was taken with
+— turning the dots back on as a side effect of undoing a stroke. Showing a
+grid is a view decision, so every restore wears the live settings instead.
+Nothing else in the metadata gets this treatment, because nothing else in it
+is a view preference.
+
+### Guides beat the grid, and one axis knows nothing about the other
+
+`snap.ts` is per-axis and nothing else, which is why it is short: an x snap and
+a y snap are decided independently, so a box can land on a neighbour's left
+edge while its top stays exactly where the hand put it. Per axis the order is
+**smart guide within the threshold → grid → nothing**. A guide wins because
+aligning to a thing you can SEE beats aligning to an abstraction — that is the
+whole reason editors that already have a grid grew guides.
+
+The threshold arrives in scene units, converted by the adapter from
+`SNAP_THRESHOLD` screen pixels, so the pull feels identical at 30% and at 400%
+while the grid, which belongs to the drawing, scales with it. Candidates are
+the left/centre/right and top/middle/bottom of every other element's bounds,
+and a returned `GuideLine` carries the span of both the match and the
+moving geometry, so the adapter can draw a line that reaches them both rather
+than crossing the board.
+
+Two exclusions are decisions rather than omissions. **Freehand ink is never a
+guide**: a scribble's bounding box is not an alignment anyone meant, and
+flattening every path on the board per gesture would cost more than the
+feature is worth. **Locked, hidden and foreign layers are out** as well — you
+cannot move that content, so offering to line up with it is a promise about
+something the editor does not own. Ink does not snap either, for the same
+reason it is not a guide: a pen stroke pulled onto a lattice is not the stroke
+anyone drew.
 
 ## Text is a point and some lines — that is all `<text>` is
 

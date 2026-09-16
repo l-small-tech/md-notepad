@@ -25,9 +25,14 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   bring forward and send back (Ctrl+] / [), align and distribute from the
   board's new right-click menu, and group things so they select and move
   together (Ctrl+G). Double-click a shape to give it a label that stays
-  centred as the shape moves and resizes. Single-letter hotkeys pick tools
-  (V, P, H, E, T, R, O, L, A) — see `docs/keyboard-shortcuts.md`. Everything
-  still saves as a plain `.svg` that renders the same anywhere.
+  centred as the shape moves and resizes. There is a grid, too (G, or the ⊞
+  button — each board remembers its own spacing and whether it snaps), and
+  things line up with each other whether or not the grid is on: drag a box
+  near another one's edge or centre and it lands on it, with a thin line
+  showing what it lined up with. Hold Alt to ignore all of that for one drag;
+  freehand ink never snaps. Single-letter hotkeys pick tools (V, P, H, E, T,
+  R, O, L, A) — see `docs/keyboard-shortcuts.md`. Everything still saves as a
+  plain `.svg` that renders the same anywhere.
 
 - **Marp slide decks.** A markdown file with `marp: true` in its frontmatter
   is a slide deck: Split shows the slides beside the text (the one under your

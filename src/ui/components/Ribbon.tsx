@@ -42,7 +42,9 @@ import {
   ARROW_HEADS,
   DASH_LABELS,
   DASH_STYLES,
+  DEFAULT_GRID,
   FONT_FAMILIES,
+  GRID_SIZES,
   NO_FILL,
   PALETTE,
   paletteSlot,
@@ -55,6 +57,7 @@ import {
   type ArrowHeads,
   type DashStyle,
   type DrawTool,
+  type GridSettings,
   type ShapeTool,
 } from '../../core/whiteboard/tool-settings';
 // Also a dependency-free leaf (the same I8 constraint tool-settings is under):
@@ -841,6 +844,108 @@ function ShapeStyleMenu({
 }
 
 /**
+ * The grid: one toggle, plus a caret for the two things you set once and
+ * forget (whether it snaps, and how big it is).
+ *
+ * The strip has to fit a tablet and has no room for three controls, so the
+ * split follows what people actually do — the grid gets turned on and off all
+ * the time, its spacing almost never. Unlike every other control here, this
+ * one edits the DOCUMENT: the grid is stored in the file and comes back with
+ * it, which is why the state arrives per tab through `WhiteboardUiState`
+ * rather than living in the store.
+ */
+function GridControl({
+  grid,
+  onChange,
+}: {
+  grid: GridSettings;
+  onChange: (patch: Partial<GridSettings>) => void;
+}) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  return (
+    <>
+      <button
+        className="ribbon-btn"
+        aria-label={grid.show ? 'Hide the grid' : 'Show the grid'}
+        aria-pressed={grid.show}
+        data-active={grid.show || undefined}
+        title={
+          (grid.show
+            ? `Grid on, ${grid.size} units${grid.snap ? ', snapping' : ', not snapping'}. `
+            : 'Grid off. ') +
+          'Toggle with G. Hold Alt while dragging to ignore snapping; ' +
+          'things also snap to other shapes’ edges and centres.'
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onChange({ show: !grid.show })}
+      >
+        ⊞
+      </button>
+      <button
+        className="ribbon-btn ribbon-caret"
+        aria-label="Grid settings"
+        aria-haspopup="menu"
+        aria-expanded={anchor != null}
+        title="Grid settings — snapping and spacing"
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) =>
+          setAnchor((open) => (open ? null : e.currentTarget.getBoundingClientRect()))
+        }
+      >
+        ⌄
+      </button>
+      {anchor && (
+        <RibbonPopover
+          anchor={anchor}
+          label="Grid"
+          className="wb-style-menu"
+          onClose={() => setAnchor(null)}
+        >
+          <div className="wb-style-label">Snapping</div>
+          <div className="ribbon-swatches" role="group" aria-label="Snapping">
+            <button
+              className="ribbon-btn wb-grid-snap"
+              role="menuitemcheckbox"
+              aria-checked={grid.snap}
+              data-active={grid.snap || undefined}
+              title={
+                grid.snap
+                  ? 'Snapping on — shapes land on the grid and on other shapes’ edges. Alt ignores it for one drag.'
+                  : 'Snapping off — nothing is pulled anywhere.'
+              }
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onChange({ snap: !grid.snap })}
+            >
+              {grid.snap ? 'Snap on' : 'Snap off'}
+            </button>
+          </div>
+
+          <div className="wb-style-label">Spacing</div>
+          <div className="ribbon-swatches" role="group" aria-label="Grid spacing">
+            {GRID_SIZES.map((size) => (
+              <button
+                key={size}
+                className="ribbon-btn"
+                role="menuitemradio"
+                aria-checked={grid.size === size}
+                data-active={grid.size === size || undefined}
+                aria-label={`Grid ${size} units`}
+                title={`${size} units`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onChange({ size })}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </RibbonPopover>
+      )}
+    </>
+  );
+}
+
+/**
  * Center cluster for DRAW mode — the whiteboard's toolbar.
  *
  * The ribbon IS the draw toolbar (a Phase 1 QA decision): the same strip that
@@ -956,6 +1061,11 @@ function DrawControls({ tabId }: { tabId: string | null }) {
             markerStart: next === 'both',
           });
         }}
+      />
+
+      <GridControl
+        grid={tabState?.grid ?? DEFAULT_GRID}
+        onChange={(patch) => adapter?.setGrid(patch)}
       />
 
       <span className="ribbon-divider" role="separator" />

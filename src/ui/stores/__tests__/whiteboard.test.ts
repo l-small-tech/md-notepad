@@ -8,7 +8,12 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_COLOR, PALETTE, STATIC_PALETTE } from '../../../core/whiteboard/tool-settings';
+import {
+  DEFAULT_COLOR,
+  DEFAULT_GRID,
+  PALETTE,
+  STATIC_PALETTE,
+} from '../../../core/whiteboard/tool-settings';
 import { fingerDrawsEnabled } from '../../../core/whiteboard/input';
 import { carryColor, drawStateFor, whiteboardStore } from '../whiteboard';
 
@@ -115,6 +120,7 @@ describe('per-tab state', () => {
       activeLayerName: 'Layer 1',
       selectionCount: 3,
       selectionStyle: null,
+      grid: DEFAULT_GRID,
     });
     whiteboardStore.getState().clearTab('t1');
     expect(whiteboardStore.getState().viewByTab.t1).toBeUndefined();

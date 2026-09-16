@@ -100,6 +100,56 @@ export function hotkeyForTool(tool: DrawTool): string | null {
   return entry ? entry[0].toUpperCase() : null;
 }
 
+/**
+ * The grid toggle's key. Not in {@link TOOL_HOTKEYS} because it is not a tool —
+ * it changes the DOCUMENT, not what the next press draws — but it lives here
+ * with the rest of the vocabulary so the ribbon's tooltip and the adapter's
+ * keydown read it from one place.
+ */
+export const GRID_HOTKEY = 'g';
+
+/* ---------------------------------- grid ---------------------------------- */
+
+/**
+ * The grid, as stored per DOCUMENT in the `wb:doc` metadata (`grid.ts` reads
+ * and writes it). Per document rather than per app because a grid is a
+ * property of the diagram: a flowchart drawn on 20-unit squares should come
+ * back on 20-unit squares next week, on another machine, for another person.
+ */
+export interface GridSettings {
+  /** Draw the dots. Also the master switch for snapping — see `grid.ts`. */
+  readonly show: boolean;
+  /** Spacing in scene units. Any positive number; {@link GRID_SIZES} is the menu. */
+  readonly size: number;
+  /** Snap while the grid is shown. On by default: a visible grid you don't land on is decoration. */
+  readonly snap: boolean;
+}
+
+export const DEFAULT_GRID_SIZE = 20;
+
+/**
+ * Hidden, 20, snapping. A board written before the grid existed has no `grid`
+ * key and reads back as exactly this, which is also what a default-grid
+ * document emits — nothing.
+ */
+export const DEFAULT_GRID: GridSettings = { show: false, size: DEFAULT_GRID_SIZE, snap: true };
+
+/**
+ * The spacings the ribbon offers. Chosen so the common page geometries land on
+ * the grid: 8/16/32 for power-of-two layouts, 10/20/50 for round decimals, 25
+ * for quarters of 100. The tool accepts any positive number a hand edit puts
+ * in the file — this is a menu, not a validator.
+ */
+export const GRID_SIZES: readonly number[] = [8, 10, 16, 20, 25, 32, 50];
+
+/**
+ * How close, in SCREEN pixels, a smart guide has to be before it takes over.
+ * In screen pixels rather than scene units because it is a question about the
+ * user's hand, not about the drawing: the adapter divides by the zoom, so the
+ * pull feels the same at 30% and at 400%.
+ */
+export const SNAP_THRESHOLD = 6;
+
 /* --------------------------------- dashes --------------------------------- */
 
 export type DashStyle = 'solid' | 'dashed' | 'dotted';

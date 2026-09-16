@@ -311,8 +311,42 @@ build instead of self-healing the session away.
     existing text now keeps its id, group and `labelOf`.
   - Bare-letter tool hotkeys (`TOOL_HOTKEYS`) are looked up on the stage's
     keydown and reported UP through `onToolHotkey` — the ribbon's store owns
-    the tool, the adapter only asks. `G` is swallowed and reserved for phase
-    C's grid toggle.
+    the tool, the adapter only asks. `G` is its own branch, not a tool hotkey:
+    it changes the document, so the adapter handles it directly.
+- **The grid and snapping (diagram phase C)** add one piece of DOM the file
+  does not have, and one rule to every gesture:
+  - `renderGrid()` injects a `<pattern>`-based dot grid INTO the adopted board
+    `<svg>`, after adoption — the one place the on-screen board deliberately
+    differs from the file. It is safe by construction: `renderedText` comes
+    from `serializeWhiteboard(scene)`, never from this DOM, so the injected
+    nodes cannot reach the file. It goes inside the board rather than on the
+    overlay because the dots have to sit UNDER the ink and over the page rect
+    (the insertion point is "before the first `wb:layer` group"), and a grid
+    painted over a drawing is one you have to turn off to read it. The dot
+    radius is a constant number of SCREEN pixels, like the selection handles,
+    and an infinite board's grid rectangle is the visible pane — so both are
+    redone on every `setView`. Pattern ids carry a per-adapter suffix: every
+    tab's editor is mounted at once (I7), and `url(#…)` resolves document-wide.
+  - `beginSnap` / `snapContext` / `showGuides` / `clearGuides` are the seam.
+    Candidates are computed ONCE per gesture (they come from the drag's base
+    document, which does not change) and the selection is excluded EXPANDED,
+    so a group being dragged never offers its own members to line up with.
+    Snapping is applied in `elementFor` (a shape's end — snap first, then
+    `constrainShapeDrag`, because a Shift-square that is not square would be
+    the worse lie), at the press for a shape's start and for text placement,
+    in `moveDelta` (the selection's BOUNDS snap, not the pointer — what the
+    user is aligning is the box they can see) and in `resizeTarget` (the
+    dragged handle, on the axes that handle actually moves). Phase D's ports
+    belong in `snapContext`'s candidate list, as guides with a smaller
+    threshold.
+  - `snapOff` is Alt, read LIVE on every pointer event for the same reason
+    `constrained` reads Shift live: people reach for it once they can see the
+    snap pulling something where they did not mean it to go.
+  - The ribbon's grid button goes through `WhiteboardUiState.grid` and
+    `adapter.setGrid(patch)` — per TAB, unlike the tool, because the grid is
+    stored in the document. That commit passes `record: false` and
+    `history.replace`, so the grid never costs an undo step, and `restored()`
+    carries the live grid over anything undo or redo brings back.
 
 ## Testing expectations
 

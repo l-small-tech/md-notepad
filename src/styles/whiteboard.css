@@ -106,6 +106,30 @@
   background: none !important;
 }
 
+/* --------------------------------- the grid ------------------------------- */
+
+/* Injected INTO the adopted board `<svg>` after adoption, never into the file
+   (see `renderGrid` in editors/whiteboard.ts): the dots have to sit under the
+   ink and over the page rect, and a board that saved its own grid would stop
+   being a picture that renders identically anywhere.
+
+   The colour is the app's, not the board's palette — this is chrome, like the
+   selection box — and it is faint on purpose: a grid you notice while reading
+   the diagram is a grid that is too strong. */
+.wb-grid {
+  pointer-events: none;
+}
+
+.wb-grid-dot {
+  fill: var(--fg-muted, #888);
+  fill-opacity: 0.35;
+}
+
+/* Every fifth dot, so squares can be counted at a glance. */
+.wb-grid-dot-major {
+  fill-opacity: 0.6;
+}
+
 /* ---------------------------- selection chrome ---------------------------- */
 
 /* Drawn on the overlay in SCENE units — the adapter divides every size by the
@@ -130,6 +154,15 @@
 .wb-sel-handle {
   fill: var(--bg);
   stroke: var(--accent);
+}
+
+/* A matched smart guide, live only while the drag that matched it is. Thin and
+   accent-coloured: it is an explanation ("this edge lines up with that one"),
+   not a thing on the board. */
+.wb-guide {
+  stroke: var(--accent);
+  stroke-opacity: 0.9;
+  fill: none;
 }
 
 /* The text tool's editor. Parented to the TRANSFORMED .wb-canvas, so the

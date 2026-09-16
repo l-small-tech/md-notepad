@@ -128,11 +128,28 @@ import {
   targetLayerId,
   type ElementRef,
 } from '../core/whiteboard/layers';
-import { DEFAULT_BACKGROUND } from '../core/whiteboard/scene';
+import { DEFAULT_BACKGROUND, WB_NAMESPACE } from '../core/whiteboard/scene';
 import { createOneEuroFilter } from '../core/whiteboard/smoothing';
+import {
+  carryGrid,
+  DEFAULT_GRID,
+  gridOf,
+  setGrid as setDocGrid,
+  type GridSettings,
+} from '../core/whiteboard/grid';
+import {
+  guideRects,
+  NO_SNAP,
+  snapPoint,
+  snapRect,
+  type GuideLine,
+  type SnapContext,
+} from '../core/whiteboard/snap';
 import {
   constrainShapeDrag,
   ERASER_RADIUS,
+  GRID_HOTKEY,
+  SNAP_THRESHOLD,
   HANDLE_HIT_RADIUS,
   HANDLE_SIZE,
   isShapeTool,
@@ -181,7 +198,7 @@ import {
   type InputState,
   type PointerInfo,
 } from '../core/whiteboard/input';
-import type { Point, Rect } from '../core/whiteboard/geometry';
+import { padRect, type Point, type Rect } from '../core/whiteboard/geometry';
 import {
   clampDiagramScale,
   DIAGRAM_ZOOM_STEP,
@@ -227,6 +244,13 @@ export interface WhiteboardUiState {
    * {@link SelectionStyle} is already "the common value, or null".
    */
   readonly selectionStyle: SelectionStyle | null;
+  /**
+   * This DOCUMENT's grid (`core/whiteboard/grid.ts`) — the ribbon's grid
+   * button, its snap toggle and its size menu. Per tab rather than global,
+   * unlike the tool, because the grid belongs to the diagram: it is stored in
+   * the file and comes back with it.
+   */
+  readonly grid: GridSettings;
 }
 
 /**
@@ -351,6 +375,13 @@ export interface WhiteboardAdapter extends EditorAdapter {
    * step per click; a no-op when nothing is selected.
    */
   restyleSelection(patch: StylePatch): void;
+  /**
+   * Change this document's grid — show/hide (the ribbon's button and G), the
+   * snap toggle, the spacing. Committed WITHOUT an undo step: showing the grid
+   * is not an edit to the drawing, and a Ctrl+Z that turns the dots back on is
+   * the kind of surprise that makes people stop using undo.
+   */
+  setGrid(patch: Partial<GridSettings>): void;
   /**
    * Open the scan screen. Defaults to the camera where there is one and the
    * file picker otherwise; a {@link ScanPhoto} skips acquisition entirely,
@@ -481,6 +512,9 @@ const WB_THEME_VARS = [
   '--wb-c7',
 ];
 
+/** Counts adapter instances, so each board's grid `<pattern>` ids are its own. */
+let gridInstances = 0;
+
 export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): WhiteboardAdapter {
   let root: HTMLDivElement | null = null;
   let stage: HTMLDivElement | null = null;
@@ -537,6 +571,31 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let textEdit: TextEdit | null = null;
   let viewReportTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /* ------------------------------ phase C state --------------------------- */
+
+  /**
+   * Alt, read LIVE from every pointer event for the same reason Shift is:
+   * people reach for it once they can SEE the thing being pulled somewhere
+   * they didn't mean. It suppresses snapping for as long as it is held.
+   */
+  let snapOff = false;
+  /**
+   * The rectangles the gesture in flight may align to, computed ONCE when it
+   * starts. They come from the drag's base document and the selection cannot
+   * change mid-drag, so recomputing them per frame would buy nothing and cost
+   * a pass over the board.
+   */
+  let gestureGuides: readonly Rect[] = [];
+  /** The guides currently MATCHED — drawn as chrome, cleared on release. */
+  let matchedGuides: readonly GuideLine[] = [];
+  /**
+   * Pattern ids have to be unique across the DOCUMENT, not the board: every
+   * tab's editor is mounted at once (I7), so two boards showing a grid would
+   * otherwise both resolve `url(#wb-grid-minor)` to whichever was adopted
+   * first — and paint the other board's spacing.
+   */
+  const gridIdSuffix = `${++gridInstances}`;
+
   /* ------------------------------ view plumbing --------------------------- */
 
   function applyView(): void {
@@ -554,6 +613,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // Selection handles are drawn in scene units at a constant SCREEN size, so
     // every zoom change has to redraw them.
     renderChrome();
+    // Same for the grid's dots — and an infinite board's grid rectangle is the
+    // visible pane, which a pan moves.
+    renderGrid();
     reportViewSoon();
   }
 
@@ -784,6 +846,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       }
       applyView();
     }
+    // Last: the grid is sized against the view this render settled on.
+    renderGrid();
   }
 
   /**
@@ -807,6 +871,88 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         }
       }
     }
+  }
+
+  /* ---------------------------------- grid -------------------------------- */
+
+  /**
+   * Paint the dot grid INTO the adopted board `<svg>`, after adoption.
+   *
+   * This is the one place the on-screen board deliberately differs from the
+   * file, and the shape of it is the point: the model never learns about the
+   * grid's geometry, the serializer never sees it, and `renderedText` — the
+   * thing that gets written back — is produced from the scene, not from this
+   * DOM. So a board with the grid showing saves exactly like the same board
+   * with it hidden, minus one metadata key.
+   *
+   * It goes inside the board (rather than on the overlay, which would be
+   * simpler) because the dots have to sit BENEATH the ink and above the page:
+   * a grid painted over a drawing is a grid you have to turn off to read it.
+   *
+   * Two things are sized in screen pixels and therefore have to be redone on
+   * every zoom: the dot radius (constant on screen, like the selection
+   * handles) and — for an infinite board, whose viewBox hugs the content —
+   * the rectangle the pattern fills, which is the visible pane.
+   */
+  function renderGrid(): void {
+    const board = canvas?.firstElementChild;
+    if (!(board instanceof SVGSVGElement)) {
+      return;
+    }
+    board.querySelector('[data-wb-grid]')?.remove();
+    if (!scene) {
+      return;
+    }
+    const grid = gridOf(scene);
+    if (!grid.show || grid.size <= 0) {
+      return;
+    }
+    // A page board's grid stops at the page; an infinite one's has to cover
+    // whatever is on screen, which moves with every pan and zoom.
+    const area =
+      scene.background === null
+        ? padRect(visibleSceneRect(), grid.size * 5)
+        : {
+            x: scene.viewBox[0],
+            y: scene.viewBox[1],
+            width: scene.viewBox[2],
+            height: scene.viewBox[3],
+          };
+    const unit = sceneUnitsPerPixel();
+    const minor = `wb-grid-minor-${gridIdSuffix}`;
+    const major = `wb-grid-major-${gridIdSuffix}`;
+    const step = grid.size;
+    // The pattern's ORIGIN is the scene origin, never the rect's corner, so
+    // the dots sit on the same lines the snapping rounds to. All FOUR corners
+    // are drawn because a pattern clips its tile: one circle at (0,0) would
+    // paint a quarter of a dot, and the four quarters reassemble it.
+    const dots = (id: string, spacing: number, radius: number, cls: string): string =>
+      `<pattern id="${id}" patternUnits="userSpaceOnUse" x="0" y="0" ` +
+      `width="${spacing}" height="${spacing}">` +
+      `<circle class="${cls}" cx="0" cy="0" r="${radius}"/>` +
+      `<circle class="${cls}" cx="${spacing}" cy="0" r="${radius}"/>` +
+      `<circle class="${cls}" cx="0" cy="${spacing}" r="${radius}"/>` +
+      `<circle class="${cls}" cx="${spacing}" cy="${spacing}" r="${radius}"/>` +
+      `</pattern>`;
+    const fill = (id: string): string =>
+      `<rect x="${area.x}" y="${area.y}" width="${area.width}" height="${area.height}" ` +
+      `fill="url(#${id})"/>`;
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('data-wb-grid', '');
+    group.setAttribute('class', 'wb-grid');
+    group.innerHTML =
+      `<defs>${dots(minor, step, unit, 'wb-grid-dot')}` +
+      // Every fifth dot is heavier, which is what turns a field of dots into
+      // something you can count squares on.
+      `${dots(major, step * 5, unit * 1.75, 'wb-grid-dot wb-grid-dot-major')}</defs>` +
+      fill(minor) +
+      fill(major);
+    // Before the first LAYER, so the dots are under the ink and over the page
+    // rect, the palette style block and anything the file brought with it.
+    const firstLayer = [...board.children].find(
+      (child) => child.hasAttributeNS(WB_NAMESPACE, 'layer') || child.hasAttribute('wb:layer'),
+    );
+    board.insertBefore(group, firstLayer ?? null);
   }
 
   /** Draw (or clear) the element being dragged, on the transparent overlay. */
@@ -862,6 +1008,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     }
     const unit = sceneUnitsPerPixel();
     const parts: string[] = [];
+
+    // Smart guides, drawn only while the gesture that matched them is live.
+    // They span the matched element AND the thing being dragged, so the line
+    // shows what it lined up WITH rather than crossing the whole board.
+    for (const guide of matchedGuides) {
+      const [x1, y1, x2, y2] =
+        guide.axis === 'x'
+          ? [guide.at, guide.from, guide.at, guide.to]
+          : [guide.from, guide.at, guide.to, guide.at];
+      parts.push(
+        `<line class="wb-guide" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
+          `stroke-width="${unit}"/>`,
+      );
+    }
 
     if (selectDrag?.kind === 'marquee') {
       const box = marqueeRect(selectDrag.start, selectDrag.current);
@@ -919,6 +1079,59 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     notifyState();
   }
 
+  /* -------------------------------- snapping ------------------------------ */
+
+  /**
+   * Remember what the gesture about to start may align to. Called once, at the
+   * press: the candidates come from the drag's base document and the selection
+   * cannot change mid-drag, so this is the only moment they can change.
+   */
+  function beginSnap(doc: SceneDoc | null, exclude: readonly ElementRef[]): void {
+    gestureGuides = doc ? guideRects(doc, exclude) : [];
+    matchedGuides = [];
+  }
+
+  /**
+   * The snapping rules in force right now. Alt turns them off wholesale; the
+   * threshold is {@link SNAP_THRESHOLD} SCREEN pixels converted to scene units,
+   * so the pull feels the same at every zoom while the grid, a property of the
+   * drawing, does not.
+   */
+  function snapContext(): SnapContext {
+    if (!scene || snapOff) {
+      return NO_SNAP;
+    }
+    return {
+      grid: gridOf(scene),
+      guides: gestureGuides,
+      threshold: SNAP_THRESHOLD * sceneUnitsPerPixel(),
+      enabled: true,
+    };
+  }
+
+  /** Record what a snap matched, and redraw the chrome if it changed. */
+  function showGuides(guides: readonly GuideLine[]): void {
+    const same =
+      guides.length === matchedGuides.length &&
+      guides.every((g, i) => {
+        const was = matchedGuides[i]!;
+        return g.axis === was.axis && g.at === was.at && g.from === was.from && g.to === was.to;
+      });
+    matchedGuides = guides;
+    if (!same) {
+      renderChrome();
+    }
+  }
+
+  /** Every gesture ends the same way: no guides on screen. */
+  function clearGuides(): void {
+    if (matchedGuides.length > 0) {
+      matchedGuides = [];
+      renderChrome();
+    }
+    gestureGuides = [];
+  }
+
   /* --------------------------------- editing ------------------------------ */
 
   function notifyState(): void {
@@ -934,6 +1147,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       activeLayerName: layer?.name ?? null,
       selectionCount: selection.length,
       selectionStyle: scene === null ? null : selectionStyle(scene, selection),
+      grid: scene === null ? DEFAULT_GRID : gridOf(scene),
     };
   }
 
@@ -964,6 +1178,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    */
   function settle(doc: SceneDoc): SceneDoc {
     return relayoutLabels(doc);
+  }
+
+  /**
+   * A snapshot on its way back out of the history, wearing the CURRENT grid.
+   *
+   * The stack holds whole documents, and the grid rides in the document, so a
+   * plain undo would restore the grid the snapshot was taken with — turning
+   * the dots back on (or off) as a side effect of undoing a stroke. Showing a
+   * grid is not an edit, so it must not be undoable; carrying the live
+   * settings across every restore is what makes that true. Nothing else in the
+   * metadata gets this treatment, because nothing else is a view preference.
+   */
+  function restored(doc: SceneDoc): SceneDoc {
+    return scene === null ? doc : carryGrid(doc, scene);
   }
 
   /**
@@ -1040,6 +1268,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // A pointer landing anywhere commits whatever was being typed, before it
     // can start a gesture that would make the caret's position meaningless.
     commitText();
+    snapOff = event.altKey;
 
     const info = pointerInfo(event);
     if (info.pointerType === 'pen') {
@@ -1095,11 +1324,20 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (tool === 'text') {
-      openTextEditor(point, null);
+      // Text lands on the grid too — a column of labels that each start a
+      // pixel off is the thing a grid exists to prevent.
+      beginSnap(scene, []);
+      const at = snapPoint(point, snapContext()).point;
+      clearGuides();
+      openTextEditor(at, null);
       event.preventDefault();
       return;
     }
 
+    // Ink never snaps — a pen stroke pulled onto a lattice is not the stroke
+    // anyone drew. Shapes do, and their guides are fixed for the whole drag.
+    beginSnap(isShapeTool(tool) ? scene : null, []);
+    const start = isShapeTool(tool) ? snapPoint(point, snapContext()).point : point;
     const filter = createOneEuroFilter();
     gesture = {
       pointerId: event.pointerId,
@@ -1117,7 +1355,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       constrained: event.shiftKey,
       points: [filter(point, event.timeStamp)],
       filter,
-      start: point,
+      start,
       working: tool === 'eraser' ? scene : null,
       erased: false,
     };
@@ -1131,6 +1369,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   function onPointerMove(event: PointerEvent): void {
     stagePositions.set(event.pointerId, stagePoint(event));
+    // Live, like Shift: Alt is reached for once you can see the snap pulling
+    // something where you did not mean it to go.
+    snapOff = event.altKey;
 
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       updateSelectDrag(scenePoint(event));
@@ -1180,6 +1421,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   }
 
   function onPointerUp(event: PointerEvent): void {
+    snapOff = event.altKey;
     if (selectDrag && event.pointerId === selectDrag.pointerId) {
       finishSelectDrag(scenePoint(event));
     } else if (gesture && event.pointerId === gesture.pointerId) {
@@ -1218,6 +1460,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       };
       const handle = handleAt(outline, point, HANDLE_HIT_RADIUS * unit);
       if (handle) {
+        beginSnap(scene, selection);
         selectDrag = {
           kind: 'resize',
           pointerId: event.pointerId,
@@ -1247,6 +1490,9 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
           ? selection
           : [hit];
       setSelection(next);
+      // AFTER the selection settles: what is being dragged must never offer
+      // itself as something to line up with.
+      beginSnap(scene, selection);
       selectDrag = {
         kind: 'move',
         pointerId: event.pointerId,
@@ -1287,26 +1533,63 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (selectDrag.kind === 'move') {
-      const dx = point.x - selectDrag.start.x;
-      const dy = point.y - selectDrag.start.y;
+      const { dx, dy } = moveDelta(selectDrag, point);
       selectDrag.moved = selectDrag.moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
       // Re-derive from the drag's OWN starting document every frame, so the
       // move is one transform rather than an accumulating pile of them.
       render(serializeWhiteboard(translateElements(selectDrag.base, selection, dx, dy)), false);
       return;
     }
-    const target = resizeRect(
-      selectDrag.from,
-      selectDrag.handle,
-      point.x - selectDrag.start.x,
-      point.y - selectDrag.start.y,
-      MIN_SELECTION_SIZE,
-    );
+    const target = resizeTarget(selectDrag, point);
     selectDrag.moved = true;
     render(
       serializeWhiteboard(resized(selectDrag.base, selectDrag.scaled, selectDrag.from, target)),
       false,
     );
+  }
+
+  /**
+   * How far a move drag actually moves: the raw delta, plus whatever snapping
+   * adds. The SELECTION'S BOUNDS are what snaps — its edges and centre against
+   * the guides, its top-left against the grid — not the pointer, because what
+   * the user is lining up is the box they can see.
+   */
+  function moveDelta(
+    drag: Extract<SelectDrag, { kind: 'move' }>,
+    point: Point,
+  ): { dx: number; dy: number } {
+    let dx = point.x - drag.start.x;
+    let dy = point.y - drag.start.y;
+    const box = selectionBounds(drag.base, selection);
+    if (box) {
+      const snapped = snapRect({ ...box, x: box.x + dx, y: box.y + dy }, snapContext());
+      dx += snapped.dx;
+      dy += snapped.dy;
+      showGuides(snapped.guides);
+    }
+    return { dx, dy };
+  }
+
+  /**
+   * The box a resize drag is aiming at. The DRAGGED HANDLE is what snaps —
+   * only on the axes it actually moves, so dragging the north edge cannot
+   * summon a vertical guide it is not going to honour.
+   */
+  function resizeTarget(drag: Extract<SelectDrag, { kind: 'resize' }>, point: Point): Rect {
+    const origin = handlePoint(drag.from, drag.handle);
+    const raw = {
+      x: origin.x + (point.x - drag.start.x),
+      y: origin.y + (point.y - drag.start.y),
+    };
+    const horizontal = /[ew]/.test(drag.handle);
+    const vertical = /[ns]/.test(drag.handle);
+    const snapped = snapPoint(raw, snapContext());
+    const at = {
+      x: horizontal ? snapped.point.x : raw.x,
+      y: vertical ? snapped.point.y : raw.y,
+    };
+    showGuides(snapped.guides.filter((guide) => (guide.axis === 'x' ? horizontal : vertical)));
+    return resizeRect(drag.from, drag.handle, at.x - origin.x, at.y - origin.y, MIN_SELECTION_SIZE);
   }
 
   /** A resize: scale everything but the labels, then re-centre the labels. */
@@ -1329,31 +1612,28 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return;
     }
     if (drag.kind === 'marquee') {
+      clearGuides();
       renderChrome();
       notifyState();
       return;
     }
     if (!drag.moved || !scene) {
+      clearGuides();
       renderChrome();
       return;
     }
     // The board already SHOWS the result (every frame painted it); committing
-    // is what makes it one undo step and schedules the write-back.
-    const next =
-      drag.kind === 'move'
-        ? translateElements(drag.base, selection, point.x - drag.start.x, point.y - drag.start.y)
-        : resized(
-            drag.base,
-            drag.scaled,
-            drag.from,
-            resizeRect(
-              drag.from,
-              drag.handle,
-              point.x - drag.start.x,
-              point.y - drag.start.y,
-              MIN_SELECTION_SIZE,
-            ),
-          );
+    // is what makes it one undo step and schedules the write-back. The same
+    // snapping the last frame applied is recomputed here, so what lands is
+    // what was on screen.
+    let next: SceneDoc;
+    if (drag.kind === 'move') {
+      const { dx, dy } = moveDelta(drag, point);
+      next = translateElements(drag.base, selection, dx, dy);
+    } else {
+      next = resized(drag.base, drag.scaled, drag.from, resizeTarget(drag, point));
+    }
+    clearGuides();
     if (next === drag.base) {
       render(serializeWhiteboard(drag.base), false);
       return;
@@ -1612,9 +1892,15 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       return makeStroke(active.tool, active.points, active.color, active.width);
     }
     if (isShapeTool(active.tool)) {
-      // Shift is read LIVE, not from the press: people reach for it once they
-      // can see the shape is not square yet.
-      const corner = active.constrained ? constrainShapeDrag(active.tool, active.start, end) : end;
+      // Snap FIRST, constrain second. Shift is a promise about the shape ("this
+      // is a square"), snapping is a promise about where it sits; a square that
+      // is not square would be the worse lie, so the constraint gets the last
+      // word and the snapped corner is only where the drag was aiming.
+      const snapped = snapPoint(end, snapContext());
+      showGuides(active.constrained ? [] : snapped.guides);
+      const corner = active.constrained
+        ? constrainShapeDrag(active.tool, active.start, snapped.point)
+        : snapped.point;
       return makeShape(active.tool, active.start, corner, active.shapeStyle);
     }
     return null;
@@ -1648,6 +1934,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     gesture = null;
     setPreview(null);
     if (!active || !scene) {
+      clearGuides();
       return;
     }
     // Remember when a FINGER last put something down: if a pen lands in the
@@ -1656,12 +1943,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       lastTouchCommitAt = performance.now();
     }
     if (active.tool === 'eraser') {
+      clearGuides();
       if (active.erased && active.working) {
         commit(active.working);
       }
       return;
     }
     const element = elementFor(active, end);
+    clearGuides();
     if (!element) {
       return;
     }
@@ -1677,6 +1966,7 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // needs the same restore-from-the-last-commit treatment as an erase.
     const wasDragging = selectDrag !== null && selectDrag.kind !== 'marquee' && selectDrag.moved;
     selectDrag = null;
+    clearGuides();
     if (!gesture) {
       if (wasDragging && history) {
         render(serializeWhiteboard(history.current()), false);
@@ -1765,10 +2055,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         adapter.refreshTool();
         return;
       }
-      if (event.key.toLowerCase() === 'g') {
-        // Reserved: phase C toggles the grid here (`TOOL_HOTKEYS` leaves G out
-        // for exactly this). Swallowed now so it cannot become a tool later.
+      if (event.key.toLowerCase() === GRID_HOTKEY) {
+        // Not a tool hotkey — it changes the document, not the next press —
+        // which is why `TOOL_HOTKEYS` leaves G out and this is its own branch.
         event.preventDefault();
+        if (scene) {
+          adapter.setGrid({ show: !gridOf(scene).show });
+        }
       }
       return;
     }
@@ -2256,14 +2549,14 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         // so stepping through the timeline drops it rather than pointing it at
         // whatever now happens to sit at those positions.
         selection = [];
-        commit(history.undo(), false);
+        commit(restored(history.undo()), false);
       }
     },
 
     redo() {
       if (history?.canRedo()) {
         selection = [];
-        commit(history.redo(), false);
+        commit(restored(history.redo()), false);
       }
     },
 
@@ -2404,6 +2697,21 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       // selection — and the box around it — stay exactly where they were, and
       // `commit`'s own re-render reports the new style back to the ribbon.
       commit(restyleElements(scene, selection, patch));
+    },
+
+    setGrid(patch) {
+      if (!scene) {
+        return;
+      }
+      const next = setDocGrid(scene, patch);
+      if (next === scene) {
+        return;
+      }
+      // `record: false` — no undo step. `history.replace` keeps the timeline's
+      // CURRENT entry in step so an undo-then-redo doesn't resurrect the old
+      // setting either; older snapshots are handled by `restored`.
+      history?.replace(next);
+      commit(next, false);
     },
 
     applyTextStyle(style) {

@@ -16,6 +16,7 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   DEFAULT_COLOR,
+  DEFAULT_GRID,
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
   DEFAULT_STROKE_WIDTH,
@@ -47,6 +48,9 @@ const IDLE: DrawTabState = {
   activeLayerName: null,
   selectionCount: 0,
   selectionStyle: null,
+  // The grid is DOCUMENT state, so a tab with no board reported yet shows the
+  // default rather than whatever the last board happened to use.
+  grid: DEFAULT_GRID,
 };
 
 interface WhiteboardState {
