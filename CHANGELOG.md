@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Help… menu and Prompts.** The ⌄ menu beside the + button gains a Help…
+  page: the user guide, the shortcuts page, and **Prompts** — ready-made
+  briefs an AI agent can act on, copied to the clipboard with one click. The
+  first prompt converts a Marp deck and its SVG diagrams to follow the app
+  theme; decks now bake the theme into whiteboard-style SVGs the way the
+  markdown preview does, and re-bake them when you switch themes.
 - **Marp slide decks.** A markdown file with `marp: true` in its frontmatter
   is a slide deck: Split shows the slides beside the text (the one under your
   cursor highlighted), the Review mode becomes **Present** — a light table of

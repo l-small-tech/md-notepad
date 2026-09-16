@@ -639,6 +639,17 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         scrollToLine: (line) => pane.scrollToLine(line),
       });
       registerDeckPane(tabId, pane);
+      // Any theme change — light/dark flip or one light theme to another —
+      // re-bakes the `--wb-*` palette into the deck's whiteboard images.
+      const unsubscribeDeckDark = subscribeDark(() => pane.refreshTheme());
+      let lastDeckScheme = settingsStore.getState().settings.colorScheme;
+      const unsubscribeDeckScheme = settingsStore.subscribe(() => {
+        const scheme = settingsStore.getState().settings.colorScheme;
+        if (scheme !== lastDeckScheme) {
+          lastDeckScheme = scheme;
+          pane.refreshTheme();
+        }
+      });
       const anchor = mode === 'read' ? takeScrollAnchor(tabId) : peekScrollAnchor(tabId);
       if (anchor !== null) {
         pane.scrollToLine(anchor);
@@ -650,6 +661,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         unregisterDeckPane(tabId);
         unregisterScrollAnchor(tabId, 'rendered');
         unsubscribeDeckVoice();
+        unsubscribeDeckDark();
+        unsubscribeDeckScheme();
         dropMarks(tabId);
         unsubscribeDeckPath();
         unsubscribeCursor?.();

@@ -34,6 +34,9 @@ Read these in order the first time, or jump straight to what you need:
    the command for you.
 10. **[Keyboard shortcuts](keyboard-shortcuts.md)** — the full list on one page.
 
+11. **[Prompts](prompts.md)** — ready-made briefs for an AI agent, copied from
+    the menu (start with "theme a Marp deck and its SVGs").
+
 ## About this documentation
 
 You're reading these pages inside MD Notepad itself, in the **Documentation**
