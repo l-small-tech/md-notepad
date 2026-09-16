@@ -48,6 +48,7 @@
     "@lezer/javascript": "1.5.4",
     "@lezer/lr": "1.4.10",
     "@lezer/rust": "1.0.2",
+    "@marp-team/marp-core": "^4.4.0",
     "@milkdown/crepe": "^7.21.2",
     "@milkdown/kit": "^7.21.2",
     "@tauri-apps/api": "^2.11.1",

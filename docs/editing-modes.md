@@ -1,6 +1,7 @@
 # The viewing modes
 
-Every markdown tab can be viewed four ways; code files get Raw and Review. Switch with the buttons at the
+Every markdown tab can be viewed four ways; code files get Raw and Review,
+and a Marp slide deck gets Raw, Split and Present. Switch with the buttons at the
 bottom-left of the window, or with **Ctrl+1** to **Ctrl+4** (Cmd on Mac).
 Each tab remembers its own mode.
 
@@ -59,6 +60,39 @@ hidden, there are two ways back:
 
 How wide the text column is in Review mode is up to you — see **Review mode
 margins** in [Settings](settings.md).
+
+## Present (Ctrl+4, slide decks)
+
+A markdown file whose first lines are
+
+```
+---
+marp: true
+---
+```
+
+is a [Marp](https://marp.app) slide deck, and the app treats it as one
+without any extra step. Slides are separated by `---` lines; a Marp theme
+(`theme: gaia` in that same header, or `theme: ./brand.css` for a stylesheet
+kept next to the file) decides how they look. A deck offers three modes:
+
+- **Raw** — the text, as for any markdown file.
+- **Split** — the text on the left and the slides on the right. The slide
+  under your cursor gets a coloured border and stays in view as you type.
+- **Present** — replaces Review: a light table of full-size slides, numbered,
+  with your speaker notes (HTML comments in the slide, `<!-- like this -->`)
+  shown quietly under each one. Review notes work here too — press and hold a
+  slide. Press **F11** twice (or the ⛶ button, then ⛶ again) and the show
+  starts on the slide at the top of the light table: one slide on a dark
+  screen, **arrow keys / Space / PgUp / PgDn / Home / End** to move, a number
+  then **Enter** to jump, and a thin progress line along the bottom. **Esc**
+  brings you back to the light table on the slide you were showing.
+
+There is no Edit mode for a deck: the word-processor view would rewrite the
+comments and image syntax Marp relies on. The status bar shows `Slide 4 / 12`
+and a rough talk length instead of the line and word counts, and **Export…**
+writes the deck as a standalone HTML file you can open and present in any
+browser.
 
 ## Review (Ctrl+4, code files)
 

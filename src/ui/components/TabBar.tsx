@@ -508,7 +508,8 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     tab !== undefined &&
     tab.kind !== 'image' &&
     tab.kind !== 'import' &&
-    docFamilyForTab(tab) === 'markdown';
+    // A deck is a markdown document too (its export is the slide HTML).
+    (docFamilyForTab(tab) === 'markdown' || docFamilyForTab(tab) === 'deck');
   const hasPath = tabPath(menu.tabId) !== null;
   // The move rows live on a drill-in page (same pattern as the explorer
   // menu's Import — one panel that behaves identically under finger and

@@ -12,6 +12,8 @@ tested — build `pipeline.ts` beside it.
 | `export.ts` + `export.css` | standalone HTML export (`buildStandaloneHtml`): the same sanitized pipeline rendered into one self-contained file (inline stylesheet, images as data: URLs, mermaid pre-rendered to SVG). `export.css` only **consumes** theme variables (`var(--x, fallback)`, fallbacks = the built-in greens) and never defines one — the exporter (`ui/session/export.ts`) appends a generated `:root { --x: v; … }` block for the chosen theme+mode, which therefore always wins. Keep new rules on that pattern. |
 | `code-review.ts` | the Review pane for a code file — see "Code review pane" below |
 | `note-marks.ts` | the review-note marker + callout DOM both panes insert — see "Review-note markers" below |
+| `marp.ts` + `deck.ts` | Marp slide decks — see "Marp decks" below |
+| `deck-export.ts` | the standalone HTML for a deck (`buildDeckHtml`): theme CSS, every slide, a few lines of keyboard navigation |
 | `pane.ts` | wires the two together into one live pane: debounced re-render on model change, the render-sequence guard, and the link-click policy. `EditorHost` (`src/ui/components/EditorHost.tsx`) calls `attachPreviewPane(host, model, { dark })` when a tab enters `split` mode and `dispose()`s it on the way out — same attach/dispose shape as an `EditorAdapter`, but it is not one: the preview never becomes a source of truth, so it needs no write-back guard and never participates in `ModeSync`. |
 
 ## Pipeline (build exactly this)
@@ -312,6 +314,48 @@ finds the card by the note's declaration label (`unitNoteLabel`), else by
 signature line, opens its callout and scrolls to it through `scrollToUnit`
 (switching view or widening the filter as that does), waiting for the first
 parse if it must.
+
+## Marp decks (`marp.ts`, `deck.ts`, `deck-export.ts`)
+
+A markdown file whose frontmatter says `marp: true` is a **deck**
+(`core/deck isMarpDocument`; family `'deck'` in `core/doc-family`, carried by
+the tabs store's live `deck` flag). Its Split column and its `read` mode —
+labelled *Present* — are `attachDeckPane(host, model, { variant })` instead
+of `attachPreviewPane`: the same attach/dispose shape, the same 200 ms
+debounce and render-sequence guard, the same `getTopLine` / `scrollToLine`
+anchor contract and the same review-note API (`setNotes`, `mountComposer`,
+`revealNotes`, the hold gesture) — a slide is a block stamped with the source
+line it starts on (`core/deck splitSlides`, the pure line ↔ slide map that
+also drives the status bar's `Slide 4 / 12` and the show's start slide).
+
+- `variant: 'split'` — 16:9 cards at column width; `setCursorLine(line)`
+  marks the slide holding the caret (`.deck-slide-current`) and keeps it in
+  view. `variant: 'read'` — the light table: full-width slides, numbers in
+  the gutter, speaker notes (Marp's HTML comments) muted under each.
+- `marp.ts` is the lazy engine (`renderDeck`), loaded on the first deck
+  render only (I8 — `@marp-team/marp-core` brings MathJax and highlight.js).
+  `inlineSVG` output, `html: false`, emoji left as text, no CDN. A
+  `theme: ./brand.css` in the frontmatter is read from beside the document
+  and registered under its `/* @theme name */`. Every slide is mounted into
+  its own **shadow root** (`mountSlide`, with `DECK_ROOT_CSS` + the theme
+  CSS) and only re-touched when its markup changed, so a deck an agent is
+  writing slide by slide grows without flashing. `inlineDeckImages` swaps
+  local `<img>` sources and `url()`s in inline styles (Marp's `![bg]`
+  figures) for data URLs. `applyMarpBrowser` runs Marp's own helper on each
+  root: auto-scaling code blocks, and the foreignObject polyfill on WebKit.
+- **The sanitize exception (I6).** Marp output does NOT pass through
+  `rehype-sanitize`: a deck is `<style>` and inline styles by nature. The
+  equivalent posture is Marp's own HTML allowlist (`Marp.html`: known-safe
+  elements and attributes, `href` limited to http(s), `img src` to http(s)
+  and `data:image/`; never `<script>`, `<iframe>`, `on*` handlers) extended
+  with the `style` attribute, because slide authors lay out with
+  `<div class="cols">` and the odd inline style — see `deckHtmlAllowlist` in
+  `marp.ts`. The shadow root's `contain: content` keeps an inline style
+  inside its slide, and the app CSS out. This is the one rendering path in
+  `preview/` that bypasses the pipeline, and it must stay the only one.
+- The full-screen **show** (`ui/components/DeckShow`) is the `'screen'`
+  stage on a deck tab: one slide letterboxed on a dark stage, rendered
+  through the same `renderDeck` + `mountSlide`, keyboard driven.
 
 ## Styling (`src/styles/preview.css`, new in M4)
 
