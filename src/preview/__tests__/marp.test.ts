@@ -161,3 +161,20 @@ describe('createImageResolver', () => {
     expect(readFileBase64Mock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('createImageResolver with an SVG transform', () => {
+  test('rewrites an .svg through the transform and caches the result', async () => {
+    readTextFileMock.mockResolvedValue({ text: '<svg class="wb-board"/>', mtimeMs: 0 });
+    const transform = vi.fn((text: string) => text.replace('<svg', '<svg style="--wb-c0:red"'));
+    const resolve = createImageResolver(transform);
+    const url = await resolve('/t/board.svg');
+    expect(url).toBe(
+      `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg style="--wb-c0:red" class="wb-board"/>')}`,
+    );
+    await resolve('/t/board.svg');
+    expect(transform).toHaveBeenCalledTimes(1);
+    // Raster images never see the transform.
+    await resolve('/t/a.png');
+    expect(transform).toHaveBeenCalledTimes(1);
+  });
+});

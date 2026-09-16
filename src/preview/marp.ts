@@ -181,9 +181,17 @@ div.marpit > svg[data-marpit-svg] { display: block; width: 100%; height: auto; }
 /**
  * Put the theme + one slide into `root` (a shadow root), reusing the style
  * element and only touching the slide when its markup changed — a deck that
- * re-renders every second while an agent writes it must not flash.
+ * re-renders every second while an agent writes it must not flash. `force`
+ * remounts an unchanged slide anyway: the caller's inlined images went stale
+ * (a theme change re-bakes whiteboard SVGs) and the markup is the way back to
+ * the original `src` attributes.
  */
-export function mountSlide(root: ShadowRoot, css: string, slideHtml: string): boolean {
+export function mountSlide(
+  root: ShadowRoot,
+  css: string,
+  slideHtml: string,
+  force = false,
+): boolean {
   let style: HTMLStyleElement | null = null;
   let stage: HTMLDivElement | null = null;
   for (const child of root.children) {
@@ -206,7 +214,7 @@ export function mountSlide(root: ShadowRoot, css: string, slideHtml: string): bo
     stage.className = 'marpit';
     root.appendChild(stage);
   }
-  if (mountedHtml.get(stage) === slideHtml) {
+  if (!force && mountedHtml.get(stage) === slideHtml) {
     return false;
   }
   stage.innerHTML = slideHtml;
@@ -267,8 +275,17 @@ export async function inlineDeckImages(
   }
 }
 
-/** A data-URL resolver over the file IPC with a per-instance cache. */
-export function createImageResolver(): (absPath: string) => Promise<string | null> {
+/**
+ * A data-URL resolver over the file IPC with a per-instance cache.
+ * `transformSvg` rewrites an `.svg` file's text before it is encoded — the
+ * deck pane bakes the app theme into whiteboard boards with it, the same way
+ * the markdown preview does (an SVG inside an `<img>` is sealed; the page's
+ * variables never reach it). The cache holds the TRANSFORMED result, so a
+ * theme change needs a fresh resolver.
+ */
+export function createImageResolver(
+  transformSvg: (text: string) => string = (text) => text,
+): (absPath: string) => Promise<string | null> {
   const cache = new Map<string, string | null>();
   return async (abs) => {
     const hit = cache.get(abs);
@@ -278,7 +295,7 @@ export function createImageResolver(): (absPath: string) => Promise<string | nul
     let dataUrl: string | null;
     try {
       dataUrl = abs.toLowerCase().endsWith('.svg')
-        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent((await ipc.readTextFile(abs)).text)}`
+        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(transformSvg((await ipc.readTextFile(abs)).text))}`
         : `data:${imageMimeType(abs)};base64,${await ipc.readFileBase64(abs)}`;
     } catch {
       dataUrl = null; // missing/unreadable — the broken image is the signal
