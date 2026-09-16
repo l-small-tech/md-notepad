@@ -1,6 +1,6 @@
 /**
  * voice-typing.ts — the controller behind the ribbon's microphone in the edit
- * modes (Raw, Split, Rich): speak, and the words land at the caret.
+ * modes (Raw, Split, Edit): speak, and the words land at the caret.
  *
  * The same engines as voice notes (`dictationEngine()` in voice-comments.ts),
  * but the transcript goes into the document instead of a sidecar:
@@ -16,7 +16,7 @@
  *     ends the utterance on silence, or the second tap does.
  *
  * The text goes to the tab the capture started on, through whichever editor
- * that tab shows when the answer arrives (rich adapter in wysiwyg mode, CM6
+ * that tab shows when the answer arrives (Edit adapter in wysiwyg mode, CM6
  * otherwise) — `joinDictation` (core) supplies the spacing. Failures are a
  * status-bar notice: there is no sheet here to hold the voice-notes error box.
  */
@@ -25,7 +25,7 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { captureErrorFor } from '../core/dictation-errors';
 import { ipc } from '../ipc/commands';
-import { getRichAdapter, getSourceAdapter } from './editor-registry';
+import { getEditAdapter, getSourceAdapter } from './editor-registry';
 import { startPcmCapture, type PcmCapture } from './pcm-capture';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
@@ -72,7 +72,7 @@ function editorFor(tabId: string) {
     return undefined;
   }
   if (tab.mode === 'wysiwyg') {
-    return getRichAdapter(tabId);
+    return getEditAdapter(tabId);
   }
   return tab.mode === 'raw' || tab.mode === 'split' ? getSourceAdapter(tabId) : undefined;
 }

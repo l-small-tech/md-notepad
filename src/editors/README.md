@@ -128,7 +128,7 @@ const wysiwygFactory: AdapterFactory = async () => {
   flags).
 - Theme via Crepe's CSS variables mapped onto ours (`--bg`, `--fg`,
   `--accent`, `--font-mono`). Content font stays monospace — that's the
-  product's look, even in rich mode.
+  product's look, even in Edit mode.
 - **Write-back guard is mandatory** (I2): create
   `createWritebackGuard({ serialize, push, debounceMs: 150 })` in `attach`,
   where `serialize` reads the current editor markdown and `push` wraps
@@ -175,7 +175,7 @@ contract) which drops those cache entries and re-applies every live node.
 
 GFM round-trip: tables, task lists, strikethrough, autolinks survive; check
 footnotes and HTML blocks — if Crepe drops them, the no-edit guarantee (I2)
-still protects untouched docs; document "editing in rich mode may drop X"
+still protects untouched docs; document "editing in Edit mode may drop X"
 in the root README known-limitations list.
 
 ---

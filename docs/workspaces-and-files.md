@@ -60,7 +60,7 @@ turn the option off there (or back on). Changing it on a workspace heading —
 or any folder — resets everything inside it, so all its folders follow it
 again.
 
-These files open as plain text in the source editor (no rich or preview
+These files open as plain text in the source editor (no Edit or preview
 modes) and save like any other file. A file that isn't text at all — a
 program, a zip — won't open; you'll get a notice saying so.
 

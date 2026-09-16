@@ -1,6 +1,6 @@
 /**
  * color-mode.ts: reading a saved board's colour mode off its root tag and
- * flipping it by re-serializing — the preview / rich-editor right-click
+ * flipping it by re-serializing — the preview / Edit-mode right-click
  * toggle's pure half — plus the `.svg` reference scan it uses for "all boards
  * in this document".
  */

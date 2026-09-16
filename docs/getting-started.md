@@ -50,7 +50,7 @@ From top to bottom:
   menu beside the `+` button; what acts on one document (**Export…**, **Copy
   all raw text**) is in a tab's right-click menu.
 - **The editor** — where you type.
-- **Status bar** — the mode switcher (Raw / Split / Rich / Review), any brief
+- **Status bar** — the mode switcher (Raw / Split / Edit / Review), any brief
   messages from the app, and live counts of your words and characters.
 
 ## Where to go next

@@ -8,8 +8,8 @@
  * importing the lazy adapter module (src/editors/README.md — normalization hint).
  */
 
-/** Status-bar wording for the one-time-per-tab rich-mode reformatting hint. */
-export const NORMALIZATION_HINT = 'Rich mode may reformat markdown syntax (content is preserved)';
+/** Status-bar wording for the one-time-per-tab Edit-mode reformatting hint. */
+export const NORMALIZATION_HINT = 'Edit mode may reformat markdown syntax (content is preserved)';
 
 /**
  * True when round-tripping markdown through the WYSIWYG parser+serializer
@@ -22,7 +22,7 @@ export function markdownNormalizes(original: string, roundTripped: string): bool
 }
 
 /**
- * The one-time-per-tab gate: show the hint only when rich mode WOULD reformat
+ * The one-time-per-tab gate: show the hint only when Edit mode WOULD reformat
  * and we have not already shown it for this tab (the adapter instance lives
  * for the tab's lifetime, so a per-instance flag is "per tab").
  */

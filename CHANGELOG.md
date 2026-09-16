@@ -11,9 +11,13 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 ## [Unreleased]
 
 - **Switching modes keeps your place in the file.** Flipping between Raw,
-  Split, Review and Rich now lands you where you were reading instead of
+  Split, Review and Edit now lands you where you were reading instead of
   jumping back to the top — it carries the line at the top of the screen
   across. For a code file in Review it lands on the card for that line.
+
+- **"Rich" mode is now called "Edit".** The word-processor view for markdown
+  files keeps the same Ctrl+3 shortcut and behaviour — only the name in the
+  status bar, the command palette and Settings changes.
 
 - **Cut, copy and paste files and folders in the workspaces pane.** Right-click
   any row for Cut / Copy, then Paste into a folder or workspace header — or use

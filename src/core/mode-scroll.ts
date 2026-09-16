@@ -3,7 +3,7 @@
  *
  * Every mode shows the SAME document through a different surface, and each
  * surface scrolls in its own coordinate space: CM6 in source lines, the
- * preview/Review panes in rendered blocks, the rich editor in ProseMirror
+ * preview/Review panes in rendered blocks, the Edit editor in ProseMirror
  * nodes. The one coordinate all three can speak is the **1-based source
  * line**, so a mode switch captures the line at the top of the outgoing
  * surface and asks the incoming one to put that line back on top.
@@ -24,7 +24,7 @@ import type { EditorMode } from './types';
  * one the reader drives (the preview is a projection of it), so the editor's
  * position is the authoritative one to carry in and out.
  */
-export type ScrollSurface = 'source' | 'rendered' | 'rich';
+export type ScrollSurface = 'source' | 'rendered' | 'edit';
 
 export function scrollSurfaceFor(mode: EditorMode): ScrollSurface | null {
   switch (mode) {
@@ -34,7 +34,7 @@ export function scrollSurfaceFor(mode: EditorMode): ScrollSurface | null {
     case 'read':
       return 'rendered';
     case 'wysiwyg':
-      return 'rich';
+      return 'edit';
     // A whiteboard scrolls in board coordinates and a terminal not at all —
     // neither has a source line to carry.
     case 'draw':
@@ -77,7 +77,7 @@ export function stampedLineFor(stamps: readonly number[], line: number): number 
  * (document order — the same index `revealHeading` takes). -1 when the line
  * is above the first heading, i.e. "the top of the document".
  *
- * The rich editor renders markdown as ProseMirror nodes with no line numbers
+ * The Edit editor renders markdown as ProseMirror nodes with no line numbers
  * at all, so headings are the finest shared landmark it has. Coarse by
  * design: landing on the right section beats landing on line 1.
  */

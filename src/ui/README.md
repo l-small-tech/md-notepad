@@ -84,7 +84,7 @@ the 1-based source line at the top of the outgoing surface.
   moment it can be measured.
 - Each live surface registers a `{ getTopLine, scrollToLine }` port under
   its `ScrollSurface`: `source` (the CM6 adapter's own two methods),
-  `rendered` (either preview pane's), `rich` (the Milkdown adapter's
+  `rendered` (either preview pane's), `edit` (the Milkdown adapter's
   `getTopHeadingIndex` / `revealHeading`, translated through the document's
   outline — ProseMirror nodes have no line numbers, so headings are the
   finest landmark both sides share).
@@ -96,7 +96,7 @@ the 1-based source line at the top of the outgoing surface.
   pane (which parks the line until it has rendered blocks to measure),
   while a separate `[tabId, mode]` effect waits on `modeSync.whenIdle()` and
   one animation frame — the editor pane was `display: none` until this
-  render committed — before scrolling the source or rich editor.
+  render committed — before scrolling the source or Edit editor.
 
 ### Review mode for code files
 
@@ -848,7 +848,7 @@ in core or the stores.
 
 ## Voice typing (edit modes)
 
-`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Rich: the
+`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Edit: the
 same `dictationEngine()` engines, but the transcript goes into the document
 at the caret instead of a sidecar. It types into the tab the capture started
 on, through the editor that tab shows when the words arrive — the CM6

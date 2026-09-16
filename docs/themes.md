@@ -126,7 +126,7 @@ Default value for your theme's mode, and a missing trio is derived from your
 The branding colors cover the whole app. If you also want to recolor
 **individual markdown elements** — give headings their own color, tint links,
 make code stand out — add an optional `"syntax"` block. Any key you set applies
-in every view (source, Rich, and Review). Leave the block out entirely, or leave
+in every view (source, Edit, and Review). Leave the block out entirely, or leave
 any key unset, and that element keeps its normal color.
 
 ```json

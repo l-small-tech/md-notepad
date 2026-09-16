@@ -227,17 +227,17 @@ terminal:
 sentence is built from rules about parameter names and types; when it looks
 off, trust the signature underneath. Review never edits code.
 
-**Rich / WYSIWYG mode** is markdown-first, but a WYSIWYG editor rewrites
+**Edit / WYSIWYG mode** is markdown-first, but a WYSIWYG editor rewrites
 source the moment you edit. By design:
 
-- **Viewing never changes a note.** Opening a note in rich mode and switching
+- **Viewing never changes a note.** Opening a note in Edit mode and switching
   back is byte-identical — nothing is written until you actually edit.
 - **Your first edit normalizes syntax spelling** (list markers, emphasis
   characters, blank-line spacing may change). *Content is preserved*; only
   how the markdown is written may differ.
-- **Mermaid diagrams show as plain code** in rich mode (they still render in
+- **Mermaid diagrams show as plain code** in Edit mode (they still render in
   split/preview).
-- **Undo history does not cross a raw ⇄ rich switch.**
+- **Undo history does not cross a raw ⇄ Edit switch.**
 
 Prefer raw or split mode when you need byte-exact control over markdown.
 

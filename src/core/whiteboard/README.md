@@ -21,7 +21,7 @@ what a whiteboard *is* lives here.
 | `history.ts` | the snapshot undo stack |
 | `bounds.ts` | the content-fitted viewBox for infinite boards |
 | `theme-inject.ts` | bake resolved theme vars into a board's root tag (for `<img>` contexts) |
-| `color-mode.ts` | read a saved board's `colorMode` off its root tag; flip it by re-serializing (the preview/rich right-click toggle) |
+| `color-mode.ts` | read a saved board's `colorMode` off its root tag; flip it by re-serializing (the preview/Edit right-click toggle) |
 | `scan/` | the photo→SVG pipeline (see below) |
 
 `tool-settings.ts` is split out of `tools.ts` deliberately: the ribbon draws
@@ -225,7 +225,7 @@ decides which one renders:
   element and never re-runs a trace.
 - `theme-inject.ts` is the display half for `<img>` contexts: an SVG inside an
   `<img>` is sealed off from the page's `--wb-*` variables, so the preview
-  pane and the rich editor bake the RESOLVED app-theme values into the root
+  pane and the Edit-mode editor bake the RESOLVED app-theme values into the root
   tag as an inline `style` when building the data URL (theme-fingerprinted
   cache keys). Fixed-mode and foreign SVGs pass through byte-identical.
 

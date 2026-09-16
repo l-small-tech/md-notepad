@@ -16,17 +16,17 @@ Raw text on the left, the finished result on the right, updating live as
 you type. Great while you're learning markdown, or for documents with
 tables and diagrams. Drag the divider between the panels to resize them.
 
-## Rich (Ctrl+3)
+## Edit (Ctrl+3)
 
 A word-processor-style view: no markdown symbols, formatting appears as you
 apply it, and a small toolbar pops up when you select text. Behind the
 scenes it's still the same markdown file.
 
-Two honest caveats about Rich mode:
+Two honest caveats about Edit mode:
 
 - **Your first edit may tidy the markdown's spelling.** Markdown allows
   several ways to write the same thing (`*` or `-` for bullets, for
-  example). Rich mode rewrites the text using its preferred style the first
+  example). Edit mode rewrites the text using its preferred style the first
   time you edit — the *content* never changes, only the symbols. The app
   shows a one-time reminder when this could happen. If the exact symbols
   matter to you, edit in Raw or Split mode.
@@ -34,7 +34,7 @@ Two honest caveats about Rich mode:
   [Writing markdown](writing-markdown.md)) only render in Split and Review
   modes.
 
-Also note: undo history doesn't carry across a switch between Rich and the
+Also note: undo history doesn't carry across a switch between Edit and the
 other modes.
 
 ## Review (Ctrl+4)

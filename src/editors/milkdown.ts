@@ -9,7 +9,7 @@
  * Like CM6 this is a projection of the DocModel (I1), but WYSIWYG editors
  * NORMALIZE markdown, so the write-back rule is stricter (I2): serialization is
  * pushed into the model ONLY after a genuine user edit since attach. Merely
- * opening a note in rich mode and switching back must be byte-identical. That
+ * opening a note in Edit mode and switching back must be byte-identical. That
  * guarantee is enforced by the write-back guard (core/mode-sync.ts) fed at the
  * ProseMirror transaction level — see "the transaction-tagging pattern" below.
  */
@@ -48,7 +48,7 @@ import '../styles/wysiwyg.css';
 /**
  * Transaction meta flag marking content WE set (initial load, model→editor
  * sync). Such transactions change the doc but are not user edits, so the guard
- * must ignore them — otherwise opening a doc in rich mode would immediately
+ * must ignore them — otherwise opening a doc in Edit mode would immediately
  * normalize it.
  */
 const PROGRAMMATIC_META = 'md-notepad-programmatic';
@@ -58,7 +58,7 @@ const PROGRAMMATIC_META = 'md-notepad-programmatic';
  * source the draw adapter and the preview pane use (no ui import; I9) — with
  * `--wb-bg` replaced by the colour of the surface the image actually sits on.
  * The palette's default background is the whiteboard surface (`--editor-bg`),
- * but the rich editor paints on the chrome colour (`--bg`), so a board keyed
+ * but the Edit-mode editor paints on the chrome colour (`--bg`), so a board keyed
  * to the palette default would show as a pale rectangle on it; the board
  * should vanish into whatever is behind it.
  */
@@ -91,7 +91,7 @@ function surfaceBackground(el: Element | null): string | null {
 
 export interface MilkdownOptions {
   /**
-   * Called once per tab when entering rich mode WOULD reformat the current
+   * Called once per tab when entering Edit mode WOULD reformat the current
    * markdown (content preserved). EditorHost surfaces the status-bar hint.
    */
   onNormalizationHint?: () => void;
@@ -124,7 +124,7 @@ export interface MilkdownOptions {
   onBoardContextMenu?: (info: { path: string; mode: BoardColorMode; x: number; y: number }) => void;
 }
 
-/** The rich adapter's extras beyond the mode-sync contract. */
+/** The Edit adapter's extras beyond the mode-sync contract. */
 export interface MilkdownAdapter extends EditorAdapter {
   /**
    * The files at these absolute paths changed on disk (the colour-mode toggle
@@ -144,7 +144,7 @@ export interface MilkdownAdapter extends EditorAdapter {
    * The heading whose section is at the top of the viewport, as an index into
    * the document's headings (what `revealHeading` takes back). -1 = above the
    * first heading; null while detached or hidden. The mode-switch scroll
-   * anchor's rich-editor half — see `core/mode-scroll`.
+   * anchor's Edit-editor half — see `core/mode-scroll`.
    */
   getTopHeadingIndex(): number | null;
 }
@@ -334,7 +334,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
   /**
    * Replace the whole document from markdown, tagged programmatic so the guard
    * never counts it as a user edit. Used for external model changes (e.g. a
-   * file-reload while the tab sits in rich mode).
+   * file-reload while the tab sits in Edit mode).
    */
   function setContentProgrammatic(text: string): void {
     crepe?.editor.action((ctx) => {
@@ -398,7 +398,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
       // Serialize bullet lists with `-`, matching what the raw editor's
       // auto-bullet/Tab handling writes (cm6.ts) — remark-stringify's default
       // is `*`, which would silently rewrite every bullet marker on the first
-      // rich-mode edit.
+      // edit in Edit mode.
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
 
       // Render local images inline (see createImageNodeView). Registered through
@@ -454,7 +454,7 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
     await crepe.create();
     view = crepe.editor.action((ctx) => ctx.get(editorViewCtx));
 
-    // Normalization hint: if parse→serialize of the current text differs, rich
+    // Normalization hint: if parse→serialize of the current text differs, Edit
     // mode will reformat syntax on the first edit. Warn once per tab.
     if (!hintShown) {
       const roundTripped = crepe.editor.action((ctx) => {

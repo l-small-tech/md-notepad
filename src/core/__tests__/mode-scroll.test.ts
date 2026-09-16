@@ -13,7 +13,7 @@ describe('scrollSurfaceFor', () => {
     // Split shows both, but the editor is what the reader drives.
     expect(scrollSurfaceFor('split')).toBe('source');
     expect(scrollSurfaceFor('read')).toBe('rendered');
-    expect(scrollSurfaceFor('wysiwyg')).toBe('rich');
+    expect(scrollSurfaceFor('wysiwyg')).toBe('edit');
   });
 
   it('has no anchor for the modes without source lines', () => {
@@ -47,7 +47,7 @@ describe('stampedLineFor', () => {
   });
 });
 
-describe('heading mapping (the rich editor has no source lines)', () => {
+describe('heading mapping (the Edit editor has no source lines)', () => {
   const headings = extractOutline(
     ['# One', '', 'body', '', '## Two', '', 'body', '', '# Three'].join('\n'),
   );

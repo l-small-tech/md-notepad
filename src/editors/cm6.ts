@@ -198,7 +198,7 @@ const FLASH_MS: Record<FlashKind, number> = { added: 2600, removed: 4000 };
 const baseTheme = EditorView.theme({
   '&': {
     color: 'var(--fg)',
-    // The same paper as the rich editor (wysiwyg.css) so Raw and Rich match
+    // The same paper as the Edit-mode editor (wysiwyg.css) so Raw and Edit match
     // in every theme — see .editor-stack in app.css.
     backgroundColor: 'var(--bg)',
     height: '100%',

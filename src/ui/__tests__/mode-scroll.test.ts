@@ -18,7 +18,7 @@ function port(topLine: number | null) {
 
 describe('mode-scroll registry', () => {
   beforeEach(() => {
-    for (const surface of ['source', 'rendered', 'rich'] as const) {
+    for (const surface of ['source', 'rendered', 'edit'] as const) {
       unregisterScrollAnchor('t1', surface);
     }
     clearScrollAnchor('t1');

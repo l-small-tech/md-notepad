@@ -40,9 +40,9 @@ import {
   unregisterScrollAnchor,
 } from '../mode-scroll';
 import {
-  registerRichAdapter,
+  registerEditAdapter,
   registerSourceAdapter,
-  unregisterRichAdapter,
+  unregisterEditAdapter,
   unregisterSourceAdapter,
 } from '../editor-registry';
 import {
@@ -169,7 +169,7 @@ function clampSplitRatio(ratio: number): number {
 
 /**
  * A board image in this tab's document was right-clicked (preview pane or
- * rich editor): open the colour-mode menu, handing it every board the
+ * Edit-mode editor): open the colour-mode menu, handing it every board the
  * document references so "all boards in this document" can act on them.
  */
 function openBoardColorMenu(
@@ -199,8 +199,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   // changes (word wrap) can reconfigure it without re-mounting (I7). Font size
   // needs no hook here — it rides the `--editor-font-size` CSS variable.
   const sourceAdapterRef = useRef<Cm6Adapter | null>(null);
-  /** The rich adapter once created (lazy chunk) — for theme-driven image refreshes. */
-  const richAdapterRef = useRef<MilkdownAdapter | null>(null);
+  /** The Edit adapter once created (lazy chunk) — for theme-driven image refreshes. */
+  const editAdapterRef = useRef<MilkdownAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
   // The inline review-note composer renders into this element; the Review
   // pane places it under the held line (`mountComposer`) — a portal, so the
@@ -252,7 +252,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
 
     // Only the adapters this document family can actually use are supplied. An
     // .svg tab gets Draw (+ Raw, which is a free SVG source editor); a markdown
-    // tab gets Rich. Anything else is a mode the status bar never offers.
+    // tab gets Edit. Anything else is a mode the status bar never offers.
     const family = docFamilyFor(tab.filePath ?? tab.notePath);
     const familyAdapters: Partial<Record<AdapterKind, AdapterFactory>> =
       family === 'svg'
@@ -319,7 +319,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
           }
         : {
             // Lazy import keeps @milkdown/crepe out of the entry chunk (I8); the
-            // module loads on the first switch to rich mode, never at startup.
+            // module loads on the first switch to Edit mode, never at startup.
             wysiwyg: async () => {
               const { createMilkdownAdapter } = await import('../../editors/milkdown');
               const adapter = createMilkdownAdapter({
@@ -333,13 +333,13 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               });
               // The colour-mode toggle rewrites board files; the live image
               // nodes reload theirs. Unregistered with the mode-sync below.
-              registerImageRefresher(`${tabId}:rich`, (paths) => adapter.refreshImages(paths));
-              richAdapterRef.current = adapter;
-              registerRichAdapter(tabId, adapter);
-              // Scroll anchor: the rich editor has no source lines, so it
+              registerImageRefresher(`${tabId}:edit`, (paths) => adapter.refreshImages(paths));
+              editAdapterRef.current = adapter;
+              registerEditAdapter(tabId, adapter);
+              // Scroll anchor: the Edit editor has no source lines, so it
               // trades in headings and this port does the translation
               // (core/mode-scroll).
-              registerScrollAnchor(tabId, 'rich', {
+              registerScrollAnchor(tabId, 'edit', {
                 getTopLine: () => {
                   const index = adapter.getTopHeadingIndex();
                   if (index === null) {
@@ -433,27 +433,27 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         lastLineNumbers = s.settings.lineNumbers;
         sourceAdapterRef.current?.setLineNumbers(lastLineNumbers);
       }
-      // Rich-mode boards bake the theme palette into their data URLs (like
+      // Edit-mode boards bake the theme palette into their data URLs (like
       // the preview pane) — a palette change must re-bake them.
       if (s.settings.colorScheme !== lastScheme) {
         lastScheme = s.settings.colorScheme;
-        richAdapterRef.current?.refreshTheme();
+        editAdapterRef.current?.refreshTheme();
       }
     });
     let lastScheme = settingsStore.getState().settings.colorScheme;
-    const unsubscribeRichDark = subscribeDark(() => richAdapterRef.current?.refreshTheme());
+    const unsubscribeEditDark = subscribeDark(() => editAdapterRef.current?.refreshTheme());
 
     return () => {
       unsubscribeSettings();
-      unsubscribeRichDark();
-      richAdapterRef.current = null;
+      unsubscribeEditDark();
+      editAdapterRef.current = null;
       unregisterSourceAdapter(tabId);
-      unregisterRichAdapter(tabId);
+      unregisterEditAdapter(tabId);
       unregisterScrollAnchor(tabId, 'source');
-      unregisterScrollAnchor(tabId, 'rich');
+      unregisterScrollAnchor(tabId, 'edit');
       clearScrollAnchor(tabId);
       unregisterWhiteboardAdapter(tabId);
-      unregisterImageRefresher(`${tabId}:rich`);
+      unregisterImageRefresher(`${tabId}:edit`);
       void sync.dispose();
     };
     // tab.id only — see I7. Adding reactive deps would re-mount the editor.
