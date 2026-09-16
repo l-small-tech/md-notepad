@@ -30,6 +30,7 @@ import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenM
 import { ResizeBorders } from './components/ResizeBorders';
 import { IS_MAC } from './components/AppMenu';
 import { setFullscreen } from './fullscreen';
+import { DeckShow } from './components/DeckShow';
 import { tabsStore, useTabsStore } from './stores/tabs';
 import { useUiStore } from './stores/ui';
 import { goBackPreview, usePreviewNav } from './stores/preview-nav';
@@ -40,6 +41,7 @@ export function App() {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
   const activeKind = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.kind);
+  const activeDeck = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.deck);
   const fullscreenView = useUiStore((s) => s.fullscreenView);
 
   // Tap-and-hold anywhere in full screen opens the escape-hatch menu.
@@ -104,6 +106,12 @@ export function App() {
         {!terminalActive && <OutlinePanel />}
       </div>
       {!terminalActive && <StatusBar />}
+      {/* A deck's 'screen' stage is the show: one slide on a dark stage, keys
+          to move (ui/components/DeckShow). Escape steps back to 'window' as in
+          every mode, which is the light table on the slide that was showing. */}
+      {fullscreenView === 'screen' && activeDeck && activeTabId && (
+        <DeckShow key={activeTabId} tabId={activeTabId} />
+      )}
       <SettingsDialog />
       <ExportPreviewDialog />
       <DiagramViewer />

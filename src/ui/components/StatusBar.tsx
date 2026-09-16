@@ -10,7 +10,8 @@
 
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { allowedModesFor, docFamilyFor, modeLabel, type DocFamily } from '../../core/doc-family';
+import { deckSummary, slideIndexForLine, splitSlides } from '../../core/deck';
+import { allowedModesFor, docFamilyForTab, modeLabel, type DocFamily } from '../../core/doc-family';
 import { formatClockTime, isLiveEditTab } from '../../core/live-edit';
 import type { EditorMode } from '../../core/types';
 import { useLiveEditStore } from '../stores/live-edit';
@@ -37,6 +38,11 @@ const MODE_HINTS: Record<EditorMode, string> = {
   term: 'Shell',
 };
 const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
+const PRESENT_HINT = 'Present — the slides with their notes; F11 twice for the show (Ctrl/Cmd+4)';
+
+function readHint(family: DocFamily): string {
+  return family === 'code' ? REVIEW_HINT : family === 'deck' ? PRESENT_HINT : MODE_HINTS.read;
+}
 
 function ModeSegments({
   activeMode,
@@ -54,7 +60,7 @@ function ModeSegments({
           key={mode}
           className={`mode-segment${mode === activeMode ? ' mode-segment-active' : ''}`}
           aria-pressed={mode === activeMode}
-          title={mode === 'read' && family === 'code' ? REVIEW_HINT : MODE_HINTS[mode]}
+          title={mode === 'read' ? readHint(family) : MODE_HINTS[mode]}
           onClick={() => tabsStore.getState().setMode(tabId, mode)}
         >
           {modeLabel(mode, family)}
@@ -135,7 +141,16 @@ export function StatusBar() {
 
   const words = active.wordCount;
   const chars = active.charCount;
-  const caret = cursor ? `Ln ${cursor.line}, Col ${cursor.col}` : 'Ln 1, Col 1';
+  const family = docFamilyForTab(active);
+  // A deck reads in slides, not lines: the caret becomes `Slide 4 / 12` and
+  // the word count a talk length (core/deck). The split is cheap — it is a
+  // line scan of a document that is, by nature, short.
+  const slides = family === 'deck' ? splitSlides(active.model.getText()) : null;
+  const caret = slides
+    ? `Slide ${slideIndexForLine(slides, cursor?.line ?? 1) + 1} / ${slides.length}`
+    : cursor
+      ? `Ln ${cursor.line}, Col ${cursor.col}`
+      : 'Ln 1, Col 1';
 
   return (
     <div className="statusbar" onContextMenu={swallowContextMenu}>
@@ -144,11 +159,7 @@ export function StatusBar() {
           Read-only
         </span>
       ) : (
-        <ModeSegments
-          activeMode={active.mode}
-          tabId={active.id}
-          family={docFamilyFor(active.filePath ?? active.notePath)}
-        />
+        <ModeSegments activeMode={active.mode} tabId={active.id} family={family} />
       )}
       {import.meta.env.DEV && (
         <span className="statusbar-dev" title="Running from a development build (tauri dev)">
@@ -162,12 +173,23 @@ export function StatusBar() {
       <UpdateChip />
       <div className="statusbar-meta">
         <span className="statusbar-caret">{caret}</span>
-        <span className="statusbar-words">
-          {words} {words === 1 ? 'word' : 'words'}
-        </span>
-        <span className="statusbar-chars">
-          {chars} {chars === 1 ? 'char' : 'chars'}
-        </span>
+        {slides ? (
+          <span
+            className="statusbar-words"
+            title="Slides, and a talk length at about 130 words a minute"
+          >
+            {deckSummary(slides.length, words)}
+          </span>
+        ) : (
+          <>
+            <span className="statusbar-words">
+              {words} {words === 1 ? 'word' : 'words'}
+            </span>
+            <span className="statusbar-chars">
+              {chars} {chars === 1 ? 'char' : 'chars'}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

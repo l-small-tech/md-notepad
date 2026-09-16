@@ -20,7 +20,7 @@ import { extName } from './session/plan-flush';
 import { isEditableTextPath } from './text-files';
 import type { EditorMode, TabKind } from './types';
 
-export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal';
+export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal' | 'deck';
 
 /**
  * Order matters: this is the order the mode segments are drawn in. Every
@@ -46,6 +46,21 @@ const CODE_MODES: readonly EditorMode[] = ['raw', 'read'];
  * `isModeAllowed` check everything else uses, instead of a special case each.
  */
 const TERMINAL_MODES: readonly EditorMode[] = ['term'];
+/**
+ * A Marp slide deck: a markdown file whose frontmatter says `marp: true`
+ * (`core/deck.ts isMarpDocument`). Detection is CONTENT-keyed — the one
+ * family that is — so it arrives through `docFamilyForTab`'s `deck` flag,
+ * which the tabs store keeps live as the text changes; `docFamilyFor` (a
+ * path alone) can never say 'deck'.
+ *
+ * Raw and Split as for markdown (Split's preview column shows slides), and
+ * `read` — labelled *Present* — is the light table: full-width slides with
+ * their speaker notes, and the show itself at the full-screen 'screen' stage.
+ * Edit (Milkdown) is deliberately HIDDEN: a WYSIWYG round-trip would mangle
+ * Marp's directive comments (`<!-- _class: lead -->`) and `![bg]` alt syntax,
+ * and hiding the segment is more honest than a mode that corrupts the file.
+ */
+const DECK_MODES: readonly EditorMode[] = ['raw', 'split', 'read'];
 
 /**
  * No path (an unsaved note) is markdown. Images and importable documents stay
@@ -72,8 +87,14 @@ export function docFamilyForTab(tab: {
   kind: TabKind;
   filePath?: string | null;
   notePath?: string | null;
+  /** The text declares `marp: true` (tabs store `deck`). Only a markdown tab can. */
+  deck?: boolean;
 }): DocFamily {
-  return tab.kind === 'terminal' ? 'terminal' : docFamilyFor(tab.filePath ?? tab.notePath);
+  if (tab.kind === 'terminal') {
+    return 'terminal';
+  }
+  const family = docFamilyFor(tab.filePath ?? tab.notePath);
+  return family === 'markdown' && tab.deck === true ? 'deck' : family;
 }
 
 export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
@@ -84,6 +105,8 @@ export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
       return CODE_MODES;
     case 'terminal':
       return TERMINAL_MODES;
+    case 'deck':
+      return DECK_MODES;
     default:
       return MARKDOWN_MODES;
   }
@@ -106,10 +129,11 @@ const MODE_LABELS: Record<EditorMode, string> = {
  * The name a mode is shown under for a document family — the ONE place the
  * label is decided, so the status bar, the palette and any tooltip agree.
  * `read` is *Review* for every family (for code, the same mode value renders
- * the file's structure instead of markdown).
+ * the file's structure instead of markdown) except a deck, where it is
+ * *Present* — the same mode value, the light table of slides.
  */
-export function modeLabel(mode: EditorMode, _family: DocFamily): string {
-  return MODE_LABELS[mode];
+export function modeLabel(mode: EditorMode, family: DocFamily): string {
+  return mode === 'read' && family === 'deck' ? 'Present' : MODE_LABELS[mode];
 }
 
 /**
@@ -123,6 +147,8 @@ const FAMILY_DEFAULTS: Record<DocFamily, EditorMode> = {
   svg: 'draw',
   code: 'raw',
   terminal: 'term',
+  // Edit is the one markdown mode a deck lacks; Split is the nearest thing.
+  deck: 'split',
 };
 
 /**

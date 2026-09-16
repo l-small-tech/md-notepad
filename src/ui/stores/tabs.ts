@@ -50,6 +50,7 @@ import { settingsStore } from './settings';
 import { activePaneCwd, terminalsStore } from './terminals';
 import { liveEditStore } from './live-edit';
 import { requestFlush } from './flush-signal';
+import { isMarpDocument } from '../../core/deck';
 import { isMobile } from '../platform';
 
 /**
@@ -65,6 +66,13 @@ export interface TabEntry extends TabState {
   wordCount: number;
   /** Character count of the current text (status bar); kept live with wordCount. */
   charCount: number;
+  /**
+   * The text's frontmatter says `marp: true` (`core/deck isMarpDocument`),
+   * which makes a markdown tab a slide deck (`docFamilyForTab` → 'deck').
+   * Kept live with wordCount, so adding or removing the frontmatter re-derives
+   * the family — and the modes offered — while the tab is open.
+   */
+  deck: boolean;
   /** kind='file' only: model.isDirty('file'), cached for the TabBar dot (M3). */
   dirty: boolean;
   /** kind='file' only: the file changed on disk since savedMtimeMs (M3 ConflictBanner). */
@@ -381,6 +389,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
               kind: init?.kind ?? 'note',
               filePath: init?.filePath,
               notePath: init?.notePath,
+              deck: isMarpDocument(text),
             }),
             init?.mode ?? settingsStore.getState().settings.defaultMode,
           ),
@@ -391,6 +400,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       title: customTitle ?? deriveTitle(text),
       wordCount: countWords(text),
       charCount: text.length,
+      deck: isMarpDocument(text),
       dirty: init?.dirty ?? false,
       conflict: false,
       preview: false,
@@ -433,6 +443,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       const title = tab.customTitle ?? deriveTitle(change.text);
       const wordCount = countWords(change.text);
       const charCount = change.text.length;
+      const deck = isMarpDocument(change.text);
       // file tabs only: the TabBar dirty dot. Note tabs have no save concept.
       const dirty = tab.kind === 'file' && tab.model.isDirty('file');
       // A genuine user edit (from an editor, not a programmatic/file-load push)
@@ -445,16 +456,25 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
         title === tab.title &&
         wordCount === tab.wordCount &&
         charCount === tab.charCount &&
+        deck === tab.deck &&
         dirty === tab.dirty &&
         preview === tab.preview
       ) {
         return;
       }
+      // The frontmatter came or went: the family changed under an open tab.
+      // A mode the new family lacks (Edit on a fresh deck) self-heals the same
+      // way a stale manifest does; every other mode is shared and stays.
+      const mode =
+        deck === tab.deck ? tab.mode : defaultModeFor(docFamilyForTab({ ...tab, deck }), tab.mode);
       set({
         tabs: state.tabs.map((t) =>
-          t.id === id ? { ...t, title, wordCount, charCount, dirty, preview } : t,
+          t.id === id ? { ...t, title, wordCount, charCount, deck, dirty, preview, mode } : t,
         ),
       });
+      if (mode !== tab.mode) {
+        void tab.modeSync?.setMode(mode);
+      }
     });
 
     return entry;
@@ -727,7 +747,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       }
       // A mode the document family doesn't have (Edit on an .svg, Draw on a
       // note) can only arrive from a stale keybinding or an old manifest.
-      if (!isModeAllowed(docFamilyFor(tab.filePath ?? tab.notePath), mode)) {
+      if (!isModeAllowed(docFamilyForTab(tab), mode)) {
         return;
       }
       // Where the reader is, measured while the OUTGOING mode is still on

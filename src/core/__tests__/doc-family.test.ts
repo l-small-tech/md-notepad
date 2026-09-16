@@ -43,11 +43,37 @@ describe('the code family', () => {
   });
 });
 
+describe('the deck family', () => {
+  it('is a markdown tab whose text says marp: true, and nothing else', () => {
+    expect(docFamilyForTab({ kind: 'file', filePath: '/d/talk.md', deck: true })).toBe('deck');
+    expect(docFamilyForTab({ kind: 'note', notePath: null, deck: true })).toBe('deck');
+    expect(docFamilyForTab({ kind: 'file', filePath: '/d/talk.md', deck: false })).toBe('markdown');
+    expect(docFamilyForTab({ kind: 'file', filePath: '/d/talk.md' })).toBe('markdown');
+    // A code file or a board with that frontmatter is still what its path says.
+    expect(docFamilyForTab({ kind: 'file', filePath: '/d/app.ts', deck: true })).toBe('code');
+    expect(docFamilyForTab({ kind: 'file', filePath: '/d/b.svg', deck: true })).toBe('svg');
+    expect(docFamilyForTab({ kind: 'terminal', deck: true })).toBe('terminal');
+  });
+
+  it('offers Raw, Split and Present (the read mode) but never Edit', () => {
+    expect(allowedModesFor('deck')).toEqual(['raw', 'split', 'read']);
+    expect(isModeAllowed('deck', 'wysiwyg')).toBe(false);
+    expect(isModeAllowed('deck', 'read')).toBe(true);
+    expect(defaultModeFor('deck', 'wysiwyg')).toBe('split');
+    expect(defaultModeFor('deck', 'read')).toBe('read');
+  });
+});
+
 describe('modeLabel', () => {
   it('calls the Review mode Review for code and Read for everything else', () => {
     expect(modeLabel('read', 'code')).toBe('Review');
     expect(modeLabel('read', 'markdown')).toBe('Review');
     expect(modeLabel('read', 'svg')).toBe('Review');
+  });
+
+  it('calls the read mode Present on a deck', () => {
+    expect(modeLabel('read', 'deck')).toBe('Present');
+    expect(modeLabel('split', 'deck')).toBe('Split');
   });
 
   it('leaves the other modes named as before, whatever the family', () => {

@@ -10,6 +10,15 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Marp slide decks.** A markdown file with `marp: true` in its frontmatter
+  is a slide deck: Split shows the slides beside the text (the one under your
+  cursor highlighted), the Review mode becomes **Present** — a light table of
+  slides with your speaker notes under each — and F11 twice runs the show:
+  one slide on a dark screen, keyboard driven, Esc back to where you were.
+  The status bar counts slides and estimates the talk length, and Export…
+  writes a standalone HTML deck. Themes from the Marp built-ins or a CSS file
+  kept next to the deck.
+
 ## [0.8.1] — 2026-09-15
 
 - **Switching modes keeps your place in the file.** Flipping between Raw,

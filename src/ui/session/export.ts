@@ -30,12 +30,14 @@
  * (ui → preview).
  */
 
+import { isMarpDocument } from '../../core/deck';
 import type { DocSource } from '../../core/export/doc-source';
 import { imageMimeType, localImageToInline } from '../../core/images';
 import { baseName, dirName } from '../../core/session/plan-flush';
 import { themeDeclarations, type ThemePlugin } from '../../core/theme-plugins';
 import { svgThemeFromPlugin, themeSvg } from '../../core/export/svg-theme';
 import { slugifyTitle, stripExtension } from '../../core/title';
+import { buildDeckHtml } from '../../preview/deck-export';
 import { buildStandaloneHtml } from '../../preview/export';
 import exportCss from '../../preview/export.css?raw';
 import { exportPreviewStore } from '../stores/export-preview';
@@ -159,6 +161,27 @@ export function createExport(ctx: SessionCtx) {
   function buildDocHtml(src: DocSource, theme: ExportTheme): Promise<string> {
     const docDir = src.docPath ? dirName(src.docPath) : null;
     const cache = new Map<string, string>();
+    // A Marp deck exports as slides (preview/deck-export): its own theme,
+    // never the app's, so the theme controls are moot and the dialog says so.
+    if (isMarpDocument(src.markdown)) {
+      return buildDeckHtml(src.markdown, {
+        title: src.title,
+        docPath: src.docPath,
+        async resolveImage(abs) {
+          const cached = cache.get(abs);
+          if (cached !== undefined) {
+            return cached;
+          }
+          try {
+            const dataUrl = `data:${imageMimeType(abs)};base64,${await ctx.ipc.readFileBase64(abs)}`;
+            cache.set(abs, dataUrl);
+            return dataUrl;
+          } catch {
+            return null;
+          }
+        },
+      });
+    }
     const declarations = theme.plugin ? themeDeclarations(theme.plugin) : '';
     const css = declarations.length > 0 ? `${exportCss}\n:root {\n${declarations}\n}` : exportCss;
     return buildStandaloneHtml(src.markdown, {
@@ -345,8 +368,10 @@ export function createExport(ctx: SessionCtx) {
       return;
     }
     const theme: ExportTheme = { plugin: resolveTheme(themeId), dark, svg };
+    // A deck has one export today: the standalone HTML (PDF and PPTX are the
+    // Marp CLI's, through Chromium print — not yet ours).
     const done =
-      format === 'html'
+      format === 'html' || isMarpDocument(source.markdown)
         ? await exportHtmlFrom(source, theme)
         : format === 'pdf'
           ? await exportPdfFrom(source, theme)

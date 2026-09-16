@@ -16,7 +16,7 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
-import { docFamilyFor } from '../../core/doc-family';
+import { docFamilyFor, docFamilyForTab } from '../../core/doc-family';
 import { localImageToInline } from '../../core/images';
 import { headingIndexForLine, lineForHeadingIndex, scrollSurfaceFor } from '../../core/mode-scroll';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
@@ -29,6 +29,7 @@ import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import type { MilkdownAdapter } from '../../editors/milkdown';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
+import { attachDeckPane } from '../../preview/deck';
 import { attachPreviewPane } from '../../preview/pane';
 import { createReviewGit } from '../code-review-git';
 import {
@@ -94,6 +95,7 @@ import {
   voiceStore,
 } from '../voice-comments';
 import { openOverview } from '../notes-overview';
+import { registerDeckPane, unregisterDeckPane } from '../stores/deck-show';
 import { unitNoteLabel } from '../../core/note-marks';
 import { pathKey } from '../../core/tab-workspaces';
 import type { VoiceComment } from '../../core/comments';
@@ -202,6 +204,10 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   /** The Edit adapter once created (lazy chunk) — for theme-driven image refreshes. */
   const editAdapterRef = useRef<MilkdownAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
+  // A Marp deck (`marp: true` in the frontmatter) renders as slides instead
+  // of a document in Split and Present. The flag is live in the store, so
+  // adding the frontmatter to an open file swaps the pane in place.
+  const deck = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.deck ?? false);
   // The inline review-note composer renders into this element; the Review
   // pane places it under the held line (`mountComposer`) — a portal, so the
   // composer is React while the pane around it is plain DOM.
@@ -590,6 +596,70 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         pane.dispose();
       };
     }
+    // A deck's Split column and Present light table are the deck pane
+    // (preview/deck.ts): slides in shadow roots, notes under each in Present,
+    // the cursor's slide highlighted in Split. Same anchor and review-note
+    // wiring as the markdown pane; no in-pane link following, no diagrams.
+    if (docFamilyForTab(tab) === 'deck') {
+      const pane = attachDeckPane(host, tab.model, {
+        variant: mode === 'read' ? 'read' : 'split',
+        docPath: tab.filePath ?? tab.notePath,
+        onOpenExternal: (url) => externalLinkStore.getState().request(url),
+        onHoldLine: mode === 'read' ? (line) => void openNoteAtLine(tabId, line) : undefined,
+        onEditNote: mode === 'read' ? (id, text) => void editNote(tabId, id, text) : undefined,
+        onDeleteNote: mode === 'read' ? (id) => void deleteNote(tabId, id) : undefined,
+        onOpenAllNotes: mode === 'read' ? () => openOverview('current') : undefined,
+      });
+      const syncDeckHold = () =>
+        syncNotesPane(tabId, pane, mode === 'read' && voiceStore.getState().armed, ({ line }) =>
+          pane.mountComposer(line, composerSlot),
+        );
+      syncDeckHold();
+      const unsubscribeDeckVoice = voiceStore.subscribe(syncDeckHold);
+      registerPreviewReveal(tabId, (index) => pane.scrollToHeading(index));
+      const unsubscribeDeckPath = tabsStore.subscribe(() => {
+        const t = tabsStore.getState().tabs.find((t) => t.id === tabId);
+        pane.setDocPath(t ? (t.filePath ?? t.notePath) : null);
+      });
+      // Split: the slide under the caret follows the source editor. The ui
+      // store only carries the ACTIVE tab's caret, which is the one typing.
+      let unsubscribeCursor: (() => void) | null = null;
+      if (mode === 'split') {
+        const push = () => {
+          const { cursor } = uiStore.getState();
+          if (tabsStore.getState().activeTabId === tabId) {
+            pane.setCursorLine(cursor?.line ?? null);
+          }
+        };
+        push();
+        unsubscribeCursor = uiStore.subscribe(push);
+      }
+      registerScrollAnchor(tabId, 'rendered', {
+        getTopLine: () => pane.getTopLine(),
+        scrollToLine: (line) => pane.scrollToLine(line),
+      });
+      registerDeckPane(tabId, pane);
+      const anchor = mode === 'read' ? takeScrollAnchor(tabId) : peekScrollAnchor(tabId);
+      if (anchor !== null) {
+        pane.scrollToLine(anchor);
+      }
+      if (mode === 'read' && tabsStore.getState().activeTabId === tabId) {
+        host.focus();
+      }
+      return () => {
+        unregisterDeckPane(tabId);
+        unregisterScrollAnchor(tabId, 'rendered');
+        unsubscribeDeckVoice();
+        dropMarks(tabId);
+        unsubscribeDeckPath();
+        unsubscribeCursor?.();
+        unregisterPreviewReveal(tabId);
+        pane.dispose();
+        if (mode === 'split') {
+          editorPane.style.flex = '';
+        }
+      };
+    }
     const pane = attachPreviewPane(host, tab.model, {
       dark: isDark(),
       docPath: tab.filePath ?? tab.notePath,
@@ -680,7 +750,9 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         editorPane.style.flex = ''; // back to the raw-mode CSS default
       }
     };
-  }, [tabId, mode, composerSlot]);
+    // `deck` re-keys the effect on purpose: the frontmatter arriving or leaving
+    // swaps the markdown pane for the deck pane (or back) in place.
+  }, [tabId, mode, composerSlot, deck]);
 
   // The other half of the mode-switch scroll anchor: the surfaces that are
   // NOT created by the effect above. The preview pane consumes the anchor
