@@ -30,6 +30,7 @@ do not rewrite them.
 | `window-drop.ts` | M8 | `pickDropWindow`: which window a tab drag released over (containment + focus-recency for overlap), for the cross-window tab drop |
 | `doc-family.ts` | reference | which modes a path's document type may use (`.svg` → Raw/Draw; any non-note, non-image, non-document file → `code`, Raw only) |
 | `text-files.ts` | reference | which extensions are text notes (`.md`/`.markdown`/`.txt`, mirrored by Rust `list_dir`), and `showAllFilesState` — whether a folder lists every file: nearest switch wins between `settings.showAllFilesDirs` and `settings.hideUnsupportedDirs`; `toggleShowAllFiles` resets the subfolders below the toggled one |
+| `explorer-clipboard.ts` | feature | the file drawer's own cut/copy/paste: `duplicateName` (the free name a pasted duplicate takes — `notes copy.md`, `notes copy 2.md`) and `checkPaste` (a folder into itself, a cut back into its own folder). The clipboard state is `ui/stores/explorer.ts`, the disk work `ui/session/explorer-ops.ts`; the OS clipboard is deliberately not involved — it cannot carry a file list out of a webview |
 | `external-links.ts` | reference | external-link policy: is an href `http(s)`, what host does it really resolve to, how is it shown in the confirmation prompt |
 | `external-links.ts` | reference | link policy: is an href external, what host does it REALLY reach, how to elide it for the confirm prompt |
 | `whiteboard/` | feature | the `.svg` whiteboard format — see `whiteboard/README.md` |

@@ -65,6 +65,7 @@ import {
   setListNotesDispatch,
   setListOtherTabWindowsDispatch,
   setMoveEntryDispatch,
+  setPasteEntryDispatch,
   setMoveTabToNewWindowDispatch,
   setMoveTabToWindowDispatch,
   setOpenDocsDispatch,
@@ -138,6 +139,7 @@ export {
   openNotePath,
   openNotePathAtLine,
   openNotePathPinned,
+  pasteExplorerEntryInto,
   pickPhotoForScan,
   pathKey,
   refreshWorkspaces,
@@ -393,6 +395,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   });
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
+  setPasteEntryDispatch(explorerOps.pasteEntry);
   setDeleteEntryDispatch(explorerOps.deleteEntry);
   setDeleteFolderDispatch(explorerOps.deleteFolder);
   setRefreshWorkspacesDispatch(async (dirs) => {

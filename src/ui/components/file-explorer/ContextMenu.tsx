@@ -3,6 +3,9 @@
  * variants, selected by which props are given:
  * - `entry` — a file row's menu (Rename / Reveal in explorer / Delete);
  * - `dir` — a directory or workspace-root menu (see DirMenuProps).
+ * Both carry the clipboard group (Cut / Copy / Paste, backed by
+ * `stores/explorer.ts`) and **Copy path**; a file pastes into its own folder,
+ * exactly as VSCode does.
  * Session-level actions (delete, import, workspace color/remove) are imported
  * directly — same module dispatch the container used; only the callbacks that
  * touch the container's state arrive as props (new file/folder among them, so
@@ -11,6 +14,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { baseName, dirName } from '../../../core/session/plan-flush';
 import { harnessName } from '../../../core/settings';
 import { isMarkdownPath } from '../../../core/text-files';
 import { HARNESS_PROFILE_ID, WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
@@ -25,12 +29,14 @@ import {
   importDocumentInto,
   openExportPreviewForFile,
   openFileInNewWindow,
+  pasteExplorerEntryInto,
   removeWorkspace,
   setWorkspaceColor,
   setWorkspaceLiveEdit,
   toggleShowAllFilesFor,
   type ExplorerEntry,
 } from '../../session';
+import { explorerStore, useExplorerStore } from '../../stores/explorer';
 import { uiStore } from '../../stores/ui';
 import { setActiveWorkspace } from '../../active-workspace';
 import { scanImageInto } from '../../scan-image';
@@ -89,6 +95,7 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
   /** Which page of the directory menu is showing (see the New/Import rows below). */
   const [page, setPage] = useState<'root' | 'new' | 'import'>('root');
   const aiName = useSettingsStore((s) => harnessName(s.settings));
+  const clipboard = useExplorerStore((s) => s.clipboard);
   const harnessReady = useHarnessAvailability(harnessInstalled);
 
   /** Overlay + popover shared by every context menu in the drawer. */
@@ -159,6 +166,73 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
     );
   }
 
+  /**
+   * The Cut / Copy pair for a row. `cuttable` is false for a workspace root:
+   * its path anchors the settings entry, so it is removed, never moved (the
+   * same reason it has no Rename).
+   */
+  function renderClipboardItems(
+    row: { path: string; name: string; isDir: boolean },
+    cuttable: boolean,
+  ): ReactNode {
+    return (
+      <>
+        {cuttable && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              explorerStore.getState().put(row, 'cut');
+            }}
+          >
+            Cut
+          </button>
+        )}
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            explorerStore.getState().put(row, 'copy');
+          }}
+        >
+          Copy
+        </button>
+      </>
+    );
+  }
+
+  /** "Paste" — only when something is on the explorer clipboard. `destDir` is
+   *  the folder itself for a directory row, the parent folder for a file. */
+  function renderPasteItem(destDir: string): ReactNode {
+    if (!clipboard) {
+      return null;
+    }
+    return (
+      <button
+        className="context-menu-item"
+        role="menuitem"
+        title={`${clipboard.mode === 'cut' ? 'Move' : 'Copy'} "${clipboard.name}" here`}
+        onClick={() => {
+          onClose();
+          void pasteExplorerEntryInto(clipboard, destDir);
+        }}
+      >
+        Paste
+      </button>
+    );
+  }
+
+  /** "Copy path" — the absolute path of a file, folder or workspace root. */
+  function renderCopyPathItem(path: string): ReactNode {
+    return (
+      <button className="context-menu-item" role="menuitem" onClick={() => copyToClipboard(path)}>
+        Copy path
+      </button>
+    );
+  }
+
   /** Copy `text` to the clipboard, confirming (or failing) via a notice. */
   function copyToClipboard(text: string): void {
     onClose();
@@ -186,13 +260,12 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             Open in new window
           </button>
         )}
-        <button
-          className="context-menu-item"
-          role="menuitem"
-          onClick={() => copyToClipboard(props.entry.path)}
-        >
-          Copy path
-        </button>
+        {renderClipboardItems(
+          { path: props.entry.path, name: props.entry.name, isDir: false },
+          true,
+        )}
+        {renderPasteItem(dirName(props.entry.path))}
+        {renderCopyPathItem(props.entry.path)}
         {/* Export works on markdown only — other rows (.txt, images) omit it.
             Opens the preview dialog (format + theme picked there); the file
             need not be open — an open tab's live text wins over disk. */}
@@ -490,6 +563,13 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           <span className="context-menu-more">›</span>
         </button>
       )}
+      {/* The clipboard group. A workspace root is neither cut nor copied —
+          its path anchors the settings entry — but it is a paste destination
+          like any other writable folder, and its path is copyable. */}
+      {renameTarget !== undefined &&
+        renderClipboardItems({ path: dir, name: baseName(dir), isDir: true }, !readOnly)}
+      {!readOnly && renderPasteItem(dir)}
+      {renderCopyPathItem(dir)}
       {!readOnly && renameTarget !== undefined && renderRenameItem(renameTarget)}
       {/* Delete a subfolder (recursive). Workspace roots omit this — they carry
           "Remove workspace" instead — so it's gated on a rename target. */}

@@ -251,8 +251,9 @@ pub async fn create_dir(path: PathBuf) -> FsResult<()> {
     Ok(())
 }
 
-/// Copy a file. Refuses to clobber (EXISTS) — collision suffixes are frontend
-/// logic, mirroring `rename_path`'s contract.
+/// Copy a file, or a directory and everything inside it (the explorer's
+/// copy/paste of a folder). Refuses to clobber (EXISTS) — collision suffixes
+/// are frontend logic, mirroring `rename_path`'s contract.
 #[tauri::command]
 pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if !from.exists() {
@@ -261,7 +262,40 @@ pub async fn copy_path(from: PathBuf, to: PathBuf) -> FsResult<()> {
     if to.exists() {
         return Err(FsError::Exists(to));
     }
+    if from.is_dir() {
+        // Copying a folder INTO itself would recurse until the disk fills; the
+        // frontend refuses it too (core/explorer-clipboard checkPaste), but the
+        // guard belongs on this side of the wire as well.
+        if to.starts_with(&from) {
+            return Err(FsError::InvalidPath(format!(
+                "{} is inside {}",
+                to.display(),
+                from.display()
+            )));
+        }
+        return copy_dir_recursive(&from, &to);
+    }
     copy_file_atomic(&from, &to)
+}
+
+/// Copy the directory tree at `from` to `to` (which must not exist). Files go
+/// through `copy_file_atomic`, so a crash leaves whole files or none — the tree
+/// itself is not atomic, which is the same deal `delete_path` offers.
+/// Symlinks are followed by `is_dir`/`copy`, matching `fs::copy`'s behaviour;
+/// the app never creates any.
+fn copy_dir_recursive(from: &Path, to: &Path) -> FsResult<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&src, &dst)?;
+        } else {
+            copy_file_atomic(&src, &dst)?;
+        }
+    }
+    Ok(())
 }
 
 /// Copy the file at `from` onto `to` through a temp file in the DESTINATION's
@@ -1030,6 +1064,40 @@ mod tests {
         let err = block_on(copy_path(a, b.clone())).unwrap_err();
         assert_eq!(err.code(), "EXISTS");
         assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+    }
+
+    #[test]
+    fn copy_path_copies_a_whole_directory_tree() {
+        let dir = tmpdir();
+        let src = dir.path().join("notes");
+        fs::create_dir_all(src.join("deep").join("deeper")).unwrap();
+        fs::write(src.join("a.md"), "a").unwrap();
+        fs::write(src.join("deep").join("b.md"), "b").unwrap();
+        fs::write(src.join("deep").join("deeper").join("c.md"), "c").unwrap();
+        let dst = dir.path().join("elsewhere").join("notes copy");
+        block_on(copy_path(src.clone(), dst.clone())).unwrap();
+        assert_eq!(fs::read_to_string(dst.join("a.md")).unwrap(), "a");
+        assert_eq!(
+            fs::read_to_string(dst.join("deep").join("b.md")).unwrap(),
+            "b"
+        );
+        assert_eq!(
+            fs::read_to_string(dst.join("deep").join("deeper").join("c.md")).unwrap(),
+            "c"
+        );
+        // The source survives a copy.
+        assert!(src.join("a.md").exists());
+    }
+
+    #[test]
+    fn copy_path_refuses_a_directory_into_itself() {
+        let dir = tmpdir();
+        let src = dir.path().join("notes");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.md"), "a").unwrap();
+        let err = block_on(copy_path(src.clone(), src.join("inner"))).unwrap_err();
+        assert_eq!(err.code(), "INVALID_PATH");
+        assert!(!src.join("inner").exists());
     }
 
     #[test]

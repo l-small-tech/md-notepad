@@ -10,6 +10,16 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Cut, copy and paste files and folders in the workspaces pane.** Right-click
+  any row for Cut / Copy, then Paste into a folder or workspace header — or use
+  Ctrl+X, Ctrl+C and Ctrl+V on the selected row, as in VS Code and File
+  Explorer. A cut row dims until you paste it; a copy lands as "name copy" when
+  something with that name is already there, and can be pasted into as many
+  folders as you like. Whole folders come along with everything inside them.
+
+- **Copy a folder's path.** "Copy path" is now on folder and workspace
+  right-click menus too, not just files.
+
 ## [0.8.0] — 2026-09-11
 
 - **Review notes live in the document.** The Review-mode button is now
