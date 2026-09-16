@@ -10,6 +10,10 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **"Rich" mode is now called "Edit".** The word-processor view for markdown
+  files keeps the same Ctrl+3 shortcut and behaviour — only the name in the
+  status bar, the command palette and Settings changes.
+
 - **Cut, copy and paste files and folders in the workspaces pane.** Right-click
   any row for Cut / Copy, then Paste into a folder or workspace header — or use
   Ctrl+X, Ctrl+C and Ctrl+V on the selected row, as in VS Code and File

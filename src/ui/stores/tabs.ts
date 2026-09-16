@@ -724,7 +724,7 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (!tab || tab.mode === mode || tab.readOnly) {
         return;
       }
-      // A mode the document family doesn't have (Rich on an .svg, Draw on a
+      // A mode the document family doesn't have (Edit on an .svg, Draw on a
       // note) can only arrive from a stale keybinding or an old manifest.
       if (!isModeAllowed(docFamilyFor(tab.filePath ?? tab.notePath), mode)) {
         return;

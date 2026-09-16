@@ -32,7 +32,7 @@ const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'
 const SVG_MODES: readonly EditorMode[] = ['raw', 'draw'];
 /**
  * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
- * unsupported files. It is not markdown, so rendering it (Rich, split preview)
+ * unsupported files. It is not markdown, so rendering it (Edit, split preview)
  * would mangle it: the source editor applies, plus `read`, which for this
  * family is *Review* — the structural, read-only view of a code file
  * (`preview/code-review.ts`; review_plan.md §1). The mode VALUE stays `read`
@@ -96,7 +96,7 @@ export function isModeAllowed(family: DocFamily, mode: EditorMode): boolean {
 const MODE_LABELS: Record<EditorMode, string> = {
   raw: 'Raw',
   split: 'Split',
-  wysiwyg: 'Rich',
+  wysiwyg: 'Edit',
   read: 'Review',
   draw: 'Draw',
   term: 'Terminal',

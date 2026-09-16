@@ -1,6 +1,6 @@
 /**
  * A saved board's colour mode as seen from OUTSIDE the draw editor — the
- * markdown preview and the rich editor show boards through `<img>`, and their
+ * markdown preview and the Edit-mode editor show boards through `<img>`, and their
  * right-click "theme colours / true colours" toggle needs two things without
  * mounting a scene: read the mode off the file text, and write the flipped
  * mode back.

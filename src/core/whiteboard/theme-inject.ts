@@ -1,7 +1,7 @@
 /**
  * Theme a saved whiteboard `.svg` WITHOUT parsing it as a scene — pure string
  * surgery on the root tag, shared by every place that shows a board through an
- * `<img>` (the split preview and the rich editor inline local images as data
+ * `<img>` (the split preview and the Edit-mode editor inline local images as data
  * URLs).
  *
  * Why this exists: an SVG loaded through `<img>` is a sealed document. The

@@ -1,7 +1,7 @@
 /**
  * theme-inject.ts: baking the app theme's resolved `--wb-*` values into a
  * saved board's root tag — the string surgery that makes a whiteboard inside
- * an `<img>` (markdown preview, rich editor) follow the app theme.
+ * an `<img>` (markdown preview, Edit-mode editor) follow the app theme.
  */
 
 import { describe, expect, it } from 'vitest';

@@ -821,7 +821,7 @@ in core or the stores.
 
 ## Voice typing (edit modes)
 
-`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Rich: the
+`voice-typing.ts` drives the ribbon's microphone in Raw, Split and Edit: the
 same `dictationEngine()` engines, but the transcript goes into the document
 at the caret instead of a sidecar. It types into the tab the capture started
 on, through the editor that tab shows when the words arrive — the CM6

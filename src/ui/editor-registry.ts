@@ -9,7 +9,7 @@
  *
  * The CM6 source editor (raw/split modes) is what formatting drives — the
  * WYSIWYG editor carries its own inline toolbar, and the ribbon reports a
- * notice there. The rich (Milkdown) adapter is tracked too, for the one ribbon
+ * notice there. The Edit (Milkdown) adapter is tracked too, for the one ribbon
  * control that works in every edit mode: voice typing (`ui/voice-typing.ts`).
  */
 
@@ -17,7 +17,7 @@ import type { Cm6Adapter } from '../editors/cm6';
 import type { MilkdownAdapter } from '../editors/milkdown';
 
 const sourceAdapters = new Map<string, Cm6Adapter>();
-const richAdapters = new Map<string, MilkdownAdapter>();
+const editAdapters = new Map<string, MilkdownAdapter>();
 
 export function registerSourceAdapter(tabId: string, adapter: Cm6Adapter): void {
   sourceAdapters.set(tabId, adapter);
@@ -31,14 +31,14 @@ export function getSourceAdapter(tabId: string): Cm6Adapter | undefined {
   return sourceAdapters.get(tabId);
 }
 
-export function registerRichAdapter(tabId: string, adapter: MilkdownAdapter): void {
-  richAdapters.set(tabId, adapter);
+export function registerEditAdapter(tabId: string, adapter: MilkdownAdapter): void {
+  editAdapters.set(tabId, adapter);
 }
 
-export function unregisterRichAdapter(tabId: string): void {
-  richAdapters.delete(tabId);
+export function unregisterEditAdapter(tabId: string): void {
+  editAdapters.delete(tabId);
 }
 
-export function getRichAdapter(tabId: string): MilkdownAdapter | undefined {
-  return richAdapters.get(tabId);
+export function getEditAdapter(tabId: string): MilkdownAdapter | undefined {
+  return editAdapters.get(tabId);
 }

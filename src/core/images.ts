@@ -38,7 +38,7 @@ export function extForImageMime(mime: string): string | null {
  * file to inline as a data URL, or null to leave the src exactly as-is. Null
  * covers: empty, external (http/https), already-inlined (data:), an unsaved doc
  * (no `docDir`), and non-image targets. Shared by the split-preview pane and
- * the rich-mode (Milkdown) editor — both must read local images off disk and
+ * the Edit-mode (Milkdown) editor — both must read local images off disk and
  * inline them, because the app CSP blocks loading a local file by path.
  */
 export function localImageToInline(docDir: string | null, rawSrc: string): string | null {

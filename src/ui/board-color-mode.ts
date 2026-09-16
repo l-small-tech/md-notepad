@@ -1,6 +1,6 @@
 /**
  * Apply a colour mode to saved whiteboards from OUTSIDE the draw editor — the
- * preview / rich-editor right-click menu's action. Each file is read, flipped
+ * preview / Edit-mode right-click menu's action. Each file is read, flipped
  * through the real parse → serialize route (`core/whiteboard/color-mode.ts`,
  * the same edit the board's own `◐` control makes) and atomically written
  * back; files already in that mode, and SVGs that are not boards, are left

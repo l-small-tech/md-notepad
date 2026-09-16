@@ -1,6 +1,6 @@
 /**
  * The "theme colours / true colours" right-click menu for a whiteboard image
- * shown inside a markdown document (preview pane in read/split, the rich
+ * shown inside a markdown document (preview pane in read/split, the Edit
  * editor's image node). Transient, never persisted — the same contract as the
  * diagram viewer. The renderers only REPORT the right-click (path, current
  * mode, pointer); this store holds what the menu needs and `BoardColorMenu`
@@ -9,7 +9,7 @@
  * Applying a choice rewrites the `.svg` file (see `ui/board-color-mode.ts`),
  * and every open view showing that file must then reload its bytes. The
  * views' refresh hooks live in a module map keyed by view (a tab's preview
- * pane, a tab's rich editor) — plain functions with the view's lifetime, not
+ * pane, a tab's Edit-mode editor) — plain functions with the view's lifetime, not
  * reactive state, exactly like `preview-nav.ts`'s goBack registry.
  */
 

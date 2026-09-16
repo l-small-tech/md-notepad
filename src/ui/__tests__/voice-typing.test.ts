@@ -20,7 +20,7 @@ const tabs = vi.hoisted(() => ({
 /** Fake editors: what each adapter was asked to insert / whether it was focused. */
 const editors = vi.hoisted(() => ({
   source: { insertText: vi.fn(), focus: vi.fn() },
-  rich: { insertText: vi.fn(), focus: vi.fn() },
+  edit: { insertText: vi.fn(), focus: vi.fn() },
 }));
 const mic = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), cancel: vi.fn() }));
 
@@ -28,7 +28,7 @@ vi.mock('../../ipc/commands', () => ({ ipc }));
 vi.mock('../voice-comments', () => ({ dictationEngine: () => engine.current }));
 vi.mock('../editor-registry', () => ({
   getSourceAdapter: () => editors.source,
-  getRichAdapter: () => editors.rich,
+  getEditAdapter: () => editors.edit,
 }));
 vi.mock('../stores/settings', () => ({
   settingsStore: {
@@ -84,14 +84,14 @@ describe('whisper', () => {
     expect(voiceTypingStore.getState().phase).toBe('idle');
   });
 
-  test('a rich-mode tab gets the text through the rich editor', async () => {
+  test('an Edit-mode tab gets the text through the Edit-mode editor', async () => {
     tabs.list = [{ id: 't1', mode: 'wysiwyg' }];
     toggleVoiceTyping();
     await settle();
     ipc.whisperTranscribe.mockResolvedValue('hi');
     toggleVoiceTyping();
     await settle();
-    expect(editors.rich.insertText).toHaveBeenCalledWith('hi');
+    expect(editors.edit.insertText).toHaveBeenCalledWith('hi');
     expect(editors.source.insertText).not.toHaveBeenCalled();
   });
 
@@ -106,7 +106,7 @@ describe('whisper', () => {
     ipc.whisperTranscribe.mockResolvedValue('kept');
     stopVoiceTyping();
     await settle();
-    expect(editors.rich.insertText).toHaveBeenCalledWith('kept');
+    expect(editors.edit.insertText).toHaveBeenCalledWith('kept');
   });
 
   test('silence is a notice, not an insert', async () => {

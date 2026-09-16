@@ -73,7 +73,7 @@ import {
 const MODES: { value: EditorMode; label: string }[] = [
   { value: 'raw', label: 'Raw' },
   { value: 'split', label: 'Split' },
-  { value: 'wysiwyg', label: 'Rich' },
+  { value: 'wysiwyg', label: 'Edit' },
   { value: 'read', label: 'Review' },
 ];
 
