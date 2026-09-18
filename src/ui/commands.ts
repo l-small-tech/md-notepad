@@ -24,7 +24,7 @@ import {
   saveActiveTab,
   saveActiveTabAs,
 } from './session';
-import { cycleFullscreen } from './fullscreen';
+import { toggleDistractionFree, toggleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { openOverview } from './notes-overview';
 import { settingsStore } from './stores/settings';
@@ -106,9 +106,12 @@ export function runShortcutAction(action: ShortcutAction): void {
       settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
       break;
     case 'toggle-fullscreen':
-      // Advances the full-screen view one stage (normal → window → screen →
-      // normal), available in every editor mode.
-      cycleFullscreen();
+      // OS full screen — the interface is untouched. Available in every mode.
+      toggleFullscreen();
+      break;
+    case 'toggle-distraction-free':
+      // Hide (or bring back) the app chrome; the OS window stays as it is.
+      toggleDistractionFree();
       break;
     case 'open-palette':
       uiStore.getState().togglePalette();
@@ -306,7 +309,13 @@ export function buildCommands(): AppCommand[] {
       'toggle-fullscreen',
       'Toggle full screen',
       { type: 'toggle-fullscreen' },
-      { keywords: ['distraction', 'free', 'zen'], shortcut: IS_MAC ? '⌃⌘F' : 'F11' },
+      { keywords: ['fullscreen', 'window'], shortcut: IS_MAC ? '⌃⌘F' : 'F11' },
+    ),
+    fromAction(
+      'toggle-distraction-free',
+      'Toggle distraction-free',
+      { type: 'toggle-distraction-free' },
+      { keywords: ['distraction', 'free', 'zen', 'chrome', 'focus'] },
     ),
     // App
     fromAction(

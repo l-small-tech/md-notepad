@@ -19,7 +19,8 @@ vi.mock('../session', () => ({
   saveActiveTabAs: vi.fn(),
 }));
 vi.mock('../fullscreen', () => ({
-  cycleFullscreen: vi.fn(),
+  toggleFullscreen: vi.fn(),
+  toggleDistractionFree: vi.fn(),
 }));
 
 import { buildCommands } from '../commands';
@@ -62,6 +63,7 @@ describe('buildCommands', () => {
       'font-decrease',
       'font-reset',
       'toggle-fullscreen',
+      'toggle-distraction-free',
       'open-settings',
       'toggle-explorer',
       'open-docs',

@@ -15,7 +15,7 @@
  */
 
 import { Fragment, type ReactNode } from 'react';
-import { setFullscreen } from '../fullscreen';
+import { setDistractionFree, setOsFullscreen } from '../fullscreen';
 import { detectPlatform } from '../keymap';
 import { runNewTabChoice, terminalsAvailable } from '../new-tab';
 import { isAndroid } from '../platform';
@@ -346,7 +346,8 @@ export function AppActionRows({
   onOpenHelp: () => void;
   onClose: () => void;
 }) {
-  const stage = useUiStore((s) => s.fullscreenView);
+  const distractionFree = useUiStore((s) => s.distractionFree);
+  const osFullscreen = useUiStore((s) => s.osFullscreen);
 
   return (
     <>
@@ -384,24 +385,24 @@ export function AppActionRows({
         onClose={onClose}
       />
       <AppMenuDivider />
-      {/* Both rows toggle: picking the stage you are already in returns to
-          normal, so the ✓ reads as a switch rather than a destination. */}
+      {/* Two independent switches (the ✓ shows which are on): distraction-free
+          hides the chrome, full screen fills the screen; either works alone. */}
       <AppMenuItem
-        glyph={stage === 'window' ? '✓' : '⤢'}
-        label={isAndroid() ? 'Full screen' : 'Full window'}
+        glyph={distractionFree ? '✓' : '⤢'}
+        label="Distraction-free"
         title="Hide the app chrome and show only the document"
-        onPick={() => setFullscreen(stage === 'window' ? 'normal' : 'window')}
+        onPick={() => setDistractionFree(!distractionFree)}
         onClose={onClose}
       />
-      {/* Android's window already fills the screen — the OS stage would look
-          identical to the chrome-hiding one (see ui/fullscreen.ts). */}
+      {/* Android's window already fills the screen — there is no OS full
+          screen to toggle there (see ui/fullscreen.ts). */}
       {!isAndroid() && (
         <AppMenuItem
-          glyph={stage === 'screen' ? '✓' : '⛶'}
+          glyph={osFullscreen ? '✓' : '⛶'}
           label="Full screen"
-          title="Hide the app chrome and make the window fullscreen"
+          title="Make the window fill the screen; the interface stays as it is"
           shortcut={IS_MAC ? '⌃⌘F' : 'F11'}
-          onPick={() => setFullscreen(stage === 'screen' ? 'normal' : 'screen')}
+          onPick={() => setOsFullscreen(!osFullscreen)}
           onClose={onClose}
         />
       )}

@@ -45,18 +45,22 @@ The polished result, full-width, with nothing editable — ideal for actually
 
 - **A− / A+** — text size (also Ctrl+`-` / Ctrl+`=` anywhere, Ctrl+0 to
   reset).
-- **⛶ Full screen** (or **F11**; Ctrl+Cmd+F on Mac) — press once to hide
-  all the app chrome, press again to fill the whole screen. **Esc** steps
-  back out.
+- **⤢ Distraction-free** — hides all the app chrome (tabs, toolbar, status
+  bar) and shows only the document. The window itself stays where it is.
+  **Esc** brings the chrome back.
+- **Full screen** (**F11**; Ctrl+Cmd+F on Mac) — makes the window fill the
+  whole screen and changes nothing else: the interface stays exactly as it
+  was. Press **F11** or **Esc** to leave. It is also in the **⌄** app menu.
 
-Full screen works in every mode, including drawings. Once the chrome is
-hidden, there are two ways back:
+The two are independent — use either on its own, or both together for a
+document and nothing else on a bare screen. Both work in every mode,
+including drawings. Once the chrome is hidden, there are two ways back:
 
 - **Mouse and keyboard** — move the pointer to the top of the window for the
-  floating controls, or press **Esc** / **F11**.
+  floating controls (full screen on/off and an exit), or press **Esc**.
 - **Touch or pen** — press and hold anywhere for a moment. A small menu
-  appears with **Exit full screen**, **Workspaces** and **Outline**. On a
-  drawing, the hold that opens the menu doesn't leave a mark.
+  appears with **Exit distraction-free**, **Workspaces** and **Outline**. On
+  a drawing, the hold that opens the menu doesn't leave a mark.
 
 How wide the text column is in Review mode is up to you — see **Review mode
 margins** in [Settings](settings.md).
@@ -82,8 +86,8 @@ kept next to the file) decides how they look. A deck offers three modes:
 - **Present** — replaces Review: a light table of full-size slides, numbered,
   with your speaker notes (HTML comments in the slide, `<!-- like this -->`)
   shown quietly under each one. Review notes work here too — press and hold a
-  slide. Press **F11** twice (or the ⛶ button, then ⛶ again) and the show
-  starts on the slide at the top of the light table: one slide on a dark
+  slide. Press **F11** (full screen) and the show starts on the slide at
+  the top of the light table: one slide on a dark
   screen, **arrow keys / Space / PgUp / PgDn / Home / End** to move, a number
   then **Enter** to jump, and a thin progress line along the bottom. **Esc**
   brings you back to the light table on the slide you were showing.

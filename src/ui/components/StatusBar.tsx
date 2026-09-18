@@ -38,7 +38,7 @@ const MODE_HINTS: Record<EditorMode, string> = {
   term: 'Shell',
 };
 const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
-const PRESENT_HINT = 'Present — the slides with their notes; F11 twice for the show (Ctrl/Cmd+4)';
+const PRESENT_HINT = 'Present — the slides with their notes; F11 for the show (Ctrl/Cmd+4)';
 
 function readHint(family: DocFamily): string {
   return family === 'code' ? REVIEW_HINT : family === 'deck' ? PRESENT_HINT : MODE_HINTS.read;

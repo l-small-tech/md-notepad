@@ -28,9 +28,6 @@ export interface CursorReadout {
 export type SettingsTabId =
   'appearance' | 'editor' | 'files' | 'voice' | 'terminal' | 'harness' | 'updates';
 
-/** Full-screen view stage — see `fullscreenView` below. */
-export type FullscreenStage = 'normal' | 'window' | 'screen';
-
 /** Where the full-screen long-press menu was summoned (viewport px). */
 export interface MenuPoint {
   x: number;
@@ -77,18 +74,24 @@ export interface UiState {
    */
   selectedExplorerDir: string | null;
   /**
-   * Full screen (any mode), in two stages: 'window' hides all app chrome but
-   * keeps the window as-is; 'screen' additionally makes the OS window
-   * fullscreen. Only the value lives here — the window-API side effect is
-   * owned by `../fullscreen`, which is the only writer.
+   * Distraction-free (any mode): the app chrome — tabbar, ribbon, status bar
+   * — is hidden and only the document shows. Pure CSS; the OS window is
+   * untouched. Written only by `../fullscreen`.
    */
-  fullscreenView: FullscreenStage;
+  distractionFree: boolean;
   /**
-   * The full-screen tap-and-hold menu's anchor point, or null when it is
-   * closed. Full screen hides every piece of chrome, so a touch device has no
-   * button to press; a long press anywhere summons this menu instead. Kept
-   * here (not in the component) so the one global Escape handler in main.tsx
-   * can close it before Escape steps the full-screen stage back.
+   * The OS window fills the screen (F11). Independent of `distractionFree`:
+   * full screen changes nothing about the interface. Only the value lives
+   * here — the window-API side effect is owned by `../fullscreen`, which is
+   * the only writer. Never true on Android (see that module).
+   */
+  osFullscreen: boolean;
+  /**
+   * The distraction-free tap-and-hold menu's anchor point, or null when it is
+   * closed. Distraction-free hides every piece of chrome, so a touch device
+   * has no button to press; a long press anywhere summons this menu instead.
+   * Kept here (not in the component) so the one global Escape handler in
+   * main.tsx can close it before Escape leaves the view.
    */
   fullscreenMenu: MenuPoint | null;
   /** Show a status-bar notice that auto-clears after `ms` (default 6s). */
@@ -120,7 +123,8 @@ export interface UiState {
    */
   dropSelectedExplorerDirUnder: (root: string) => void;
   refreshExplorer: () => void;
-  setFullscreenView: (stage: FullscreenStage) => void;
+  setDistractionFree: (on: boolean) => void;
+  setOsFullscreen: (on: boolean) => void;
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,7 +141,8 @@ export const uiStore = createStore<UiState>()((set) => ({
   dropTargetDir: null,
   explorerRefresh: 0,
   selectedExplorerDir: null,
-  fullscreenView: 'normal',
+  distractionFree: false,
+  osFullscreen: false,
   fullscreenMenu: null,
 
   showNotice(message, ms = 6000) {
@@ -250,10 +255,13 @@ export const uiStore = createStore<UiState>()((set) => ({
     set((s) => ({ explorerRefresh: s.explorerRefresh + 1 }));
   },
 
-  setFullscreenView(stage) {
-    // The menu belongs to the full-screen view it was summoned from — leaving
-    // (or changing) the stage must never leave it floating over the chrome.
-    set({ fullscreenView: stage, fullscreenMenu: null });
+  setDistractionFree(on) {
+    // The menu belongs to the chrome-less view it was summoned from — leaving
+    // it must never leave the menu floating over the chrome.
+    set({ distractionFree: on, fullscreenMenu: null });
+  },
+  setOsFullscreen(on) {
+    set({ osFullscreen: on });
   },
 }));
 

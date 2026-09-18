@@ -87,7 +87,7 @@ import { closeOverview, notesOverviewStore } from './ui/notes-overview';
 import { isAndroid } from './ui/platform';
 import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
-import { stepBackFullscreen } from './ui/fullscreen';
+import { escapeFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
 import { whisperSetupStore } from './ui/stores/whisper-setup';
@@ -622,19 +622,18 @@ window.addEventListener('keydown', (event) => {
     uiStore.getState().closeSettings();
     return;
   }
-  // Escape closes the full-screen tap-and-hold menu before it steps the stage
-  // back — the menu is the innermost thing open.
+  // Escape closes the distraction-free tap-and-hold menu before it leaves the
+  // view — the menu is the innermost thing open.
   if (event.key === 'Escape' && uiStore.getState().fullscreenMenu !== null) {
     event.preventDefault();
     uiStore.getState().closeFullscreenMenu();
     return;
   }
-  // Escape steps the full-screen view back one stage (screen → window →
-  // normal; checked after the settings modal so a dialog opened while
-  // fullscreen closes first).
-  if (event.key === 'Escape' && uiStore.getState().fullscreenView !== 'normal') {
+  // Escape leaves the innermost view: distraction-free first (the chrome
+  // comes back), then OS full screen. Checked after the settings modal so a
+  // dialog opened while chrome-less closes first.
+  if (event.key === 'Escape' && escapeFullscreen()) {
     event.preventDefault();
-    stepBackFullscreen();
     return;
   }
   const action = keyEventToAction(event, platform);

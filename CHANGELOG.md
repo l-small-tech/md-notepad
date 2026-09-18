@@ -10,6 +10,14 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Full screen and distraction-free are now two separate switches.** F11
+  makes the window fill the screen and leaves the interface exactly as it is,
+  like every other desktop app. The old "full window" view that hides the
+  tabs, toolbar and status bar is now called **Distraction-free** (the ⤢
+  button and the app menu) and works with or without full screen. Esc leaves
+  distraction-free first, then full screen. On Windows 11, full screen no
+  longer leaves a black strip where the taskbar was.
+
 ## [0.9.0] — 2026-09-16
 
 - **Diagram editor.** Whiteboards are for drawing diagrams now, not just
