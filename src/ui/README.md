@@ -582,7 +582,8 @@ elsewhere (`navigator.platform`-based helper).
 
 | Keys | Action | Milestone |
 | --- | --- | --- |
-| mod+N | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
+| mod+N | new OS window with one empty note (`session/windows.ts` `openEmptyWindow`) | M8 |
+| + button / palette "New tab" | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
 | mod+Shift+N | new-tab type picker (note / drawing / terminal) | M9 |
 | mod+W | close tab (confirm per semantics) | M1/M2 |
 | mod+Tab / mod+Shift+Tab | next / previous tab | M1 |

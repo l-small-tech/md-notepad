@@ -257,6 +257,19 @@ export function openFileInNewWindow(path: string): void {
 }
 
 /**
+ * mod+N: open a brand-new OS window holding one fresh note. Same indirection
+ * as {@link openFileInNewWindow}; a no-op until the controller registers the
+ * window spawner (and on platforms without one, e.g. Android).
+ */
+let newWindowDispatch: () => void = () => {};
+export function setNewWindowDispatch(fn: () => void): void {
+  newWindowDispatch = fn;
+}
+export function newWindow(): void {
+  newWindowDispatch();
+}
+
+/**
  * Same indirection pattern as {@link closeTab} for the M3 file actions the
  * keyboard dispatcher (mod+O/S/Shift+S) and ConflictBanner need, before any
  * controller exists. No-ops until {@link createSessionController} registers

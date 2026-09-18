@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
 import { docFamilyFor, docFamilyForTab } from '../../core/doc-family';
+import { NEW_NOTE_HINT } from '../../core/new-note-hint';
 import { localImageToInline } from '../../core/images';
 import { headingIndexForLine, lineForHeadingIndex, scrollSurfaceFor } from '../../core/mode-scroll';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
@@ -260,6 +261,8 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     // .svg tab gets Draw (+ Raw, which is a free SVG source editor); a markdown
     // tab gets Edit. Anything else is a mode the status bar never offers.
     const family = docFamilyFor(tab.filePath ?? tab.notePath);
+    // A brand-new note (not an opened file) explains itself while it is empty.
+    const emptyHint = tab.kind === 'note' && family === 'markdown' ? NEW_NOTE_HINT : undefined;
     const familyAdapters: Partial<Record<AdapterKind, AdapterFactory>> =
       family === 'svg'
         ? {
@@ -340,6 +343,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
               const { createMilkdownAdapter } = await import('../../editors/milkdown');
               const adapter = createMilkdownAdapter({
                 onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
+                placeholder: emptyHint,
                 saveImage: (data) => savePastedImageForTab(tabId, data),
                 getDocPath: () => {
                   const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
@@ -384,6 +388,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         ...familyAdapters,
         source: () => {
           const adapter = createCm6Adapter({
+            placeholder: emptyHint,
             wordWrap: settingsStore.getState().settings.wordWrap,
             lineNumbers: settingsStore.getState().settings.lineNumbers,
             initialSelection: getCursor(tabId) ?? undefined,

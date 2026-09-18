@@ -318,6 +318,26 @@ export function createWindows(
   }
 
   /**
+   * mod+N: spawn a fresh OS window with nothing in it. An EMPTY manifest is
+   * handed over so the new window skips its own manifest file and boots the
+   * way a first launch does — `restoreSession([])` makes the one Untitled
+   * note — while still inheriting this window's workspace (spawnTabWindow
+   * puts it in the URL).
+   */
+  async function openEmptyWindow(): Promise<void> {
+    const spawn = ctx.deps.spawnTabWindow;
+    if (!spawn) {
+      return;
+    }
+    try {
+      await spawn({ schema: 1, activeTabId: null, tabs: [] }, null);
+    } catch (error) {
+      uiStore.getState().showNotice('Could not open a new window.');
+      ctx.deps.onError?.(error);
+    }
+  }
+
+  /**
    * Quit-time export (a last-standing secondary window closing): flush
    * everything, then describe each tab worth keeping. A pristine never-flushed
    * Untitled is dropped — folding an empty placeholder into main's manifest
@@ -398,6 +418,7 @@ export function createWindows(
     dropTornWindow,
     openFileInNewWindow,
     exportTabsForHandoff,
+    openEmptyWindow,
     bequeathTabsToMain,
   };
 }

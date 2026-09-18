@@ -262,6 +262,10 @@ export const ipc = {
    *  never call with `saf://`. */
   dirHasRelevantFiles: (dir: string, allFiles?: boolean) =>
     call<boolean>('dir_has_relevant_files', { dir, allFiles: allFiles ?? false }),
+  /** The Marp slide decks (`marp: true` frontmatter) directly inside `dir` —
+   *  the explorer badges them. Reads only each markdown file's head. Local
+   *  paths only — never call with `saf://`. */
+  listDeckFiles: (dir: string) => call<string[]>('list_deck_files', { dir }),
   /** Secondary-window manifests (`session-<label>.json`) in the session dir. */
   listSessionManifests: (dir: string) => call<string[]>('list_session_manifests', { dir }),
   /** Theme-plugin files (`*.json`) in the themes folder; full paths, sorted. */

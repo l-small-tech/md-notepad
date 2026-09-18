@@ -1754,6 +1754,17 @@ body.explorer-dragging * {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
+/* A Marp slide deck (a markdown file with `marp: true`): same shape, its own
+   fixed hue — the workspace palette's purple, a mid-tone that reads on every
+   theme — so it can't blend into an accent-colored md badge whatever the
+   theme's accent is. The *marp* label carries the cue on its own too. */
+.file-badge[data-kind='deck'] {
+  --deck-badge: #8e4ec6;
+  color: var(--deck-badge);
+  background: color-mix(in srgb, var(--deck-badge) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deck-badge) 40%, transparent);
+}
+
 .file-explorer-item.is-importable:hover,
 .file-explorer-item.is-importable.is-active {
   color: var(--fg);

@@ -1,7 +1,7 @@
 /**
  * Executing a `NewTabChoice`. The decision itself is pure and lives in
  * `core/new-tab.ts`; this is the one place it becomes an action, so the "+"
- * button, mod+N and the command palette all take the same path.
+ * button and the command palette take the same path (mod+N opens a window).
  */
 
 import { defaultNewTabChoice, type NewTabChoice } from '../core/new-tab';
