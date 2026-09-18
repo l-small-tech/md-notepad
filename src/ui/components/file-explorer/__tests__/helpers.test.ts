@@ -29,6 +29,13 @@ describe('fileBadge', () => {
     expect(fileBadge('NOTES.MD')).toEqual({ label: 'md', kind: 'md' });
   });
 
+  test('a Marp deck gets the "marp" badge, but only when the file is markdown', () => {
+    expect(fileBadge('talk.md', true)).toEqual({ label: 'marp', kind: 'deck' });
+    expect(fileBadge('talk.markdown', true)).toEqual({ label: 'marp', kind: 'deck' });
+    expect(fileBadge('todo.txt', true)).toEqual({ label: 'txt', kind: 'md' });
+    expect(fileBadge('shot.png', true)).toEqual({ label: 'png', kind: 'image' });
+  });
+
   test('plain text gets a "txt" badge in the md style', () => {
     expect(fileBadge('todo.txt')).toEqual({ label: 'txt', kind: 'md' });
   });

@@ -148,6 +148,10 @@ export function FileExplorer() {
   // open — rendered washed out as a "nothing to find here" hint. Local paths
   // only; saf:// folders are never checked (no recursive walk over SAF).
   const [dullDirs, setDullDirs] = useState<ReadonlySet<string>>(new Set());
+  // Marp slide decks on disk, per listed dir (fileKey'd paths) — their rows
+  // badge *marp* instead of *md*. Content-keyed, so it takes its own backend
+  // pass after each listing; saf:// folders are never checked.
+  const [decksByDir, setDecksByDir] = useState<Record<string, string[]>>({});
   // Tree shape lives in the persisted settings store, not component state: the
   // drawer unmounts whenever it's closed (and the app exits), and either one
   // would otherwise throw the shape away and reopen fully expanded.
@@ -205,6 +209,16 @@ export function FileExplorer() {
   const openFilesSignature = useTabsStore((s) =>
     JSON.stringify(s.tabs.map((t) => t.filePath ?? t.notePath).filter((p) => p !== null)),
   );
+  // An open file's LIVE deck flag beats the on-disk check: typing (or deleting)
+  // `marp: true` re-badges its row before the file is even saved.
+  const openDecksSignature = useTabsStore((s) =>
+    JSON.stringify(
+      s.tabs.flatMap((t) => {
+        const p = t.filePath ?? t.notePath;
+        return p === null ? [] : [[p, t.deck] as const];
+      }),
+    ),
+  );
   const activeFilePath = useTabsStore((s) => {
     const active = s.tabs.find((t) => t.id === s.activeTabId);
     return active ? (active.filePath ?? active.notePath) : null;
@@ -214,6 +228,14 @@ export function FileExplorer() {
   const openFileKeys = new Set((JSON.parse(openFilesSignature) as string[]).map(fileKey));
   const activeFileKey = activeFilePath === null ? null : fileKey(activeFilePath);
   const isRenaming = (p: string) => renaming !== null && fileKey(renaming) === fileKey(p);
+  const openDecks = new Map(
+    (JSON.parse(openDecksSignature) as [string, boolean][]).map(([p, d]) => [fileKey(p), d]),
+  );
+  const diskDecks = new Set(Object.values(decksByDir).flat());
+  const isDeck = (p: string): boolean => {
+    const key = fileKey(p);
+    return openDecks.get(key) ?? diskDecks.has(key);
+  };
 
   const defaultPath = getDefaultWorkspacePath();
   const workspaces: WorkspaceView[] = [
@@ -261,6 +283,27 @@ export function FileExplorer() {
         .then((list) => {
           if (!cancelled) {
             setEntriesByDir((prev) => ({ ...prev, [path]: list }));
+            if (
+              !path.startsWith('saf://') &&
+              list.some((e) => !e.isDir && isMarkdownPath(e.path))
+            ) {
+              void ipc
+                .listDeckFiles(path)
+                .then((decks) => {
+                  if (!cancelled) {
+                    setDecksByDir((prev) => ({ ...prev, [path]: decks.map(fileKey) }));
+                  }
+                })
+                .catch(() => {}); // best-effort badge — never surface an error
+            } else {
+              setDecksByDir((prev) => {
+                if (!(path in prev)) {
+                  return prev;
+                }
+                const { [path]: _gone, ...rest } = prev;
+                return rest;
+              });
+            }
             // Re-check each subfolder's "anything worth finding?" flag. Cheap:
             // the walk early-exits on the first supported file it meets.
             for (const e of list) {
@@ -711,7 +754,7 @@ export function FileExplorer() {
               }}
             >
               {(() => {
-                const badge = fileBadge(entry.name);
+                const badge = fileBadge(entry.name, isDeck(entry.path));
                 return (
                   <>
                     <span className="file-explorer-item-name">

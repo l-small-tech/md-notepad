@@ -13,6 +13,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 - **Quieter scrollbars.** Scrollbars are now a slim, translucent bar tinted to
   your theme that appears while you scroll and fades away when you stop, in
   the style of Windows Terminal. Hover it to grab it.
+- **Slide decks stand out in the file tree.** A Marp presentation now shows a
+  purple *marp* badge in the Workspaces pane instead of the ordinary *md* one.
 
 ## [0.9.0] — 2026-09-16
 
