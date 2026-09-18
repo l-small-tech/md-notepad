@@ -91,6 +91,7 @@ import { stepBackFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
 import { whisperSetupStore } from './ui/stores/whisper-setup';
+import { watchScrollActivity } from './ui/scroll-activity';
 
 const MARKDOWN_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
@@ -138,6 +139,9 @@ function applyDomSettings(): void {
 
 applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
+
+// Scrollbars fade in while their pane scrolls and out when idle (base.css).
+watchScrollActivity(document);
 
 /* ---- Smooth scrolling (the engine's; the terminal eases its own) -------- */
 
