@@ -31,19 +31,24 @@
  * whiteboard, whose stage swallows the gestures the cluster used to rely on.
  */
 
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
+import { currentMonitor, getCurrentWindow, type Window } from '@tauri-apps/api/window';
 import { uiStore } from './stores/ui';
 import { isAndroid } from './platform';
 
 /**
- * Window geometry captured just before entering OS fullscreen. Windows does
- * NOT reliably put the window back where it was when leaving fullscreen (it
- * can jump to the top-left of the primary monitor), so we snapshot it here and
- * restore it on exit. Null while not in (or entering) OS fullscreen.
+ * Whether the window was MAXIMIZED when OS fullscreen was entered, so exit can
+ * put it back. Null while not in (or entering) OS fullscreen.
+ *
+ * Nothing else is snapshotted on purpose. tao saves the window's own
+ * WINDOWPLACEMENT on the way in and restores it on the way out, and that
+ * placement is where Windows keeps snap state (Win+Arrow): a snapped window's
+ * "normal position" is where it sat before the snap, and Windows itself moves
+ * the window back to its arranged rect. Re-applying our own position/size on
+ * top of that — as an earlier version did — left the window at the right
+ * pixels but no longer *arranged* as far as the shell was concerned, which is
+ * what broke Win+Arrow after a fullscreen round trip.
  */
-let preFullscreen: { position: PhysicalPosition; size: PhysicalSize; maximized: boolean } | null =
-  null;
+let preFullscreen: { maximized: boolean } | null = null;
 
 /**
  * Serializes the OS-fullscreen enter/exit transitions. Each request that
@@ -57,19 +62,40 @@ let preFullscreen: { position: PhysicalPosition; size: PhysicalSize; maximized: 
  */
 let opChain: Promise<void> = Promise.resolve();
 
-/** Enter OS fullscreen, remembering where the window was first. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Make sure the fullscreen window really covers its monitor. tao applies the
+ * monitor bounds with an ASYNC SetWindowPos, and on Windows a restore
+ * animation or the shell can still land after it and leave the window at the
+ * work-area height — the same black strip along the taskbar edge, just
+ * intermittent. Re-assert the monitor rect (which also re-sizes the webview
+ * to it) until the inner size matches; a few short rounds are plenty.
+ */
+async function settleFullscreenBounds(win: Window): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const monitor = await currentMonitor();
+    if (!monitor) {
+      return;
+    }
+    const size = await win.innerSize();
+    if (size.width === monitor.size.width && size.height === monitor.size.height) {
+      return;
+    }
+    await win.setPosition(monitor.position);
+    await win.setSize(monitor.size);
+    await sleep(60);
+  }
+}
+
+/** Enter OS fullscreen, remembering whether the window was maximized first. */
 async function enterOsFullscreen(): Promise<void> {
   const win = getCurrentWindow();
   try {
-    // Guard: only snapshot when we don't already hold a saved geometry, so an
-    // enter can never clobber a position captured by an earlier (still-pending)
-    // enter with the already-fullscreen geometry.
+    // Guard: only snapshot when we don't already hold one, so an enter can
+    // never clobber the state captured by an earlier (still-pending) enter.
     if (!preFullscreen) {
-      preFullscreen = {
-        position: await win.outerPosition(),
-        size: await win.innerSize(),
-        maximized: await win.isMaximized(),
-      };
+      preFullscreen = { maximized: await win.isMaximized() };
     }
     // A MAXIMIZED window must be restored before going fullscreen. tao keeps
     // the WS_MAXIMIZE style on the window while it applies the monitor-sized
@@ -81,41 +107,24 @@ async function enterOsFullscreen(): Promise<void> {
       await win.unmaximize();
     }
     await win.setFullscreen(true);
+    await settleFullscreenBounds(win);
   } catch {
     // No-op outside a Tauri webview (plain `vite`): the flag still flips, so
     // the feature degrades gracefully instead of throwing.
   }
 }
 
-/** Leave OS fullscreen and put the window back exactly where it was. */
+/** Leave OS fullscreen; tao puts the window back where it was. */
 async function exitOsFullscreen(): Promise<void> {
   const win = getCurrentWindow();
   const saved = preFullscreen;
   preFullscreen = null;
   try {
     await win.setFullscreen(false);
-    if (!saved) {
-      return;
-    }
-    // A maximized window has no meaningful free-floating position to restore —
-    // re-maximizing puts it back to fill the monitor it was on. Otherwise pin
-    // the exact position/size Windows would otherwise have dropped.
-    if (saved.maximized) {
+    // We unmaximized on the way in, so this is the one thing tao's placement
+    // restore cannot know to undo.
+    if (saved?.maximized) {
       await win.maximize();
-    } else {
-      // Windows restores the window's pre-snap placement asynchronously after
-      // leaving fullscreen (a snapped window's "normal position" is wherever it
-      // was before Win+Arrow), which stomps a single immediate setPosition.
-      // Re-apply the saved geometry until it actually sticks.
-      for (let attempt = 0; attempt < 8; attempt++) {
-        await win.setPosition(saved.position);
-        await win.setSize(saved.size);
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const pos = await win.outerPosition();
-        if (pos.x === saved.position.x && pos.y === saved.position.y) {
-          break;
-        }
-      }
     }
   } catch {
     // Not in a Tauri webview — nothing to restore.

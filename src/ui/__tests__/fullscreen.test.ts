@@ -12,8 +12,8 @@ vi.mock('../platform', async (importOriginal) => ({
 // The OS-window side effects only fire on desktop's full-screen boundary; stub
 // the Tauri window so those paths are inert and the test needs no webview.
 // `os` records the order of every window call that matters (setFullscreen
-// targets, unmaximize/maximize) plus an artificial delay before the geometry
-// reads an `enter` awaits, so a test can provoke the enter/exit race the
+// targets, unmaximize/maximize) plus an artificial delay in the state read an
+// `enter` awaits first, so a test can provoke the enter/exit race the
 // serialization fixes.
 const os = vi.hoisted(() => ({
   calls: [] as (boolean | 'unmaximize' | 'maximize')[],
@@ -22,15 +22,18 @@ const os = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
+  // Reports a monitor the (mocked) window already fills, so the post-enter
+  // bounds check is satisfied on its first look.
+  currentMonitor: async () => ({ position: { x: 0, y: 0 }, size: { width: 0, height: 0 } }),
   getCurrentWindow: () => ({
-    outerPosition: async () => {
+    outerPosition: async () => ({ x: 0, y: 0 }),
+    innerSize: async () => ({ width: 0, height: 0 }),
+    isMaximized: async () => {
       if (os.enterDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, os.enterDelayMs));
       }
-      return { x: 0, y: 0 };
+      return os.maximized;
     },
-    innerSize: async () => ({ width: 0, height: 0 }),
-    isMaximized: async () => os.maximized,
     setFullscreen: async (value: boolean) => {
       os.calls.push(value);
     },
@@ -59,8 +62,8 @@ const osFullscreen = () => uiStore.getState().osFullscreen;
 
 /**
  * Let the serialized OS-transition chain drain. Transitions are fire-and-forget
- * from the toggles' view, so wait out the (mocked) enter delay plus the exit's
- * single geometry-restore tick before asserting on the final OS state.
+ * from the toggles' view, so wait out the (mocked) enter delay before
+ * asserting on the final OS state.
  */
 async function drainOsTransitions(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, os.enterDelayMs * 3 + 200));
@@ -157,7 +160,7 @@ describe('a maximized window is restored before going fullscreen (Windows taskba
 
 describe('OS-fullscreen transitions are serialized (rapid toggles)', () => {
   test('an exit that follows a slow enter still lands last (window not stranded)', async () => {
-    // The enter awaits geometry reads (delayed) before setFullscreen(true).
+    // The enter awaits a state read (delayed) before setFullscreen(true).
     // Fire-and-forget, an interleaved exit's setFullscreen(false) could win the
     // race and leave the OS fullscreen while the UI says otherwise;
     // serialized, the exit runs only after the enter completes, so false
