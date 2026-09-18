@@ -2,7 +2,7 @@
  * The ghost text an EMPTY markdown note shows until the first keystroke: a
  * one-screen primer on how notes save and what markdown is. Pure data, shared
  * by the raw (CodeMirror) and Edit (Milkdown) editors so both modes tell the
- * same story. Newlines are significant — the editors render it `pre-line`.
+ * same story. Newlines and runs of spaces are significant — the editors render it `pre-wrap`.
  */
 
 export const NEW_NOTE_HINT = [

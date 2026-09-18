@@ -201,5 +201,5 @@
    Crepe positions it absolutely with zero height, which is fine: the doc is
    empty whenever it shows, so nothing sits underneath it. */
 .milkdown .crepe-placeholder::before {
-  white-space: pre-line;
+  white-space: pre-wrap;
 }

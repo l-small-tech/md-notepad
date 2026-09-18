@@ -97,7 +97,7 @@ export interface MilkdownOptions {
   onNormalizationHint?: () => void;
   /**
    * Ghost text shown while the document is EMPTY (Crepe's placeholder feature
-   * in `doc` mode — never per-block). Multi-line; rendered `pre-line`.
+   * in `doc` mode — never per-block). Multi-line; rendered `pre-wrap`.
    */
   placeholder?: string;
   /**

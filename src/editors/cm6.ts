@@ -55,7 +55,7 @@ export interface Cm6Options {
   lineNumbers?: boolean;
   /**
    * Ghost text shown while the document is EMPTY (never once there is a
-   * character in it). Multi-line; rendered `pre-line`.
+   * character in it). Multi-line; rendered `pre-wrap`.
    */
   placeholder?: string;
   /** Caret to restore on attach (from the persisted session). Clamped to length. */
