@@ -17,18 +17,23 @@ export function dirIndent(depth: number): number {
  * The right-pinned type badge for a recognized file, or null for anything
  * else (which then keeps its full name, extension included). Recognized files
  * show their name WITHOUT the extension plus this badge: 'md' for markdown
- * (rendered in the accent blue), the uppercased extension for images and
- * importable documents (PDF/DOCX). Unsupported files (listed where the user
- * shows them) are not recognized: they keep their full name, no badge.
+ * (rendered in the accent color), 'marp' for a markdown file that is a Marp
+ * slide deck (`deck` — content-keyed, so the caller has to know; its own
+ * color), the uppercased extension for images and importable documents
+ * (PDF/DOCX). Unsupported files (listed where the user shows them) are not
+ * recognized: they keep their full name, no badge.
  */
-export function fileBadge(name: string): { label: string; kind: 'md' | 'image' | 'doc' } | null {
+export function fileBadge(
+  name: string,
+  deck = false,
+): { label: string; kind: 'md' | 'deck' | 'image' | 'doc' } | null {
   const dot = name.lastIndexOf('.');
   if (dot <= 0) {
     return null;
   }
   const ext = name.slice(dot).toLowerCase();
   if (ext === '.md' || ext === '.markdown') {
-    return { label: 'md', kind: 'md' };
+    return deck ? { label: 'marp', kind: 'deck' } : { label: 'md', kind: 'md' };
   }
   if (ext === '.txt') {
     return { label: 'txt', kind: 'md' };
