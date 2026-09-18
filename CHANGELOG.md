@@ -15,6 +15,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   the style of Windows Terminal. Hover it to grab it.
 - **Slide decks stand out in the file tree.** A Marp presentation now shows a
   purple *marp* badge in the Workspaces pane instead of the ordinary *md* one.
+- **Ctrl+N opens a new window.** A fresh window with one empty note, instead
+  of another tab in the current one. The tab bar's "+" and the command
+  palette's "New tab" still add a tab here; Ctrl+Shift+N still picks a type.
+- **Empty notes explain themselves.** A brand-new note shows ghost text — how
+  notes save, what Ctrl+S does, and a one-glance markdown cheat sheet — that
+  disappears at the first keystroke.
 
 ## [0.9.0] — 2026-09-16
 

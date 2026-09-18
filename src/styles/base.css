@@ -243,3 +243,22 @@ html[data-cursor='underscore'] .cm-cursor {
 .cm-plain-dots {
   font-variant-ligatures: none;
 }
+
+/* Ghost text for an empty note (core/new-note-hint.ts): multi-line, muted,
+   and never in the way of the caret. */
+/* The ghost is taken OUT of the line's flow: left inline, its many lines
+   would make the (single) line — and so the caret — as tall as the whole
+   hint. Absolute at the line's own text origin instead. */
+.cm-line:has(> .cm-placeholder) {
+  position: relative;
+}
+.cm-placeholder {
+  position: absolute;
+  top: 0;
+  left: 6px; /* .cm-line's own left padding */
+  width: max-content;
+  max-width: calc(100% - 8px);
+  color: var(--fg-muted, #888);
+  white-space: pre-wrap;
+  opacity: 0.7;
+}

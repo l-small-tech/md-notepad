@@ -16,7 +16,14 @@
  * M6 will drive (font size and word wrap), and to keep the recipe's shape.
  */
 
-import { Decoration, EditorView, keymap, lineNumbers, type DecorationSet } from '@codemirror/view';
+import {
+  Decoration,
+  EditorView,
+  keymap,
+  lineNumbers,
+  placeholder,
+  type DecorationSet,
+} from '@codemirror/view';
 import { EditorState, Compartment, StateEffect, StateField } from '@codemirror/state';
 import { diffToChanges } from '../core/diff';
 import { joinDictation } from '../core/dictation-insert';
@@ -46,6 +53,11 @@ export interface Cm6Options {
   wordWrap?: boolean;
   /** Initial line-number gutter state (OFF by default — Notepad feel). */
   lineNumbers?: boolean;
+  /**
+   * Ghost text shown while the document is EMPTY (never once there is a
+   * character in it). Multi-line; rendered `pre-wrap`.
+   */
+  placeholder?: string;
   /** Caret to restore on attach (from the persisted session). Clamped to length. */
   initialSelection?: CursorPos;
   /**
@@ -716,6 +728,7 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),
         wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
         lineNumbersCompartment.of(showLineNumbers ? lineNumbers() : []),
+        ...(options.placeholder ? [placeholder(options.placeholder)] : []),
         EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off' }),
         // Touch-only: double-tap the text to retract the soft keyboard.
         ...(options.dismissKeyboardOnDoubleTap ? [createKeyboardDismissGesture()] : []),

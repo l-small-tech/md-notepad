@@ -1,5 +1,5 @@
 /**
- * What "+" (and mod+N) should make — decided once, purely, so the button, the
+ * What "+" (and the palette's "New tab") should make — decided once, purely, so the button, the
  * shortcut and the command palette cannot drift apart.
  *
  * The rule is "another one of what I am looking at": a terminal makes a

@@ -23,15 +23,17 @@ describe('detectPlatform', () => {
 });
 
 describe('keyEventToAction — mod resolves per platform', () => {
-  test('Ctrl+N on non-mac is new-tab; Meta+N is not', () => {
+  test('Ctrl+N on non-mac is new-window; Meta+N is not', () => {
     expect(keyEventToAction(key({ key: 'n', ctrlKey: true }), 'other')).toEqual({
-      type: 'new-tab',
+      type: 'new-window',
     });
     expect(keyEventToAction(key({ key: 'n', metaKey: true }), 'other')).toBeNull();
   });
 
-  test('Cmd+N on mac is new-tab; Ctrl+N is not', () => {
-    expect(keyEventToAction(key({ key: 'n', metaKey: true }), 'mac')).toEqual({ type: 'new-tab' });
+  test('Cmd+N on mac is new-window; Ctrl+N is not', () => {
+    expect(keyEventToAction(key({ key: 'n', metaKey: true }), 'mac')).toEqual({
+      type: 'new-window',
+    });
     expect(keyEventToAction(key({ key: 'n', ctrlKey: true }), 'mac')).toBeNull();
   });
 });
@@ -303,7 +305,7 @@ describe('keyEventToAction — terminal context', () => {
   });
 
   test('the window/tab chords a user would be stranded without still fire', () => {
-    expect(term({ key: 'n', ctrlKey: true })).toEqual({ type: 'new-tab' });
+    expect(term({ key: 'n', ctrlKey: true })).toEqual({ type: 'new-window' });
     expect(term({ key: 'w', ctrlKey: true })).toEqual({ type: 'close-tab' });
     expect(term({ key: 'Tab', ctrlKey: true })).toEqual({ type: 'next-tab' });
     expect(term({ key: 'Tab', ctrlKey: true, shiftKey: true })).toEqual({ type: 'prev-tab' });
