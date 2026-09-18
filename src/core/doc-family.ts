@@ -55,7 +55,7 @@ const TERMINAL_MODES: readonly EditorMode[] = ['term'];
  *
  * Raw and Split as for markdown (Split's preview column shows slides), and
  * `read` — labelled *Present* — is the light table: full-width slides with
- * their speaker notes, and the show itself at the full-screen 'screen' stage.
+ * their speaker notes, and the show itself when the window is full screen (F11).
  * Edit (Milkdown) is deliberately HIDDEN: a WYSIWYG round-trip would mangle
  * Marp's directive comments (`<!-- _class: lead -->`) and `![bg]` alt syntax,
  * and hiding the segment is more honest than a mode that corrupts the file.

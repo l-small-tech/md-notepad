@@ -50,6 +50,7 @@ export type ShortcutAction =
   | { type: 'font-dec' }
   | { type: 'font-reset' }
   | { type: 'toggle-fullscreen' }
+  | { type: 'toggle-distraction-free' }
   | { type: 'open-palette' }
   | { type: 'toggle-outline' }
   | { type: 'global-search' }
@@ -79,6 +80,7 @@ const TERMINAL_PASSTHROUGH: readonly ShortcutAction['type'][] = [
   'open-settings',
   'open-palette',
   'toggle-fullscreen',
+  'toggle-distraction-free',
   'font-inc',
   'font-dec',
   'font-reset',

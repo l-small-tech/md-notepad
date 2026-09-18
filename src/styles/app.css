@@ -1093,11 +1093,11 @@ body.tab-drag-live * {
   -webkit-user-select: none;
 }
 
-/* ---- Full screen -------------------------------------------------------- */
+/* ---- Distraction-free / full screen ------------------------------------- */
 
-/* Both full-screen stages ('window' and 'screen') hide every piece of chrome
-   so the active tab is the only thing left; the 'screen' stage additionally
-   makes the OS window fullscreen (see ui/fullscreen).
+/* Distraction-free hides every piece of chrome so the active tab is the only
+   thing left. OS full screen (F11) is independent and purely a window-level
+   change — no CSS at all (see ui/fullscreen).
 
    The explorer and outline panels are NOT in this list: they render nothing
    unless opened, and the tap-and-hold menu can open them from inside full
@@ -1151,8 +1151,8 @@ body.tab-drag-live * {
   font-size: 15px;
 }
 
-/* 'window' stage: an invisible strip over the top of the view that grabs-to-move
-   the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
+/* Distraction-free, windowed: an invisible strip over the top of the view that
+   grabs-to-move the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
    so those controls stay clickable. Titlebar-height by default (so it doesn't
    swallow the first editor lines in edit modes); taller in Read mode to cover
    the reading column's top whitespace (~3 lines). */
@@ -1171,7 +1171,7 @@ body.tab-drag-live * {
 }
 
 /* The conflict banner sits at the top of the editor host, exactly where the
-   'window'-stage drag strip (z 39) lies. Lift it above the strip so its
+   distraction-free drag strip (z 39) lies. Lift it above the strip so its
    Reload / Keep mine buttons take clicks instead of the drag region swallowing
    them to move the window. Below the top-center exit cluster (z 42). */
 .app-fullscreen .conflict-banner {

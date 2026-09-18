@@ -54,7 +54,7 @@ Tab leaves it where it is.
 | Ctrl+= | Larger text |
 | Ctrl+- | Smaller text |
 | Ctrl+0 | Reset text size |
-| F11 (Mac: Ctrl+Cmd+F) | Full screen in Review mode — press again for more, Esc to step back |
+| F11 (Mac: Ctrl+Cmd+F) | Full screen — the window fills the screen, the interface stays as it is; F11 or Esc to leave |
 
 ## Terminal tabs (desktop only)
 
@@ -128,7 +128,7 @@ menu (◧) and the right-click menu. The whole drawing toolkit is described in
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
 | Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
-| Esc | Close Settings / the command palette / leave full screen |
+| Esc | Close Settings / the command palette / leave distraction-free, then full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,
 double-click a tab name to rename it, drag tabs to reorder them, and

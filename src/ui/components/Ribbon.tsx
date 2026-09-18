@@ -31,7 +31,7 @@ import { getSourceAdapter } from '../editor-registry';
 import { AppMenuDivider, AppMenuItem } from './AppMenu';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
-import { setFullscreen } from '../fullscreen';
+import { setDistractionFree } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
 import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
 import { toggleOverview, useNotesOverview } from '../notes-overview';
@@ -77,16 +77,17 @@ const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 /** Whether this machine has a touchscreen — gates the board's touch policy. */
 const HAS_TOUCH = navigator.maxTouchPoints > 0;
 
-/** Platform-correct shortcut hint for the fullscreen tooltips. */
+/** Platform-correct shortcut hint for the distraction-free tooltip. */
 const FULLSCREEN_KEY = IS_MAC ? '⌃⌘F' : 'F11';
 
 /**
- * Tooltip for the ribbon's fullscreen button. Desktop has two stages (hide
- * chrome, then OS fullscreen); Android has a single distraction-free stage.
+ * Tooltip for the ribbon's distraction-free button. Desktop also has OS full
+ * screen (F11), which is independent and leaves the chrome alone; Android has
+ * only this.
  */
-const FULLSCREEN_TITLE = isAndroid()
-  ? 'Full screen — hide the app chrome'
-  : `Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`;
+const DISTRACTION_FREE_TITLE = isAndroid()
+  ? 'Distraction-free — hide the app chrome'
+  : `Distraction-free — hide the app chrome (${FULLSCREEN_KEY} for full screen)`;
 
 function applyFormat(action: FormatAction): void {
   const state = tabsStore.getState();
@@ -1496,15 +1497,15 @@ export function Ribbon() {
       <div className="ribbon-right">
         <button
           className="ribbon-btn"
-          aria-label={isAndroid() ? 'Full screen' : 'Full window'}
-          title={FULLSCREEN_TITLE}
+          aria-label="Distraction-free"
+          title={DISTRACTION_FREE_TITLE}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('window')}
+          onClick={() => setDistractionFree(true)}
         >
           ⤢
         </button>
         {/* A whiteboard has no headings, so hide (not remove) the outline
-            toggle in draw mode — the reserved space keeps the fullscreen
+            toggle in draw mode — the reserved space keeps the distraction-free
             button where muscle memory expects it. */}
         <button
           className="ribbon-btn ribbon-btn-lg"

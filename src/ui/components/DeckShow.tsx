@@ -1,15 +1,14 @@
 /**
- * DeckShow — the show itself: a deck's full-screen 'screen' stage.
+ * DeckShow — the show itself: a deck in OS full screen (F11).
  *
  * One slide letterboxed on a dark stage, keyboard driven — arrows, Space,
  * PgUp/PgDn, Home/End, a typed number then Enter to jump — with a two-pixel
  * progress bar along the bottom edge. It is NOT a mode and holds no store
- * state of its own: App mounts it while the fullscreen stage is 'screen' and
- * the active tab is a deck, and unmounts it when either changes. Escape is
- * the global keydown listener's (main.tsx) — it steps the stage back to
- * 'window', which is the light table (or Split, or Raw) on the slide that
- * was showing: this component reports its slide back to the surface below
- * on the way out.
+ * state of its own: App mounts it while the window is fullscreen and the
+ * active tab is a deck, and unmounts it when either changes. Escape is the
+ * global keydown listener's (main.tsx) — it leaves full screen, which is the
+ * light table (or Split, or Raw) on the slide that was showing: this
+ * component reports its slide back to the surface below on the way out.
  *
  * Slides come from the same `renderDeck` the panes use and mount the same
  * way (a shadow root per slide, `mountSlide`), so a deck that changes on
@@ -151,7 +150,8 @@ export function DeckShow({ tabId }: { tabId: string }) {
   }, []);
 
   // Keyboard: the show owns the arrows while it is up. Escape and F11 are
-  // left to the global dispatcher (stage steps), everything else to the app.
+  // left to the global dispatcher (they leave full screen), everything else
+  // to the app.
   // The typed number lives in a ref (the listener reads it) and is mirrored
   // into state only for display, so typing never re-subscribes the listener.
   const jumpRef = useRef('');
