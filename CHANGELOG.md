@@ -10,6 +10,9 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Slide decks stand out in the file tree.** A Marp presentation now shows a
+  purple *marp* badge in the Workspaces pane instead of the ordinary *md* one.
+
 ## [0.9.0] — 2026-09-16
 
 - **Diagram editor.** Whiteboards are for drawing diagrams now, not just
