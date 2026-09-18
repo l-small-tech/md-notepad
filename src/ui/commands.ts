@@ -18,6 +18,7 @@ import {
   addWorkspace,
   closeAllTabs,
   closeTab,
+  newWindow,
   openDocs,
   openExportPreview,
   openFile,
@@ -61,6 +62,9 @@ export function runShortcutAction(action: ShortcutAction): void {
       // "New tab" has always meant a tab, not a note: from a terminal or a
       // drawing it makes another one of those (core/new-tab.ts).
       newTabDefault();
+      break;
+    case 'new-window':
+      newWindow();
       break;
     case 'new-tab-menu':
       uiStore.getState().openNewTabMenu();
@@ -214,7 +218,8 @@ const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key: string }
 export function buildCommands(): AppCommand[] {
   return [
     // Tabs
-    fromAction('new-tab', 'New tab', { type: 'new-tab' }, { shortcut: modKey('N') }),
+    fromAction('new-window', 'New window', { type: 'new-window' }, { shortcut: modKey('N') }),
+    fromAction('new-tab', 'New tab', { type: 'new-tab' }),
     // Every type stays explicitly reachable, so the inference above is never
     // the only route to one.
     {

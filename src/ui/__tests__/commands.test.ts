@@ -44,6 +44,7 @@ describe('buildCommands', () => {
   test('the table covers the expected command set', () => {
     const ids = new Set(buildCommands().map((c) => c.id));
     for (const expected of [
+      'new-window',
       'new-tab',
       'close-tab',
       'close-all-tabs',

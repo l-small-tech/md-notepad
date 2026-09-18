@@ -73,6 +73,7 @@ import {
   setOpenExportPreviewForFileDispatch,
   setOpenFileDispatch,
   setOpenFileInNewWindowDispatch,
+  setNewWindowDispatch,
   setOpenNotePathDispatch,
   setOpenNotePathPinnedDispatch,
   setPickPhotoDispatch,
@@ -136,6 +137,7 @@ export {
   openExportPreviewForFile,
   openFile,
   openFileInNewWindow,
+  newWindow,
   openNotePath,
   openNotePathAtLine,
   openNotePathPinned,
@@ -317,6 +319,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setDropTabOutDispatch((id, pos) => void windows.dropTabOut(id, pos));
     setDropTornWindowDispatch((label) => void windows.dropTornWindow(label));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
+    setNewWindowDispatch(() => void windows.openEmptyWindow());
   }
   if (deps.sendTabsToWindow) {
     setMoveTabToWindowDispatch((id, label) => void windows.moveTabToWindow(id, label));

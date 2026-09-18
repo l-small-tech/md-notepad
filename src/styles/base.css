@@ -170,3 +170,11 @@ html[data-cursor='underscore'] .cm-cursor {
 .cm-plain-dots {
   font-variant-ligatures: none;
 }
+
+/* Ghost text for an empty note (core/new-note-hint.ts): multi-line, muted,
+   and never in the way of the caret. */
+.cm-placeholder {
+  color: var(--fg-muted, #888);
+  white-space: pre-line;
+  opacity: 0.7;
+}

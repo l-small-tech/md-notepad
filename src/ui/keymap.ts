@@ -34,6 +34,7 @@ export type TerminalScroll = 'lineUp' | 'lineDown' | 'pageUp' | 'pageDown' | 'to
 
 export type ShortcutAction =
   | { type: 'new-tab' }
+  | { type: 'new-window' }
   /** The new-tab TYPE picker (mod+Shift+N), anchored to the + button. */
   | { type: 'new-tab-menu' }
   | { type: 'close-tab' }
@@ -69,6 +70,7 @@ export type ShortcutAction =
  */
 const TERMINAL_PASSTHROUGH: readonly ShortcutAction['type'][] = [
   'new-tab',
+  'new-window',
   'new-tab-menu',
   'close-tab',
   'next-tab',
@@ -110,7 +112,7 @@ export function keyEventToAction(
   }
   const mod = platform === 'mac' ? e.metaKey : e.ctrlKey;
   // The "wrong" primary modifier for the platform must not also fire the
-  // shortcut (Ctrl+N on macOS is not new-tab).
+  // shortcut (Ctrl+N on macOS is not new-window).
   const wrongMod = platform === 'mac' ? e.ctrlKey : e.metaKey;
 
   // F2 rename is unmodified and platform-independent.
@@ -189,8 +191,10 @@ export function keyEventToAction(
   }
 
   switch (e.key.toLowerCase()) {
+    // mod+N opens a NEW WINDOW with one fresh note (the tab bar's "+" and
+    // the palette still make a tab in this window; mod+Shift+N picks a type).
     case 'n':
-      return { type: 'new-tab' };
+      return { type: 'new-window' };
     case 'w':
       return { type: 'close-tab' };
     case 'o':
