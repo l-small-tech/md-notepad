@@ -166,6 +166,79 @@ html[data-cursor='underscore'] .cm-cursor {
   background: var(--selection);
 }
 
+/*
+ * Scrollbars — Windows Terminal style: no track, a slim translucent thumb tinted
+ * from the theme's ink, visible only while its pane scrolls (ui/scroll-activity.ts
+ * stamps `data-scrolling`) or under the pointer, then fading out. Mouse-driven
+ * desktops only; touch WebViews keep their native overlay bars.
+ *
+ * Scrollbar pseudo-elements can't transition themselves, so the thumb paints
+ * `--sb-thumb`, a registered colour its scroll container transitions and the
+ * pseudo-element inherits. Every element resets it (so a scrolling pane never
+ * lights up the bars of panes nested inside it), and the transition is only
+ * declared on elements the watcher has marked, never on `*`, so no component's
+ * own `transition` is clobbered. The watcher leaves `data-scrolling="idle"`
+ * behind rather than removing it — that keeps the fade-out transition in place.
+ *
+ * Never set `scrollbar-width`/`scrollbar-color` on a region that should wear
+ * this: in Chromium the standard properties switch `::-webkit-scrollbar` off.
+ */
+@property --sb-thumb {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    --sb-active: color-mix(in oklab, var(--fg) 32%, transparent);
+    --sb-hover: color-mix(in oklab, var(--fg) 50%, transparent);
+  }
+
+  * {
+    --sb-thumb: transparent;
+  }
+  /* Quick fade in so the thumb is there the moment you scroll; a slower,
+     slightly delayed fade out once the pane goes idle. */
+  [data-scrolling] {
+    transition: --sb-thumb 0.6s ease-in 0.2s;
+  }
+  [data-scrolling='on'] {
+    --sb-thumb: var(--sb-active);
+    transition: --sb-thumb 0.1s ease-out;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* The transparent border insets the painted thumb into a 4px line; hovering
+     it thickens to 6px and firms up, like the Terminal's bar under the mouse. */
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--sb-thumb);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 10px;
+    min-height: 32px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--sb-hover);
+    border-width: 2px;
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--sb-hover);
+    border-width: 2px;
+  }
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+}
+
 /* Runs of periods in the raw editor never ligate (editors/plain-dots.ts). */
 .cm-plain-dots {
   font-variant-ligatures: none;
