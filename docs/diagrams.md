@@ -139,6 +139,33 @@ strokes on a new layer — see the scan screen's own hints for cropping and
 colour. The ◐ button switches a scanned drawing between theme colours and the
 colours the camera actually saw.
 
+## Split: the drawing and its source together
+
+A drawing tab has three modes in the status bar — **Raw** (Ctrl+1), **Split**
+(Ctrl+2) and **Draw**. Raw is the `.svg` file as text; Split puts
+that text on the left and the board on the right, and both halves are live:
+type an attribute in the source and the picture redraws, move a shape on the
+board and the markup updates under you. Drag the divider to resize.
+
+The two panes also point at each other:
+
+- **Select something on the board** and its markup is highlighted in the
+  source, scrolled into view if it was off screen. Your caret is not moved —
+  you can be mid-sentence in the source and still click around the drawing.
+- **Put the caret on an element in the source** and that element is selected
+  on the board and panned into view. From there the ribbon's colour, nib and
+  arrange controls act on it, so "find it in the text, then restyle it" works.
+- **Right-click an element → Reveal in source** when you want the caret
+  taken there.
+
+While the source is halfway through an edit and not yet valid XML, the board
+keeps the last picture it could read, dims it, and says so along the top; it
+stops accepting edits of its own until the text parses again, so it can never
+overwrite what you are typing. Finish the tag and it picks straight back up.
+
+Undo is per pane: Ctrl+Z in the source undoes typing, Ctrl+Z on the board
+undoes drawing. Switching modes starts the board's undo history fresh.
+
 ## Keys
 
 Every shortcut is listed under *Drawing tabs* in

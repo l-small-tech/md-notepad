@@ -11,6 +11,12 @@
  *    hand-authored) parses fine: its renderable content becomes one locked
  *    "Imported" layer. Only malformed XML throws — {@link WhiteboardParseError},
  *    which the adapter surfaces as the "open as text" error card.
+ *
+ * {@link parseWhiteboardWithSpans} additionally reports WHERE each element came
+ * from in the source text. It is the same walk — `parseWhiteboard` is a thin
+ * wrapper over it — precisely so the two can never disagree about which node
+ * became element `n` of layer `l`; Split mode's raw ⇄ draw linking
+ * (`locate.ts`) is only correct while they agree.
  */
 
 import {
@@ -66,7 +72,33 @@ const OWNED_LAYER_ATTRS = new Set(['wb:layer', 'wb:name', 'wb:kind', 'wb:locked'
 /** Top-level elements that carry no pixels of their own — kept as prelude. */
 const PRELUDE_ELEMENTS = new Set(['defs', 'style', 'title', 'desc', 'metadata']);
 
+/**
+ * Where one element of one layer lives in the source text, `[start, end)` —
+ * the same coordinates `xml.ts` hands out, so slicing the source at them gives
+ * back exactly the markup that element was read from.
+ *
+ * `layerId` + `index` is an `ElementRef` (`layers.ts`): the pair addresses the
+ * same element the scene does, which is what lets Split mode point at the
+ * source of what is selected on the board and back again.
+ */
+export interface ElementSpan {
+  readonly layerId: string;
+  readonly index: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface ParsedWhiteboard {
+  readonly doc: SceneDoc;
+  /** One entry per element of every layer, in the layers' own order. */
+  readonly spans: readonly ElementSpan[];
+}
+
 export function parseWhiteboard(source: string): SceneDoc {
+  return parseWhiteboardWithSpans(source).doc;
+}
+
+export function parseWhiteboardWithSpans(source: string): ParsedWhiteboard {
   let doc;
   try {
     doc = parseXml(source);
@@ -88,7 +120,10 @@ export function parseWhiteboard(source: string): SceneDoc {
 
   const prelude: string[] = [];
   const layers: Layer[] = [];
+  /** Parallel to `layers`, spliced with it — see the foreign layer below. */
+  const spansByLayer: ElementSpan[][] = [];
   const foreign: string[] = [];
+  const foreignSpans: { start: number; end: number }[] = [];
   let foreignIndex = -1;
   let meta: Record<string, unknown> = {};
   let background: string | null = null;
@@ -132,7 +167,9 @@ export function parseWhiteboard(source: string): SceneDoc {
     }
 
     if (name === 'g' && attr(node, 'wb:layer') !== null) {
-      layers.push(readLayer(source, node));
+      const read = readLayer(source, node);
+      layers.push(read.layer);
+      spansByLayer.push(read.spans);
       continue;
     }
 
@@ -146,6 +183,7 @@ export function parseWhiteboard(source: string): SceneDoc {
       foreignIndex = layers.length;
     }
     foreign.push(rawSource(source, node));
+    foreignSpans.push({ start: node.start, end: node.end });
   }
 
   if (foreign.length > 0) {
@@ -160,20 +198,28 @@ export function parseWhiteboard(source: string): SceneDoc {
       elements: foreign.map((xml) => ({ kind: 'raw', xml }) satisfies SceneElement),
       extras: [],
     });
+    spansByLayer.splice(
+      foreignIndex,
+      0,
+      foreignSpans.map((span, index) => ({ layerId: 'imported', index, ...span })),
+    );
   }
 
   return {
-    schema: SCENE_SCHEMA,
-    width: Number.isFinite(width) && width > 0 ? width : DEFAULT_BOARD_WIDTH,
-    height: Number.isFinite(height) && height > 0 ? height : DEFAULT_BOARD_HEIGHT,
-    viewBox,
-    // No background rect and no metadata background = an INFINITE board (the
-    // default since phase 2.5-followup); the palette block paints the surface.
-    background,
-    rootExtras: rootExtrasOf(root),
-    prelude,
-    layers,
-    meta,
+    doc: {
+      schema: SCENE_SCHEMA,
+      width: Number.isFinite(width) && width > 0 ? width : DEFAULT_BOARD_WIDTH,
+      height: Number.isFinite(height) && height > 0 ? height : DEFAULT_BOARD_HEIGHT,
+      viewBox,
+      // No background rect and no metadata background = an INFINITE board (the
+      // default since phase 2.5-followup); the palette block paints the surface.
+      background,
+      rootExtras: rootExtrasOf(root),
+      prelude,
+      layers,
+      meta,
+    },
+    spans: spansByLayer.flat(),
   };
 }
 
@@ -253,26 +299,32 @@ function rootExtrasOf(root: XmlElement): SceneAttr[] {
   });
 }
 
-function readLayer(source: string, group: XmlElement): Layer {
+function readLayer(source: string, group: XmlElement): { layer: Layer; spans: ElementSpan[] } {
   const kindAttr = attr(group, 'wb:kind');
+  const id = attr(group, 'wb:layer') ?? 'layer';
   const elements: SceneElement[] = [];
+  const spans: ElementSpan[] = [];
   for (const node of group.children) {
     if (isBlankText(source, node)) {
       continue;
     }
+    spans.push({ layerId: id, index: elements.length, start: node.start, end: node.end });
     elements.push(readElement(source, node));
   }
   return {
-    id: attr(group, 'wb:layer') ?? 'layer',
-    name: attr(group, 'wb:name') ?? 'Layer',
-    visible: attr(group, 'display') !== 'none',
-    locked: attr(group, 'wb:locked') === 'true',
-    // 'foreign' matters on re-read: once we have wrapped an imported SVG's body
-    // in an Imported layer, re-opening the saved file must recognize it as
-    // still-foreign (locked, not tool-owned), not demote it to a draw layer.
-    kind: kindAttr === 'scan' ? 'scan' : kindAttr === 'foreign' ? 'foreign' : 'draw',
-    elements,
-    extras: extrasOf(group, OWNED_LAYER_ATTRS),
+    layer: {
+      id,
+      name: attr(group, 'wb:name') ?? 'Layer',
+      visible: attr(group, 'display') !== 'none',
+      locked: attr(group, 'wb:locked') === 'true',
+      // 'foreign' matters on re-read: once we have wrapped an imported SVG's
+      // body in an Imported layer, re-opening the saved file must recognize it
+      // as still-foreign (locked, not tool-owned), not demote it to a draw layer.
+      kind: kindAttr === 'scan' ? 'scan' : kindAttr === 'foreign' ? 'foreign' : 'draw',
+      elements,
+      extras: extrasOf(group, OWNED_LAYER_ATTRS),
+    },
+    spans,
   };
 }
 

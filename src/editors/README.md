@@ -15,8 +15,9 @@ Contract essentials:
 
 ## cm6.ts — CodeMirror 6 source editor (M1)
 
-Used by both `raw` and `split` (split adds a preview pane; the editor
-instance is identical and is NOT re-created when toggling raw⇄split).
+Used by both `raw` and `split` (split adds a second pane — the preview, or on
+an `.svg` tab the whiteboard editor; the CM6 instance is identical and is NOT
+re-created when toggling raw⇄split).
 
 ### Recipe
 
@@ -59,6 +60,15 @@ import { tags } from '@lezer/highlight';
 - Voice typing: `insertText(text)` puts a dictated phrase at the caret
   (replacing any selection, spacing from `core/dictation-insert.ts`) and
   refocuses. The Milkdown adapter implements the same method.
+- Split mode on a drawing adds three members, all driven by `ui/svg-split.ts`:
+  `setLinkedRanges(ranges, reveal)` (a steady MARK decoration — two elements
+  can share a line, so a line decoration would claim both — with no caret
+  move and no focus change, because the other pane's selection must never
+  interrupt typing here), `revealRange(from, to)` (the explicit jump: caret,
+  centre, focus) and `subscribeSelection(fn)`, a second caret watcher beside
+  the single `onSelection` option. **Nothing may dispatch into CM6 from
+  inside its own update listener** — the link defers every write by a
+  microtask for exactly that reason.
 
 ### List indentation (Tab / Shift+Tab)
 
@@ -188,6 +198,15 @@ Milkdown. `EditorHost` supplies that factory only when
 `createModeSync`'s `adapters` map is `Partial` precisely so a tab can offer just
 the adapters its document family uses.
 
+An `.svg` tab's **Split** mounts a SECOND instance of this adapter in the pane
+beside the source editor (`EditorHost`'s `createBoardAdapter`, the same options
+both times). The two are never attached at once — mode-sync's lives in Draw,
+Split's lives in Split — and they share the tab's entry in
+`stores/whiteboard`, so the ribbon drives whichever is on screen and the
+viewport carries across the switch. `ui/svg-split.ts` links what each pane is
+pointing at, through `onSelectionChange` / `getSelection` / `selectRefs` and
+the menu's `onRevealInSource` (omitted in Draw, where the item is not offered).
+
 An `.svg` tab is an ordinary `kind:'file'` tab whose DocModel text IS the SVG
 source. That is what buys dirty tracking, session buffering, Ctrl+S/liveSave,
 mtime conflict detection and tear-off for free — and it makes Raw mode a free
@@ -203,9 +222,18 @@ build instead of self-healing the session away.
   so the pane shows exactly what the file says — the same pixels a browser or
   the markdown preview would show. Before the first edit that source is the
   file's own bytes; after it, `serializeWhiteboard(scene)`. There is
-  deliberately no second rendering path that could drift from the format. A
-  parse failure raises the error card, whose "Open as text" button calls
-  `setMode('raw')`.
+  deliberately no second rendering path that could drift from the format.
+- **A parse failure lands one of two ways.** With nothing ever drawn there is
+  no picture to stand on, so it raises the error card, whose "Open as text"
+  button calls `setMode('raw')`. Once a version of the document HAS rendered,
+  a later failure instead goes **stale** (`staleMessage`): the last good
+  picture stays, dimmed, under a strip saying why it stopped following, and
+  every edit is refused — `commit` returns early and `onPointerDown` routes
+  like a scene-less board, so pan and zoom still work. That is the state
+  Split mode lives in half the time (a source editor holds invalid XML every
+  other keystroke), and both halves of it matter: replacing the drawing with
+  an error card would make the other pane useless, and committing from the
+  stale scene would silently throw away what is being typed.
 - The in-progress stroke/shape is drawn on a transparent `<svg>` overlay via
   `serializeElement` — the same function that will write the committed element,
   so the drag preview cannot disagree with the result. The board itself is not

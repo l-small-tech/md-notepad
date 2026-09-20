@@ -1,9 +1,9 @@
 # The viewing modes
 
-Every markdown tab can be viewed four ways; code files get Raw and Review,
-and a Marp slide deck gets Raw, Split and Present. Switch with the buttons at the
-bottom-left of the window, or with **Ctrl+1** to **Ctrl+4** (Cmd on Mac).
-Each tab remembers its own mode.
+Every markdown tab can be viewed four ways; code files get Raw and Review, a
+Marp slide deck gets Raw, Split and Present, and a drawing gets Raw, Split and
+Draw. Switch with the buttons at the bottom-left of the window, or with
+**Ctrl+1** to **Ctrl+4** (Cmd on Mac). Each tab remembers its own mode.
 
 ## Raw (Ctrl+1)
 
@@ -16,6 +16,10 @@ file. Press **Ctrl+F** here to search within the note.
 Raw text on the left, the finished result on the right, updating live as
 you type. Great while you're learning markdown, or for documents with
 tables and diagrams. Drag the divider between the panels to resize them.
+
+On a **drawing tab** Split means the `.svg` source beside the board itself,
+both of them editable and each pointing at whatever the other has selected —
+see [Drawings and diagrams](diagrams.md).
 
 ## Edit (Ctrl+3)
 

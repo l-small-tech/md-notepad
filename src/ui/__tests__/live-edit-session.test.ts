@@ -220,6 +220,9 @@ describe('Live Edit — merging changes from disk', () => {
       clearFlash(kind) {
         cleared.push(kind);
       },
+      setLinkedRanges() {},
+      revealRange() {},
+      subscribeSelection: () => () => {},
     });
     tab().model.pushText('a\nb (mine)\nc\n', 'cm6');
     fs.external(`${SHARED}/plan.md`, 'a\nb (theirs)\nc\n');

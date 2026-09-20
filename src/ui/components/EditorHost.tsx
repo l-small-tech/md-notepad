@@ -10,6 +10,15 @@
  * DOM shape: a stable editor pane (the mode-sync host) plus, in split mode, a
  * sibling preview pane. The editor pane node is identical across raw/split —
  * toggling only shows/hides the preview column, so CM6 is never disturbed.
+ *
+ * Split on an `.svg` tab puts the whiteboard EDITOR in that second pane
+ * instead of a preview, over the same DocModel — so the drawing follows the
+ * source and the source follows the drawing, and `ui/svg-split.ts` links what
+ * each side is pointing at. It is the same shape as the preview column and
+ * for the same reason: the source editor is mode-sync's and must survive
+ * raw ⇄ split untouched (I7), while the board is built and torn down with the
+ * mode, which costs it only its undo timeline — the documented price of every
+ * whiteboard mode switch.
  */
 
 import { memo, useEffect, useMemo, useRef } from 'react';
@@ -28,6 +37,8 @@ import { svgImageSources } from '../../core/whiteboard/color-mode';
 import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
 import type { MilkdownAdapter } from '../../editors/milkdown';
+import type { WhiteboardAdapter, WhiteboardAdapterOptions } from '../../editors/whiteboard';
+import { linkSvgSplit, type SvgSplitLink } from '../svg-split';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
 import { attachDeckPane } from '../../preview/deck';
@@ -42,6 +53,7 @@ import {
   unregisterScrollAnchor,
 } from '../mode-scroll';
 import {
+  getSourceAdapter,
   registerEditAdapter,
   registerSourceAdapter,
   unregisterEditAdapter,
@@ -67,6 +79,8 @@ import { settingsStore } from '../stores/settings';
 import { tabsStore, useTabsStore } from '../stores/tabs';
 import { uiStore } from '../stores/ui';
 import {
+  boardViewKey,
+  clearWhiteboardAdapter,
   currentToolSettings,
   registerWhiteboardAdapter,
   unregisterWhiteboardAdapter,
@@ -172,6 +186,84 @@ function clampSplitRatio(ratio: number): number {
 }
 
 /**
+ * Build this tab's whiteboard editor (the lazy chunk, invariant I8 — it loads
+ * on the first Draw/Split attach and never at startup).
+ *
+ * Module-level and called from TWO places, which is the whole reason it is a
+ * function: Draw mode's board is mode-sync's adapter for the editor pane,
+ * Split mode's is a second instance in the column beside the source editor.
+ * They are never attached at the same time, and everything per-tab they need
+ * they read from the stores at call time, so the pair cannot drift.
+ */
+async function createBoardAdapter(
+  tabId: string,
+  pane: 'draw' | 'split',
+  extra: Pick<WhiteboardAdapterOptions, 'onSelectionChange' | 'onRevealInSource'> = {},
+): Promise<WhiteboardAdapter> {
+  const { createWhiteboardAdapter } = await import('../../editors/whiteboard');
+  const viewKey = boardViewKey(tabId, pane);
+  return createWhiteboardAdapter({
+    onOpenAsText: () => tabsStore.getState().setMode(tabId, 'raw'),
+    // The ribbon owns the tool picker; the adapter reads it at the start of
+    // each gesture and reports undo depth back, so neither side has to
+    // subscribe to the other.
+    getTool: () => currentToolSettings(),
+    onStateChange: (state) => whiteboardStore.getState().reportTabState(tabId, state),
+    // Bare-letter hotkeys on the focused board (V, P, T, R…): the adapter only
+    // asks; the store — which the ribbon renders from — is what changes.
+    onToolHotkey: (tool) => whiteboardStore.getState().setTool(tool),
+    // The board clipboard lives in the store so a copy on one board can be
+    // pasted on another; the adapter just reaches it.
+    clipboard: {
+      get: () => whiteboardStore.getState().clipboard,
+      set: (clipboard) => whiteboardStore.getState().setClipboard(clipboard),
+    },
+    // Touch policy (phase 3): the preference lives in the store, the adapter
+    // resolves it against the pen it has actually seen, and tells the store so
+    // the ribbon can say so.
+    getFingerDraws: () => whiteboardStore.getState().fingerDraws,
+    onPenSeen: () => whiteboardStore.getState().notePenSeen(),
+    // Viewport persistence is SESSION state — never the file, because panning
+    // must not dirty a document. Keyed per PANE (`boardViewKey`): Draw's board
+    // and Split's column are different sizes, so each keeps its own place.
+    getSavedView: () => whiteboardStore.getState().viewByTab[viewKey] ?? null,
+    onViewChange: (view) => whiteboardStore.getState().saveView(viewKey, view),
+    // Photo acquisition is INJECTED (phase 4): the camera is an Android-only
+    // IPC bridge and the picker is a native dialog, and neither belongs inside
+    // an editor module. The adapter just gets two functions and a way to speak
+    // to the user.
+    scan: {
+      capture: isAndroid() ? capturePhotoForScan : null,
+      pick: isAndroid() ? null : pickPhotoForScan,
+      onNotice: (message) => uiStore.getState().showNotice(message),
+      // Text recognition (phase 7) is injected for the same reason: the
+      // engines are platform bridges, and the null on macOS/Linux is what
+      // makes the scan record "unavailable".
+      recognize: scanTextRecognizer(),
+      // "Debug insert": the same insert, plus every intermediate written into
+      // a dated folder BESIDE the board (app-local storage only for a
+      // never-saved board — see ui/scan-debug.ts). Injected for the same
+      // layering reason as the camera — the editor must not know about storage.
+      saveDebug: createScanDebugSaver(() => {
+        const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
+        return t ? (t.filePath ?? t.notePath) : null;
+      }),
+      // The scan panel remembers its tuning across scans and relaunches; the
+      // settings store is the persistence, the panel never sees it (I9).
+      prefs: {
+        get: () => ({
+          preset: settingsStore.getState().settings.scanPreset,
+          smoothing: settingsStore.getState().settings.scanSmoothing,
+        }),
+        set: ({ preset, smoothing }) =>
+          settingsStore.getState().update({ scanPreset: preset, scanSmoothing: smoothing }),
+      },
+    },
+    ...extra,
+  });
+}
+
+/**
  * A board image in this tab's document was right-clicked (preview pane or
  * Edit-mode editor): open the colour-mode menu, handing it every board the
  * document references so "all boards in this document" can act on them.
@@ -205,11 +297,19 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
   const sourceAdapterRef = useRef<Cm6Adapter | null>(null);
   /** The Edit adapter once created (lazy chunk) — for theme-driven image refreshes. */
   const editAdapterRef = useRef<MilkdownAdapter | null>(null);
+  /** Draw mode's board (mode-sync's), once its factory has run — see below. */
+  const drawAdapterRef = useRef<WhiteboardAdapter | null>(null);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.mode ?? 'raw');
   // A Marp deck (`marp: true` in the frontmatter) renders as slides instead
   // of a document in Split and Present. The flag is live in the store, so
   // adding the frontmatter to an open file swaps the pane in place.
   const deck = useTabsStore((s) => s.tabs.find((t) => t.id === tabId)?.deck ?? false);
+  // A drawing's second pane is the whiteboard editor, not a preview — same
+  // element, different styling (a board owns its own scrolling).
+  const boardSplit = useTabsStore((s) => {
+    const t = s.tabs.find((tab) => tab.id === tabId);
+    return t !== undefined && docFamilyFor(t.filePath ?? t.notePath) === 'svg';
+  });
   // The inline review-note composer renders into this element; the Review
   // pane places it under the held line (`mountComposer`) — a portal, so the
   // composer is React while the pane around it is plain DOM.
@@ -267,72 +367,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     const familyAdapters: Partial<Record<AdapterKind, AdapterFactory>> =
       family === 'svg'
         ? {
-            // Lazy import, same rule as Milkdown (I8): the whiteboard chunk
-            // loads on the first draw-mode attach, never at startup.
             draw: async () => {
-              const { createWhiteboardAdapter } = await import('../../editors/whiteboard');
-              const adapter = createWhiteboardAdapter({
-                onOpenAsText: () => tabsStore.getState().setMode(tabId, 'raw'),
-                // The ribbon owns the tool picker; the adapter reads it at the
-                // start of each gesture and reports undo depth back, so neither
-                // side has to subscribe to the other.
-                getTool: () => currentToolSettings(),
-                onStateChange: (state) => whiteboardStore.getState().reportTabState(tabId, state),
-                // Bare-letter hotkeys on the focused board (V, P, T, R…):
-                // the adapter only asks; the store — which the ribbon
-                // renders from — is what changes.
-                onToolHotkey: (tool) => whiteboardStore.getState().setTool(tool),
-                // The board clipboard lives in the store so a copy on one
-                // board can be pasted on another; the adapter just reaches it.
-                clipboard: {
-                  get: () => whiteboardStore.getState().clipboard,
-                  set: (clipboard) => whiteboardStore.getState().setClipboard(clipboard),
-                },
-                // Touch policy (phase 3): the preference lives in the store,
-                // the adapter resolves it against the pen it has actually
-                // seen, and tells the store so the ribbon can say so.
-                getFingerDraws: () => whiteboardStore.getState().fingerDraws,
-                onPenSeen: () => whiteboardStore.getState().notePenSeen(),
-                // Viewport persistence is per-tab SESSION state — never the
-                // file, because panning must not dirty a document.
-                getSavedView: () => whiteboardStore.getState().viewByTab[tabId] ?? null,
-                onViewChange: (view) => whiteboardStore.getState().saveView(tabId, view),
-                // Photo acquisition is INJECTED (phase 4): the camera is an
-                // Android-only IPC bridge and the picker is a native dialog,
-                // and neither belongs inside an editor module. The adapter
-                // just gets two functions and a way to speak to the user.
-                scan: {
-                  capture: isAndroid() ? capturePhotoForScan : null,
-                  pick: isAndroid() ? null : pickPhotoForScan,
-                  onNotice: (message) => uiStore.getState().showNotice(message),
-                  // Text recognition (phase 7) is injected for the same
-                  // reason: the engines are platform bridges, and the null on
-                  // macOS/Linux is what makes the scan record "unavailable".
-                  recognize: scanTextRecognizer(),
-                  // "Debug insert": the same insert, plus every intermediate
-                  // written into a dated folder BESIDE the board (app-local
-                  // storage only for a never-saved board — see ui/scan-debug.ts).
-                  // Injected for the same layering reason as the camera — the
-                  // editor must not know about storage.
-                  saveDebug: createScanDebugSaver(() => {
-                    const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
-                    return t ? (t.filePath ?? t.notePath) : null;
-                  }),
-                  // The scan panel remembers its tuning across scans and
-                  // relaunches; the settings store is the persistence, the
-                  // panel never sees it directly (I9).
-                  prefs: {
-                    get: () => ({
-                      preset: settingsStore.getState().settings.scanPreset,
-                      smoothing: settingsStore.getState().settings.scanSmoothing,
-                    }),
-                    set: ({ preset, smoothing }) =>
-                      settingsStore
-                        .getState()
-                        .update({ scanPreset: preset, scanSmoothing: smoothing }),
-                  },
-                },
-              });
+              const adapter = await createBoardAdapter(tabId, 'draw');
+              // Kept so the Split column's board can hand the registry back to
+              // this one on its way out (they share the tab's entry).
+              drawAdapterRef.current = adapter;
               registerWhiteboardAdapter(tabId, adapter);
               return adapter;
             },
@@ -497,6 +536,66 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     }
     if (mode === 'split') {
       editorPane.style.flex = `0 0 ${splitRatio * 100}%`;
+    }
+    // Split on a drawing: the second pane holds the whiteboard EDITOR, not a
+    // preview — both halves are live over the one DocModel, and `svg-split.ts`
+    // links what each side is pointing at. Everything is async (the board is a
+    // lazy chunk, and the source editor may still be attaching), so `cancelled`
+    // guards every step: a fast Split → Raw flick must not leave a board
+    // attached to a pane that is on its way out.
+    if (mode === 'split' && docFamilyFor(tab.filePath ?? tab.notePath) === 'svg') {
+      let cancelled = false;
+      let board: WhiteboardAdapter | null = null;
+      let link: SvgSplitLink | null = null;
+      void (async () => {
+        const created = await createBoardAdapter(tabId, 'split', {
+          onSelectionChange: (refs) => link?.boardSelection(refs),
+          onRevealInSource: (refs) => link?.revealInSource(refs),
+        });
+        if (cancelled) {
+          return;
+        }
+        board = created;
+        await created.attach(host, tab.model);
+        if (cancelled) {
+          created.detach();
+          board = null;
+          return;
+        }
+        // The ribbon's draw cluster drives whichever board is on screen.
+        registerWhiteboardAdapter(tabId, created);
+        // The source editor is mode-sync's, and the transition INTO split may
+        // still be in flight (raw ⇄ split keeps CM6, but draw → split has to
+        // attach it) — wait for the chain rather than racing it.
+        await tabsStore
+          .getState()
+          .tabs.find((t) => t.id === tabId)
+          ?.modeSync?.whenIdle();
+        const sourceAdapter = getSourceAdapter(tabId);
+        if (cancelled || !sourceAdapter) {
+          return;
+        }
+        link = linkSvgSplit({ model: tab.model, source: sourceAdapter, board: created });
+        // A board carrying a selection across a Draw → Split switch should
+        // arrive with its source already marked.
+        link.boardSelection(created.getSelection());
+      })();
+      return () => {
+        cancelled = true;
+        link?.dispose();
+        link = null;
+        board?.detach();
+        board = null;
+        // Hand the registry back to Draw mode's own board when this tab has
+        // one; otherwise the tab simply has no board any more.
+        const drawAdapter = drawAdapterRef.current;
+        if (drawAdapter) {
+          registerWhiteboardAdapter(tabId, drawAdapter);
+        } else {
+          clearWhiteboardAdapter(tabId);
+        }
+        editorPane.style.flex = ''; // back to the raw-mode CSS default
+      };
     }
     // A code file's `read` mode is Review (core/doc-family `modeLabel`): the
     // structural pane replaces the markdown preview. Same host element, same
@@ -854,7 +953,11 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
         {(mode === 'split' || mode === 'read') && (
           <div
             ref={previewHostRef}
-            className={`preview ${mode === 'read' ? 'reader-preview' : 'split-preview'}`}
+            className={
+              boardSplit
+                ? 'split-board'
+                : `preview ${mode === 'read' ? 'reader-preview' : 'split-preview'}`
+            }
             tabIndex={mode === 'read' ? 0 : undefined}
           />
         )}

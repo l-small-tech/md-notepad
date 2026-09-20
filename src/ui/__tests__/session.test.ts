@@ -1825,6 +1825,9 @@ describe('insertFileLink (file/image links)', () => {
       insertText: () => {},
       flashRanges() {},
       clearFlash() {},
+      setLinkedRanges() {},
+      revealRange() {},
+      subscribeSelection: () => () => {},
     });
     return calls;
   }
