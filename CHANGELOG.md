@@ -21,6 +21,10 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   slide, the next slide, your speaker notes, a clock and a timer. Put it on
   your laptop screen and press F11 on the slides — both windows stay on the
   same slide, and the arrow keys work in either.
+- **The file drawer is sorted by name.** Folders come first, then files, both
+  A→Z regardless of capitalisation and with numbers read as numbers, so
+  `note2.md` sits above `note10.md`. Files used to be listed newest-first,
+  which moved rows around every time you saved.
 - **Full screen and distraction-free are now two separate switches.** F11
   makes the window fill the screen and leaves the interface exactly as it is,
   like every other desktop app. The old "full window" view that hides the
