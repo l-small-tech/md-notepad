@@ -29,7 +29,9 @@ import { toggleDistractionFree, toggleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { openOverview } from './notes-overview';
 import { settingsStore } from './stores/settings';
+import { isAndroid } from './platform';
 import { tabsStore } from './stores/tabs';
+import { openPresenterForActiveTab } from './presenter';
 import { activePaneOf, terminalsStore } from './stores/terminals';
 import { runPaneAction } from './pane-actions';
 import { uiStore } from './stores/ui';
@@ -281,6 +283,13 @@ export function buildCommands(): AppCommand[] {
       keywords: ['pdf', 'docx', 'html', 'word', 'share', 'save', 'print', 'standalone', 'theme'],
       enabled: hasActiveTextTab,
       run: () => openExportPreview(),
+    },
+    {
+      id: 'presenter-view',
+      title: 'Presenter view (notes, next slide, timer)',
+      keywords: ['present', 'slides', 'deck', 'marp', 'speaker', 'notes', 'second', 'screen'],
+      enabled: () => tabsStore.getState().activeTab()?.deck === true && !isAndroid(),
+      run: () => openPresenterForActiveTab(),
     },
     // View modes
     ...MODE_ENTRIES.map(({ id, title, mode, key }) =>

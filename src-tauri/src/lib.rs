@@ -165,12 +165,15 @@ fn handle_second_instance(app: &tauri::AppHandle, args: &[String]) {
 
     // Windows close independently, so "main" may be gone while the app still
     // runs — every surviving window is a candidate, main first. Tab-drag ghosts
-    // ("ghost-*") are transient cursor-followers, never a reuse target.
+    // ("ghost-*") are transient cursor-followers, never a reuse target; nor is
+    // the presenter view ("w-presenter"), which holds no tabs.
     let mut candidates: Vec<WebviewWindow> = app.get_webview_window("main").into_iter().collect();
     candidates.extend(
         app.webview_windows()
             .into_iter()
-            .filter(|(label, _)| label != "main" && !label.starts_with("ghost-"))
+            .filter(|(label, _)| {
+                label != "main" && label != "w-presenter" && !label.starts_with("ghost-")
+            })
             .map(|(_, window)| window),
     );
 

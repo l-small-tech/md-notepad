@@ -10,6 +10,17 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Two views of one file, in sync as you type.** Right-click a file's tab →
+  **Duplicate tab** (or **Duplicate in new window**) for a second view of the
+  same file: Markdown in one, Present, Review or Draw in the other. Edits show
+  up in the other view as you type — no more pressing Reload — and saving
+  either one saves both. The Reload banner is still there for changes made
+  outside the app.
+- **Presenter view for slide decks.** Right-click a deck's tab → **Presenter
+  view** (or press **P** during the show): a second window with the current
+  slide, the next slide, your speaker notes, a clock and a timer. Put it on
+  your laptop screen and press F11 on the slides — both windows stay on the
+  same slide, and the arrow keys work in either.
 - **Full screen and distraction-free are now two separate switches.** F11
   makes the window fill the screen and leaves the interface exactly as it is,
   like every other desktop app. The old "full window" view that hides the

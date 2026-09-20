@@ -91,6 +91,13 @@ kept next to the file) decides how they look. A deck offers three modes:
   screen, **arrow keys / Space / PgUp / PgDn / Home / End** to move, a number
   then **Enter** to jump, and a thin progress line along the bottom. **Esc**
   brings you back to the light table on the slide you were showing.
+- **Presenter view** — right-click the deck's tab → **Presenter view** (or
+  press **P** during the show, or find it in the command palette). A second
+  window opens with the current slide, the next slide, your speaker notes, a
+  clock and a timer (click it to pause; **Reset** zeroes it). Drag it to your
+  own screen, then press **F11** in the main window for the show on the
+  projector. The two stay on the same slide, and the arrow keys work in
+  whichever window has focus. **A−** / **A+** resize the notes.
 
 There is no Edit mode for a deck: the word-processor view would rewrite the
 comments and image syntax Marp relies on. The status bar shows `Slide 4 / 12`
@@ -155,3 +162,11 @@ they transcribe correctly far more often.
 New tabs open in Raw mode out of the box. Pick a different default —
 including Review, handy if you mostly open notes to look things up — under
 **Default mode** in [Settings](settings.md).
+
+## Two views of the same file
+
+Right-click a file's tab → **Duplicate tab** opens a second tab on the same
+file, and **Duplicate in new window** opens it in another window. Put one in
+Markdown and the other in Present, Review or Draw: whatever you type in one
+appears in the other straight away, and saving either saves both. (Notes that
+have not been saved as a file cannot be duplicated — use **Save as…** first.)

@@ -79,6 +79,7 @@ import {
 } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
+import { openPresenterView } from '../presenter';
 
 /**
  * The TabBar doubles as the window titlebar (no native decorations, so tabs
@@ -671,6 +672,19 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Rename
       </button>
+      {tab?.deck && !isAndroid() && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          title="Notes, the next slide and a timer in a second window — it follows the show (F11)"
+          onClick={() => {
+            void openPresenterView(menu.tabId);
+            onClose();
+          }}
+        >
+          Presenter view
+        </button>
+      )}
       {/* Tab sync: a second, live-synced view of the same file — Markdown in
           one tab, Present / Review / Draw in the other. Saved files only. */}
       {tab?.kind === 'file' && tab.filePath !== null && (
