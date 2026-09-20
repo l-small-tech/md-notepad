@@ -469,8 +469,26 @@ the pill (no controller, no manifest), every window enumeration skips
   The context menu's "Move to window …" rows reach the same handover
   explicitly (target picked by name, no coordinates) — which is why they
   exist: it is the one route into an existing window that Wayland permits.
-- **Cross-window invariants**: the controller's `adoptTabs` skips files a
-  local tab already owns (one owner per file, applied across windows);
+- **Tab sync (mirrors)**: a FILE may be open in several tabs — "Duplicate
+  tab" / "Duplicate in new window" in the tab menu, a file opened from the OS
+  into a second window, a tab dropped beside its twin. Each mirror keeps its
+  own DocModel; `ui/doc-sync.ts` attaches every file tab to the pure hub in
+  `core/doc-sync.ts`, which fans edits out to sibling tabs directly and to
+  other windows over the `doc-sync` event (whole text, own echo dropped by
+  label), announces saves so mirrors adopt the new baseline
+  (`adoptMergedText`) instead of raising the ConflictBanner, and lets the
+  conflict probe recognise a mirror's write that raced its announcement
+  (`mirrorKnowsText`). `retargetFilePath` moves all mirrors; explorer delete
+  closes all of them. NOTE tabs never mirror: a note's file follows one tab.
+- **Presenter view**: `ui/presenter.ts` + `components/PresenterView.tsx`. One
+  helper window, fixed label `w-presenter` (`?presenter=1` boot branch in
+  main.tsx: themed, but no controller/manifest/tabs; `isHelperWindow` keeps it
+  out of drop targets, "Move to window" and the last-window count). The
+  opening window feeds it the deck text (`presenter-deck`, re-sent on edits
+  and on `presenter-ready`); `deck-slide` broadcasts the current slide both
+  ways through `slideStore`, which `DeckShow` publishes to and follows.
+- **Cross-window invariants**: the controller's `adoptTabs` skips NOTES a
+  local tab already owns (a file tab is adopted as a mirror — see above);
   file-open entry points (argv, `open-files`) target main only; the
   notes-dir change flow is main-only; settings changes broadcast via a
   `settings-changed` event so theme/fonts stay uniform — except a theme a

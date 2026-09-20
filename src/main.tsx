@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
 import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
+import type { DocSyncMessage } from './core/doc-sync';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
@@ -53,6 +54,9 @@ import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
+import { docSync, startDocSync } from './ui/doc-sync';
+import { listenPresenter, PRESENTER_LABEL } from './ui/presenter';
+import { PresenterView } from './ui/components/PresenterView';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import { harnessAvailabilityStore } from './ui/stores/harness-availability';
 import {
@@ -248,6 +252,15 @@ const appWindow = getCurrentWindow();
 const WINDOW_LABEL = appWindow.label;
 const IS_MAIN_WINDOW = WINDOW_LABEL === 'main';
 
+/**
+ * Windows that are not the app proper and hold no tabs: tab-drag ghosts and
+ * the presenter view. They are never a drop / "move to window" target and
+ * never count as "another window is still open" when one closes.
+ */
+function isHelperWindow(label: string): boolean {
+  return label.startsWith('ghost-') || label === PRESENTER_LABEL;
+}
+
 /** Shared construction options so every window looks like the main one. */
 const WINDOW_OPTIONS = {
   title: 'MD Notepad',
@@ -330,7 +343,7 @@ async function findDropWindow(excludeLabel?: string): Promise<string | null> {
     return null;
   }
   const others = (await getAllWebviewWindows()).filter(
-    (w) => w.label !== WINDOW_LABEL && w.label !== excludeLabel && !w.label.startsWith('ghost-'),
+    (w) => w.label !== WINDOW_LABEL && w.label !== excludeLabel && !isHelperWindow(w.label),
   );
   const candidates = await Promise.all(
     others.map(async (w): Promise<DropWindowCandidate | null> => {
@@ -444,7 +457,7 @@ function focusWindow(label: string): void {
  */
 async function listOtherWindows(): Promise<TabWindowInfo[]> {
   const others = (await getAllWebviewWindows()).filter(
-    (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+    (w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label),
   );
   const rows = await Promise.all(
     others.map(async (w): Promise<TabWindowInfo | null> => {
@@ -585,6 +598,10 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 const platform = detectPlatform(navigator.platform);
 
 window.addEventListener('keydown', (event) => {
+  // The presenter window has no tabs and no commands — only its own slide keys.
+  if (WINDOW_LABEL === PRESENTER_LABEL) {
+    return;
+  }
   // Something nearer the event already claimed this key — a focused terminal
   // pane resolving its own shortcut, most of all. Re-running the global
   // dispatcher would fire the action twice.
@@ -694,6 +711,25 @@ async function boot(): Promise<void> {
   await themeRegistryStore.getState().load(await resolveThemesDir());
   injectThemeStyles();
   themeRegistryStore.subscribe(injectThemeStyles);
+
+  // The presenter view (`?presenter=1`, ui/presenter.ts) is not the app
+  // either: themed like it, but no session controller, no manifest, no tabs —
+  // just the component, fed over events by the window that opened it. It
+  // follows theme changes made while a talk is running.
+  if (bootParams.get('presenter') === '1') {
+    void listen<{ from: string; settings: Settings }>('settings-changed', (event) => {
+      applyingRemoteSettings = true;
+      try {
+        settingsStore.getState().replace(normalizeSettings(event.payload.settings));
+      } finally {
+        applyingRemoteSettings = false;
+      }
+    }).catch(() => {});
+    installLinkGuard();
+    installContextMenuGuard();
+    createRoot(document.getElementById('root')!).render(<PresenterView />);
+    return;
+  }
 
   const paths = await resolvePaths(settingsStore.getState().settings);
 
@@ -1010,6 +1046,28 @@ async function boot(): Promise<void> {
     }
   }).catch(() => {});
 
+  // Presenter view: follow slide changes made in the presenter window (or a
+  // mirror's show) and feed the presenter its deck — ui/presenter.ts.
+  listenPresenter();
+
+  // Tab sync: mirrors of one file (another tab here, or a tab in another
+  // window) type into each other live — src/ui/doc-sync.ts. Same echo rule as
+  // settings-changed: our own broadcast comes back, drop it by label. The
+  // listener is registered BEFORE the hub starts, because starting says
+  // `hello` for every restored file tab and the answers must not be missed;
+  // a failed listen (no Tauri) still syncs the tabs inside this window.
+  void listen<{ from: string; message: DocSyncMessage }>('doc-sync', (event) => {
+    if (event.payload.from !== WINDOW_LABEL) {
+      docSync.receive(event.payload.message);
+    }
+  })
+    .catch(() => {})
+    .then(() => {
+      startDocSync((message) => {
+        void emit('doc-sync', { from: WINDOW_LABEL, message }).catch(() => {});
+      });
+    });
+
   // OS drag-drop into the explorer. Tauri intercepts file drags (HTML5 drop
   // never fires), so hit-test its physical cursor position against the
   // explorer's data-drop-dir attributes: hovering highlights the target
@@ -1131,7 +1189,7 @@ async function boot(): Promise<void> {
    */
   async function releaseTabsOnClose(): Promise<void> {
     const others = (await getAllWebviewWindows()).filter(
-      (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+      (w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label),
     );
     if (others.length === 0) {
       const tabs = await controller.exportTabsForHandoff(); // flushes first
@@ -1178,6 +1236,14 @@ async function boot(): Promise<void> {
         }
       } finally {
         await controller.dispose().catch(() => {});
+        // The presenter view has nothing to present once the last app window
+        // goes — and left open it would keep the app alive with no way in.
+        await (async () => {
+          const windows = await getAllWebviewWindows();
+          if (!windows.some((w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label))) {
+            await windows.find((w) => w.label === PRESENTER_LABEL)?.destroy();
+          }
+        })().catch(() => {});
         void appWindow.destroy();
       }
     })

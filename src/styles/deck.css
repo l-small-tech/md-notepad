@@ -141,3 +141,176 @@
   font-family: var(--font-ui);
   font-size: 14px;
 }
+
+/* ---- Presenter view: its own window (ui/components/PresenterView) ------- */
+
+.presenter {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  user-select: none;
+}
+
+.presenter-empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+
+.presenter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.presenter-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presenter-count,
+.presenter-clock,
+.presenter-timer {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.presenter-count {
+  color: var(--fg-muted);
+}
+
+.presenter-clock {
+  font-size: 18px;
+}
+
+.presenter-spacer {
+  flex: 1;
+}
+
+.presenter-button,
+.presenter-timer {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.presenter-timer {
+  font-size: 18px;
+}
+
+.presenter-button:hover:not(:disabled),
+.presenter-timer:hover {
+  border-color: var(--accent);
+}
+
+.presenter-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.presenter-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(220px, 2fr);
+  gap: 16px;
+  padding: 14px;
+}
+
+.presenter-current {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.presenter-slide {
+  /* As wide as the column, but never taller than the window leaves room for. */
+  width: min(100%, calc((100vh - 130px) * var(--deck-aspect, 1.7778)));
+  aspect-ratio: var(--deck-aspect, 1.7778);
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--border);
+  flex: none;
+}
+
+.presenter-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.presenter-side {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.presenter-next {
+  width: min(100%, 360px);
+}
+
+.presenter-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.presenter-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.presenter-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.presenter-notes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.presenter-notes p {
+  margin: 0 0 0.7em;
+}
+
+.presenter-notes-none {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .presenter-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+}

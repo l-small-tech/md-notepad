@@ -556,8 +556,8 @@ export function createExplorerOps(
     if (!ok) {
       return;
     }
-    const owner = ctx.tabOwning(pathKey(path));
-    if (owner) {
+    // Every tab on the file — mirrors (tab sync) included.
+    for (let owner = ctx.tabOwning(pathKey(path)); owner; owner = ctx.tabOwning(pathKey(path))) {
       tabsStore.getState().closeTab(owner.id);
     }
     try {

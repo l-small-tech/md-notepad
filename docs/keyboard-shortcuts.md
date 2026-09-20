@@ -55,6 +55,7 @@ Tab leaves it where it is.
 | Ctrl+- | Smaller text |
 | Ctrl+0 | Reset text size |
 | F11 (Mac: Ctrl+Cmd+F) | Full screen — the window fills the screen, the interface stays as it is; F11 or Esc to leave |
+| P (during a slide show) | Presenter view — notes, next slide and a timer in a second window |
 
 ## Terminal tabs (desktop only)
 

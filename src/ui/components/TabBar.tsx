@@ -39,6 +39,7 @@ import {
   closeTab,
   dropTabOut,
   dropTornWindow,
+  duplicateTabToNewWindow,
   listOtherTabWindows,
   moveTabToNewWindow,
   moveTabToWindow,
@@ -78,6 +79,7 @@ import {
 } from './AppMenu';
 import { WindowControls } from './WindowControls';
 import { isAndroid } from '../platform';
+import { openPresenterView } from '../presenter';
 
 /**
  * The TabBar doubles as the window titlebar (no native decorations, so tabs
@@ -670,6 +672,49 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Rename
       </button>
+      {tab?.deck && !isAndroid() && (
+        <button
+          className="tab-menu-item"
+          role="menuitem"
+          title="Notes, the next slide and a timer in a second window — it follows the show (F11)"
+          onClick={() => {
+            void openPresenterView(menu.tabId);
+            onClose();
+          }}
+        >
+          Presenter view
+        </button>
+      )}
+      {/* Tab sync: a second, live-synced view of the same file — Markdown in
+          one tab, Present / Review / Draw in the other. Saved files only. */}
+      {tab?.kind === 'file' && tab.filePath !== null && (
+        <>
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title="Open a second tab on this file — the two stay in sync as you type"
+            onClick={() => {
+              tabsStore.getState().duplicateFileTab(menu.tabId);
+              onClose();
+            }}
+          >
+            Duplicate tab
+          </button>
+          {!isAndroid() && (
+            <button
+              className="tab-menu-item"
+              role="menuitem"
+              title="Open this file in a second window — the two stay in sync as you type"
+              onClick={() => {
+                duplicateTabToNewWindow(menu.tabId);
+                onClose();
+              }}
+            >
+              Duplicate in new window
+            </button>
+          )}
+        </>
+      )}
       <button
         className="tab-menu-item context-menu-nav"
         role="menuitem"

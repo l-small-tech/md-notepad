@@ -43,7 +43,7 @@ import {
 import { resolveTerminalProfile } from '../../core/settings';
 import type { ModeSync } from '../../core/mode-sync';
 import type { EditorMode, TabKind, TabState, TerminalSnapshot } from '../../core/types';
-import { orderTabsByWorkspace } from '../../core/tab-workspaces';
+import { orderTabsByWorkspace, pathKey } from '../../core/tab-workspaces';
 import { workspaceCueFor } from '../workspace-cues';
 import { captureScrollAnchor } from '../mode-scroll';
 import { settingsStore } from './settings';
@@ -217,6 +217,15 @@ export interface TabsState {
     preview?: boolean;
     readOnly?: boolean;
   }) => string;
+  /**
+   * Tab sync: open a second tab (a "mirror") on the same file as file tab
+   * `id`, right beside it — Markdown in one, Present/Review/Draw in the other.
+   * It starts from the source's CURRENT text and on-disk baseline, so unsaved
+   * edits carry over and it is dirty exactly when the source is; from then on
+   * ui/doc-sync.ts keeps the two in step. Returns the new id, or null when the
+   * tab is not a saved file.
+   */
+  duplicateFileTab: (id: string) => string | null;
   /** Image viewer tab — read-only, never flushed beyond the manifest. Returns its id. */
   /**
    * Open a terminal tab. The label is the profile's name until the shell sets
@@ -863,6 +872,35 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       return tab.id;
     },
 
+    duplicateFileTab(id) {
+      const source = get().tabs.find((t) => t.id === id);
+      if (!source || source.kind !== 'file' || source.filePath === null) {
+        return null;
+      }
+      const tab = makeTab({
+        id: nanoid(),
+        kind: 'file',
+        notePath: null,
+        filePath: source.filePath,
+        customTitle: null,
+        mode: source.mode,
+        savedMtimeMs: source.savedMtimeMs,
+        liveEdit: source.liveEdit,
+        text: source.model.getText(),
+        dirty: source.dirty,
+        readOnly: source.readOnly,
+      });
+      tab.model.markPersistedAs('file', source.model.getPersisted('file'));
+      set((s) => {
+        const at = s.tabs.findIndex((t) => t.id === id);
+        const tabs = [...s.tabs];
+        tabs.splice(at + 1, 0, tab);
+        return { tabs, activeTabId: tab.id };
+      });
+      requestFlush();
+      return tab.id;
+    },
+
     openTerminalTab({ profileId, cwd = null, snapshot = null, initialInput = null }) {
       const tab = makeTab({
         id: nanoid(),
@@ -1057,8 +1095,17 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       if (!tab || (tab.kind !== 'file' && tab.kind !== 'image' && tab.kind !== 'import')) {
         return;
       }
+      // Mirrors (tab sync — other tabs on the same file) follow the file too,
+      // or their next save would recreate it under the old name.
+      const oldKey = tab.filePath === null ? null : pathKey(tab.filePath);
+      const follows = (t: TabEntry): boolean =>
+        t.id === id ||
+        (oldKey !== null &&
+          t.kind === tab.kind &&
+          t.filePath !== null &&
+          pathKey(t.filePath) === oldKey);
       set({
-        tabs: s.tabs.map((t) => (t.id === id ? { ...t, filePath, savedMtimeMs: mtimeMs } : t)),
+        tabs: s.tabs.map((t) => (follows(t) ? { ...t, filePath, savedMtimeMs: mtimeMs } : t)),
       });
       requestFlush();
     },

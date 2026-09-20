@@ -19,6 +19,7 @@
  * never flagged: planFlush's existingNoteFiles guard covers foreign files.
  */
 
+import { mirrorKnowsText } from '../doc-sync';
 import { tabsStore, type TabEntry } from '../stores/tabs';
 import type { SessionCtx } from './context';
 import { isTabLive, mergeDiskChange } from './live-merge';
@@ -71,6 +72,14 @@ export async function probeTabConflict(ctx: SessionCtx, id: string): Promise<boo
       const persisted = tab.model.getPersisted(tab.kind === 'file' ? 'file' : 'session');
       changed = text !== persisted && text !== tab.model.getText();
       baseline = mtimeMs;
+      // Tab sync: the file holds a text a MIRROR of this tab (same file, in
+      // another tab or window) had moments ago — a mirror saved while typing
+      // carried on here. That is our own write, not an external change: take
+      // it as the baseline and stay dirty by whatever was typed since.
+      if (changed && tab.kind === 'file' && mirrorKnowsText(path, text)) {
+        tabsStore.getState().adoptMergedText(id, { diskText: text, mtimeMs });
+        return false;
+      }
       // Live Edit (shared folder): a change from disk is MERGED into the
       // editor rather than flagged. Disk matching the editor exactly (the
       // other side wrote what we already hold) just makes the tab clean.

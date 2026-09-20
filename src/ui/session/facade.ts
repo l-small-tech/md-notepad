@@ -248,6 +248,19 @@ export function dropTabOut(id: string, pos: { x: number; y: number } | null): vo
  * owning it tears off instead). No-ops until the controller registers, and
  * outside the desktop app, where no window spawner exists.
  */
+/**
+ * Tab sync: open a mirror of file tab `id` in a NEW window — the original
+ * stays put, and the two stay in step (ui/doc-sync.ts). A no-op until the
+ * controller registers the window spawner.
+ */
+let duplicateTabToNewWindowDispatch: (id: string) => void = () => {};
+export function setDuplicateTabToNewWindowDispatch(fn: (id: string) => void): void {
+  duplicateTabToNewWindowDispatch = fn;
+}
+export function duplicateTabToNewWindow(id: string): void {
+  duplicateTabToNewWindowDispatch(id);
+}
+
 let openFileInNewWindowDispatch: (path: string) => void = () => {};
 export function setOpenFileInNewWindowDispatch(fn: (path: string) => void): void {
   openFileInNewWindowDispatch = fn;

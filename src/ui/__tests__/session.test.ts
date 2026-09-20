@@ -2252,7 +2252,7 @@ describe('multi-window tear-off (M8)', () => {
     expect(s.tabs[0]!.model.getText()).toBe('');
   });
 
-  test('adoptTabs skips a file some tab here already owns', async () => {
+  test('adoptTabs takes a file tab as a mirror but skips a note some tab here owns', async () => {
     const fs = makeFakeFs({ '/docs/a.md': 'A', [`${NOTES}/other.md`]: 'other' });
     const controller = makeController(fs);
     await controller.openPaths(['/docs/a.md']);
@@ -2284,9 +2284,26 @@ describe('multi-window tear-off (M8)', () => {
     ]);
 
     const s = tabs.tabsStore.getState();
-    expect(s.tabs.some((t) => t.id === 'dup')).toBe(false);
+    // Tab sync: a second tab on an open FILE is a mirror, not a duplicate owner.
+    expect(s.tabs.some((t) => t.id === 'dup')).toBe(true);
     expect(s.tabs.some((t) => t.id === 'fresh')).toBe(true);
-    expect(s.tabs).toHaveLength(count + 1);
+    expect(s.tabs).toHaveLength(count + 2);
+
+    // A note's file follows exactly one tab — a second claim is still dropped.
+    await controller.adoptTabs([
+      {
+        id: 'dup-note',
+        kind: 'note',
+        notePath: `${NOTES}/other.md`,
+        filePath: null,
+        customTitle: null,
+        mode: 'raw',
+        savedMtimeMs: null,
+        hasBuffer: false,
+        cursor: null,
+      },
+    ]);
+    expect(tabs.tabsStore.getState().tabs.some((t) => t.id === 'dup-note')).toBe(false);
   });
 
   test('exportTabsForHandoff flushes, drops the pristine Untitled, and reports buffers', async () => {
