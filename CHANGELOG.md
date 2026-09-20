@@ -10,6 +10,18 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Initialize workspace — set a folder up for AI agents.** Command palette →
+  **Initialize workspace…**: pick or create a folder, tick the directives you
+  want (file manifest, changelog, lessons learned, git worktree workflow, plus
+  any `.md` of your own), and the app writes an `AGENTS.md` — with `CLAUDE.md`
+  and `GEMINI.md` pointing at it — that the agent in your own terminal reads.
+  Right-click a workspace → **Workspace directives…** to add or remove
+  directives later; your own text and filled-in files are never overwritten.
+- **Notes as prompts, with live status.** In an initialized workspace a strip
+  above each note offers **Copy as prompt** for the section you are in. Paste
+  it into your agent; it reports back through `STATUSES.md`, and the note shows
+  a chip — Queued, Running, Needs input, Done, Failed — with a one-line
+  summary. **Workspace status** in the palette lists every prompt.
 - **Two views of one file, in sync as you type.** Right-click a file's tab →
   **Duplicate tab** (or **Duplicate in new window**) for a second view of the
   same file: Markdown in one, Present, Review or Draw in the other. Edits show

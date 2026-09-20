@@ -809,6 +809,20 @@ change)`: a read → change → write of the sidecar that keeps the preamble's
 review context (`core/comments parseReviewContext`), refreshes the marks and
 an open composer's `comments`, and tells `onNotesChanged` listeners.
 
+**Initialize Workspace and prompt status.** `workspace-init.ts` +
+`components/InitWorkspaceDialog.tsx` gather the inputs for
+`core/workspace-modules.ts` (folder, the user's `<appData>/agent-modules/*.md`,
+the files already there), write what it plans, and register the folder as a
+workspace; opened with a root (context menu "Workspace directives…") it is the
+re-run. Desktop only. `prompt-status.ts` is the store of every workspace's
+parsed `STATUSES.md` — created in main.tsx (`initPromptStatus`), refreshed at
+boot, on workspace-list changes and on `fs-changed`; its only write is
+"Copy as prompt" marking a row `queued` after a fresh read.
+`components/PromptStrip.tsx` (mounted in EditorHost, visible only inside a
+workspace that HAS a STATUSES.md) is the copy button + chips;
+`components/StatusPanel.tsx` is the all-prompts panel (Escape closes). The app
+never launches an agent: the user pastes into their own terminal.
+
 **The overview** ("All notes" in the ribbon and in every callout;
 `Show all review notes` in the palette; Escape closes) is
 `notes-overview.ts` + `components/NotesOverview.tsx`: opening walks every

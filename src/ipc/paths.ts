@@ -83,6 +83,15 @@ export async function resolveShellIntegrationDir(): Promise<string> {
 }
 
 /**
+ * Where the user's own Initialize Workspace modules live (one `.md` per
+ * directive, see `core/workspace-modules.ts`): `<appDataDir>/agent-modules`.
+ * Desktop only — the feature is not offered on Android.
+ */
+export async function resolveAgentModulesDir(): Promise<string> {
+  return await join(await appDataDir(), 'agent-modules');
+}
+
+/**
  * Where "Debug insert" drops its scan intermediates (see ui/scan-debug.ts).
  *
  * App-owned local storage, never beside the board: one dump is a full-resolution
