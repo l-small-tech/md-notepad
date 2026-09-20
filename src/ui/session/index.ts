@@ -53,6 +53,7 @@ import {
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
   setDropTabOutDispatch,
+  setDuplicateTabToNewWindowDispatch,
   setDropTornWindowDispatch,
   setDeleteFolderDispatch,
   setImportDocumentDispatch,
@@ -115,6 +116,7 @@ export {
   deleteExplorerFolder,
   dropTabOut,
   dropTornWindow,
+  duplicateTabToNewWindow,
   buildExportPreviewHtml,
   enrichCopiedText,
   getCursor,
@@ -320,6 +322,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setDropTornWindowDispatch((label) => void windows.dropTornWindow(label));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
     setNewWindowDispatch(() => void windows.openEmptyWindow());
+    setDuplicateTabToNewWindowDispatch((id) => void windows.duplicateTabToNewWindow(id));
   }
   if (deps.sendTabsToWindow) {
     setMoveTabToWindowDispatch((id, label) => void windows.moveTabToWindow(id, label));

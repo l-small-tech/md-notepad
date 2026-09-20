@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
 import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
+import type { DocSyncMessage } from './core/doc-sync';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
@@ -53,6 +54,7 @@ import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
+import { docSync, startDocSync } from './ui/doc-sync';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import { harnessAvailabilityStore } from './ui/stores/harness-availability';
 import {
@@ -1009,6 +1011,24 @@ async function boot(): Promise<void> {
       }
     }
   }).catch(() => {});
+
+  // Tab sync: mirrors of one file (another tab here, or a tab in another
+  // window) type into each other live — src/ui/doc-sync.ts. Same echo rule as
+  // settings-changed: our own broadcast comes back, drop it by label. The
+  // listener is registered BEFORE the hub starts, because starting says
+  // `hello` for every restored file tab and the answers must not be missed;
+  // a failed listen (no Tauri) still syncs the tabs inside this window.
+  void listen<{ from: string; message: DocSyncMessage }>('doc-sync', (event) => {
+    if (event.payload.from !== WINDOW_LABEL) {
+      docSync.receive(event.payload.message);
+    }
+  })
+    .catch(() => {})
+    .then(() => {
+      startDocSync((message) => {
+        void emit('doc-sync', { from: WINDOW_LABEL, message }).catch(() => {});
+      });
+    });
 
   // OS drag-drop into the explorer. Tauri intercepts file drags (HTML5 drop
   // never fires), so hit-test its physical cursor position against the

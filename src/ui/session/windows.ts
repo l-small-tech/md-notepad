@@ -133,11 +133,15 @@ export function createWindows(
   /**
    * Adopt tabs handed over by another window (a tear-off landing here at boot
    * goes through restore() instead; this serves a tab dragged or moved onto
-   * this window). Files some tab here already owns are skipped — the
-   * one-owner-per-file invariant, applied across windows.
+   * this window). A NOTE some tab here already owns is skipped — a note's file
+   * follows exactly one tab. A file tab is always taken: landing beside a tab
+   * on the same file just makes the two mirrors (tab sync, ui/doc-sync.ts).
    */
   async function adoptPersistedTabs(persisted: PersistedTab[]): Promise<void> {
     const fresh = persisted.filter((pt) => {
+      if (pt.kind === 'file') {
+        return true;
+      }
       const path = pt.filePath ?? pt.notePath;
       return path === null || !ctx.tabOwning(pathKey(path));
     });
@@ -318,6 +322,31 @@ export function createWindows(
   }
 
   /**
+   * Tab sync: open a MIRROR of file tab `id` in a new window. Nothing is handed
+   * over — this window keeps its tab — so the descriptor is a fresh id with no
+   * buffer: the new window reads the file off disk, says hello, and this
+   * window's doc sync answers with any unsaved text (core/doc-sync.ts).
+   */
+  async function duplicateTabToNewWindow(id: string): Promise<void> {
+    const spawn = ctx.deps.spawnTabWindow;
+    const tab = tabsStore.getState().tabs.find((t) => t.id === id);
+    if (!spawn || !tab || tab.kind !== 'file' || tab.filePath === null) {
+      return;
+    }
+    const descriptor: PersistedTab = {
+      ...persistedDescriptor(tab),
+      id: nanoid(),
+      hasBuffer: false,
+    };
+    try {
+      await spawn({ schema: 1, activeTabId: descriptor.id, tabs: [descriptor] }, null);
+    } catch (error) {
+      uiStore.getState().showNotice('Could not open a new window.');
+      ctx.deps.onError?.(error);
+    }
+  }
+
+  /**
    * mod+N: spawn a fresh OS window with nothing in it. An EMPTY manifest is
    * handed over so the new window skips its own manifest file and boots the
    * way a first launch does — `restoreSession([])` makes the one Untitled
@@ -417,6 +446,7 @@ export function createWindows(
     dropTabOut,
     dropTornWindow,
     openFileInNewWindow,
+    duplicateTabToNewWindow,
     exportTabsForHandoff,
     openEmptyWindow,
     bequeathTabsToMain,

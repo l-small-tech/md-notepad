@@ -39,6 +39,7 @@ import {
   closeTab,
   dropTabOut,
   dropTornWindow,
+  duplicateTabToNewWindow,
   listOtherTabWindows,
   moveTabToNewWindow,
   moveTabToWindow,
@@ -670,6 +671,36 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
       >
         Rename
       </button>
+      {/* Tab sync: a second, live-synced view of the same file — Markdown in
+          one tab, Present / Review / Draw in the other. Saved files only. */}
+      {tab?.kind === 'file' && tab.filePath !== null && (
+        <>
+          <button
+            className="tab-menu-item"
+            role="menuitem"
+            title="Open a second tab on this file — the two stay in sync as you type"
+            onClick={() => {
+              tabsStore.getState().duplicateFileTab(menu.tabId);
+              onClose();
+            }}
+          >
+            Duplicate tab
+          </button>
+          {!isAndroid() && (
+            <button
+              className="tab-menu-item"
+              role="menuitem"
+              title="Open this file in a second window — the two stay in sync as you type"
+              onClick={() => {
+                duplicateTabToNewWindow(menu.tabId);
+                onClose();
+              }}
+            >
+              Duplicate in new window
+            </button>
+          )}
+        </>
+      )}
       <button
         className="tab-menu-item context-menu-nav"
         role="menuitem"
