@@ -40,6 +40,7 @@ import {
 import { explorerStore, useExplorerStore } from '../../stores/explorer';
 import { uiStore } from '../../stores/ui';
 import { setActiveWorkspace } from '../../active-workspace';
+import { openWorkspaceInit } from '../../workspace-init';
 import { scanImageInto } from '../../scan-image';
 import { scanWhiteboardInto } from '../../scan-photo';
 
@@ -520,6 +521,21 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           }
         >
           Set active
+        </button>
+      )}
+      {/* Re-run Initialize Workspace here: add or remove AGENTS.md directives.
+          Desktop only, local folders only (the writes are plain fs). */}
+      {wsColor !== undefined && !isAndroid() && !dir.startsWith('saf://') && (
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          title="Choose the instructions AI agents get in this folder (AGENTS.md)"
+          onClick={() => {
+            onClose();
+            void openWorkspaceInit(dir);
+          }}
+        >
+          Workspace directives…
         </button>
       )}
       {/* Live Edit: a shared Drive/OneDrive folder. Files opened from it save

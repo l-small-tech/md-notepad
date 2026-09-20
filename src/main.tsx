@@ -79,7 +79,8 @@ import { exportPreviewStore } from './ui/stores/export-preview';
 import { diagramViewerStore } from './ui/stores/diagram-viewer';
 import { imageMimeType, isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
-import { initProviders } from './ipc/provider';
+import { currentProvider, initProviders } from './ipc/provider';
+import { getClipboard } from './ipc/clipboard';
 import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
 import { themeRegistryStore } from './ui/stores/theme-registry';
 import { importFilters } from './core/import/registry';
@@ -87,7 +88,9 @@ import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
 import { searchStore } from './ui/stores/search';
-import { closeOverview, notesOverviewStore } from './ui/notes-overview';
+import { closeOverview, notesOverviewStore, workspaceRoots } from './ui/notes-overview';
+import { initPromptStatus, promptStatus } from './ui/prompt-status';
+import { closeWorkspaceInit, workspaceInitStore } from './ui/workspace-init';
 import { isAndroid } from './ui/platform';
 import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
@@ -629,6 +632,17 @@ window.addEventListener('keydown', (event) => {
     exportPreviewStore.getState().close();
     return;
   }
+  // Escape closes the Initialize Workspace dialog, then the status panel.
+  if (event.key === 'Escape' && workspaceInitStore.getState().open) {
+    event.preventDefault();
+    closeWorkspaceInit();
+    return;
+  }
+  if (event.key === 'Escape' && promptStatus().store.getState().panelOpen) {
+    event.preventDefault();
+    promptStatus().setPanelOpen(false);
+    return;
+  }
   // Escape closes the all-review-notes overview (a panel over everything but
   // the dialogs above).
   if (event.key === 'Escape' && notesOverviewStore.getState().open) {
@@ -705,6 +719,21 @@ async function boot(): Promise<void> {
   // currentProvider(): on Android this routes local + synced (SAF) workspaces;
   // desktop stays on the plain local FS.
   initProviders();
+
+  // Prompt status (ui/prompt-status.ts): reads each workspace's STATUSES.md.
+  // Wired here so every consumer — the Escape handler included — finds it;
+  // the first read waits for the session (below), which knows the roots.
+  initPromptStatus({
+    roots: workspaceRoots,
+    read: (path) =>
+      currentProvider()
+        .readTextFile(path)
+        .then((f) => f.text)
+        .catch(() => null),
+    write: (path, text) => currentProvider().atomicWriteText(path, text),
+    copy: (text) => getClipboard().write(text),
+    now: () => new Date(),
+  });
 
   // Load pluggable themes and inject their CSS before mount so the first paint
   // uses the saved color scheme. Seeds the built-in examples on first run.
@@ -914,6 +943,8 @@ async function boot(): Promise<void> {
       fsRefreshTimer = setTimeout(() => {
         fsRefreshTimer = null;
         uiStore.getState().refreshExplorer();
+        // Agents report prompt progress by writing STATUSES.md.
+        void promptStatus().refresh();
         // Live conflict detection: an external write inside a watched
         // workspace (vim in the built-in terminal, a sync client) must raise
         // the banner NOW, not at the next window refocus — before then, a
@@ -1014,6 +1045,19 @@ async function boot(): Promise<void> {
   // "Set active" on a workspace fans out to every window by default (its
   // right-click variant stays local — see ui/active-workspace.ts).
   listenActiveWorkspace();
+  {
+    // Re-read when the set of workspaces changes; file changes arrive via fs-changed.
+    let rootsSignature = '';
+    const syncStatuses = (): void => {
+      const signature = JSON.stringify(workspaceRoots());
+      if (signature !== rootsSignature) {
+        rootsSignature = signature;
+        void promptStatus().refresh();
+      }
+    };
+    syncStatuses();
+    settingsStore.subscribe(syncStatuses);
+  }
 
   // Live settings sync between windows (see persistSettingsDebounced). Our own
   // broadcast comes back too — drop it by label: the payload is a stale

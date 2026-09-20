@@ -116,6 +116,8 @@ export interface Cm6Adapter extends EditorAdapter {
    * height (a hidden tab) — a measurement nobody should act on.
    */
   getTopLine(): number | null;
+  /** The 1-based line the caret is on, or null while detached. */
+  getCaretLine(): number | null;
   /**
    * Put that line back at the top of the viewport. Unlike `revealLine` this
    * moves nothing but the scroll: no caret, no focus — the reader is arriving
@@ -869,6 +871,9 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         effects: EditorView.scrollIntoView(target.from, { y: 'center' }),
       });
       view.focus();
+    },
+    getCaretLine() {
+      return view ? view.state.doc.lineAt(view.state.selection.main.head).number : null;
     },
     getTopLine() {
       if (!view) {

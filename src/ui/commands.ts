@@ -28,6 +28,8 @@ import {
 import { toggleDistractionFree, toggleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { openOverview } from './notes-overview';
+import { promptStatus } from './prompt-status';
+import { openWorkspaceInit } from './workspace-init';
 import { settingsStore } from './stores/settings';
 import { isAndroid } from './platform';
 import { tabsStore } from './stores/tabs';
@@ -452,6 +454,31 @@ export function buildCommands(): AppCommand[] {
       title: 'Add workspace…',
       keywords: ['folder', 'directory', 'notes'],
       run: () => addWorkspace(),
+    },
+    {
+      id: 'init-workspace',
+      title: 'Initialize workspace…',
+      keywords: ['agents', 'AGENTS.md', 'CLAUDE.md', 'folder', 'project', 'directives', 'new'],
+      enabled: () => !isAndroid(),
+      run: () => void openWorkspaceInit(),
+    },
+    {
+      id: 'workspace-directives',
+      title: 'Workspace directives… (active workspace)',
+      keywords: ['agents', 'AGENTS.md', 'modules', 'changelog', 'manifest', 'worktree'],
+      enabled: () => !isAndroid() && uiStore.getState().selectedExplorerDir !== null,
+      run: () => {
+        const dir = uiStore.getState().selectedExplorerDir;
+        if (dir !== null) {
+          void openWorkspaceInit(dir);
+        }
+      },
+    },
+    {
+      id: 'workspace-status',
+      title: 'Workspace status (prompts)',
+      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md'],
+      run: () => promptStatus().setPanelOpen(true),
     },
     {
       id: 'close-all-tabs',
