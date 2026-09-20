@@ -102,6 +102,7 @@ import { pathKey } from '../../core/tab-workspaces';
 import type { VoiceComment } from '../../core/comments';
 import { ConflictBanner } from './ConflictBanner';
 import { LiveEditBanner } from './LiveEditBanner';
+import { PromptStrip } from './PromptStrip';
 import { DiffView } from './DiffView';
 import { NoteComposer } from './NoteComposer';
 import { diffViewStore, useDiffView } from '../stores/diff-view';
@@ -823,6 +824,7 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
     >
       <ConflictBanner tabId={tabId} />
       <LiveEditBanner tabId={tabId} />
+      <PromptStrip tabId={tabId} />
       {composerHere && createPortal(<NoteComposer />, composerSlot)}
       {showDiff && diffEntry && (
         <DiffView

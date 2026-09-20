@@ -98,6 +98,52 @@ Right-click gets you everywhere:
 - **Drop an image onto a markdown file's row** in the sidebar to attach the
   picture to the end of that document (it asks first).
 
+## Setting a workspace up for AI agents
+
+AI coding agents (Claude Code, Codex, Gemini CLI…) read a file called
+`AGENTS.md` in the folder they work in. **Initialize workspace…** (command
+palette, `Ctrl+Shift+P`) writes one for you:
+
+1. **Choose or create a folder.** It becomes a workspace in the sidebar.
+2. **Tick the directives** the agent should follow:
+   - **Prompt status** — notes become prompts you can track (below).
+   - **File manifest** — the agent keeps `MANIFEST.md`, a list of what every
+     file is for.
+   - **Changelog** — the agent adds a line to `CHANGELOG.md` for every change
+     you would notice.
+   - **Memory / lessons learned** — `LESSONS.md` carries what the agent learns
+     from one session to the next.
+   - **Git worktree workflow** — for code projects where several agents work
+     at once.
+   - **Your own** — any `.md` file you put in *your directives folder* (the
+     link in the dialog opens it) appears in the list.
+3. **Create.** Besides `AGENTS.md` you get a one-line `CLAUDE.md` and
+   `GEMINI.md` that point at it, so those tools pick it up too.
+
+To change your mind later, right-click the workspace → **Workspace
+directives…**. Ticking adds a section, unticking removes it. Anything you
+wrote in `AGENTS.md` yourself stays, and files the agent has filled in are
+never overwritten.
+
+### Notes as prompts
+
+With **Prompt status** ticked, every note in the workspace gets a strip above
+it:
+
+1. Write what you want under a heading.
+2. Put the caret in that section and press **Copy as prompt** (or pick the
+   section — or *Whole note* — from the list first). Its chip shows *Queued*.
+3. Open your terminal in the workspace folder, start your agent and paste.
+4. The agent reports back by itself: the chip turns *Running*, then *Done*,
+   *Needs input* or *Failed*, with a one-line summary. Click a chip to jump to
+   its section; **All** (or **Workspace status** in the palette) lists every
+   prompt in every workspace, with what needs you first.
+
+Statuses live in `STATUSES.md` at the top of the workspace — a plain table
+you can read or edit. Agents write it through the small `.notepad/status.py`
+script the app puts there (it needs Python; without it the agent is told to
+write the same table another way).
+
 ## Removing a workspace
 
 Right-click the workspace heading → **Remove workspace**. This only removes
