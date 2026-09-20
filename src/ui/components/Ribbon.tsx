@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
+import { docFamilyForTab } from '../../core/doc-family';
 import { getSourceAdapter } from '../editor-registry';
 import { AppMenuDivider, AppMenuItem } from './AppMenu';
 import { detectPlatform } from '../keymap';
@@ -95,7 +96,7 @@ function applyFormat(action: FormatAction): void {
   if (!tab) {
     return;
   }
-  if (tab.mode === 'wysiwyg' || tab.mode === 'draw') {
+  if (tab.mode === 'wysiwyg' || tab.mode === 'draw' || docFamilyForTab(tab) === 'svg') {
     uiStore.getState().showNotice('Formatting controls work in Markdown and Split modes.');
     return;
   }
@@ -1417,6 +1418,14 @@ function VoiceNotesSlot() {
 export function Ribbon() {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode ?? 'raw');
+  // The draw cluster follows the BOARD, not the mode name: a drawing's Split
+  // has one on screen beside the source editor, and the markdown formatting
+  // controls it would otherwise show mean nothing in SVG.
+  const drawing = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab !== undefined && docFamilyForTab(tab) === 'svg';
+  });
+  const showDraw = mode === 'draw' || (drawing && mode === 'split');
   // Back appears only while browsing a followed link in the active tab's preview
   // (read/split). It sits with the chrome, so full screen (which hides the
   // ribbon) uses the floating cluster's Back instead — no in-pane bar either way.
@@ -1486,7 +1495,7 @@ export function Ribbon() {
         )}
       </div>
 
-      {mode === 'draw' ? (
+      {showDraw ? (
         <DrawControls tabId={activeTabId} />
       ) : mode === 'read' ? (
         <ReaderControls />
@@ -1505,13 +1514,13 @@ export function Ribbon() {
           ⤢
         </button>
         {/* A whiteboard has no headings, so hide (not remove) the outline
-            toggle in draw mode — the reserved space keeps the distraction-free
+            toggle on a drawing — the reserved space keeps the distraction-free
             button where muscle memory expects it. */}
         <button
           className="ribbon-btn ribbon-btn-lg"
-          style={mode === 'draw' ? { visibility: 'hidden' } : undefined}
-          aria-hidden={mode === 'draw' || undefined}
-          tabIndex={mode === 'draw' ? -1 : undefined}
+          style={drawing ? { visibility: 'hidden' } : undefined}
+          aria-hidden={drawing || undefined}
+          tabIndex={drawing ? -1 : undefined}
           aria-label="Toggle outline"
           title="Outline (Ctrl/Cmd+Shift+O)"
           onMouseDown={(e) => e.preventDefault()}

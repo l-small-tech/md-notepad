@@ -28,6 +28,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { docFamilyForTab } from '../../core/doc-family';
 import { uiStore, useUiStore, type MenuPoint } from '../stores/ui';
 import { useTabsStore, tabsStore } from '../stores/tabs';
 import { getWhiteboardAdapter } from '../stores/whiteboard';
@@ -138,7 +139,12 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
   const [placed, setPlaced] = useState<MenuPoint | null>(null);
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const osFullscreen = useUiStore((s) => s.osFullscreen);
-  const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
+  // A drawing has no headings in ANY of its modes (Split included), so the
+  // outline row is keyed on the family rather than on `mode === 'draw'`.
+  const drawing = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab !== undefined && docFamilyForTab(tab) === 'svg';
+  });
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
   );
@@ -222,8 +228,8 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
         }}
       />
       {/* A whiteboard has no headings — the same reason the ribbon hides its
-          outline toggle in draw mode. */}
-      {mode !== 'draw' && (
+          outline toggle on a drawing. */}
+      {!drawing && (
         <MenuItem
           label="Outline"
           onSelect={() => {

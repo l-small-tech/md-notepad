@@ -71,6 +71,36 @@ Rules:
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
 
+### Split on a drawing (`.svg`)
+
+The same second pane, holding the whiteboard EDITOR instead of a preview —
+both halves live over the one DocModel, which is all the syncing there is to
+do (I1: an edit on either side is a `pushText`, and the other side is a
+subscriber). `SVG_MODES` is `['raw', 'split', 'draw']`; Draw stays the family
+default.
+
+- **The source editor keeps the editor pane**, so mode-sync's `kindFor` is
+  unchanged and raw ⇄ split leaves CM6 alone (I7) — the caret and the undo
+  history survive the toggle you make most. The board is built and torn down
+  with the mode by the `[tabId, mode]` effect, costing it only its undo
+  timeline, which every whiteboard mode switch already costs.
+- **`createBoardAdapter(tabId, extra)`** (module scope in EditorHost) builds
+  it, and is the same function mode-sync's `draw` factory calls — one options
+  object, two call sites, so Draw and Split cannot drift. They share the tab's
+  `stores/whiteboard` entry: the Split column registers itself on attach and
+  hands the registry back to `drawAdapterRef` on the way out (or
+  `clearWhiteboardAdapter`, which keeps `viewByTab` — the viewport is session
+  state that should survive the round trip).
+- **`ui/svg-split.ts` links the panes** — board selection → highlighted markup
+  (no caret move), caret → selected element (revealed if off screen), and the
+  board menu's "Reveal in source". The mapping is
+  `core/whiteboard/locate.ts`; the module's own header owns the two rules that
+  are easy to get wrong (microtask deferral, and forgetting the caret's last
+  target on every document change).
+- The ribbon's draw cluster and the hidden outline toggle are keyed on the
+  FAMILY now, not on `mode === 'draw'`: a drawing has a board on screen in
+  Split too, and has no headings in any mode.
+
 ### Keeping your place across a mode switch
 
 Every mode shows the same document, but each surface scrolls in its own

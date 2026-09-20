@@ -10,6 +10,15 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Split mode for drawings.** A drawing tab now has a **Split** button
+  (Ctrl+2) beside Raw and Draw: the `.svg` source on the left, the board on
+  the right, both of them editable and each one following the other as you
+  work. The two panes also point at the same thing — select a shape and its
+  markup lights up in the source; put the caret on an element and that shape
+  is selected on the board, ready for the ribbon's colour and style controls.
+  Right-click a shape → **Reveal in source** to jump the caret there. While
+  the source is mid-edit and not yet valid, the board holds the last picture
+  it could read and says so, instead of blanking or overwriting your typing.
 - **Two views of one file, in sync as you type.** Right-click a file's tab →
   **Duplicate tab** (or **Duplicate in new window**) for a second view of the
   same file: Markdown in one, Present, Review or Draw in the other. Edits show

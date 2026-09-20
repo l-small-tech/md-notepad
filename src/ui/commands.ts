@@ -213,11 +213,18 @@ function fromAction(
   return { id, title, ...extra, run: () => runShortcutAction(action) };
 }
 
-const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key: string }[] = [
+/**
+ * `key` is the digit chord (mod+1..4), which the four MARKDOWN modes own —
+ * `setMode` drops one aimed at a family that has no such mode, so the chords
+ * cost nothing on a drawing or a code file. Draw has no digit of its own (it
+ * is nobody's mod+3) and is reachable here and from the status bar instead.
+ */
+const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key?: string }[] = [
   { id: 'mode-raw', title: 'Mode: Raw', mode: 'raw', key: '1' },
   { id: 'mode-split', title: 'Mode: Split', mode: 'split', key: '2' },
   { id: 'mode-edit', title: 'Mode: Edit', mode: 'wysiwyg', key: '3' },
   { id: 'mode-read', title: 'Mode: Review', mode: 'read', key: '4' },
+  { id: 'mode-draw', title: 'Mode: Draw', mode: 'draw' },
 ];
 
 export function buildCommands(): AppCommand[] {
@@ -297,7 +304,11 @@ export function buildCommands(): AppCommand[] {
         id,
         title,
         { type: 'set-mode', mode },
-        { keywords: ['view', 'editor'], shortcut: modKey(key), enabled: hasActiveTab },
+        {
+          keywords: ['view', 'editor'],
+          ...(key === undefined ? {} : { shortcut: modKey(key) }),
+          enabled: hasActiveTab,
+        },
       ),
     ),
     // Display

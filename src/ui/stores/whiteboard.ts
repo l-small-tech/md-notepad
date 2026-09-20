@@ -91,10 +91,10 @@ interface WhiteboardState {
   /** Set the first time a stylus touches a board; the toggle's auto label. */
   penSeen: boolean;
   /**
-   * tabId → the last viewport its board had. SESSION state, deliberately not
-   * written to the file: panning must never dirty a document. Survives tab
-   * switches and Draw⇄Raw round trips, which is where losing your place
-   * actually hurts.
+   * view key (see {@link boardViewKey}) → the last viewport that board had.
+   * SESSION state, deliberately not written to the file: panning must never
+   * dirty a document. Survives tab switches and Draw⇄Raw round trips, which
+   * is where losing your place actually hurts.
    */
   viewByTab: Record<string, DiagramView>;
   /** tabId → what its draw adapter last reported. */
@@ -208,17 +208,30 @@ export const whiteboardStore = createStore<WhiteboardState>()((set) => ({
   },
   clearTab(tabId) {
     set((s) => {
-      if (!(tabId in s.byTab) && !(tabId in s.viewByTab)) {
+      const keys = [boardViewKey(tabId, 'draw'), boardViewKey(tabId, 'split')];
+      if (!(tabId in s.byTab) && !keys.some((k) => k in s.viewByTab)) {
         return s;
       }
       const byTab = { ...s.byTab };
       const viewByTab = { ...s.viewByTab };
       delete byTab[tabId];
-      delete viewByTab[tabId];
+      for (const key of keys) {
+        delete viewByTab[key];
+      }
       return { byTab, viewByTab };
     });
   },
 }));
+
+/**
+ * Which viewport a board restores. Draw mode's pane is the whole editor area
+ * and Split's column is half of it, so they remember SEPARATELY: a view fitted
+ * to the full width, restored into half of it, drops you looking at a corner
+ * of your own drawing. Each layout keeps the place you left it in.
+ */
+export function boardViewKey(tabId: string, pane: 'draw' | 'split'): string {
+  return pane === 'draw' ? tabId : `${tabId}:split`;
+}
 
 /** What the adapter reads at the start of every gesture. */
 export function currentToolSettings(): ToolSettings {
@@ -239,9 +252,21 @@ export function registerWhiteboardAdapter(tabId: string, adapter: WhiteboardAdap
   adapters.set(tabId, adapter);
 }
 
+/** The tab is gone: forget its adapter AND everything remembered about it. */
 export function unregisterWhiteboardAdapter(tabId: string): void {
   adapters.delete(tabId);
   whiteboardStore.getState().clearTab(tabId);
+}
+
+/**
+ * The tab's board was torn down but the TAB is still here — leaving Split
+ * mode on an `.svg` file with no Draw-mode board behind it. Deliberately
+ * keeps `viewByTab`: the viewport is session state that should survive the
+ * round trip, which is the whole reason it lives in the store and not in the
+ * adapter.
+ */
+export function clearWhiteboardAdapter(tabId: string): void {
+  adapters.delete(tabId);
 }
 
 export function getWhiteboardAdapter(tabId: string): WhiteboardAdapter | undefined {

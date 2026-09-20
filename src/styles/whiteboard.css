@@ -444,6 +444,31 @@
   color: var(--accent);
 }
 
+/* Split mode: the source pane holds text that does not parse yet, so the
+   board is showing the last picture it could read and has gone inert (see
+   `staleMessage` in editors/whiteboard.ts). Dimmed rather than hidden — it is
+   still the right drawing, it just isn't following any more. */
+.wb-root.wb-stale .wb-canvas {
+  opacity: 0.55;
+}
+
+.wb-stale-note {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 3;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* Phones: keep the zoom cluster clear of the bottom system gesture bar. */
 @media (max-width: 640px) {
   .wb-controls {

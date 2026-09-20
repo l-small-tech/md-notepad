@@ -311,6 +311,19 @@ export interface WhiteboardAdapterOptions {
   /** Undo availability etc., so the ribbon can disable what won't work. */
   onStateChange?: (state: WhiteboardUiState) => void;
   /**
+   * The selection itself changed — Split mode's link, which points the source
+   * pane at what is selected on the board. Separate from `onStateChange`
+   * (whose consumer is the ribbon and which carries no refs) because the refs
+   * are not something the ribbon should re-render over.
+   */
+  onSelectionChange?: (refs: readonly ElementRef[]) => void;
+  /**
+   * Split mode: "Reveal in source" in the right-click menu. Omitted (Draw
+   * mode, where there is no source pane to reveal anything in) the item is not
+   * offered at all — the adapter never decides what the tab's layout is.
+   */
+  onRevealInSource?: (refs: readonly ElementRef[]) => void;
+  /**
    * The "draw with finger" preference: true/false when the user has chosen,
    * null while they have not (fingers draw until a pen appears — see
    * `fingerDrawsEnabled`).
@@ -357,6 +370,16 @@ export interface WhiteboardAdapterOptions {
 export interface WhiteboardAdapter extends EditorAdapter {
   /** The parsed scene, or null while the document is unreadable. */
   getScene(): SceneDoc | null;
+  /** What is selected right now — Split mode's link reads it. */
+  getSelection(): readonly ElementRef[];
+  /**
+   * Select these elements from OUTSIDE (the source pane's caret landed on one).
+   * Refs that no longer exist are dropped, the selection still expands over
+   * groups and labels like any other, and `reveal` pans the board to them if
+   * they are off screen — without taking focus, because the user is typing in
+   * the other pane.
+   */
+  selectRefs(refs: readonly ElementRef[], reveal?: boolean): void;
   undo(): void;
   redo(): void;
   toggleLayers(): void;
@@ -585,6 +608,19 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   let layersOpen = false;
   /** The source last rendered — also what the write-back guard pushes. */
   let renderedText = '';
+  /**
+   * Why the CURRENT document text cannot be read, while an earlier version of
+   * it still can — the state Split mode lives in half the time, because a
+   * source editor spends every other keystroke holding invalid XML.
+   *
+   * The board keeps the last picture it could draw and refuses every edit
+   * until the text parses again. Replacing the drawing with the error card on
+   * the way through `<rec` would make the other pane useless, and committing
+   * from the stale scene would throw away whatever is being typed — so it does
+   * neither, and says so. A document that has NEVER parsed still gets the
+   * error card: there is no last good picture to stand on.
+   */
+  let staleMessage: string | null = null;
   /** True while WE are pushing, so the model subscription ignores the echo. */
   let pushingSelf = false;
   let pendingPush = false;
@@ -808,22 +844,61 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     root?.querySelector('.wb-error')?.remove();
   }
 
-  /** Render `text`; `refit` is false for external updates so the view holds. */
+  /**
+   * The text no longer parses, but an earlier version did. Keep that picture
+   * on screen, say why it has stopped following, and go inert — see
+   * {@link staleMessage}.
+   */
+  function markStale(message: string): void {
+    staleMessage = message;
+    cancelGesture();
+    cancelText();
+    if (!root) {
+      return;
+    }
+    root.classList.add('wb-stale');
+    let note = root.querySelector('.wb-stale-note');
+    if (!note) {
+      note = document.createElement('div');
+      note.className = 'wb-stale-note';
+      root.append(note);
+    }
+    note.textContent = `Not following the source: ${message}`;
+  }
+
+  function clearStale(): void {
+    staleMessage = null;
+    root?.classList.remove('wb-stale');
+    root?.querySelector('.wb-stale-note')?.remove();
+  }
+
+  /**
+   * Render `text`; `refit` is false for external updates so the view holds.
+   *
+   * A failure lands one of two ways: the error card when nothing has ever been
+   * drawn (there is no picture to keep), the stale strip when something has.
+   */
   function render(text: string, refit: boolean): void {
     if (!canvas || !live) {
       return;
     }
+    const fail = (message: string): void => {
+      if (scene === null) {
+        showError(message);
+      } else {
+        markStale(message);
+      }
+      notifyState();
+    };
     let parsed: SceneDoc;
     try {
       parsed = parseWhiteboard(text);
     } catch (error) {
-      scene = null;
-      showError(
+      fail(
         error instanceof WhiteboardParseError
           ? error.message
           : 'The file could not be read as SVG.',
       );
-      notifyState();
       return;
     }
 
@@ -832,12 +907,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     const parsedDom = new DOMParser().parseFromString(text, 'image/svg+xml');
     const svg = parsedDom.documentElement;
     if (svg.getElementsByTagName('parsererror').length > 0 || svg.localName !== 'svg') {
-      scene = null;
-      showError('The file could not be read as SVG.');
-      notifyState();
+      fail('The file could not be read as SVG.');
       return;
     }
 
+    clearStale();
     clearError();
     const previous = scene;
     scene = parsed;
@@ -1217,6 +1291,44 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     notifyState();
   }
 
+  /**
+   * Pan so `refs` are on screen — the board half of Split mode's link. It
+   * moves NOTHING when they are already visible (`y: 'nearest'` in the source
+   * pane's terms): the board must not lurch every time the caret crosses a
+   * line in the other pane. Focus stays wherever it is; the user is typing.
+   */
+  function revealRefs(refs: readonly ElementRef[]): void {
+    if (!scene || !stage || refs.length === 0) {
+      return;
+    }
+    const bounds = selectionBounds(scene, refs);
+    if (bounds === null) {
+      return;
+    }
+    const visible = visibleSceneRect();
+    if (
+      bounds.x >= visible.x &&
+      bounds.y >= visible.y &&
+      bounds.x + bounds.width <= visible.x + visible.width &&
+      bounds.y + bounds.height <= visible.y + visible.height
+    ) {
+      return;
+    }
+    const box = stage.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) {
+      return;
+    }
+    const centre = sceneToBoard({
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height / 2,
+    });
+    setView({
+      ...view,
+      x: box.width / 2 - centre.x * view.scale,
+      y: box.height / 2 - centre.y * view.scale,
+    });
+  }
+
   /* -------------------------------- snapping ------------------------------ */
 
   /**
@@ -1302,8 +1414,28 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
 
   /* --------------------------------- editing ------------------------------ */
 
+  /**
+   * The selection last reported to {@link WhiteboardAdapterOptions.onSelectionChange}.
+   * The check lives in `notifyState` rather than in `setSelection` because the
+   * selection also changes without going through it — a render drops refs that
+   * no longer exist, an external change clears it — and Split mode's link has
+   * to hear about those too.
+   */
+  let notifiedSelection: readonly ElementRef[] = [];
+
   function notifyState(): void {
     options.onStateChange?.(publicState());
+    if (options.onSelectionChange && !sameSelection(notifiedSelection, selection)) {
+      notifiedSelection = selection;
+      options.onSelectionChange(selection);
+    }
+  }
+
+  function sameSelection(a: readonly ElementRef[], b: readonly ElementRef[]): boolean {
+    return (
+      a.length === b.length &&
+      a.every((ref, i) => ref.layerId === b[i]!.layerId && ref.index === b[i]!.index)
+    );
   }
 
   function publicState(): WhiteboardUiState {
@@ -1325,6 +1457,13 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    * extending it.
    */
   function commit(next: SceneDoc, record = true): void {
+    // The scene we would serialize is a picture of text that has since been
+    // edited into something we cannot read; writing it back would silently
+    // discard whatever is being typed in the source pane. Refuse until the
+    // text parses again — `staleMessage` on screen says why.
+    if (staleMessage !== null) {
+      return;
+    }
     if (record) {
       next = settle(next);
       history?.push(next);
@@ -1460,7 +1599,11 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
     // and Delete, Ctrl+Z and the arrow-key nudge all silently do nothing.
     stage.focus({ preventScroll: true });
 
-    if (!scene || route === 'navigate') {
+    // A stale document (the source pane is mid-edit and does not parse) is
+    // treated exactly like having no scene: you can still pan and zoom around
+    // the last picture, but nothing may start an edit of it — see
+    // `staleMessage`.
+    if (!scene || staleMessage !== null || route === 'navigate') {
       // A second finger arriving mid-stroke turns the whole thing into a
       // pinch, so the finger that WAS drawing joins the navigation set.
       if (gesture?.pointerType === 'touch') {
@@ -2757,7 +2900,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
    * what tells the app-wide guard that this surface owns the right-click.
    */
   function onContextMenu(event: MouseEvent): void {
-    if (!scene) {
+    // Every item on the menu is an edit, and a stale board refuses those.
+    if (!scene || staleMessage !== null) {
       return;
     }
     event.preventDefault();
@@ -2859,15 +3003,27 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
         onSelect: () => adapter.restyleSelection({ route }),
       });
     }
-    items.push(
-      {
-        label: 'Detach connector',
-        disabled: doc === null || !canDetach(doc, selection),
-        onSelect: () => adapter.detachSelection(),
-      },
-      'separator',
-      { label: 'Delete', chord: 'Del', disabled: !some, onSelect: () => adapter.deleteSelection() },
-    );
+    items.push({
+      label: 'Detach connector',
+      disabled: doc === null || !canDetach(doc, selection),
+      onSelect: () => adapter.detachSelection(),
+    });
+    // Split mode only: the explicit half of the raw ⇄ draw link. The passive
+    // highlight already shows where this element is written; this one takes
+    // the caret and the focus there, which is what you want before editing it.
+    if (options.onRevealInSource) {
+      items.push('separator', {
+        label: 'Reveal in source',
+        disabled: !some,
+        onSelect: () => options.onRevealInSource?.(selection),
+      });
+    }
+    items.push('separator', {
+      label: 'Delete',
+      chord: 'Del',
+      disabled: !some,
+      onSelect: () => adapter.deleteSelection(),
+    });
     return items;
   }
 
@@ -2899,6 +3055,17 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
   const adapter: WhiteboardAdapter = {
     getScene: () => scene,
     uiState: publicState,
+    getSelection: () => selection,
+
+    selectRefs(refs, reveal = false) {
+      if (!scene) {
+        return;
+      }
+      setSelection(validRefs(scene, refs));
+      if (reveal) {
+        revealRefs(selection);
+      }
+    },
 
     undo() {
       if (history?.canUndo()) {
@@ -3278,6 +3445,8 @@ export function createWhiteboardAdapter(options: WhiteboardAdapterOptions): Whit
       input = { ...createInputState(), penSeen: input.penSeen };
       chromeGroup = null;
       previewGroup = null;
+      staleMessage = null;
+      notifiedSelection = [];
       root?.remove();
       root = null;
       stage = null;

@@ -87,8 +87,13 @@ describe('modeLabel', () => {
 });
 
 describe('allowedModesFor', () => {
-  it('offers Raw then Draw for a whiteboard, and never Edit/Split/Read', () => {
-    expect(allowedModesFor('svg')).toEqual(['raw', 'draw']);
+  it('offers Raw, Split then Draw for a whiteboard, and never Edit/Read', () => {
+    // Split is the source beside the board; Edit would mangle the XML and
+    // Read has nothing to render a drawing as.
+    expect(allowedModesFor('svg')).toEqual(['raw', 'split', 'draw']);
+    expect(isModeAllowed('svg', 'split')).toBe(true);
+    expect(isModeAllowed('svg', 'wysiwyg')).toBe(false);
+    expect(isModeAllowed('svg', 'read')).toBe(false);
   });
 
   it('leaves the markdown modes exactly as they were, with no Draw', () => {
@@ -107,6 +112,12 @@ describe('defaultModeFor', () => {
     expect(defaultModeFor('svg', 'read')).toBe('draw');
     expect(defaultModeFor('svg', 'wysiwyg')).toBe('draw');
     expect(defaultModeFor('markdown', 'draw')).toBe('raw');
+  });
+
+  it('opens a drawing in Draw even though Raw and Split come first in the strip', () => {
+    // Segment ORDER and the default are separate tables on purpose.
+    expect(defaultModeFor('svg', 'split')).toBe('split');
+    expect(allowedModesFor('svg')[0]).toBe('raw');
   });
 });
 

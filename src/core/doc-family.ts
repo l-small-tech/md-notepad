@@ -5,8 +5,8 @@
  * Until the whiteboard, every editable tab was markdown and every mode applied
  * everywhere. An `.svg` tab is still an ordinary `kind:'file'` tab — same dirty
  * tracking, session buffering, Ctrl+S, conflict detection, tear-off — it just
- * offers a different pair of modes: Draw (the whiteboard editor) and Raw (the
- * CM6 source view, which is a free SVG source editor).
+ * offers a different set of modes: Draw (the whiteboard editor), Raw (the CM6
+ * source view, which is a free SVG source editor) and Split (both at once).
  *
  * Deliberately keyed on the mode, not the tab kind: `parseManifest` hard-
  * validates `kind` but never validates `mode`, so a `mode:'draw'` file tab
@@ -29,7 +29,15 @@ export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal' | 'deck';
  * `FAMILY_DEFAULTS` below.
  */
 const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
-const SVG_MODES: readonly EditorMode[] = ['raw', 'draw'];
+/**
+ * Split on a drawing is the SOURCE beside the BOARD — the same `split` value
+ * markdown uses (so mod+2, the manifest and `isModeAllowed` need nothing new),
+ * with the whiteboard editor in the second pane instead of the preview. Both
+ * halves are live: an edit on either side lands in the one DocModel and the
+ * other re-reads it, and the two panes point at each other's current element
+ * (`core/whiteboard/locate.ts`).
+ */
+const SVG_MODES: readonly EditorMode[] = ['raw', 'split', 'draw'];
 /**
  * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
  * unsupported files. It is not markdown, so rendering it (Edit, split preview)
