@@ -371,7 +371,11 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
 /// "Show unsupported files" (the frontend decides which folders; see
 /// `src/core/text-files.ts`).
 /// Hidden (dot-prefixed) entries are skipped. Order: directories A→Z, then
-/// files newest first (matching `list_notes`). Missing dir = empty list.
+/// files A→Z (case-insensitive). The explorer re-sorts what it gets with
+/// `src/core/explorer-sort.ts` — the SAF backend returns its own order, so the
+/// displayed order (which also compares digit runs numerically) is decided
+/// there; this order just keeps the raw listing stable. Missing dir = empty
+/// list.
 #[tauri::command]
 pub async fn list_dir(dir: PathBuf, all_files: Option<bool>) -> FsResult<Vec<DirEntryMeta>> {
     let all_files = all_files.unwrap_or(false);
@@ -422,7 +426,7 @@ pub async fn list_dir(dir: PathBuf, all_files: Option<bool>) -> FsResult<Vec<Dir
         }
     }
     dirs.sort_by_key(|d| d.path.to_lowercase());
-    files.sort_by_key(|f| std::cmp::Reverse(f.mtime_ms));
+    files.sort_by_key(|f| f.path.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
@@ -1218,8 +1222,9 @@ mod tests {
         assert!(entries[0].is_dir);
         assert!(entries[1].is_dir);
         assert_eq!(&names[..2], &["Alpha", "zeta"]);
-        let mut file_names = names[2..].to_vec();
-        file_names.sort();
+        // Files follow the dirs, themselves A→Z (case-insensitive) rather than
+        // newest first — see the `list_dir` doc comment.
+        let file_names = names[2..].to_vec();
         assert_eq!(
             file_names,
             vec![

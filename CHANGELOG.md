@@ -10,6 +10,10 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **The file drawer is sorted by name.** Folders come first, then files, both
+  A→Z regardless of capitalisation and with numbers read as numbers, so
+  `note2.md` sits above `note10.md`. Files used to be listed newest-first,
+  which moved rows around every time you saved.
 - **Full screen and distraction-free are now two separate switches.** F11
   makes the window fill the screen and leaves the interface exactly as it is,
   like every other desktop app. The old "full window" view that hides the

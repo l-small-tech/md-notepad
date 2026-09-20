@@ -29,6 +29,7 @@ import { baseName, dirName, joinPath, type FlushIo } from '../../core/session/pl
 import type { DebouncedFlusher } from '../../core/session/debounce';
 import { imageMimeType } from '../../core/images';
 import { isCommentsPath } from '../../core/comments';
+import { sortExplorerEntries } from '../../core/explorer-sort';
 import { showsAllFiles } from '../../core/text-files';
 import { currentProvider } from '../../ipc/provider';
 import { settingsStore } from '../stores/settings';
@@ -347,7 +348,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       target,
       showsAllFiles(target, showAllFilesDirs, hideUnsupportedDirs),
     );
-    return (
+    return sortExplorerEntries(
       entries
         // Voice-note sidecars (`*.comments.md`) kept BESIDE their note are
         // hidden from the explorer — they're managed from the note. In the
@@ -364,7 +365,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
           name: baseName(e.path),
           isDir: e.isDir,
           mtimeMs: e.mtimeMs,
-        }))
+        })),
     );
   });
   setReadImageDispatch(
