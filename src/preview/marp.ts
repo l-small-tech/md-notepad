@@ -46,21 +46,75 @@ function deckHtmlAllowlist(Marp: MarpModule['Marp']): MarpModule['Marp']['html']
   return allow;
 }
 
+/**
+ * True only for the duration of a `stampLines` render (`marp.render` is
+ * synchronous, so a module flag is race-free). One engine serves both kinds
+ * of render; the rule below is a no-op unless the flag is up.
+ */
+let stamping = false;
+
+/** The attributes a stamped render carries — the deck editor's click map. */
+export const LINE_ATTR = 'data-line';
+export const LINE_END_ATTR = 'data-line-end';
+
+/** Strip the stamps again (the editor's filmstrip must not remount on a line shift). */
+export function stripLineStamps(html: string): string {
+  return html.replace(/ data-line(?:-end)?="\d+"/g, '');
+}
+
+/**
+ * A markdown-it core rule: every block token that knows its source lines gets
+ * them as 1-based inclusive `data-line` / `data-line-end` attributes. Runs
+ * after Marpit's own rules, whose `map`s are document-relative (the
+ * frontmatter is consumed as a block, not cut off the input).
+ */
+function lineStampPlugin(md: {
+  core: { ruler: { push(name: string, rule: (state: { tokens: MdToken[] }) => void): void } };
+}): void {
+  md.core.ruler.push('mdn_line_stamp', (state) => {
+    if (!stamping) {
+      return;
+    }
+    for (const token of state.tokens) {
+      const stampable =
+        token.map !== null &&
+        !token.hidden &&
+        (token.type === 'fence' ||
+          token.type === 'code_block' ||
+          (token.type.endsWith('_open') && !token.type.startsWith('marpit_')));
+      if (stampable) {
+        token.attrSet(LINE_ATTR, String(token.map![0] + 1));
+        token.attrSet(LINE_END_ATTR, String(token.map![1]));
+      }
+    }
+  });
+}
+
+interface MdToken {
+  type: string;
+  map: [number, number] | null;
+  hidden: boolean;
+  attrSet(name: string, value: string): void;
+}
+
 function loadMarp(): Promise<MarpInstance> {
-  marpLoad ??= import('@marp-team/marp-core').then(
-    ({ Marp }) =>
-      new Marp({
-        html: deckHtmlAllowlist(Marp),
-        // Scales each slide to its container with no JS (the SVG viewBox).
-        inlineSVG: true,
-        // Never inject Marp's own <script> into the HTML — `applyMarpBrowser`
-        // runs the same helper against each slide root instead.
-        script: false,
-        // Keep emoji as text: the default renders them as images off a CDN.
-        emoji: { shortcode: true, unicode: false },
-      }),
+  marpLoad ??= import('@marp-team/marp-core').then(({ Marp }) =>
+    createMarp(Marp).use(lineStampPlugin as never),
   );
   return marpLoad;
+}
+
+function createMarp(Marp: MarpModule['Marp']): MarpInstance {
+  return new Marp({
+    html: deckHtmlAllowlist(Marp),
+    // Scales each slide to its container with no JS (the SVG viewBox).
+    inlineSVG: true,
+    // Never inject Marp's own <script> into the HTML — `applyMarpBrowser`
+    // runs the same helper against each slide root instead.
+    script: false,
+    // Keep emoji as text: the default renders them as images off a CDN.
+    emoji: { shortcode: true, unicode: false },
+  });
 }
 
 /** One rendered slide: its `<svg data-marpit-svg>` markup and speaker notes. */
@@ -85,6 +139,12 @@ export interface RenderDeckOptions {
    * theme is then left unresolved and Marp falls back to its default).
    */
   docPath?: string | null;
+  /**
+   * Stamp every rendered block with its source line range (`LINE_ATTR`). Only
+   * the deck editor asks: a stamped slide's markup changes whenever a line is
+   * added above it, which would remount — and flash — the read-only surfaces.
+   */
+  stampLines?: boolean;
 }
 
 const THEME_NAME = /\/\*\s*@theme\s+([^\s*]+)\s*\*\//;
@@ -115,7 +175,14 @@ export async function renderDeck(
       source = markdown.replace(FRONTMATTER_THEME_LINE, `$1${name}`);
     }
   }
-  const { html, css, comments } = marp.render(source);
+  stamping = options.stampLines === true;
+  let rendered: ReturnType<MarpInstance['render']>;
+  try {
+    rendered = marp.render(source);
+  } finally {
+    stamping = false;
+  }
+  const { html, css, comments } = rendered;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const svgs = [...doc.querySelectorAll<SVGSVGElement>('div.marpit > svg[data-marpit-svg]')];
   const first = svgs[0]?.getAttribute('viewBox')?.split(/\s+/).map(Number) ?? [];

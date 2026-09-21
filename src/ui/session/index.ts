@@ -78,6 +78,7 @@ import {
   setNewWindowDispatch,
   setOpenNotePathDispatch,
   setOpenNotePathPinnedDispatch,
+  setPickImagePathDispatch,
   setPickPhotoDispatch,
   setReadImageDispatch,
   setReloadDispatch,
@@ -145,6 +146,7 @@ export {
   openNotePathAtLine,
   openNotePathPinned,
   pasteExplorerEntryInto,
+  pickImagePath,
   pickPhotoForScan,
   pathKey,
   refreshWorkspaces,
@@ -400,6 +402,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const base64 = await ipc.readFileBase64(path);
     return { dataUrl: `data:${imageMimeType(path)};base64,${base64}`, width: 0, height: 0 };
   });
+  setPickImagePathDispatch(() => ctx.pickFile('image'));
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
   setPasteEntryDispatch(explorerOps.pasteEntry);

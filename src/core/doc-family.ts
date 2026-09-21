@@ -64,11 +64,17 @@ const TERMINAL_MODES: readonly EditorMode[] = ['term'];
  * Raw and Split as for markdown (Split's preview column shows slides), and
  * `read` — labelled *Present* — is the light table: full-width slides with
  * their speaker notes, and the show itself when the window is full screen (F11).
- * Edit (Milkdown) is deliberately HIDDEN: a WYSIWYG round-trip would mangle
- * Marp's directive comments (`<!-- _class: lead -->`) and `![bg]` alt syntax,
- * and hiding the segment is more honest than a mode that corrupts the file.
+ *
+ * Edit is the same `wysiwyg` VALUE markdown uses (so mod+3, the manifest and
+ * the default-mode setting need nothing new) but NOT the same editor: a
+ * Milkdown round-trip would mangle Marp's directive comments
+ * (`<!-- _class: lead -->`) and `![bg]` alt syntax, so on a deck the mode is
+ * the deck editor (`editors/deck-editor.ts`) — filmstrip, rendered slide,
+ * inspector — whose every gesture is a line-precise source edit
+ * (`core/deck-edit.ts`). `editors/edit-switch.ts` picks between the two by
+ * content, and swaps them if the frontmatter arrives or leaves mid-Edit.
  */
-const DECK_MODES: readonly EditorMode[] = ['raw', 'split', 'read'];
+const DECK_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
 
 /**
  * No path (an unsaved note) is markdown. Images and importable documents stay
@@ -155,7 +161,8 @@ const FAMILY_DEFAULTS: Record<DocFamily, EditorMode> = {
   svg: 'draw',
   code: 'raw',
   terminal: 'term',
-  // Edit is the one markdown mode a deck lacks; Split is the nearest thing.
+  // Source beside slides: where a deck being written (usually by an agent)
+  // is watched. Edit is one segment away once it is time to tweak.
   deck: 'split',
 };
 

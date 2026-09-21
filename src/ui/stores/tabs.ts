@@ -458,7 +458,8 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       // A genuine user edit (from an editor, not a programmatic/file-load push)
       // promotes a preview tab to a permanent one — VSCode behavior.
       const preview =
-        tab.preview && (change.source === 'cm6' || change.source === 'milkdown')
+        tab.preview &&
+        (change.source === 'cm6' || change.source === 'milkdown' || change.source === 'deck-edit')
           ? false
           : tab.preview;
       if (

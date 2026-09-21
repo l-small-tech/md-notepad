@@ -25,23 +25,34 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { codeLanguageFor } from '../../core/code/parse';
 import { identifierHint } from '../../core/code/vocab';
+import { isMarpDocument } from '../../core/deck';
 import { docFamilyFor, docFamilyForTab } from '../../core/doc-family';
 import { NEW_NOTE_HINT } from '../../core/new-note-hint';
 import { localImageToInline } from '../../core/images';
 import { headingIndexForLine, lineForHeadingIndex, scrollSurfaceFor } from '../../core/mode-scroll';
 import { createModeSync, type AdapterFactory, type AdapterKind } from '../../core/mode-sync';
 import { extractOutline } from '../../core/outline';
-import { dirName } from '../../core/session/plan-flush';
+import { dirName, relativePath } from '../../core/session/plan-flush';
 import type { EditorMode } from '../../core/types';
 import { svgImageSources } from '../../core/whiteboard/color-mode';
 import type { BoardColorMode } from '../../core/whiteboard/scene';
 import { createCm6Adapter, type Cm6Adapter } from '../../editors/cm6';
+import type { DeckEditorAdapter } from '../../editors/deck-editor';
+import { createEditSwitchAdapter } from '../../editors/edit-switch';
 import type { MilkdownAdapter } from '../../editors/milkdown';
 import type { WhiteboardAdapter, WhiteboardAdapterOptions } from '../../editors/whiteboard';
 import { linkSvgSplit, type SvgSplitLink } from '../svg-split';
 import { NORMALIZATION_HINT } from '../../editors/wysiwyg-normalize';
 import { attachCodeReviewPane, type CodeReviewPane } from '../../preview/code-review';
 import { attachDeckPane } from '../../preview/deck';
+import {
+  applyMarpBrowser,
+  createImageResolver,
+  inlineDeckImages,
+  mountSlide,
+  renderDeck,
+  stripLineStamps,
+} from '../../preview/marp';
 import { attachPreviewPane } from '../../preview/pane';
 import { createReviewGit } from '../code-review-git';
 import {
@@ -64,6 +75,7 @@ import {
   getCursor,
   noteCursor,
   openNotePath,
+  pickImagePath,
   savePastedImageForTab,
   takePendingReveal,
 } from '../session';
@@ -377,31 +389,79 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
             },
           }
         : {
-            // Lazy import keeps @milkdown/crepe out of the entry chunk (I8); the
-            // module loads on the first switch to Edit mode, never at startup.
-            wysiwyg: async () => {
-              const { createMilkdownAdapter } = await import('../../editors/milkdown');
-              const adapter = createMilkdownAdapter({
-                onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
-                placeholder: emptyHint,
-                saveImage: (data) => savePastedImageForTab(tabId, data),
-                getDocPath: () => {
-                  const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
-                  return t ? (t.filePath ?? t.notePath) : null;
+            // Edit is two editors behind one adapter (editors/edit-switch.ts):
+            // Milkdown for a note, the deck editor for a Marp deck — decided by
+            // the CONTENT at attach time, and swapped if `marp: true` arrives
+            // or leaves while Edit is showing. Both stay lazy (I8): each chunk
+            // loads the first time its editor is needed, never at startup.
+            wysiwyg: () => {
+              const docPath = () => {
+                const t = tabsStore.getState().tabs.find((tab) => tab.id === tabId);
+                return t ? (t.filePath ?? t.notePath) : null;
+              };
+              let deckEditor: DeckEditorAdapter | null = null;
+              const edit = createEditSwitchAdapter({
+                isDeck: isMarpDocument,
+                markdown: async () => {
+                  const { createMilkdownAdapter } = await import('../../editors/milkdown');
+                  const adapter = createMilkdownAdapter({
+                    onNormalizationHint: () => uiStore.getState().showNotice(NORMALIZATION_HINT),
+                    placeholder: emptyHint,
+                    saveImage: (data) => savePastedImageForTab(tabId, data),
+                    getDocPath: docPath,
+                    onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
+                  });
+                  // The colour-mode toggle rewrites board files; the live image
+                  // nodes reload theirs. Unregistered with the mode-sync below.
+                  registerImageRefresher(`${tabId}:edit`, (paths) => adapter.refreshImages(paths));
+                  editAdapterRef.current = adapter;
+                  registerEditAdapter(tabId, adapter);
+                  return adapter;
                 },
-                onBoardContextMenu: (info) => openBoardColorMenu(tabId, info),
+                deck: async () => {
+                  const { createDeckEditorAdapter } = await import('../../editors/deck-editor');
+                  // Marp lives in preview/, which editors never import (I9):
+                  // the engine is handed over, like the whiteboard's camera.
+                  deckEditor = createDeckEditorAdapter({
+                    engine: {
+                      render: renderDeck,
+                      mountSlide,
+                      inlineImages: inlineDeckImages,
+                      createImageResolver: () => createImageResolver(),
+                      applyBrowser: applyMarpBrowser,
+                      stripStamps: stripLineStamps,
+                    },
+                    getDocPath: docPath,
+                    // Browse…: a path relative to the deck when there is one —
+                    // a deck that travels with its images is the normal case.
+                    pickImage: async () => {
+                      const picked = await pickImagePath();
+                      const path = docPath();
+                      const relative = picked && path ? relativePath(dirName(path), picked) : null;
+                      return relative ?? picked;
+                    },
+                    onOpenSource: (line) => {
+                      tabsStore.getState().setMode(tabId, 'split');
+                      // The source editor re-attaches on the mode-sync chain.
+                      void tabsStore
+                        .getState()
+                        .tabs.find((t) => t.id === tabId)
+                        ?.modeSync?.whenIdle()
+                        .then(() => getSourceAdapter(tabId)?.revealLine(line));
+                    },
+                  });
+                  return deckEditor;
+                },
               });
-              // The colour-mode toggle rewrites board files; the live image
-              // nodes reload theirs. Unregistered with the mode-sync below.
-              registerImageRefresher(`${tabId}:edit`, (paths) => adapter.refreshImages(paths));
-              editAdapterRef.current = adapter;
-              registerEditAdapter(tabId, adapter);
-              // Scroll anchor: the Edit editor has no source lines, so it
-              // trades in headings and this port does the translation
-              // (core/mode-scroll).
+              // Scroll anchor: neither Edit editor has source lines on screen.
+              // Milkdown trades in headings and this port does the translation
+              // (core/mode-scroll); the deck editor trades in slides.
               registerScrollAnchor(tabId, 'edit', {
                 getTopLine: () => {
-                  const index = adapter.getTopHeadingIndex();
+                  if (edit.activeKind() === 'deck') {
+                    return deckEditor?.getCurrentLine() ?? null;
+                  }
+                  const index = editAdapterRef.current?.getTopHeadingIndex() ?? null;
                   if (index === null) {
                     return null;
                   }
@@ -410,13 +470,17 @@ function EditorHostImpl({ tabId, active }: { tabId: string; active: boolean }) {
                     : lineForHeadingIndex(extractOutline(tab.model.getText()), index);
                 },
                 scrollToLine: (line) => {
+                  if (edit.activeKind() === 'deck') {
+                    deckEditor?.showLine(line);
+                    return;
+                  }
                   const index = headingIndexForLine(extractOutline(tab.model.getText()), line);
                   if (index >= 0) {
-                    adapter.revealHeading?.(index, 'start');
+                    edit.revealHeading?.(index, 'start');
                   }
                 },
               });
-              return adapter;
+              return edit;
             },
           };
 

@@ -39,6 +39,8 @@ const MODE_HINTS: Record<EditorMode, string> = {
 };
 const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
 const PRESENT_HINT = 'Present — the slides with their notes; F11 for the show (Ctrl/Cmd+4)';
+const DECK_EDIT_HINT =
+  'Edit the slides — reorder, restyle, click any text to change it (Ctrl/Cmd+3)';
 const BOARD_SPLIT_HINT = 'Source + drawing, each following the other (Ctrl/Cmd+2)';
 
 /** The one hint that differs per family besides `read`: Split on a drawing. */
@@ -71,7 +73,9 @@ function ModeSegments({
               ? readHint(family)
               : mode === 'split'
                 ? splitHint(family)
-                : MODE_HINTS[mode]
+                : mode === 'wysiwyg' && family === 'deck'
+                  ? DECK_EDIT_HINT
+                  : MODE_HINTS[mode]
           }
           onClick={() => tabsStore.getState().setMode(tabId, mode)}
         >
