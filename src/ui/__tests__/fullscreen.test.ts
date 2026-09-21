@@ -202,6 +202,27 @@ describe('going distraction-free clears what it is meant to hide', () => {
     expect(uiStore.getState().outlineOpen).toBe(true);
   });
 
+  test('Escape puts a pulled-out panel away before it leaves distraction-free', () => {
+    setDistractionFree(true);
+    uiStore.getState().openExplorer();
+
+    expect(escapeFullscreen()).toBe(true);
+    expect(uiStore.getState().explorerOpen).toBe(false);
+    expect(distractionFree()).toBe(true);
+
+    expect(escapeFullscreen()).toBe(true);
+    expect(distractionFree()).toBe(false);
+  });
+
+  test('Escape leaves the panels alone outside distraction-free', () => {
+    uiStore.getState().openExplorer();
+    setOsFullscreen(true);
+
+    expect(escapeFullscreen()).toBe(true);
+    expect(osFullscreen()).toBe(false);
+    expect(uiStore.getState().explorerOpen).toBe(true);
+  });
+
   test('full screen alone leaves the panels exactly as they were', () => {
     uiStore.getState().openExplorer();
     setOsFullscreen(true);

@@ -34,7 +34,7 @@ import { IS_MAC } from './components/AppMenu';
 import { setDistractionFree, setOsFullscreen } from './fullscreen';
 import { DeckShow } from './components/DeckShow';
 import { tabsStore, useTabsStore } from './stores/tabs';
-import { useUiStore } from './stores/ui';
+import { uiStore, useUiStore } from './stores/ui';
 import { goBackPreview, usePreviewNav } from './stores/preview-nav';
 import { isAndroid } from './platform';
 
@@ -129,7 +129,10 @@ export function App() {
       {/* Desktop keeps the hover-revealed cluster; Android's way out is the
           tap-and-hold menu (which works on a board too, where the old
           double-tap-the-edge gesture never reached the window). */}
-      {distractionFree && !isAndroid() && <FullscreenControls osFullscreen={osFullscreen} />}
+      {distractionFree && !isAndroid() && (
+        <FullscreenControls osFullscreen={osFullscreen} terminalActive={terminalActive} />
+      )}
+      {distractionFree && !isAndroid() && !terminalActive && <WorkspacePull />}
       <FullscreenMenu />
       {/* Distraction-free hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as
@@ -173,7 +176,13 @@ export function App() {
  * Android has no cluster at all — the tap-and-hold menu (FullscreenMenu) is its
  * single, mode-independent way out, including on a whiteboard.
  */
-function FullscreenControls({ osFullscreen }: { osFullscreen: boolean }) {
+function FullscreenControls({
+  osFullscreen,
+  terminalActive,
+}: {
+  osFullscreen: boolean;
+  terminalActive: boolean;
+}) {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
@@ -227,6 +236,19 @@ function FullscreenControls({ osFullscreen }: { osFullscreen: boolean }) {
 
   const buttons = (
     <>
+      {/* The workspace pane, so a knowledge base can be browsed without leaving
+          the view. The left-edge pull tab (WorkspacePull) opens it too. */}
+      {!terminalActive && (
+        <button
+          className="fullscreen-btn"
+          aria-label="Toggle file explorer"
+          title="Workspaces"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => uiStore.getState().toggleExplorer()}
+        >
+          <FolderIcon />
+        </button>
+      )}
       {canGoBack && (
         <button
           className="fullscreen-btn"
@@ -277,4 +299,90 @@ function FullscreenControls({ osFullscreen }: { osFullscreen: boolean }) {
   );
 
   return <div className={`fullscreen-topcenter${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
+}
+
+/** The ribbon's explorer glyph — a folder reads as "files". */
+function FolderIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    >
+      <path d="M2.7 15.3V4.7h4.6l1.7 2.2h8.3v8.4z" />
+      <path d="M2.7 6.9h14.6" />
+    </svg>
+  );
+}
+
+/**
+ * The workspace pane's pull tab while distraction-free (desktop). Going
+ * chrome-less still shuts the pane — the document and nothing else — but Review
+ * mode there is how a markdown knowledge base gets read, and reading one means
+ * moving between files. So the pane stays one gesture away: push the pointer
+ * against the LEFT edge and a small tab slides out from where the pane lives;
+ * clicking it pulls the pane out. Same JS-driven reveal-and-linger as the top
+ * cluster, for the same overshoot reason.
+ *
+ * Only rendered while the pane is shut. Once it is out, Escape puts it away
+ * (ui/fullscreen `escapeFullscreen`), as does the cluster's folder button.
+ */
+function WorkspacePull() {
+  const explorerOpen = useUiStore((s) => s.explorerOpen);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (explorerOpen) {
+      return;
+    }
+    const HIDE_MS = 600;
+    const REVEAL_X = 28;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    let shown = false;
+    const clearHide = () => {
+      if (hideTimer !== undefined) {
+        clearTimeout(hideTimer);
+        hideTimer = undefined;
+      }
+    };
+    const onMove = (e: MouseEvent) => {
+      if (e.clientX <= REVEAL_X) {
+        clearHide();
+        shown = true;
+        setRevealed(true);
+      } else if (shown && hideTimer === undefined) {
+        hideTimer = setTimeout(() => {
+          hideTimer = undefined;
+          shown = false;
+          setRevealed(false);
+        }, HIDE_MS);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      clearHide();
+      setRevealed(false);
+    };
+  }, [explorerOpen]);
+
+  if (explorerOpen) {
+    return null;
+  }
+  return (
+    <button
+      className={`fullscreen-btn fullscreen-pull${revealed ? ' is-revealed' : ''}`}
+      aria-label="Open file explorer"
+      title="Workspaces"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => uiStore.getState().openExplorer()}
+    >
+      <FolderIcon />
+    </button>
+  );
 }
