@@ -10,8 +10,77 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
-## [0.9.0] — 2026-09-16
+## [0.9.1] — 2026-09-20
 
+- **Edit mode for slide decks.** A Marp deck now has an **Edit** button
+  (Ctrl+3): a filmstrip of the slides, the real rendered slide in the middle,
+  and a properties panel. Drag slides to reorder them, add, duplicate or
+  delete; click any heading, paragraph, list item or code block on the slide
+  to change its text and watch it re-render as you type; set a slide's layout,
+  colours, page number, header, footer and background image, or the whole
+  deck's theme and size, from the panel; write speaker notes under the slide.
+  Made for polishing a deck an AI wrote: every tweak changes only the lines
+  it is about, so the rest of the file stays exactly as it was written.
+- **Browse your workspace while distraction-free.** Going distraction-free
+  still leaves only the document, but the Workspaces pane is now one gesture
+  away: push the pointer against the left edge for a pull tab (or use the new
+  folder button in the floating controls) to open it and switch files —
+  handy for reading through a markdown knowledge base in Review mode. Esc
+  puts the pane away before it leaves distraction-free.
+- **Split mode for drawings.** A drawing tab now has a **Split** button
+  (Ctrl+2) beside Raw and Draw: the `.svg` source on the left, the board on
+  the right, both of them editable and each one following the other as you
+  work. The two panes also point at the same thing — select a shape and its
+  markup lights up in the source; put the caret on an element and that shape
+  is selected on the board, ready for the ribbon's colour and style controls.
+  Right-click a shape → **Reveal in source** to jump the caret there. While
+  the source is mid-edit and not yet valid, the board holds the last picture
+  it could read and says so, instead of blanking or overwriting your typing.
+- **Initialize workspace — set a folder up for AI agents.** Command palette →
+  **Initialize workspace…**: pick or create a folder, tick the directives you
+  want (file manifest, changelog, lessons learned, git worktree workflow, plus
+  any `.md` of your own), and the app writes an `AGENTS.md` — with `CLAUDE.md`
+  and `GEMINI.md` pointing at it — that the agent in your own terminal reads.
+  Right-click a workspace → **Workspace directives…** to add or remove
+  directives later; your own text and filled-in files are never overwritten.
+- **Notes as prompts, with live status.** In an initialized workspace a strip
+  above each note offers **Copy as prompt** for the section you are in. Paste
+  it into your agent; it reports back through `STATUSES.md`, and the note shows
+  a chip — Queued, Running, Needs input, Done, Failed — with a one-line
+  summary. **Workspace status** in the palette lists every prompt.
+- **Two views of one file, in sync as you type.** Right-click a file's tab →
+  **Duplicate tab** (or **Duplicate in new window**) for a second view of the
+  same file: Markdown in one, Present, Review or Draw in the other. Edits show
+  up in the other view as you type — no more pressing Reload — and saving
+  either one saves both. The Reload banner is still there for changes made
+  outside the app.
+- **Presenter view for slide decks.** Right-click a deck's tab → **Presenter
+  view** (or press **P** during the show): a second window with the current
+  slide, the next slide, your speaker notes, a clock and a timer. Put it on
+  your laptop screen and press F11 on the slides — both windows stay on the
+  same slide, and the arrow keys work in either.
+- **The file drawer is sorted by name.** Folders come first, then files, both
+  A→Z regardless of capitalisation and with numbers read as numbers, so
+  `note2.md` sits above `note10.md`. Files used to be listed newest-first,
+  which moved rows around every time you saved.
+- **Full screen and distraction-free are now two separate switches.** F11
+  makes the window fill the screen and leaves the interface exactly as it is,
+  like every other desktop app. The old "full window" view that hides the
+  tabs, toolbar and status bar is now called **Distraction-free** (the ⤢
+  button and the app menu) and works with or without full screen. Esc leaves
+  distraction-free first, then full screen. On Windows 11, full screen no
+  longer leaves a black strip where the taskbar was.
+- **Quieter scrollbars.** Scrollbars are now a slim, translucent bar tinted to
+  your theme that appears while you scroll and fades away when you stop, in
+  the style of Windows Terminal. Hover it to grab it.
+- **Slide decks stand out in the file tree.** A Marp presentation now shows a
+  purple *marp* badge in the Workspaces pane instead of the ordinary *md* one.
+- **Ctrl+N opens a new window.** A fresh window with one empty note, instead
+  of another tab in the current one. The tab bar's "+" and the command
+  palette's "New tab" still add a tab here; Ctrl+Shift+N still picks a type.
+- **Empty notes explain themselves.** A brand-new note shows ghost text — how
+  notes save, what Ctrl+S does, and a one-glance markdown cheat sheet — that
+  disappears at the first keystroke.
 - **Diagram editor.** Whiteboards are for drawing diagrams now, not just
   sketching on. Five new shapes — diamond, triangle, parallelogram, hexagon and
   cylinder — join rectangles, rounded rectangles, ellipses, lines and arrows in

@@ -19,7 +19,8 @@ vi.mock('../session', () => ({
   saveActiveTabAs: vi.fn(),
 }));
 vi.mock('../fullscreen', () => ({
-  cycleFullscreen: vi.fn(),
+  toggleFullscreen: vi.fn(),
+  toggleDistractionFree: vi.fn(),
 }));
 
 import { buildCommands } from '../commands';
@@ -44,6 +45,7 @@ describe('buildCommands', () => {
   test('the table covers the expected command set', () => {
     const ids = new Set(buildCommands().map((c) => c.id));
     for (const expected of [
+      'new-window',
       'new-tab',
       'close-tab',
       'close-all-tabs',
@@ -62,6 +64,7 @@ describe('buildCommands', () => {
       'font-decrease',
       'font-reset',
       'toggle-fullscreen',
+      'toggle-distraction-free',
       'open-settings',
       'toggle-explorer',
       'open-docs',

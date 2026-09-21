@@ -72,7 +72,8 @@ function editorFor(tabId: string) {
     return undefined;
   }
   if (tab.mode === 'wysiwyg') {
-    return getEditAdapter(tabId);
+    // Edit on a deck is the deck editor: there is no caret to dictate into.
+    return tab.deck ? undefined : getEditAdapter(tabId);
   }
   return tab.mode === 'raw' || tab.mode === 'split' ? getSourceAdapter(tabId) : undefined;
 }

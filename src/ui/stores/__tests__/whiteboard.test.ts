@@ -15,7 +15,7 @@ import {
   STATIC_PALETTE,
 } from '../../../core/whiteboard/tool-settings';
 import { fingerDrawsEnabled } from '../../../core/whiteboard/input';
-import { carryColor, drawStateFor, whiteboardStore } from '../whiteboard';
+import { boardViewKey, carryColor, drawStateFor, whiteboardStore } from '../whiteboard';
 
 beforeEach(() => {
   whiteboardStore.setState({
@@ -111,8 +111,20 @@ describe('per-tab state', () => {
     expect(whiteboardStore.getState().viewByTab.t1).toEqual(VIEW);
   });
 
-  it('forgets everything about a tab when it closes', () => {
+  it('keeps Draw and Split viewports apart — the panes are different sizes', () => {
+    whiteboardStore.getState().saveView(boardViewKey('t1', 'draw'), VIEW);
+    whiteboardStore.getState().saveView(boardViewKey('t1', 'split'), { scale: 1, x: 0, y: 0 });
+    expect(whiteboardStore.getState().viewByTab[boardViewKey('t1', 'draw')]).toEqual(VIEW);
+    expect(whiteboardStore.getState().viewByTab[boardViewKey('t1', 'split')]).toEqual({
+      scale: 1,
+      x: 0,
+      y: 0,
+    });
+  });
+
+  it('forgets everything about a tab when it closes, both panes included', () => {
     whiteboardStore.getState().saveView('t1', VIEW);
+    whiteboardStore.getState().saveView(boardViewKey('t1', 'split'), VIEW);
     whiteboardStore.getState().reportTabState('t1', {
       canUndo: true,
       canRedo: false,
@@ -124,6 +136,7 @@ describe('per-tab state', () => {
     });
     whiteboardStore.getState().clearTab('t1');
     expect(whiteboardStore.getState().viewByTab.t1).toBeUndefined();
+    expect(whiteboardStore.getState().viewByTab[boardViewKey('t1', 'split')]).toBeUndefined();
     expect(whiteboardStore.getState().byTab.t1).toBeUndefined();
   });
 

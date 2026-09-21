@@ -8,7 +8,8 @@ what a whiteboard *is* lives here.
 | --- | --- |
 | `xml.ts` | a small XML reader with SOURCE SPANS (not DOMParser — see below) |
 | `scene.ts` | `SceneDoc` / `Layer` / `SceneElement` — the immutable scene model |
-| `parse.ts` | SVG source → `SceneDoc` |
+| `parse.ts` | SVG source → `SceneDoc`, and (with spans) where each element was |
+| `locate.ts` | `ElementRef` ⇄ source offsets — Split mode's raw ⇄ draw link |
 | `serialize.ts` | `SceneDoc` → deterministic SVG source |
 | `geometry.ts` | points, rects, path flattening — "what is under this point" |
 | `smoothing.ts` | 1€ filter → RDP → Catmull-Rom Béziers; the pen pipeline |
@@ -443,6 +444,29 @@ Consequences, all load-bearing:
   coordinate mapping all get simple in exchange.
 - `SceneDoc` is **immutable with structural sharing**, so undo is a snapshot
   stack rather than an inverse-operation zoo.
+
+## Pointing at the same element from both panes (Split mode)
+
+Split on an `.svg` tab shows the source and the board at once, and each has
+to be able to say "this one" to the other. The board speaks `ElementRef`s
+(layer id + index); the source editor speaks character offsets.
+`parseWhiteboardWithSpans` is the bridge: the SAME walk that builds the scene
+also records each element's `[start, end)` in the source, so span *n* of layer
+*l* and scene element *n* of layer *l* are the same node by construction.
+`locate.ts` is the thin query layer over it (`rangeForRef`, `rangesForRefs`,
+`refAtOffset`), and `parseWhiteboard` is now a one-line wrapper.
+
+Two decisions worth keeping:
+
+- **A second walk was rejected.** A standalone "find the elements" pass would
+  be a second opinion about which node became element *n* — which layers
+  count, which `<style>` is ours, where the Imported layer splices in — and
+  the first time the two disagreed the link would quietly point at the wrong
+  shape. One walk, one truth.
+- **A caret anywhere on an element's LINE finds it** (`refAtOffset`), not
+  just one inside its tag. The serializer writes one element per line, so
+  that is what a person means; containment still wins where a hand-authored
+  file puts two shapes on one line.
 
 ## Why not DOMParser
 

@@ -1,11 +1,12 @@
 /**
- * The full-screen tap-and-hold menu.
+ * The distraction-free tap-and-hold menu.
  *
- * Full screen hides every piece of chrome, so on a touch device there is no
- * button left to press. A long press anywhere in the view summons this small
- * menu instead: exit full screen, open the workspaces panel, open the outline
- * (plus Back while a followed preview link is open). Deliberately short — it
- * is an escape hatch, not a second ribbon.
+ * Distraction-free hides every piece of chrome, so on a touch device there is
+ * no button left to press. A long press anywhere in the view summons this
+ * small menu instead: exit distraction-free (and full screen, when the window
+ * is), open the workspaces panel, open the outline (plus Back while a followed
+ * preview link is open). Deliberately short — it is an escape hatch, not a
+ * second ribbon.
  *
  * Two things make it work where the older double-tap-the-edge gesture did not:
  *
@@ -13,12 +14,12 @@
  *    before any editor's own handlers and cannot be swallowed by an element
  *    that claims the pointer. The whiteboard captures every pointer on its
  *    stage and `preventDefault()`s it, which is exactly why draw mode had no
- *    way out of full screen.
+ *    way out of the chrome-less view.
  *  - It is a press, not a tap rhythm — nothing to time, and it works the same
  *    over an editor, a preview or a board.
  *
  * Touch and pen only. A mouse gets the hover-revealed cluster (App.tsx) plus
- * F11/Escape, and a 550 ms mouse hold is how you drag-select text — turning
+ * Escape, and a 550 ms mouse hold is how you drag-select text — turning
  * that into a menu would fight the editor on every desktop selection.
  *
  * On a board a long press IS a stroke, so opening the menu aborts the gesture
@@ -27,11 +28,12 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { docFamilyForTab } from '../../core/doc-family';
 import { uiStore, useUiStore, type MenuPoint } from '../stores/ui';
 import { useTabsStore, tabsStore } from '../stores/tabs';
 import { getWhiteboardAdapter } from '../stores/whiteboard';
 import { goBackPreview, usePreviewNav } from '../stores/preview-nav';
-import { setFullscreen } from '../fullscreen';
+import { setDistractionFree, setOsFullscreen } from '../fullscreen';
 
 /** How long the press has to be held before the menu opens. */
 const HOLD_MS = 550;
@@ -41,9 +43,9 @@ const SLOP_PX = 12;
 const EDGE_MARGIN = 8;
 
 /**
- * Install the long-press watcher for as long as the view is full screen.
+ * Install the long-press watcher for as long as the view is distraction-free.
  * Exported as a hook so App owns exactly one call site and the listeners are
- * torn down the moment full screen ends.
+ * torn down the moment the chrome comes back.
  */
 export function useFullscreenLongPress(active: boolean): void {
   useEffect(() => {
@@ -136,7 +138,13 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
   const ref = useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = useState<MenuPoint | null>(null);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
+  const osFullscreen = useUiStore((s) => s.osFullscreen);
+  // A drawing has no headings in ANY of its modes (Split included), so the
+  // outline row is keyed on the family rather than on `mode === 'draw'`.
+  const drawing = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab !== undefined && docFamilyForTab(tab) === 'svg';
+  });
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
   );
@@ -175,7 +183,7 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
       ref={ref}
       className="tab-menu fullscreen-menu"
       role="menu"
-      aria-label="Full screen menu"
+      aria-label="Distraction-free menu"
       style={{
         left: (placed ?? at).x,
         top: (placed ?? at).y,
@@ -195,12 +203,23 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
         />
       )}
       <MenuItem
-        label="Exit full screen"
+        label="Exit distraction-free"
         onSelect={() => {
           close();
-          setFullscreen('normal');
+          setDistractionFree(false);
         }}
       />
+      {/* Only a desktop touch screen can get here with the window fullscreen
+          (Android never sets it); give it the same way out the cluster has. */}
+      {osFullscreen && (
+        <MenuItem
+          label="Exit full screen"
+          onSelect={() => {
+            close();
+            setOsFullscreen(false);
+          }}
+        />
+      )}
       <MenuItem
         label="Workspaces"
         onSelect={() => {
@@ -209,8 +228,8 @@ function FullscreenMenuBody({ at }: { at: MenuPoint }) {
         }}
       />
       {/* A whiteboard has no headings — the same reason the ribbon hides its
-          outline toggle in draw mode. */}
-      {mode !== 'draw' && (
+          outline toggle on a drawing. */}
+      {!drawing && (
         <MenuItem
           label="Outline"
           onSelect={() => {

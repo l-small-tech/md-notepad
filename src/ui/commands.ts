@@ -18,17 +18,22 @@ import {
   addWorkspace,
   closeAllTabs,
   closeTab,
+  newWindow,
   openDocs,
   openExportPreview,
   openFile,
   saveActiveTab,
   saveActiveTabAs,
 } from './session';
-import { cycleFullscreen } from './fullscreen';
+import { toggleDistractionFree, toggleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { openOverview } from './notes-overview';
+import { promptStatus } from './prompt-status';
+import { openWorkspaceInit } from './workspace-init';
 import { settingsStore } from './stores/settings';
+import { isAndroid } from './platform';
 import { tabsStore } from './stores/tabs';
+import { openPresenterForActiveTab } from './presenter';
 import { activePaneOf, terminalsStore } from './stores/terminals';
 import { runPaneAction } from './pane-actions';
 import { uiStore } from './stores/ui';
@@ -61,6 +66,9 @@ export function runShortcutAction(action: ShortcutAction): void {
       // "New tab" has always meant a tab, not a note: from a terminal or a
       // drawing it makes another one of those (core/new-tab.ts).
       newTabDefault();
+      break;
+    case 'new-window':
+      newWindow();
       break;
     case 'new-tab-menu':
       uiStore.getState().openNewTabMenu();
@@ -106,9 +114,12 @@ export function runShortcutAction(action: ShortcutAction): void {
       settingsStore.getState().update({ fontSize: DEFAULT_SETTINGS.fontSize });
       break;
     case 'toggle-fullscreen':
-      // Advances the full-screen view one stage (normal → window → screen →
-      // normal), available in every editor mode.
-      cycleFullscreen();
+      // OS full screen — the interface is untouched. Available in every mode.
+      toggleFullscreen();
+      break;
+    case 'toggle-distraction-free':
+      // Hide (or bring back) the app chrome; the OS window stays as it is.
+      toggleDistractionFree();
       break;
     case 'open-palette':
       uiStore.getState().togglePalette();
@@ -204,17 +215,25 @@ function fromAction(
   return { id, title, ...extra, run: () => runShortcutAction(action) };
 }
 
-const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key: string }[] = [
+/**
+ * `key` is the digit chord (mod+1..4), which the four MARKDOWN modes own —
+ * `setMode` drops one aimed at a family that has no such mode, so the chords
+ * cost nothing on a drawing or a code file. Draw has no digit of its own (it
+ * is nobody's mod+3) and is reachable here and from the status bar instead.
+ */
+const MODE_ENTRIES: { id: string; title: string; mode: EditorMode; key?: string }[] = [
   { id: 'mode-raw', title: 'Mode: Raw', mode: 'raw', key: '1' },
   { id: 'mode-split', title: 'Mode: Split', mode: 'split', key: '2' },
   { id: 'mode-edit', title: 'Mode: Edit', mode: 'wysiwyg', key: '3' },
   { id: 'mode-read', title: 'Mode: Review', mode: 'read', key: '4' },
+  { id: 'mode-draw', title: 'Mode: Draw', mode: 'draw' },
 ];
 
 export function buildCommands(): AppCommand[] {
   return [
     // Tabs
-    fromAction('new-tab', 'New tab', { type: 'new-tab' }, { shortcut: modKey('N') }),
+    fromAction('new-window', 'New window', { type: 'new-window' }, { shortcut: modKey('N') }),
+    fromAction('new-tab', 'New tab', { type: 'new-tab' }),
     // Every type stays explicitly reachable, so the inference above is never
     // the only route to one.
     {
@@ -274,13 +293,24 @@ export function buildCommands(): AppCommand[] {
       enabled: hasActiveTextTab,
       run: () => openExportPreview(),
     },
+    {
+      id: 'presenter-view',
+      title: 'Presenter view (notes, next slide, timer)',
+      keywords: ['present', 'slides', 'deck', 'marp', 'speaker', 'notes', 'second', 'screen'],
+      enabled: () => tabsStore.getState().activeTab()?.deck === true && !isAndroid(),
+      run: () => openPresenterForActiveTab(),
+    },
     // View modes
     ...MODE_ENTRIES.map(({ id, title, mode, key }) =>
       fromAction(
         id,
         title,
         { type: 'set-mode', mode },
-        { keywords: ['view', 'editor'], shortcut: modKey(key), enabled: hasActiveTab },
+        {
+          keywords: ['view', 'editor'],
+          ...(key === undefined ? {} : { shortcut: modKey(key) }),
+          enabled: hasActiveTab,
+        },
       ),
     ),
     // Display
@@ -306,7 +336,13 @@ export function buildCommands(): AppCommand[] {
       'toggle-fullscreen',
       'Toggle full screen',
       { type: 'toggle-fullscreen' },
-      { keywords: ['distraction', 'free', 'zen'], shortcut: IS_MAC ? '⌃⌘F' : 'F11' },
+      { keywords: ['fullscreen', 'window'], shortcut: IS_MAC ? '⌃⌘F' : 'F11' },
+    ),
+    fromAction(
+      'toggle-distraction-free',
+      'Toggle distraction-free',
+      { type: 'toggle-distraction-free' },
+      { keywords: ['distraction', 'free', 'zen', 'chrome', 'focus'] },
     ),
     // App
     fromAction(
@@ -418,6 +454,31 @@ export function buildCommands(): AppCommand[] {
       title: 'Add workspace…',
       keywords: ['folder', 'directory', 'notes'],
       run: () => addWorkspace(),
+    },
+    {
+      id: 'init-workspace',
+      title: 'Initialize workspace…',
+      keywords: ['agents', 'AGENTS.md', 'CLAUDE.md', 'folder', 'project', 'directives', 'new'],
+      enabled: () => !isAndroid(),
+      run: () => void openWorkspaceInit(),
+    },
+    {
+      id: 'workspace-directives',
+      title: 'Workspace directives… (active workspace)',
+      keywords: ['agents', 'AGENTS.md', 'modules', 'changelog', 'manifest', 'worktree'],
+      enabled: () => !isAndroid() && uiStore.getState().selectedExplorerDir !== null,
+      run: () => {
+        const dir = uiStore.getState().selectedExplorerDir;
+        if (dir !== null) {
+          void openWorkspaceInit(dir);
+        }
+      },
+    },
+    {
+      id: 'workspace-status',
+      title: 'Workspace status (prompts)',
+      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md'],
+      run: () => promptStatus().setPanelOpen(true),
     },
     {
       id: 'close-all-tabs',

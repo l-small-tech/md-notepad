@@ -26,13 +26,15 @@ import { ExternalLinkPrompt } from './components/ExternalLinkPrompt';
 import { WhisperSetupPrompt } from './components/WhisperSetupPrompt';
 import { SearchPanel } from './components/SearchPanel';
 import { NotesOverview } from './components/NotesOverview';
+import { InitWorkspaceDialog } from './components/InitWorkspaceDialog';
+import { StatusPanel } from './components/StatusPanel';
 import { FullscreenMenu, useFullscreenLongPress } from './components/FullscreenMenu';
 import { ResizeBorders } from './components/ResizeBorders';
 import { IS_MAC } from './components/AppMenu';
-import { setFullscreen } from './fullscreen';
+import { setDistractionFree, setOsFullscreen } from './fullscreen';
 import { DeckShow } from './components/DeckShow';
 import { tabsStore, useTabsStore } from './stores/tabs';
-import { useUiStore } from './stores/ui';
+import { uiStore, useUiStore } from './stores/ui';
 import { goBackPreview, usePreviewNav } from './stores/preview-nav';
 import { isAndroid } from './platform';
 
@@ -42,10 +44,11 @@ export function App() {
   const activeMode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode);
   const activeKind = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.kind);
   const activeDeck = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.deck);
-  const fullscreenView = useUiStore((s) => s.fullscreenView);
+  const distractionFree = useUiStore((s) => s.distractionFree);
+  const osFullscreen = useUiStore((s) => s.osFullscreen);
 
-  // Tap-and-hold anywhere in full screen opens the escape-hatch menu.
-  useFullscreenLongPress(fullscreenView !== 'normal');
+  // Tap-and-hold anywhere while chrome-less opens the escape-hatch menu.
+  useFullscreenLongPress(distractionFree);
 
   useEffect(() => {
     const sync = tabsStore.getState().tabs.find((t) => t.id === activeTabId)?.modeSync;
@@ -81,7 +84,7 @@ export function App() {
 
   return (
     <div
-      className={fullscreenView === 'normal' ? 'app' : 'app app-fullscreen'}
+      className={distractionFree ? 'app app-fullscreen' : 'app'}
       data-tab-kind={activeKind ?? 'note'}
     >
       <TabBar />
@@ -106,10 +109,10 @@ export function App() {
         {!terminalActive && <OutlinePanel />}
       </div>
       {!terminalActive && <StatusBar />}
-      {/* A deck's 'screen' stage is the show: one slide on a dark stage, keys
-          to move (ui/components/DeckShow). Escape steps back to 'window' as in
+      {/* Full screen on a deck is the show: one slide on a dark stage, keys
+          to move (ui/components/DeckShow). Escape leaves full screen as in
           every mode, which is the light table on the slide that was showing. */}
-      {fullscreenView === 'screen' && activeDeck && activeTabId && (
+      {osFullscreen && activeDeck && activeTabId && (
         <DeckShow key={activeTabId} tabId={activeTabId} />
       )}
       <SettingsDialog />
@@ -121,43 +124,48 @@ export function App() {
       <WhisperSetupPrompt />
       <SearchPanel />
       <NotesOverview />
+      <StatusPanel />
+      <InitWorkspaceDialog />
       {/* Desktop keeps the hover-revealed cluster; Android's way out is the
           tap-and-hold menu (which works on a board too, where the old
           double-tap-the-edge gesture never reached the window). */}
-      {fullscreenView !== 'normal' && !isAndroid() && <FullscreenControls stage={fullscreenView} />}
+      {distractionFree && !isAndroid() && (
+        <FullscreenControls osFullscreen={osFullscreen} terminalActive={terminalActive} />
+      )}
+      {distractionFree && !isAndroid() && !terminalActive && <WorkspacePull />}
       <FullscreenMenu />
-      {/* The 'window' stage hides all chrome and leaves the OS window in place, so
+      {/* Distraction-free hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as
           the grab-to-move handle in every mode. It fires only on itself, so content
           below stays interactive. In Review mode it's tall (~3 lines of top
           whitespace); in edit modes it's titlebar-height so it doesn't swallow the
-          first editor lines. Android has no draggable OS window, so it's
-          desktop-only. */}
-      {fullscreenView === 'window' && !isAndroid() && (
+          first editor lines. Android has no draggable OS window, and a fullscreen
+          window has nowhere to go, so it's desktop-and-windowed only. */}
+      {distractionFree && !osFullscreen && !isAndroid() && (
         <div
           className={`fullscreen-drag-strip${activeMode === 'read' ? ' fullscreen-drag-strip-read' : ''}`}
           data-tauri-drag-region=""
         />
       )}
       {/* Custom resize hitboxes for the undecorated window (macOS keeps native
-          decorations; the 'screen' stage is truly fullscreen — nothing to
-          resize). Rendered last so the strips layer over all chrome. */}
-      {fullscreenView !== 'screen' && !IS_MAC && !isAndroid() && <ResizeBorders />}
+          decorations; a fullscreen window has nothing to resize). Rendered last
+          so the strips layer over all chrome. */}
+      {!osFullscreen && !IS_MAC && !isAndroid() && <ResizeBorders />}
     </div>
   );
 }
 
 /**
- * The chrome (with the ribbon's fullscreen button) is hidden in full screen, so
- * this floating cluster is the DESKTOP way back. F11 cycles stages and Esc steps
- * back; the cluster holds the stage toggle for the stage you're NOT in (⛶ = full
- * screen from 'window', ⤢ = full window from 'screen'), an exit ✕, and — when
- * browsing a followed link in the preview — a ← Back that pops the page. Back
- * lives here (not as an in-pane bar) in full screen so it hides with the rest.
+ * The chrome (with the ribbon's distraction-free button) is hidden while
+ * distraction-free, so this floating cluster is the DESKTOP way back. It holds
+ * the full-screen toggle (⛶ enter / ⤢ leave, the same F11 does), an exit ✕
+ * that brings the chrome back, and — when browsing a followed link in the
+ * preview — a ← Back that pops the page. Back lives here (not as an in-pane
+ * bar) while chrome-less so it hides with the rest.
  *
  * The cluster is tucked just above the top-CENTER edge and slides down when
  * summoned. Nothing spans the full width (that full-width reveal bar read as
- * cheap/janky). Window dragging in the 'window' stage lives in a separate strip
+ * cheap/janky). Window dragging while chrome-less lives in a separate strip
  * over the top of the view (see App), not here.
  *
  * Reveal is JS-driven (not `:hover`) so the cluster survives the pointer
@@ -168,7 +176,13 @@ export function App() {
  * Android has no cluster at all — the tap-and-hold menu (FullscreenMenu) is its
  * single, mode-independent way out, including on a whiteboard.
  */
-function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
+function FullscreenControls({
+  osFullscreen,
+  terminalActive,
+}: {
+  osFullscreen: boolean;
+  terminalActive: boolean;
+}) {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const canGoBack = usePreviewNav(
     (s) => (activeTabId != null && s.canGoBack[activeTabId]) || false,
@@ -222,6 +236,19 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
 
   const buttons = (
     <>
+      {/* The workspace pane, so a knowledge base can be browsed without leaving
+          the view. The left-edge pull tab (WorkspacePull) opens it too. */}
+      {!terminalActive && (
+        <button
+          className="fullscreen-btn"
+          aria-label="Toggle file explorer"
+          title="Workspaces"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => uiStore.getState().toggleExplorer()}
+        >
+          <FolderIcon />
+        </button>
+      )}
       {canGoBack && (
         <button
           className="fullscreen-btn"
@@ -237,14 +264,14 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
           ←
         </button>
       )}
-      {/* The stage toggle (full window ⇄ full screen). */}
-      {stage === 'screen' ? (
+      {/* The OS full-screen toggle, mirroring F11. */}
+      {osFullscreen ? (
         <button
           className="fullscreen-btn"
-          aria-label="Full window"
-          title="Full window (Esc)"
+          aria-label="Exit full screen"
+          title="Exit full screen (F11)"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('window')}
+          onClick={() => setOsFullscreen(false)}
         >
           ⤢
         </button>
@@ -254,17 +281,17 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
           aria-label="Full screen"
           title="Full screen (F11)"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('screen')}
+          onClick={() => setOsFullscreen(true)}
         >
           ⛶
         </button>
       )}
       <button
         className="fullscreen-btn"
-        aria-label="Exit full screen"
-        title="Exit full screen (Esc)"
+        aria-label="Exit distraction-free"
+        title="Exit distraction-free (Esc)"
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setFullscreen('normal')}
+        onClick={() => setDistractionFree(false)}
       >
         ✕
       </button>
@@ -272,4 +299,90 @@ function FullscreenControls({ stage }: { stage: 'window' | 'screen' }) {
   );
 
   return <div className={`fullscreen-topcenter${revealed ? ' is-revealed' : ''}`}>{buttons}</div>;
+}
+
+/** The ribbon's explorer glyph — a folder reads as "files". */
+function FolderIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    >
+      <path d="M2.7 15.3V4.7h4.6l1.7 2.2h8.3v8.4z" />
+      <path d="M2.7 6.9h14.6" />
+    </svg>
+  );
+}
+
+/**
+ * The workspace pane's pull tab while distraction-free (desktop). Going
+ * chrome-less still shuts the pane — the document and nothing else — but Review
+ * mode there is how a markdown knowledge base gets read, and reading one means
+ * moving between files. So the pane stays one gesture away: push the pointer
+ * against the LEFT edge and a small tab slides out from where the pane lives;
+ * clicking it pulls the pane out. Same JS-driven reveal-and-linger as the top
+ * cluster, for the same overshoot reason.
+ *
+ * Only rendered while the pane is shut. Once it is out, Escape puts it away
+ * (ui/fullscreen `escapeFullscreen`), as does the cluster's folder button.
+ */
+function WorkspacePull() {
+  const explorerOpen = useUiStore((s) => s.explorerOpen);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (explorerOpen) {
+      return;
+    }
+    const HIDE_MS = 600;
+    const REVEAL_X = 28;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    let shown = false;
+    const clearHide = () => {
+      if (hideTimer !== undefined) {
+        clearTimeout(hideTimer);
+        hideTimer = undefined;
+      }
+    };
+    const onMove = (e: MouseEvent) => {
+      if (e.clientX <= REVEAL_X) {
+        clearHide();
+        shown = true;
+        setRevealed(true);
+      } else if (shown && hideTimer === undefined) {
+        hideTimer = setTimeout(() => {
+          hideTimer = undefined;
+          shown = false;
+          setRevealed(false);
+        }, HIDE_MS);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      clearHide();
+      setRevealed(false);
+    };
+  }, [explorerOpen]);
+
+  if (explorerOpen) {
+    return null;
+  }
+  return (
+    <button
+      className={`fullscreen-btn fullscreen-pull${revealed ? ' is-revealed' : ''}`}
+      aria-label="Open file explorer"
+      title="Workspaces"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => uiStore.getState().openExplorer()}
+    >
+      <FolderIcon />
+    </button>
+  );
 }

@@ -248,12 +248,38 @@ export function dropTabOut(id: string, pos: { x: number; y: number } | null): vo
  * owning it tears off instead). No-ops until the controller registers, and
  * outside the desktop app, where no window spawner exists.
  */
+/**
+ * Tab sync: open a mirror of file tab `id` in a NEW window — the original
+ * stays put, and the two stay in step (ui/doc-sync.ts). A no-op until the
+ * controller registers the window spawner.
+ */
+let duplicateTabToNewWindowDispatch: (id: string) => void = () => {};
+export function setDuplicateTabToNewWindowDispatch(fn: (id: string) => void): void {
+  duplicateTabToNewWindowDispatch = fn;
+}
+export function duplicateTabToNewWindow(id: string): void {
+  duplicateTabToNewWindowDispatch(id);
+}
+
 let openFileInNewWindowDispatch: (path: string) => void = () => {};
 export function setOpenFileInNewWindowDispatch(fn: (path: string) => void): void {
   openFileInNewWindowDispatch = fn;
 }
 export function openFileInNewWindow(path: string): void {
   openFileInNewWindowDispatch(path);
+}
+
+/**
+ * mod+N: open a brand-new OS window holding one fresh note. Same indirection
+ * as {@link openFileInNewWindow}; a no-op until the controller registers the
+ * window spawner (and on platforms without one, e.g. Android).
+ */
+let newWindowDispatch: () => void = () => {};
+export function setNewWindowDispatch(fn: () => void): void {
+  newWindowDispatch = fn;
+}
+export function newWindow(): void {
+  newWindowDispatch();
 }
 
 /**
@@ -371,6 +397,7 @@ let createScanImageDispatch: (
   base64: string,
 ) => Promise<string | null> = async () => null;
 let pickPhotoDispatch: () => Promise<ScanPhotoRef | null> = async () => null;
+let pickImagePathDispatch: () => Promise<string | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -441,6 +468,9 @@ export function setCreateScanImageDispatch(
 }
 export function setPickPhotoDispatch(fn: () => Promise<ScanPhotoRef | null>): void {
   pickPhotoDispatch = fn;
+}
+export function setPickImagePathDispatch(fn: () => Promise<string | null>): void {
+  pickImagePathDispatch = fn;
 }
 export function setRenameEntryDispatch(
   fn: (path: string, newName: string, isDir: boolean) => Promise<void>,
@@ -718,6 +748,10 @@ export interface ScanPhotoRef {
  */
 export function pickPhotoForScan(): Promise<ScanPhotoRef | null> {
   return pickPhotoDispatch();
+}
+/** The deck editor's Browse…: the native image picker, as an absolute path. */
+export function pickImagePath(): Promise<string | null> {
+  return pickImagePathDispatch();
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk
  *  (extension preserved for files; open tabs are retargeted). */

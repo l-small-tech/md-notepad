@@ -1,9 +1,9 @@
 # The viewing modes
 
-Every markdown tab can be viewed four ways; code files get Raw and Review,
-and a Marp slide deck gets Raw, Split and Present. Switch with the buttons at the
-bottom-left of the window, or with **Ctrl+1** to **Ctrl+4** (Cmd on Mac).
-Each tab remembers its own mode.
+Every markdown tab can be viewed four ways; code files get Raw and Review, a
+Marp slide deck gets Raw, Split and Present, and a drawing gets Raw, Split and
+Draw. Switch with the buttons at the bottom-left of the window, or with
+**Ctrl+1** to **Ctrl+4** (Cmd on Mac). Each tab remembers its own mode.
 
 ## Raw (Ctrl+1)
 
@@ -16,6 +16,10 @@ file. Press **Ctrl+F** here to search within the note.
 Raw text on the left, the finished result on the right, updating live as
 you type. Great while you're learning markdown, or for documents with
 tables and diagrams. Drag the divider between the panels to resize them.
+
+On a **drawing tab** Split means the `.svg` source beside the board itself,
+both of them editable and each pointing at whatever the other has selected —
+see [Drawings and diagrams](diagrams.md).
 
 ## Edit (Ctrl+3)
 
@@ -45,18 +49,28 @@ The polished result, full-width, with nothing editable — ideal for actually
 
 - **A− / A+** — text size (also Ctrl+`-` / Ctrl+`=` anywhere, Ctrl+0 to
   reset).
-- **⛶ Full screen** (or **F11**; Ctrl+Cmd+F on Mac) — press once to hide
-  all the app chrome, press again to fill the whole screen. **Esc** steps
-  back out.
+- **⤢ Distraction-free** — hides all the app chrome (tabs, toolbar, status
+  bar) and shows only the document. The window itself stays where it is.
+  **Esc** brings the chrome back.
+- **Full screen** (**F11**; Ctrl+Cmd+F on Mac) — makes the window fill the
+  whole screen and changes nothing else: the interface stays exactly as it
+  was. Press **F11** or **Esc** to leave. It is also in the **⌄** app menu.
 
-Full screen works in every mode, including drawings. Once the chrome is
-hidden, there are two ways back:
+The two are independent — use either on its own, or both together for a
+document and nothing else on a bare screen. Both work in every mode,
+including drawings. Once the chrome is hidden, there are two ways back:
 
 - **Mouse and keyboard** — move the pointer to the top of the window for the
-  floating controls, or press **Esc** / **F11**.
+  floating controls (full screen on/off and an exit), or press **Esc**.
+- **Changing files without leaving** — reading a folder of notes means moving
+  between them, so the **Workspaces** pane stays within reach: push the
+  pointer against the **left edge** of the window and a small folder tab
+  slides out — click it to pull the pane out (the floating controls have the
+  same folder button). Pick a file and carry on; **Esc** puts the pane away
+  first, and a second **Esc** leaves distraction-free.
 - **Touch or pen** — press and hold anywhere for a moment. A small menu
-  appears with **Exit full screen**, **Workspaces** and **Outline**. On a
-  drawing, the hold that opens the menu doesn't leave a mark.
+  appears with **Exit distraction-free**, **Workspaces** and **Outline**. On
+  a drawing, the hold that opens the menu doesn't leave a mark.
 
 How wide the text column is in Review mode is up to you — see **Review mode
 margins** in [Settings](settings.md).
@@ -82,11 +96,18 @@ kept next to the file) decides how they look. A deck offers three modes:
 - **Present** — replaces Review: a light table of full-size slides, numbered,
   with your speaker notes (HTML comments in the slide, `<!-- like this -->`)
   shown quietly under each one. Review notes work here too — press and hold a
-  slide. Press **F11** twice (or the ⛶ button, then ⛶ again) and the show
-  starts on the slide at the top of the light table: one slide on a dark
+  slide. Press **F11** (full screen) and the show starts on the slide at
+  the top of the light table: one slide on a dark
   screen, **arrow keys / Space / PgUp / PgDn / Home / End** to move, a number
   then **Enter** to jump, and a thin progress line along the bottom. **Esc**
   brings you back to the light table on the slide you were showing.
+- **Presenter view** — right-click the deck's tab → **Presenter view** (or
+  press **P** during the show, or find it in the command palette). A second
+  window opens with the current slide, the next slide, your speaker notes, a
+  clock and a timer (click it to pause; **Reset** zeroes it). Drag it to your
+  own screen, then press **F11** in the main window for the show on the
+  projector. The two stay on the same slide, and the arrow keys work in
+  whichever window has focus. **A−** / **A+** resize the notes.
 
 There is no Edit mode for a deck: the word-processor view would rewrite the
 comments and image syntax Marp relies on. The status bar shows `Slide 4 / 12`
@@ -151,3 +172,11 @@ they transcribe correctly far more often.
 New tabs open in Raw mode out of the box. Pick a different default —
 including Review, handy if you mostly open notes to look things up — under
 **Default mode** in [Settings](settings.md).
+
+## Two views of the same file
+
+Right-click a file's tab → **Duplicate tab** opens a second tab on the same
+file, and **Duplicate in new window** opens it in another window. Put one in
+Markdown and the other in Present, Review or Draw: whatever you type in one
+appears in the other straight away, and saving either saves both. (Notes that
+have not been saved as a file cannot be duplicated — use **Save as…** first.)

@@ -13,6 +13,9 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-title",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-set-size",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-minimize",
@@ -45,6 +48,9 @@
       "allow": [
         {
           "path": "$APPDATA/whisper"
+        },
+        {
+          "path": "$APPDATA/agent-modules"
         }
       ]
     },

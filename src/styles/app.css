@@ -1093,11 +1093,11 @@ body.tab-drag-live * {
   -webkit-user-select: none;
 }
 
-/* ---- Full screen -------------------------------------------------------- */
+/* ---- Distraction-free / full screen ------------------------------------- */
 
-/* Both full-screen stages ('window' and 'screen') hide every piece of chrome
-   so the active tab is the only thing left; the 'screen' stage additionally
-   makes the OS window fullscreen (see ui/fullscreen).
+/* Distraction-free hides every piece of chrome so the active tab is the only
+   thing left. OS full screen (F11) is independent and purely a window-level
+   change — no CSS at all (see ui/fullscreen).
 
    The explorer and outline panels are NOT in this list: they render nothing
    unless opened, and the tap-and-hold menu can open them from inside full
@@ -1135,6 +1135,27 @@ body.tab-drag-live * {
   transform: translate(-50%, 0);
 }
 
+/* The workspace pane's pull tab (App's WorkspacePull): tucked past the LEFT
+   edge, mid-height, sliding out when the pointer pushes against that edge.
+   Flat on the edge side so it reads as a tab attached to the (hidden) pane. */
+.fullscreen-pull {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  z-index: 42;
+  height: 56px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transform: translate(calc(-100% - 12px), -50%);
+  transition: transform 160ms ease;
+}
+
+.fullscreen-pull.is-revealed,
+.fullscreen-pull:focus-visible {
+  transform: translate(0, -50%);
+}
+
 /* The tap-and-hold menu (components/FullscreenMenu) — a `.tab-menu` popover
    sized for fingers, since touch is what summons it (48px ≈ the Android
    touch-target guideline). JS positions it at the press point and clamps it
@@ -1151,8 +1172,8 @@ body.tab-drag-live * {
   font-size: 15px;
 }
 
-/* 'window' stage: an invisible strip over the top of the view that grabs-to-move
-   the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
+/* Distraction-free, windowed: an invisible strip over the top of the view that
+   grabs-to-move the otherwise titlebar-less window. Sits below the top-center cluster (z 42)
    so those controls stay clickable. Titlebar-height by default (so it doesn't
    swallow the first editor lines in edit modes); taller in Read mode to cover
    the reading column's top whitespace (~3 lines). */
@@ -1171,7 +1192,7 @@ body.tab-drag-live * {
 }
 
 /* The conflict banner sits at the top of the editor host, exactly where the
-   'window'-stage drag strip (z 39) lies. Lift it above the strip so its
+   distraction-free drag strip (z 39) lies. Lift it above the strip so its
    Reload / Keep mine buttons take clicks instead of the drag region swallowing
    them to move the window. Below the top-center exit cluster (z 42). */
 .app-fullscreen .conflict-banner {
@@ -1754,6 +1775,17 @@ body.explorer-dragging * {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
+/* A Marp slide deck (a markdown file with `marp: true`): same shape, its own
+   fixed hue — the workspace palette's purple, a mid-tone that reads on every
+   theme — so it can't blend into an accent-colored md badge whatever the
+   theme's accent is. The *marp* label carries the cue on its own too. */
+.file-badge[data-kind='deck'] {
+  --deck-badge: #8e4ec6;
+  color: var(--deck-badge);
+  background: color-mix(in srgb, var(--deck-badge) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deck-badge) 40%, transparent);
+}
+
 .file-explorer-item.is-importable:hover,
 .file-explorer-item.is-importable.is-active {
   color: var(--fg);
@@ -1924,6 +1956,16 @@ body.explorer-dragging * {
   height: 100%;
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+/* Split mode on a drawing: the whiteboard EDITOR sits here instead of a
+   preview. It pans and zooms itself, so the pane must not scroll — and it
+   gets no `.preview` typography, which would style the board's chrome. */
+.split-board {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Read mode hides the (still-mounted) source editor entirely; only the
@@ -3678,6 +3720,15 @@ body.explorer-dragging * {
   text-decoration-color: color-mix(in srgb, var(--danger) 70%, transparent);
 }
 
+/* Split mode on a drawing: the source of whatever is selected on the board
+   (cm6 setLinkedRanges). Steady, not a flash — it says where you are, and it
+   lasts as long as the selection does. */
+.cm-wb-linked {
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 /* The Restore-mine banner shares the conflict banner's shape, tinted so it
    reads as "something changed", not "something is wrong". */
 .live-edit-banner {
@@ -3692,4 +3743,312 @@ body.explorer-dragging * {
     animation: none;
     background-color: color-mix(in srgb, var(--accent) 18%, transparent);
   }
+}
+
+/* ---- Prompt status (PromptStrip, StatusPanel) ---------------------------
+   One hue per status, the same family the tab strip's agent badges use, so
+   "an agent is working" reads the same wherever it shows. */
+
+.prompt-chip {
+  --status-hue: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--status-hue) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-hue) 12%, transparent);
+  color: var(--fg);
+  font: inherit;
+  white-space: nowrap;
+}
+
+button.prompt-chip {
+  cursor: pointer;
+}
+
+.prompt-chip[data-status='running'] {
+  --status-hue: #e8a13a;
+}
+
+.prompt-chip[data-status='needs-input'] {
+  --status-hue: #5f87ff;
+}
+
+.prompt-chip[data-status='done'] {
+  --status-hue: #34c759;
+}
+
+.prompt-chip[data-status='failed'] {
+  --status-hue: #ff5f56;
+}
+
+.prompt-chip-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-hue);
+}
+
+.prompt-chip[data-status='running'] .prompt-chip-dot,
+.prompt-chip[data-status='needs-input'] .prompt-chip-dot {
+  animation: tab-status-pulse 1.4s ease-in-out infinite;
+}
+
+.prompt-chip-status {
+  color: var(--status-hue);
+  font-weight: 600;
+}
+
+.prompt-chip-title,
+.prompt-chip-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompt-chip-summary {
+  color: var(--fg-muted);
+}
+
+.prompt-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.prompt-strip-select {
+  flex: 0 1 220px;
+  min-width: 90px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  padding: 2px 4px;
+}
+
+.prompt-strip-chips {
+  display: flex;
+  flex: 1 1 0;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.prompt-strip-chips .prompt-chip {
+  flex: 0 1 auto;
+  max-width: 420px;
+}
+
+.app-fullscreen .prompt-strip {
+  display: none;
+}
+
+.prompt-panel-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 14px 16px;
+  font-size: 13px;
+}
+
+.prompt-panel-empty {
+  color: var(--fg-muted);
+  margin: 8px 0;
+}
+
+.prompt-panel-ws-name {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.prompt-panel-group {
+  margin-bottom: 10px;
+}
+
+.prompt-panel-group-head {
+  margin-bottom: 4px;
+}
+
+.prompt-panel-count {
+  color: var(--fg-muted);
+}
+
+.prompt-panel-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt-panel-row:hover {
+  background: var(--bg-hover);
+}
+
+.prompt-panel-row-slug,
+.prompt-panel-row-time,
+.prompt-panel-row-summary {
+  color: var(--fg-muted);
+}
+
+.prompt-panel-row-time {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 11px;
+}
+
+.prompt-panel-row-summary {
+  grid-column: 1 / -1;
+}
+
+/* ---- Initialize Workspace dialog ---------------------------------------- */
+
+.init-ws-dialog {
+  width: min(540px, 94vw);
+}
+
+.init-ws-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.init-ws-lead,
+.init-ws-hint {
+  margin: 0 0 10px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.init-ws-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-alt);
+}
+
+.init-ws-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.init-ws-heading {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.init-ws-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.init-ws-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.init-ws-item:hover {
+  background: var(--bg-hover);
+}
+
+.init-ws-item input {
+  margin-top: 3px;
+}
+
+.init-ws-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.init-ws-item-title {
+  font-weight: 600;
+}
+
+.init-ws-item-desc {
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.init-ws-tag {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 400;
+  vertical-align: 1px;
+}
+
+.init-ws-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.init-ws-stubs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-bottom: 10px;
+}
+
+.init-ws-stub {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.init-ws-error {
+  margin: 8px 0 0;
+  color: #ff5f56;
+}
+
+.init-ws-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
 }

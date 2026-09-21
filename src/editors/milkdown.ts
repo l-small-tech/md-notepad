@@ -96,6 +96,11 @@ export interface MilkdownOptions {
    */
   onNormalizationHint?: () => void;
   /**
+   * Ghost text shown while the document is EMPTY (Crepe's placeholder feature
+   * in `doc` mode — never per-block). Multi-line; rendered `pre-wrap`.
+   */
+  placeholder?: string;
+  /**
    * Save a pasted image and return how to reference it (alt + src), or null on
    * failure. When set, a paste carrying image files is intercepted and an image
    * node inserted at the caret instead of the raw bytes.
@@ -376,6 +381,12 @@ export function createMilkdownAdapter(options: MilkdownOptions = {}): MilkdownAd
         [Crepe.Feature.Latex]: false,
         [Crepe.Feature.AI]: false,
         [Crepe.Feature.TopBar]: false,
+        // The per-block "Please enter..." ghost is noise; only the whole-doc
+        // hint for an empty note is wanted, and only when the host asks.
+        [Crepe.Feature.Placeholder]: Boolean(options.placeholder),
+      },
+      featureConfigs: {
+        [Crepe.Feature.Placeholder]: { text: options.placeholder ?? '', mode: 'doc' },
       },
     });
 

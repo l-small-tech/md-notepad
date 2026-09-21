@@ -29,6 +29,7 @@ import { baseName, dirName, joinPath, type FlushIo } from '../../core/session/pl
 import type { DebouncedFlusher } from '../../core/session/debounce';
 import { imageMimeType } from '../../core/images';
 import { isCommentsPath } from '../../core/comments';
+import { sortExplorerEntries } from '../../core/explorer-sort';
 import { showsAllFiles } from '../../core/text-files';
 import { currentProvider } from '../../ipc/provider';
 import { settingsStore } from '../stores/settings';
@@ -53,6 +54,7 @@ import {
   setDefaultWorkspaceDispatch,
   setDeleteEntryDispatch,
   setDropTabOutDispatch,
+  setDuplicateTabToNewWindowDispatch,
   setDropTornWindowDispatch,
   setDeleteFolderDispatch,
   setImportDocumentDispatch,
@@ -73,8 +75,10 @@ import {
   setOpenExportPreviewForFileDispatch,
   setOpenFileDispatch,
   setOpenFileInNewWindowDispatch,
+  setNewWindowDispatch,
   setOpenNotePathDispatch,
   setOpenNotePathPinnedDispatch,
+  setPickImagePathDispatch,
   setPickPhotoDispatch,
   setReadImageDispatch,
   setReloadDispatch,
@@ -114,6 +118,7 @@ export {
   deleteExplorerFolder,
   dropTabOut,
   dropTornWindow,
+  duplicateTabToNewWindow,
   buildExportPreviewHtml,
   enrichCopiedText,
   getCursor,
@@ -136,10 +141,12 @@ export {
   openExportPreviewForFile,
   openFile,
   openFileInNewWindow,
+  newWindow,
   openNotePath,
   openNotePathAtLine,
   openNotePathPinned,
   pasteExplorerEntryInto,
+  pickImagePath,
   pickPhotoForScan,
   pathKey,
   refreshWorkspaces,
@@ -317,6 +324,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     setDropTabOutDispatch((id, pos) => void windows.dropTabOut(id, pos));
     setDropTornWindowDispatch((label) => void windows.dropTornWindow(label));
     setOpenFileInNewWindowDispatch((path) => void windows.openFileInNewWindow(path));
+    setNewWindowDispatch(() => void windows.openEmptyWindow());
+    setDuplicateTabToNewWindowDispatch((id) => void windows.duplicateTabToNewWindow(id));
   }
   if (deps.sendTabsToWindow) {
     setMoveTabToWindowDispatch((id, label) => void windows.moveTabToWindow(id, label));
@@ -344,7 +353,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
       target,
       showsAllFiles(target, showAllFilesDirs, hideUnsupportedDirs),
     );
-    return (
+    return sortExplorerEntries(
       entries
         // Voice-note sidecars (`*.comments.md`) kept BESIDE their note are
         // hidden from the explorer — they're managed from the note. In the
@@ -361,7 +370,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
           name: baseName(e.path),
           isDir: e.isDir,
           mtimeMs: e.mtimeMs,
-        }))
+        })),
     );
   });
   setReadImageDispatch(
@@ -393,6 +402,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
     const base64 = await ipc.readFileBase64(path);
     return { dataUrl: `data:${imageMimeType(path)};base64,${base64}`, width: 0, height: 0 };
   });
+  setPickImagePathDispatch(() => ctx.pickFile('image'));
   setRenameEntryDispatch(explorerOps.renameEntry);
   setMoveEntryDispatch(explorerOps.moveEntry);
   setPasteEntryDispatch(explorerOps.pasteEntry);

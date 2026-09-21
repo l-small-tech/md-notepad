@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
 import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
+import type { DocSyncMessage } from './core/doc-sync';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
 import { editorFontStack, uiFontStack } from './core/fonts';
 import { loadPersistedSettings, savePersistedSettings } from './ipc/settings-store';
@@ -45,6 +46,7 @@ import './styles/app.css';
 import './styles/preview.css';
 import './styles/code-review.css';
 import './styles/deck.css';
+import './styles/deck-edit.css';
 import './styles/voice-comments.css';
 import { App } from './ui/App';
 import { installLinkGuard } from './ui/link-guard';
@@ -53,6 +55,9 @@ import { externalLinkStore } from './ui/stores/external-link';
 import { DEFAULT_COLOR_SCHEME, type Settings } from './core/types';
 import { settingsStore } from './ui/stores/settings';
 import { mergeIncomingSettings, sharedSettings, windowThemeStore } from './ui/stores/window-theme';
+import { docSync, startDocSync } from './ui/doc-sync';
+import { listenPresenter, PRESENTER_LABEL } from './ui/presenter';
+import { PresenterView } from './ui/components/PresenterView';
 import { tabsStore, tabDisplayTitle } from './ui/stores/tabs';
 import { harnessAvailabilityStore } from './ui/stores/harness-availability';
 import {
@@ -75,7 +80,8 @@ import { exportPreviewStore } from './ui/stores/export-preview';
 import { diagramViewerStore } from './ui/stores/diagram-viewer';
 import { imageMimeType, isImagePath } from './core/images';
 import { ipc } from './ipc/commands';
-import { initProviders } from './ipc/provider';
+import { currentProvider, initProviders } from './ipc/provider';
+import { getClipboard } from './ipc/clipboard';
 import { resolveDocsDir, resolvePaths, resolveThemesDir } from './ipc/paths';
 import { themeRegistryStore } from './ui/stores/theme-registry';
 import { importFilters } from './core/import/registry';
@@ -83,14 +89,17 @@ import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
 import { searchStore } from './ui/stores/search';
-import { closeOverview, notesOverviewStore } from './ui/notes-overview';
+import { closeOverview, notesOverviewStore, workspaceRoots } from './ui/notes-overview';
+import { initPromptStatus, promptStatus } from './ui/prompt-status';
+import { closeWorkspaceInit, workspaceInitStore } from './ui/workspace-init';
 import { isAndroid } from './ui/platform';
 import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
-import { stepBackFullscreen } from './ui/fullscreen';
+import { escapeFullscreen } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
 import { whisperSetupStore } from './ui/stores/whisper-setup';
+import { watchScrollActivity } from './ui/scroll-activity';
 
 const MARKDOWN_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
@@ -138,6 +147,9 @@ function applyDomSettings(): void {
 
 applyDomSettings();
 settingsStore.subscribe(applyDomSettings);
+
+// Scrollbars fade in while their pane scrolls and out when idle (base.css).
+watchScrollActivity(document);
 
 /* ---- Smooth scrolling (the engine's; the terminal eases its own) -------- */
 
@@ -244,6 +256,15 @@ const appWindow = getCurrentWindow();
 const WINDOW_LABEL = appWindow.label;
 const IS_MAIN_WINDOW = WINDOW_LABEL === 'main';
 
+/**
+ * Windows that are not the app proper and hold no tabs: tab-drag ghosts and
+ * the presenter view. They are never a drop / "move to window" target and
+ * never count as "another window is still open" when one closes.
+ */
+function isHelperWindow(label: string): boolean {
+  return label.startsWith('ghost-') || label === PRESENTER_LABEL;
+}
+
 /** Shared construction options so every window looks like the main one. */
 const WINDOW_OPTIONS = {
   title: 'MD Notepad',
@@ -326,7 +347,7 @@ async function findDropWindow(excludeLabel?: string): Promise<string | null> {
     return null;
   }
   const others = (await getAllWebviewWindows()).filter(
-    (w) => w.label !== WINDOW_LABEL && w.label !== excludeLabel && !w.label.startsWith('ghost-'),
+    (w) => w.label !== WINDOW_LABEL && w.label !== excludeLabel && !isHelperWindow(w.label),
   );
   const candidates = await Promise.all(
     others.map(async (w): Promise<DropWindowCandidate | null> => {
@@ -440,7 +461,7 @@ function focusWindow(label: string): void {
  */
 async function listOtherWindows(): Promise<TabWindowInfo[]> {
   const others = (await getAllWebviewWindows()).filter(
-    (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+    (w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label),
   );
   const rows = await Promise.all(
     others.map(async (w): Promise<TabWindowInfo | null> => {
@@ -581,6 +602,10 @@ const saveDiscardCancelDialog: SaveDiscardCancelDialog = async (msg, title) => {
 const platform = detectPlatform(navigator.platform);
 
 window.addEventListener('keydown', (event) => {
+  // The presenter window has no tabs and no commands — only its own slide keys.
+  if (WINDOW_LABEL === PRESENTER_LABEL) {
+    return;
+  }
   // Something nearer the event already claimed this key — a focused terminal
   // pane resolving its own shortcut, most of all. Re-running the global
   // dispatcher would fire the action twice.
@@ -608,6 +633,17 @@ window.addEventListener('keydown', (event) => {
     exportPreviewStore.getState().close();
     return;
   }
+  // Escape closes the Initialize Workspace dialog, then the status panel.
+  if (event.key === 'Escape' && workspaceInitStore.getState().open) {
+    event.preventDefault();
+    closeWorkspaceInit();
+    return;
+  }
+  if (event.key === 'Escape' && promptStatus().store.getState().panelOpen) {
+    event.preventDefault();
+    promptStatus().setPanelOpen(false);
+    return;
+  }
   // Escape closes the all-review-notes overview (a panel over everything but
   // the dialogs above).
   if (event.key === 'Escape' && notesOverviewStore.getState().open) {
@@ -622,19 +658,18 @@ window.addEventListener('keydown', (event) => {
     uiStore.getState().closeSettings();
     return;
   }
-  // Escape closes the full-screen tap-and-hold menu before it steps the stage
-  // back — the menu is the innermost thing open.
+  // Escape closes the distraction-free tap-and-hold menu before it leaves the
+  // view — the menu is the innermost thing open.
   if (event.key === 'Escape' && uiStore.getState().fullscreenMenu !== null) {
     event.preventDefault();
     uiStore.getState().closeFullscreenMenu();
     return;
   }
-  // Escape steps the full-screen view back one stage (screen → window →
-  // normal; checked after the settings modal so a dialog opened while
-  // fullscreen closes first).
-  if (event.key === 'Escape' && uiStore.getState().fullscreenView !== 'normal') {
+  // Escape leaves the innermost view: distraction-free first (the chrome
+  // comes back), then OS full screen. Checked after the settings modal so a
+  // dialog opened while chrome-less closes first.
+  if (event.key === 'Escape' && escapeFullscreen()) {
     event.preventDefault();
-    stepBackFullscreen();
     return;
   }
   const action = keyEventToAction(event, platform);
@@ -686,11 +721,45 @@ async function boot(): Promise<void> {
   // desktop stays on the plain local FS.
   initProviders();
 
+  // Prompt status (ui/prompt-status.ts): reads each workspace's STATUSES.md.
+  // Wired here so every consumer — the Escape handler included — finds it;
+  // the first read waits for the session (below), which knows the roots.
+  initPromptStatus({
+    roots: workspaceRoots,
+    read: (path) =>
+      currentProvider()
+        .readTextFile(path)
+        .then((f) => f.text)
+        .catch(() => null),
+    write: (path, text) => currentProvider().atomicWriteText(path, text),
+    copy: (text) => getClipboard().write(text),
+    now: () => new Date(),
+  });
+
   // Load pluggable themes and inject their CSS before mount so the first paint
   // uses the saved color scheme. Seeds the built-in examples on first run.
   await themeRegistryStore.getState().load(await resolveThemesDir());
   injectThemeStyles();
   themeRegistryStore.subscribe(injectThemeStyles);
+
+  // The presenter view (`?presenter=1`, ui/presenter.ts) is not the app
+  // either: themed like it, but no session controller, no manifest, no tabs —
+  // just the component, fed over events by the window that opened it. It
+  // follows theme changes made while a talk is running.
+  if (bootParams.get('presenter') === '1') {
+    void listen<{ from: string; settings: Settings }>('settings-changed', (event) => {
+      applyingRemoteSettings = true;
+      try {
+        settingsStore.getState().replace(normalizeSettings(event.payload.settings));
+      } finally {
+        applyingRemoteSettings = false;
+      }
+    }).catch(() => {});
+    installLinkGuard();
+    installContextMenuGuard();
+    createRoot(document.getElementById('root')!).render(<PresenterView />);
+    return;
+  }
 
   const paths = await resolvePaths(settingsStore.getState().settings);
 
@@ -875,6 +944,8 @@ async function boot(): Promise<void> {
       fsRefreshTimer = setTimeout(() => {
         fsRefreshTimer = null;
         uiStore.getState().refreshExplorer();
+        // Agents report prompt progress by writing STATUSES.md.
+        void promptStatus().refresh();
         // Live conflict detection: an external write inside a watched
         // workspace (vim in the built-in terminal, a sync client) must raise
         // the banner NOW, not at the next window refocus — before then, a
@@ -975,6 +1046,19 @@ async function boot(): Promise<void> {
   // "Set active" on a workspace fans out to every window by default (its
   // right-click variant stays local — see ui/active-workspace.ts).
   listenActiveWorkspace();
+  {
+    // Re-read when the set of workspaces changes; file changes arrive via fs-changed.
+    let rootsSignature = '';
+    const syncStatuses = (): void => {
+      const signature = JSON.stringify(workspaceRoots());
+      if (signature !== rootsSignature) {
+        rootsSignature = signature;
+        void promptStatus().refresh();
+      }
+    };
+    syncStatuses();
+    settingsStore.subscribe(syncStatuses);
+  }
 
   // Live settings sync between windows (see persistSettingsDebounced). Our own
   // broadcast comes back too — drop it by label: the payload is a stale
@@ -1006,6 +1090,28 @@ async function boot(): Promise<void> {
       }
     }
   }).catch(() => {});
+
+  // Presenter view: follow slide changes made in the presenter window (or a
+  // mirror's show) and feed the presenter its deck — ui/presenter.ts.
+  listenPresenter();
+
+  // Tab sync: mirrors of one file (another tab here, or a tab in another
+  // window) type into each other live — src/ui/doc-sync.ts. Same echo rule as
+  // settings-changed: our own broadcast comes back, drop it by label. The
+  // listener is registered BEFORE the hub starts, because starting says
+  // `hello` for every restored file tab and the answers must not be missed;
+  // a failed listen (no Tauri) still syncs the tabs inside this window.
+  void listen<{ from: string; message: DocSyncMessage }>('doc-sync', (event) => {
+    if (event.payload.from !== WINDOW_LABEL) {
+      docSync.receive(event.payload.message);
+    }
+  })
+    .catch(() => {})
+    .then(() => {
+      startDocSync((message) => {
+        void emit('doc-sync', { from: WINDOW_LABEL, message }).catch(() => {});
+      });
+    });
 
   // OS drag-drop into the explorer. Tauri intercepts file drags (HTML5 drop
   // never fires), so hit-test its physical cursor position against the
@@ -1128,7 +1234,7 @@ async function boot(): Promise<void> {
    */
   async function releaseTabsOnClose(): Promise<void> {
     const others = (await getAllWebviewWindows()).filter(
-      (w) => w.label !== WINDOW_LABEL && !w.label.startsWith('ghost-'),
+      (w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label),
     );
     if (others.length === 0) {
       const tabs = await controller.exportTabsForHandoff(); // flushes first
@@ -1175,6 +1281,14 @@ async function boot(): Promise<void> {
         }
       } finally {
         await controller.dispose().catch(() => {});
+        // The presenter view has nothing to present once the last app window
+        // goes — and left open it would keep the app alive with no way in.
+        await (async () => {
+          const windows = await getAllWebviewWindows();
+          if (!windows.some((w) => w.label !== WINDOW_LABEL && !isHelperWindow(w.label))) {
+            await windows.find((w) => w.label === PRESENTER_LABEL)?.destroy();
+          }
+        })().catch(() => {});
         void appWindow.destroy();
       }
     })

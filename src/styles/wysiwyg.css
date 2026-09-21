@@ -196,3 +196,10 @@
   background: var(--bg-alt);
   font-weight: 700;
 }
+
+/* The same empty-note ghost text as the raw editor (core/new-note-hint.ts).
+   Crepe positions it absolutely with zero height, which is fine: the doc is
+   empty whenever it shows, so nothing sits underneath it. */
+.milkdown .crepe-placeholder::before {
+  white-space: pre-wrap;
+}

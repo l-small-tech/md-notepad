@@ -5,8 +5,8 @@
  * Until the whiteboard, every editable tab was markdown and every mode applied
  * everywhere. An `.svg` tab is still an ordinary `kind:'file'` tab — same dirty
  * tracking, session buffering, Ctrl+S, conflict detection, tear-off — it just
- * offers a different pair of modes: Draw (the whiteboard editor) and Raw (the
- * CM6 source view, which is a free SVG source editor).
+ * offers a different set of modes: Draw (the whiteboard editor), Raw (the CM6
+ * source view, which is a free SVG source editor) and Split (both at once).
  *
  * Deliberately keyed on the mode, not the tab kind: `parseManifest` hard-
  * validates `kind` but never validates `mode`, so a `mode:'draw'` file tab
@@ -29,7 +29,15 @@ export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal' | 'deck';
  * `FAMILY_DEFAULTS` below.
  */
 const MARKDOWN_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
-const SVG_MODES: readonly EditorMode[] = ['raw', 'draw'];
+/**
+ * Split on a drawing is the SOURCE beside the BOARD — the same `split` value
+ * markdown uses (so mod+2, the manifest and `isModeAllowed` need nothing new),
+ * with the whiteboard editor in the second pane instead of the preview. Both
+ * halves are live: an edit on either side lands in the one DocModel and the
+ * other re-reads it, and the two panes point at each other's current element
+ * (`core/whiteboard/locate.ts`).
+ */
+const SVG_MODES: readonly EditorMode[] = ['raw', 'split', 'draw'];
 /**
  * Any other file (`.ts`, `.json`, `Makefile`…) — listed where the user shows
  * unsupported files. It is not markdown, so rendering it (Edit, split preview)
@@ -55,12 +63,18 @@ const TERMINAL_MODES: readonly EditorMode[] = ['term'];
  *
  * Raw and Split as for markdown (Split's preview column shows slides), and
  * `read` — labelled *Present* — is the light table: full-width slides with
- * their speaker notes, and the show itself at the full-screen 'screen' stage.
- * Edit (Milkdown) is deliberately HIDDEN: a WYSIWYG round-trip would mangle
- * Marp's directive comments (`<!-- _class: lead -->`) and `![bg]` alt syntax,
- * and hiding the segment is more honest than a mode that corrupts the file.
+ * their speaker notes, and the show itself when the window is full screen (F11).
+ *
+ * Edit is the same `wysiwyg` VALUE markdown uses (so mod+3, the manifest and
+ * the default-mode setting need nothing new) but NOT the same editor: a
+ * Milkdown round-trip would mangle Marp's directive comments
+ * (`<!-- _class: lead -->`) and `![bg]` alt syntax, so on a deck the mode is
+ * the deck editor (`editors/deck-editor.ts`) — filmstrip, rendered slide,
+ * inspector — whose every gesture is a line-precise source edit
+ * (`core/deck-edit.ts`). `editors/edit-switch.ts` picks between the two by
+ * content, and swaps them if the frontmatter arrives or leaves mid-Edit.
  */
-const DECK_MODES: readonly EditorMode[] = ['raw', 'split', 'read'];
+const DECK_MODES: readonly EditorMode[] = ['raw', 'split', 'wysiwyg', 'read'];
 
 /**
  * No path (an unsaved note) is markdown. Images and importable documents stay
@@ -147,7 +161,8 @@ const FAMILY_DEFAULTS: Record<DocFamily, EditorMode> = {
   svg: 'draw',
   code: 'raw',
   terminal: 'term',
-  // Edit is the one markdown mode a deck lacks; Split is the nearest thing.
+  // Source beside slides: where a deck being written (usually by an agent)
+  // is watched. Edit is one segment away once it is time to tweak.
   deck: 'split',
 };
 

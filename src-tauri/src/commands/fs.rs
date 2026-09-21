@@ -13,7 +13,7 @@
 
 use serde::Serialize;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -371,7 +371,11 @@ pub async fn list_notes(dir: PathBuf) -> FsResult<Vec<NoteMeta>> {
 /// "Show unsupported files" (the frontend decides which folders; see
 /// `src/core/text-files.ts`).
 /// Hidden (dot-prefixed) entries are skipped. Order: directories A→Z, then
-/// files newest first (matching `list_notes`). Missing dir = empty list.
+/// files A→Z (case-insensitive). The explorer re-sorts what it gets with
+/// `src/core/explorer-sort.ts` — the SAF backend returns its own order, so the
+/// displayed order (which also compares digit runs numerically) is decided
+/// there; this order just keeps the raw listing stable. Missing dir = empty
+/// list.
 #[tauri::command]
 pub async fn list_dir(dir: PathBuf, all_files: Option<bool>) -> FsResult<Vec<DirEntryMeta>> {
     let all_files = all_files.unwrap_or(false);
@@ -422,7 +426,7 @@ pub async fn list_dir(dir: PathBuf, all_files: Option<bool>) -> FsResult<Vec<Dir
         }
     }
     dirs.sort_by_key(|d| d.path.to_lowercase());
-    files.sort_by_key(|f| std::cmp::Reverse(f.mtime_ms));
+    files.sort_by_key(|f| f.path.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
@@ -475,6 +479,95 @@ fn subtree_has_relevant_file(dir: &Path, depth: usize, all_files: bool) -> bool 
 #[tauri::command]
 pub async fn dir_has_relevant_files(dir: PathBuf, all_files: Option<bool>) -> bool {
     subtree_has_relevant_file(&dir, 0, all_files.unwrap_or(false))
+}
+
+/// How much of a markdown file `is_marp_head` looks at. YAML frontmatter sits
+/// at the very top, so a fixed-size head is enough and bounds the cost of
+/// scanning a folder: the explorer badge must never turn a listing into a
+/// full read of every note.
+const FRONTMATTER_HEAD_BYTES: usize = 4096;
+
+/// Mirror of `isMarpDocument` (`src/core/deck.ts`) over the HEAD of a file:
+/// the frontmatter opens with `---` on line 1 and declares `marp: true`
+/// before its closing `---` / `...`. The TS version is the source of truth —
+/// this copy exists only so the explorer can classify a whole folder without
+/// shipping every note's text across IPC. CRLF-safe, like its mirror.
+fn is_marp_head(head: &str) -> bool {
+    let mut lines = head.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l));
+    if lines.next() != Some("---") {
+        return false;
+    }
+    for line in lines {
+        if is_frontmatter_close(line) {
+            return false; // closed without `marp: true`
+        }
+        if is_marp_true(line) {
+            return true;
+        }
+    }
+    // Unclosed within the head: an unterminated opener is just text, and a
+    // `marp: true` further down would have matched above.
+    false
+}
+
+/// `-{3,}` or `...`, trailing spaces/tabs allowed (TS `FRONTMATTER_CLOSE`).
+fn is_frontmatter_close(line: &str) -> bool {
+    let body = line.trim_end_matches([' ', '\t']);
+    body == "..." || (body.len() >= 3 && body.chars().all(|c| c == '-'))
+}
+
+/// `marp:` `true`, spaces/tabs around the colon and trailing (TS `MARP_TRUE`).
+fn is_marp_true(line: &str) -> bool {
+    let rest = match line.strip_prefix("marp") {
+        Some(rest) => rest.trim_start_matches([' ', '\t']),
+        None => return false,
+    };
+    match rest.strip_prefix(':') {
+        Some(rest) => {
+            rest.trim_start_matches([' ', '\t'])
+                .trim_end_matches([' ', '\t'])
+                == "true"
+        }
+        None => false,
+    }
+}
+
+/// Which markdown files directly inside `dir` are Marp slide decks — the
+/// explorer badges those rows *marp* instead of *md*. Best-effort and
+/// separate from `list_dir` on purpose: the listing must stay a pure
+/// directory enumeration (see its cloud-placeholder note), so this runs after
+/// it, reads only each candidate's first few KiB, and an unreadable file is
+/// simply not a deck. Missing dir = empty list, like the other listings.
+#[tauri::command]
+pub async fn list_deck_files(dir: PathBuf) -> FsResult<Vec<String>> {
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut decks = Vec::new();
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if !has_extension(&path, "md") && !has_extension(&path, "markdown") {
+            continue;
+        }
+        if !matches!(entry.file_type(), Ok(t) if t.is_file()) {
+            continue;
+        }
+        let mut head = Vec::with_capacity(FRONTMATTER_HEAD_BYTES);
+        let read = fs::File::open(&path)
+            .and_then(|f| f.take(FRONTMATTER_HEAD_BYTES as u64).read_to_end(&mut head));
+        if read.is_err() {
+            continue;
+        }
+        if is_marp_head(&String::from_utf8_lossy(&head)) {
+            decks.push(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok(decks)
 }
 
 /// List secondary-window session manifests (`session-<label>.json`) inside
@@ -1129,8 +1222,9 @@ mod tests {
         assert!(entries[0].is_dir);
         assert!(entries[1].is_dir);
         assert_eq!(&names[..2], &["Alpha", "zeta"]);
-        let mut file_names = names[2..].to_vec();
-        file_names.sort();
+        // Files follow the dirs, themselves A→Z (case-insensitive) rather than
+        // newest first — see the `list_dir` doc comment.
+        let file_names = names[2..].to_vec();
         assert_eq!(
             file_names,
             vec![
@@ -1147,6 +1241,50 @@ mod tests {
     fn list_dir_missing_dir_is_empty() {
         let dir = tmpdir();
         assert!(block_on(list_dir(dir.path().join("nope"), None))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn is_marp_head_mirrors_is_marp_document() {
+        assert!(is_marp_head("---\nmarp: true\n---\n# Slide"));
+        assert!(is_marp_head(
+            "---\r\ntheme: gaia\r\nmarp:\ttrue \r\n---\r\n"
+        ));
+        assert!(is_marp_head("---\nmarp : true\n...\n"));
+        // Not the first line, closed before it, false, or a longer key.
+        assert!(!is_marp_head("# Title\n---\nmarp: true\n---\n"));
+        assert!(!is_marp_head("---\ntitle: x\n---\nmarp: true\n"));
+        assert!(!is_marp_head("---\nmarp: false\n---\n"));
+        assert!(!is_marp_head("---\nmarpit: true\n---\n"));
+        assert!(!is_marp_head(" ---\nmarp: true\n---\n"));
+        assert!(!is_marp_head(""));
+    }
+
+    #[test]
+    fn list_deck_files_returns_only_marp_markdown() {
+        let dir = tmpdir();
+        let p = dir.path();
+        fs::write(p.join("deck.md"), "---\nmarp: true\n---\n# One\n").unwrap();
+        fs::write(p.join("DECK2.Markdown"), "---\r\nmarp: true\r\n---\r\n").unwrap();
+        fs::write(p.join("note.md"), "# Just a note\n").unwrap();
+        fs::write(p.join("plain.txt"), "---\nmarp: true\n---\n").unwrap();
+        fs::write(p.join(".hidden.md"), "---\nmarp: true\n---\n").unwrap();
+        fs::create_dir(p.join("folder.md")).unwrap();
+        let mut names: Vec<_> = block_on(list_deck_files(p.to_path_buf()))
+            .unwrap()
+            .into_iter()
+            .map(|path| {
+                Path::new(&path)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, ["DECK2.Markdown", "deck.md"]);
+        assert!(block_on(list_deck_files(p.join("nope")))
             .unwrap()
             .is_empty());
     }

@@ -47,6 +47,12 @@ Tab leaves it where it is.
 | Ctrl+3 | Edit — word-processor style |
 | Ctrl+4 | Review — read-only, full-width |
 
+A tab only offers the modes its file type has, and a chord aimed at one it
+lacks does nothing: a drawing has Raw, Split (the SVG source beside the board)
+and Draw, a code file has Raw and Review, a slide deck has Raw, Split and
+Present. Draw has no digit of its own — use the status bar, or *Mode: Draw*
+in the command palette.
+
 ## Display
 
 | Shortcut | What it does |
@@ -54,7 +60,8 @@ Tab leaves it where it is.
 | Ctrl+= | Larger text |
 | Ctrl+- | Smaller text |
 | Ctrl+0 | Reset text size |
-| F11 (Mac: Ctrl+Cmd+F) | Full screen in Review mode — press again for more, Esc to step back |
+| F11 (Mac: Ctrl+Cmd+F) | Full screen — the window fills the screen, the interface stays as it is; F11 or Esc to leave |
+| P (during a slide show) | Presenter view — notes, next slide and a timer in a second window |
 
 ## Terminal tabs (desktop only)
 
@@ -128,7 +135,7 @@ menu (◧) and the right-click menu. The whole drawing toolkit is described in
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
 | Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
-| Esc | Close Settings / the command palette / leave full screen |
+| Esc | Close Settings / the command palette / put away a side pane opened while distraction-free, leave distraction-free, then full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,
 double-click a tab name to rename it, drag tabs to reorder them, and

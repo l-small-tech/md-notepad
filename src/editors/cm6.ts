@@ -16,7 +16,14 @@
  * M6 will drive (font size and word wrap), and to keep the recipe's shape.
  */
 
-import { Decoration, EditorView, keymap, lineNumbers, type DecorationSet } from '@codemirror/view';
+import {
+  Decoration,
+  EditorView,
+  keymap,
+  lineNumbers,
+  placeholder,
+  type DecorationSet,
+} from '@codemirror/view';
 import { EditorState, Compartment, StateEffect, StateField } from '@codemirror/state';
 import { diffToChanges } from '../core/diff';
 import { joinDictation } from '../core/dictation-insert';
@@ -46,6 +53,11 @@ export interface Cm6Options {
   wordWrap?: boolean;
   /** Initial line-number gutter state (OFF by default — Notepad feel). */
   lineNumbers?: boolean;
+  /**
+   * Ghost text shown while the document is EMPTY (never once there is a
+   * character in it). Multi-line; rendered `pre-wrap`.
+   */
+  placeholder?: string;
   /** Caret to restore on attach (from the persisted session). Clamped to length. */
   initialSelection?: CursorPos;
   /**
@@ -104,6 +116,8 @@ export interface Cm6Adapter extends EditorAdapter {
    * height (a hidden tab) — a measurement nobody should act on.
    */
   getTopLine(): number | null;
+  /** The 1-based line the caret is on, or null while detached. */
+  getCaretLine(): number | null;
   /**
    * Put that line back at the top of the viewport. Unlike `revealLine` this
    * moves nothing but the scroll: no caret, no focus — the reader is arriving
@@ -131,6 +145,28 @@ export interface Cm6Adapter extends EditorAdapter {
   flashRanges(ranges: { from: number; to: number }[], kind: FlashKind): void;
   /** Drop every highlight of that kind now (the merge landed). */
   clearFlash(kind: FlashKind): void;
+  /**
+   * Split mode's raw ⇄ draw link: mark the source of what is selected in the
+   * other pane. A steady highlight, not a flash — it is a statement about
+   * where you are, and it lasts until the selection changes. `[]` clears it.
+   * `reveal` scrolls the first range into view if it is off screen; the caret
+   * and the focus are deliberately left alone, because the other pane's
+   * selection must never interrupt typing in this one.
+   */
+  setLinkedRanges(ranges: { from: number; to: number }[], reveal?: boolean): void;
+  /**
+   * Put the caret on `[from, to)`, centre it and take focus — the explicit
+   * "show me this in the source" jump, as opposed to the passive highlight.
+   */
+  revealRange(from: number, to: number): void;
+  /**
+   * Watch the caret. Same payload `onSelection` gets; unlike that option (one
+   * consumer, the session/status bar) this is a subscription, because Split
+   * mode's link is a second listener with its own lifetime.
+   */
+  subscribeSelection(
+    listener: (pos: CursorPos & { line: number; col: number }) => void,
+  ): () => void;
 }
 
 /**
@@ -189,6 +225,49 @@ function flashField(kind: FlashKind): StateField<DecorationSet> {
 }
 const addedFlashField = flashField('added');
 const removedFlashField = flashField('removed');
+
+/* ---- Split-mode raw ⇄ draw link ----------------------------------------- */
+
+/**
+ * The source of what the other pane has selected. A MARK decoration, not a
+ * line one (which is what the merge flashes use): a `<line>` and its label may
+ * share a line in a hand-authored file, and highlighting the whole row would
+ * then claim both. It maps through edits like any decoration, so a stroke
+ * drawn on the board re-lands its own highlight without a recompute.
+ */
+const setLinked = StateEffect.define<FlashRange[]>({
+  map: (ranges, change) =>
+    ranges.map((r) => ({ from: change.mapPos(r.from), to: change.mapPos(r.to) })),
+});
+
+const linkedMark = Decoration.mark({ class: 'cm-wb-linked' });
+
+const linkedField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes);
+    for (const effect of tr.effects) {
+      if (!effect.is(setLinked)) {
+        continue;
+      }
+      const doc = tr.state.doc;
+      next = Decoration.none.update({
+        add: effect.value
+          .map((r) => {
+            const from = Math.max(0, Math.min(r.from, doc.length));
+            const to = Math.max(from, Math.min(r.to, doc.length));
+            return { from, to };
+          })
+          // A zero-length mark is not renderable and CM6 rejects it.
+          .filter((r) => r.to > r.from)
+          .map((r) => linkedMark.range(r.from, r.to)),
+        sort: true,
+      });
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 /** How long each highlight stays before it is dropped. The green CSS fade is
  *  a little shorter than its timer, so the removal is invisible; the red one
@@ -596,18 +675,26 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
     removed: null,
   };
 
+  /** Extra caret watchers beside `options.onSelection` — see subscribeSelection. */
+  const selectionListeners = new Set<(pos: CursorPos & { line: number; col: number }) => void>();
+
   function reportSelection() {
-    if (!view || !options.onSelection) {
+    if (!view || (!options.onSelection && selectionListeners.size === 0)) {
       return;
     }
     const sel = view.state.selection.main;
     const line = view.state.doc.lineAt(sel.head);
-    options.onSelection({
+    const pos = {
       line: line.number,
       col: sel.head - line.from + 1,
       anchor: sel.anchor,
       head: sel.head,
-    });
+    };
+    options.onSelection?.(pos);
+    // Copy before iterating: a listener may unsubscribe during dispatch.
+    for (const listener of [...selectionListeners]) {
+      listener(pos);
+    }
   }
 
   // Intercept a paste that carries image files: save each via options.saveImage
@@ -710,12 +797,14 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         plainDotsExtension,
         addedFlashField,
         removedFlashField,
+        linkedField,
         themeCompartment.of([baseTheme, syntaxHighlighting(languageStyle)]),
         // Font size defaults to the CSS variable so M1 needs no wiring; M6's
         // setFontSize reconfigures this compartment to an explicit px value.
         fontSizeCompartment.of(fontSizeTheme('var(--editor-font-size, 14px)')),
         wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
         lineNumbersCompartment.of(showLineNumbers ? lineNumbers() : []),
+        ...(options.placeholder ? [placeholder(options.placeholder)] : []),
         EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off' }),
         // Touch-only: double-tap the text to retract the soft keyboard.
         ...(options.dismissKeyboardOnDoubleTap ? [createKeyboardDismissGesture()] : []),
@@ -782,6 +871,9 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         effects: EditorView.scrollIntoView(target.from, { y: 'center' }),
       });
       view.focus();
+    },
+    getCaretLine() {
+      return view ? view.state.doc.lineAt(view.state.selection.main.head).number : null;
     },
     getTopLine() {
       if (!view) {
@@ -894,6 +986,45 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
         flashTimers[kind] = null;
       }
       view?.dispatch({ effects: clearFlash.of(kind) });
+    },
+    setLinkedRanges(ranges, reveal = false) {
+      if (!view) {
+        return;
+      }
+      const first = ranges[0];
+      view.dispatch({
+        effects: [
+          setLinked.of(ranges),
+          // `y: 'nearest'` — a range already on screen must not scroll, or the
+          // pane would twitch every time the other one's selection changed.
+          ...(reveal && first
+            ? [
+                EditorView.scrollIntoView(Math.min(first.from, view.state.doc.length), {
+                  y: 'nearest',
+                }),
+              ]
+            : []),
+        ],
+      });
+    },
+    revealRange(from, to) {
+      if (!view) {
+        return;
+      }
+      const max = view.state.doc.length;
+      const anchor = Math.max(0, Math.min(from, max));
+      const head = Math.max(anchor, Math.min(to, max));
+      view.dispatch({
+        selection: { anchor, head },
+        effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
+      });
+      view.focus();
+    },
+    subscribeSelection(listener) {
+      selectionListeners.add(listener);
+      return () => {
+        selectionListeners.delete(listener);
+      };
     },
   };
 }

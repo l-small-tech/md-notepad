@@ -43,7 +43,7 @@ function splitLines(markdown: string): string[] {
  * The 0-based index of the line AFTER a leading YAML frontmatter block, or 0
  * when there is none. An unclosed opener is just text (as in `outline.ts`).
  */
-function frontmatterEnd(lines: readonly string[]): number {
+export function frontmatterEnd(lines: readonly string[]): number {
   if (lines[0] !== '---') {
     return 0;
   }

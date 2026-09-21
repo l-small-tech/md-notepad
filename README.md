@@ -74,7 +74,8 @@ The notepad half. Fast, plain, and built to never lose a word.
   no lock-in. Open and save regular files anywhere, too.
 - 👁️ **Four modes per tab** — raw source (CodeMirror 6), split
   source+preview, WYSIWYG (Milkdown Crepe), and a distraction-free **Review**
-  mode with zoom. Any mode goes fullscreen (F11) in two stages.
+  mode with zoom. Any mode goes distraction-free (chrome hidden) or full
+  screen (F11), independently.
 - 🧜 **Full GFM preview** — tables, task lists, strikethrough, autolinks —
   plus **Mermaid** diagrams rendered in place. Ask an agent for a diagram
   and read it here.

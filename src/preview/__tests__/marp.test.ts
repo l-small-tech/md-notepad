@@ -17,6 +17,7 @@ import {
   mountSlide,
   renderDeck,
   resetMarpForTests,
+  stripLineStamps,
 } from '../marp';
 
 const DECK = ['---', 'marp: true', '---', '# One', '', '<!-- say hi -->', '', '---', '# Two'].join(
@@ -88,6 +89,41 @@ describe('renderDeck', () => {
     });
     expect(deck.slides).toHaveLength(1);
     expect(deck.slides[0]!.html).not.toContain('data-theme="nope"');
+  });
+
+  test('stampLines marks every block with its source line range; a plain render has none', async () => {
+    const source = [
+      '---', // 1
+      'marp: true',
+      '---',
+      '# One', // 4
+      '',
+      'Para one', // 6
+      'still para', // 7
+      '',
+      '- a', // 9
+      '- b', // 10
+      '',
+      '---', // 12
+      '',
+      '```js', // 14
+      'x', // 15
+      '```', // 16
+    ].join('\n');
+    const plain = await renderDeck(source);
+    expect(plain.slides[0]!.html).not.toContain('data-line');
+    const deck = await renderDeck(source, { stampLines: true });
+    const one = deck.slides[0]!.html;
+    expect(one).toMatch(/<h1[^>]*data-line="4"[^>]*data-line-end="4"/);
+    expect(one).toMatch(/<p[^>]*data-line="6"[^>]*data-line-end="7"/);
+    expect(one).toMatch(/<li[^>]*data-line="9"[^>]*data-line-end="9"/);
+    // markdown-it's map for the last item swallows the blank line after it;
+    // `core/deck-edit blockRange` trims that before anything is edited.
+    expect(one).toMatch(/<li[^>]*data-line="10"[^>]*data-line-end="11"/);
+    expect(deck.slides[1]!.html).toMatch(/data-line="14"[^>]*data-line-end="16"/);
+    expect(stripLineStamps(one)).toBe(plain.slides[0]!.html);
+    // The flag never leaks into the next plain render.
+    expect((await renderDeck(source)).slides[0]!.html).not.toContain('data-line');
   });
 
   test('a half-written document still renders (never breaks mid-edit)', async () => {

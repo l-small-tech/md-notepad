@@ -27,11 +27,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FormatAction } from '../../editors/cm6';
 import { DEFAULT_SETTINGS, MAX_FONT_SIZE, MIN_FONT_SIZE } from '../../core/settings';
+import { docFamilyForTab } from '../../core/doc-family';
 import { getSourceAdapter } from '../editor-registry';
 import { AppMenuDivider, AppMenuItem } from './AppMenu';
 import { detectPlatform } from '../keymap';
 import { isAndroid } from '../platform';
-import { setFullscreen } from '../fullscreen';
+import { setDistractionFree } from '../fullscreen';
 import { insertFileLink, isTabLive, saveActiveTab, saveActiveTabAs } from '../session';
 import { dictationEngine, toggleArmed, useVoiceStore } from '../voice-comments';
 import { toggleOverview, useNotesOverview } from '../notes-overview';
@@ -77,16 +78,17 @@ const IS_MAC = detectPlatform(navigator.platform) === 'mac';
 /** Whether this machine has a touchscreen — gates the board's touch policy. */
 const HAS_TOUCH = navigator.maxTouchPoints > 0;
 
-/** Platform-correct shortcut hint for the fullscreen tooltips. */
+/** Platform-correct shortcut hint for the distraction-free tooltip. */
 const FULLSCREEN_KEY = IS_MAC ? '⌃⌘F' : 'F11';
 
 /**
- * Tooltip for the ribbon's fullscreen button. Desktop has two stages (hide
- * chrome, then OS fullscreen); Android has a single distraction-free stage.
+ * Tooltip for the ribbon's distraction-free button. Desktop also has OS full
+ * screen (F11), which is independent and leaves the chrome alone; Android has
+ * only this.
  */
-const FULLSCREEN_TITLE = isAndroid()
-  ? 'Full screen — hide the app chrome'
-  : `Full window — hide the app chrome (${FULLSCREEN_KEY}; press again for full screen)`;
+const DISTRACTION_FREE_TITLE = isAndroid()
+  ? 'Distraction-free — hide the app chrome'
+  : `Distraction-free — hide the app chrome (${FULLSCREEN_KEY} for full screen)`;
 
 function applyFormat(action: FormatAction): void {
   const state = tabsStore.getState();
@@ -94,7 +96,7 @@ function applyFormat(action: FormatAction): void {
   if (!tab) {
     return;
   }
-  if (tab.mode === 'wysiwyg' || tab.mode === 'draw') {
+  if (tab.mode === 'wysiwyg' || tab.mode === 'draw' || docFamilyForTab(tab) === 'svg') {
     uiStore.getState().showNotice('Formatting controls work in Markdown and Split modes.');
     return;
   }
@@ -1416,6 +1418,14 @@ function VoiceNotesSlot() {
 export function Ribbon() {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const mode = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.mode ?? 'raw');
+  // The draw cluster follows the BOARD, not the mode name: a drawing's Split
+  // has one on screen beside the source editor, and the markdown formatting
+  // controls it would otherwise show mean nothing in SVG.
+  const drawing = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab !== undefined && docFamilyForTab(tab) === 'svg';
+  });
+  const showDraw = mode === 'draw' || (drawing && mode === 'split');
   // Back appears only while browsing a followed link in the active tab's preview
   // (read/split). It sits with the chrome, so full screen (which hides the
   // ribbon) uses the floating cluster's Back instead — no in-pane bar either way.
@@ -1485,7 +1495,7 @@ export function Ribbon() {
         )}
       </div>
 
-      {mode === 'draw' ? (
+      {showDraw ? (
         <DrawControls tabId={activeTabId} />
       ) : mode === 'read' ? (
         <ReaderControls />
@@ -1496,21 +1506,21 @@ export function Ribbon() {
       <div className="ribbon-right">
         <button
           className="ribbon-btn"
-          aria-label={isAndroid() ? 'Full screen' : 'Full window'}
-          title={FULLSCREEN_TITLE}
+          aria-label="Distraction-free"
+          title={DISTRACTION_FREE_TITLE}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setFullscreen('window')}
+          onClick={() => setDistractionFree(true)}
         >
           ⤢
         </button>
         {/* A whiteboard has no headings, so hide (not remove) the outline
-            toggle in draw mode — the reserved space keeps the fullscreen
+            toggle on a drawing — the reserved space keeps the distraction-free
             button where muscle memory expects it. */}
         <button
           className="ribbon-btn ribbon-btn-lg"
-          style={mode === 'draw' ? { visibility: 'hidden' } : undefined}
-          aria-hidden={mode === 'draw' || undefined}
-          tabIndex={mode === 'draw' ? -1 : undefined}
+          style={drawing ? { visibility: 'hidden' } : undefined}
+          aria-hidden={drawing || undefined}
+          tabIndex={drawing ? -1 : undefined}
           aria-label="Toggle outline"
           title="Outline (Ctrl/Cmd+Shift+O)"
           onMouseDown={(e) => e.preventDefault()}

@@ -71,6 +71,36 @@ Rules:
   ratio lives in a module-level variable shared by every tab, so it survives
   tab switches for the session (not persisted to the manifest).
 
+### Split on a drawing (`.svg`)
+
+The same second pane, holding the whiteboard EDITOR instead of a preview —
+both halves live over the one DocModel, which is all the syncing there is to
+do (I1: an edit on either side is a `pushText`, and the other side is a
+subscriber). `SVG_MODES` is `['raw', 'split', 'draw']`; Draw stays the family
+default.
+
+- **The source editor keeps the editor pane**, so mode-sync's `kindFor` is
+  unchanged and raw ⇄ split leaves CM6 alone (I7) — the caret and the undo
+  history survive the toggle you make most. The board is built and torn down
+  with the mode by the `[tabId, mode]` effect, costing it only its undo
+  timeline, which every whiteboard mode switch already costs.
+- **`createBoardAdapter(tabId, extra)`** (module scope in EditorHost) builds
+  it, and is the same function mode-sync's `draw` factory calls — one options
+  object, two call sites, so Draw and Split cannot drift. They share the tab's
+  `stores/whiteboard` entry: the Split column registers itself on attach and
+  hands the registry back to `drawAdapterRef` on the way out (or
+  `clearWhiteboardAdapter`, which keeps `viewByTab` — the viewport is session
+  state that should survive the round trip).
+- **`ui/svg-split.ts` links the panes** — board selection → highlighted markup
+  (no caret move), caret → selected element (revealed if off screen), and the
+  board menu's "Reveal in source". The mapping is
+  `core/whiteboard/locate.ts`; the module's own header owns the two rules that
+  are easy to get wrong (microtask deferral, and forgetting the caret's last
+  target on every document change).
+- The ribbon's draw cluster and the hidden outline toggle are keyed on the
+  FAMILY now, not on `mode === 'draw'`: a drawing has a board on screen in
+  Split too, and has no headings in any mode.
+
 ### Keeping your place across a mode switch
 
 Every mode shows the same document, but each surface scrolls in its own
@@ -469,8 +499,26 @@ the pill (no controller, no manifest), every window enumeration skips
   The context menu's "Move to window …" rows reach the same handover
   explicitly (target picked by name, no coordinates) — which is why they
   exist: it is the one route into an existing window that Wayland permits.
-- **Cross-window invariants**: the controller's `adoptTabs` skips files a
-  local tab already owns (one owner per file, applied across windows);
+- **Tab sync (mirrors)**: a FILE may be open in several tabs — "Duplicate
+  tab" / "Duplicate in new window" in the tab menu, a file opened from the OS
+  into a second window, a tab dropped beside its twin. Each mirror keeps its
+  own DocModel; `ui/doc-sync.ts` attaches every file tab to the pure hub in
+  `core/doc-sync.ts`, which fans edits out to sibling tabs directly and to
+  other windows over the `doc-sync` event (whole text, own echo dropped by
+  label), announces saves so mirrors adopt the new baseline
+  (`adoptMergedText`) instead of raising the ConflictBanner, and lets the
+  conflict probe recognise a mirror's write that raced its announcement
+  (`mirrorKnowsText`). `retargetFilePath` moves all mirrors; explorer delete
+  closes all of them. NOTE tabs never mirror: a note's file follows one tab.
+- **Presenter view**: `ui/presenter.ts` + `components/PresenterView.tsx`. One
+  helper window, fixed label `w-presenter` (`?presenter=1` boot branch in
+  main.tsx: themed, but no controller/manifest/tabs; `isHelperWindow` keeps it
+  out of drop targets, "Move to window" and the last-window count). The
+  opening window feeds it the deck text (`presenter-deck`, re-sent on edits
+  and on `presenter-ready`); `deck-slide` broadcasts the current slide both
+  ways through `slideStore`, which `DeckShow` publishes to and follows.
+- **Cross-window invariants**: the controller's `adoptTabs` skips NOTES a
+  local tab already owns (a file tab is adopted as a mirror — see above);
   file-open entry points (argv, `open-files`) target main only; the
   notes-dir change flow is main-only; settings changes broadcast via a
   `settings-changed` event so theme/fonts stay uniform — except a theme a
@@ -582,7 +630,8 @@ elsewhere (`navigator.platform`-based helper).
 
 | Keys | Action | Milestone |
 | --- | --- | --- |
-| mod+N | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
+| mod+N | new OS window with one empty note (`session/windows.ts` `openEmptyWindow`) | M8 |
+| + button / palette "New tab" | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
 | mod+Shift+N | new-tab type picker (note / drawing / terminal) | M9 |
 | mod+W | close tab (confirm per semantics) | M1/M2 |
 | mod+Tab / mod+Shift+Tab | next / previous tab | M1 |
@@ -789,6 +838,20 @@ map. A callout's edit and delete go through `editNote(tabId, id, text)` /
 change)`: a read → change → write of the sidecar that keeps the preamble's
 review context (`core/comments parseReviewContext`), refreshes the marks and
 an open composer's `comments`, and tells `onNotesChanged` listeners.
+
+**Initialize Workspace and prompt status.** `workspace-init.ts` +
+`components/InitWorkspaceDialog.tsx` gather the inputs for
+`core/workspace-modules.ts` (folder, the user's `<appData>/agent-modules/*.md`,
+the files already there), write what it plans, and register the folder as a
+workspace; opened with a root (context menu "Workspace directives…") it is the
+re-run. Desktop only. `prompt-status.ts` is the store of every workspace's
+parsed `STATUSES.md` — created in main.tsx (`initPromptStatus`), refreshed at
+boot, on workspace-list changes and on `fs-changed`; its only write is
+"Copy as prompt" marking a row `queued` after a fresh read.
+`components/PromptStrip.tsx` (mounted in EditorHost, visible only inside a
+workspace that HAS a STATUSES.md) is the copy button + chips;
+`components/StatusPanel.tsx` is the all-prompts panel (Escape closes). The app
+never launches an agent: the user pastes into their own terminal.
 
 **The overview** ("All notes" in the ribbon and in every callout;
 `Show all review notes` in the palette; Escape closes) is

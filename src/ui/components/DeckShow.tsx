@@ -1,15 +1,15 @@
 /**
- * DeckShow — the show itself: a deck's full-screen 'screen' stage.
+ * DeckShow — the show itself: a deck in OS full screen (F11).
  *
  * One slide letterboxed on a dark stage, keyboard driven — arrows, Space,
- * PgUp/PgDn, Home/End, a typed number then Enter to jump — with a two-pixel
+ * PgUp/PgDn, Home/End, a typed number then Enter to jump, P for the presenter
+ * view (notes, next slide and a timer in a second window) — with a two-pixel
  * progress bar along the bottom edge. It is NOT a mode and holds no store
- * state of its own: App mounts it while the fullscreen stage is 'screen' and
- * the active tab is a deck, and unmounts it when either changes. Escape is
- * the global keydown listener's (main.tsx) — it steps the stage back to
- * 'window', which is the light table (or Split, or Raw) on the slide that
- * was showing: this component reports its slide back to the surface below
- * on the way out.
+ * state of its own: App mounts it while the window is fullscreen and the
+ * active tab is a deck, and unmounts it when either changes. Escape is the
+ * global keydown listener's (main.tsx) — it leaves full screen, which is the
+ * light table (or Split, or Raw) on the slide that was showing: this
+ * component reports its slide back to the surface below on the way out.
  *
  * Slides come from the same `renderDeck` the panes use and mount the same
  * way (a shadow root per slide, `mountSlide`), so a deck that changes on
@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { slideIndexForLine, splitSlides } from '../../core/deck';
+import { splitSlides } from '../../core/deck';
 import {
   applyMarpBrowser,
   createImageResolver,
@@ -28,28 +28,15 @@ import {
   type DeckRender,
 } from '../../preview/marp';
 import { dirName } from '../../core/session/plan-flush';
-import { readSurfaceTopLine, scrollSurfaceToLine } from '../mode-scroll';
+import { scrollSurfaceToLine } from '../mode-scroll';
 import { scrollSurfaceFor } from '../../core/mode-scroll';
+import { deckKeyFor, openPresenterView, publishSlide, slideStore, startSlide } from '../presenter';
 import { deckPaneFor } from '../stores/deck-show';
 import { tabsStore } from '../stores/tabs';
 
 const RENDER_DEBOUNCE_MS = 200;
 /** How long a typed slide number waits for Enter (or more digits). */
 const JUMP_TIMEOUT_MS = 1500;
-
-/** The slide the show opens on: whatever the surface underneath has on top. */
-function startSlide(tabId: string): number {
-  const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
-  if (!tab) {
-    return 0;
-  }
-  const pane = deckPaneFor(tabId);
-  if (pane) {
-    return pane.getTopSlide();
-  }
-  const line = readSurfaceTopLine(tabId, tab.mode);
-  return line === null ? 0 : slideIndexForLine(splitSlides(tab.model.getText()), line);
-}
 
 /** Put the slide that was showing back on top of the surface underneath. */
 function landOn(tabId: string, index: number): void {
@@ -80,6 +67,27 @@ export function DeckShow({ tabId }: { tabId: string }) {
   useEffect(() => {
     indexRef.current = index;
   }, [index]);
+
+  // Presenter view: say which slide is up, and follow a slide change made in
+  // the presenter window (or a mirror's show) — ui/presenter.ts. Publishing a
+  // slide that came from the store is a no-op there, so this cannot loop.
+  const [deckKey] = useState(() => {
+    const tab = tabsStore.getState().tabs.find((t) => t.id === tabId);
+    return tab ? deckKeyFor(tab) : `tab:${tabId}`;
+  });
+  useEffect(() => {
+    publishSlide(deckKey, index);
+  }, [deckKey, index]);
+  useEffect(
+    () =>
+      slideStore.subscribe((s) => {
+        const remote = s.byKey[deckKey];
+        if (remote !== undefined && remote !== indexRef.current) {
+          setIndex(remote);
+        }
+      }),
+    [deckKey],
+  );
 
   // Render the deck now and after every (debounced) model change.
   useEffect(() => {
@@ -151,7 +159,8 @@ export function DeckShow({ tabId }: { tabId: string }) {
   }, []);
 
   // Keyboard: the show owns the arrows while it is up. Escape and F11 are
-  // left to the global dispatcher (stage steps), everything else to the app.
+  // left to the global dispatcher (they leave full screen), everything else
+  // to the app.
   // The typed number lives in a ref (the listener reads it) and is mirrored
   // into state only for display, so typing never re-subscribes the listener.
   const jumpRef = useRef('');
@@ -204,6 +213,10 @@ export function DeckShow({ tabId }: { tabId: string }) {
             go(indexRef.current + 1);
           }
           break;
+        case 'p':
+        case 'P':
+          void openPresenterView(tabId);
+          break;
         default:
           if (/^[0-9]$/.test(e.key)) {
             jumpRef.current += e.key;
@@ -225,7 +238,7 @@ export function DeckShow({ tabId }: { tabId: string }) {
         clearTimeout(jumpTimer);
       }
     };
-  }, [deck]);
+  }, [deck, tabId]);
 
   const total = deck?.slides.length ?? 0;
   const shown = total === 0 ? 0 : Math.min(index, total - 1);
