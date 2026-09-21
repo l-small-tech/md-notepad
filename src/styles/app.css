@@ -1135,6 +1135,27 @@ body.tab-drag-live * {
   transform: translate(-50%, 0);
 }
 
+/* The workspace pane's pull tab (App's WorkspacePull): tucked past the LEFT
+   edge, mid-height, sliding out when the pointer pushes against that edge.
+   Flat on the edge side so it reads as a tab attached to the (hidden) pane. */
+.fullscreen-pull {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  z-index: 42;
+  height: 56px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transform: translate(calc(-100% - 12px), -50%);
+  transition: transform 160ms ease;
+}
+
+.fullscreen-pull.is-revealed,
+.fullscreen-pull:focus-visible {
+  transform: translate(0, -50%);
+}
+
 /* The tap-and-hold menu (components/FullscreenMenu) — a `.tab-menu` popover
    sized for fingers, since touch is what summons it (48px ≈ the Android
    touch-target guideline). JS positions it at the press point and clamps it

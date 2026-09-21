@@ -62,6 +62,12 @@ including drawings. Once the chrome is hidden, there are two ways back:
 
 - **Mouse and keyboard** — move the pointer to the top of the window for the
   floating controls (full screen on/off and an exit), or press **Esc**.
+- **Changing files without leaving** — reading a folder of notes means moving
+  between them, so the **Workspaces** pane stays within reach: push the
+  pointer against the **left edge** of the window and a small folder tab
+  slides out — click it to pull the pane out (the floating controls have the
+  same folder button). Pick a file and carry on; **Esc** puts the pane away
+  first, and a second **Esc** leaves distraction-free.
 - **Touch or pen** — press and hold anywhere for a moment. A small menu
   appears with **Exit distraction-free**, **Workspaces** and **Outline**. On
   a drawing, the hold that opens the menu doesn't leave a mark.

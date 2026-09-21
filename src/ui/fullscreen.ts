@@ -13,6 +13,12 @@
  * Either can be on without the other, and both can be on at once. Escape
  * leaves distraction-free first (the innermost view), then full screen.
  *
+ * Distraction-free shuts the side panels on the way in, but they can be pulled
+ * back out from inside it — the workspace pane above all, since Review mode
+ * there is how a knowledge base gets read and that means changing files
+ * (desktop: App's left-edge pull tab and the cluster's folder button; touch:
+ * the tap-and-hold menu). Escape puts such a panel away before anything else.
+ *
  * On Android there is no OS full screen: the window already fills the screen,
  * so a full-screen request folds into the distraction-free toggle — the only
  * thing that can visibly change there — and the Tauri fullscreen/geometry
@@ -193,12 +199,18 @@ export function toggleFullscreen(): void {
 }
 
 /**
- * Escape: leave the innermost view. Distraction-free comes back first (the
- * chrome returns; the window stays fullscreen if it was), then full screen.
- * Returns false when neither was on, so the caller can let Escape through.
+ * Escape: leave the innermost view. A side panel pulled out while
+ * distraction-free goes first (back to the document and nothing else), then
+ * distraction-free (the chrome returns; the window stays fullscreen if it
+ * was), then full screen. Returns false when neither was on, so the caller can
+ * let Escape through.
  */
 export function escapeFullscreen(): boolean {
   const state = uiStore.getState();
+  if (state.distractionFree && (state.explorerOpen || state.outlineOpen)) {
+    state.closePanels();
+    return true;
+  }
   if (state.distractionFree) {
     setDistractionFree(false);
     return true;
