@@ -135,7 +135,7 @@ menu (◧) and the right-click menu. The whole drawing toolkit is described in
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
 | Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
-| Esc | Close Settings / the command palette / leave distraction-free, then full screen |
+| Esc | Close Settings / the command palette / put away a side pane opened while distraction-free, leave distraction-free, then full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,
 double-click a tab name to rename it, drag tabs to reorder them, and

@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Browse your workspace while distraction-free.** Going distraction-free
+  still leaves only the document, but the Workspaces pane is now one gesture
+  away: push the pointer against the left edge for a pull tab (or use the new
+  folder button in the floating controls) to open it and switch files —
+  handy for reading through a markdown knowledge base in Review mode. Esc
+  puts the pane away before it leaves distraction-free.
 - **Split mode for drawings.** A drawing tab now has a **Split** button
   (Ctrl+2) beside Raw and Draw: the `.svg` source on the left, the board on
   the right, both of them editable and each one following the other as you
