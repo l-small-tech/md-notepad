@@ -701,8 +701,10 @@ export function createDeckEditorAdapter(options: DeckEditorOptions): DeckEditorA
       if (engine.mountSlide(stageRoot, deck.css, slide.html)) {
         void engine.inlineImages(stageRoot, docDir(), resolveImage);
       }
-      placePop();
+      // A remount leaves the hover outline around an element that is gone;
+      // an open block's outline is re-drawn around its new one.
       outline.hidden = true;
+      placePop();
     }
 
     function applyRender(): void {
