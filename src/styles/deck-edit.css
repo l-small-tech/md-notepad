@@ -1,0 +1,364 @@
+/*
+ * Edit mode on a Marp deck (src/editors/deck-editor.ts): filmstrip, stage,
+ * inspector. As in deck.css, nothing here reaches inside a slide — every
+ * slide's markup is in a shadow root, styled by its Marp theme. These are the
+ * frames, the chrome, and the block popover that floats over the stage.
+ */
+
+.deck-edit {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+/* ---- filmstrip ----------------------------------------------------------- */
+
+.deck-edit-strip {
+  position: relative;
+  flex: 0 0 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 12px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--border);
+  outline: none;
+  user-select: none;
+}
+
+.deck-edit-thumb {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  cursor: pointer;
+}
+
+.deck-edit-thumb-num {
+  flex: 0 0 2ch;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+.deck-edit-thumb-frame {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #fff;
+  /* A thumbnail is a handle: presses belong to the strip, not the slide. */
+  pointer-events: none;
+}
+
+.deck-edit-thumb:hover > .deck-edit-thumb-frame {
+  border-color: var(--fg-muted);
+}
+
+.deck-edit-thumb-current > .deck-edit-thumb-frame {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.deck-edit-thumb-current > .deck-edit-thumb-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.deck-edit-strip:focus-visible .deck-edit-thumb-current > .deck-edit-thumb-frame {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.deck-edit-thumb-dragging {
+  opacity: 0.4;
+}
+
+.deck-edit-drop {
+  position: absolute;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.deck-edit-drop-vertical {
+  width: 2px;
+}
+
+/* ---- main column: toolbar, stage, notes ---------------------------------- */
+
+.deck-edit-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--editor-bg);
+}
+
+.deck-edit-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deck-edit-spacer {
+  flex: 1 1 auto;
+}
+
+.deck-edit-count {
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.deck-edit-button {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deck-edit-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.deck-edit-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.deck-edit-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 16px;
+  /* The frame sizes itself against THIS box (cq units below). */
+  container-type: size;
+}
+
+.deck-edit-frame {
+  /* Letterboxed: as large as the stage allows at the deck's aspect ratio. */
+  width: min(100cqw, calc(100cqh * var(--deck-aspect, 1.7778)));
+  aspect-ratio: var(--deck-aspect, 1.7778);
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+  cursor: text;
+}
+
+/* The block under the pointer, and the block being edited. */
+.deck-edit-outline {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.deck-edit-pop {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+
+.deck-edit-pop-text,
+.deck-edit-notes-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--editor-bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--editor-font-size, 14px);
+  line-height: 1.5;
+  outline: none;
+}
+
+.deck-edit-pop-text:focus,
+.deck-edit-notes-text:focus,
+.deck-edit-input:focus {
+  border-color: var(--accent);
+}
+
+.deck-edit-pop-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deck-edit-pop-hint {
+  flex: 1 1 auto;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.deck-edit-notes {
+  flex: none;
+  padding: 0 16px 14px;
+}
+
+.deck-edit-label,
+.deck-edit-section-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.deck-edit-notes-text {
+  height: 84px;
+  min-height: 48px;
+  max-height: 40vh;
+}
+
+/* ---- inspector ----------------------------------------------------------- */
+
+.deck-edit-inspector {
+  flex: 0 0 264px;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-left: 1px solid var(--border);
+}
+
+.deck-edit-section {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deck-edit-section:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
+.deck-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.deck-edit-row[hidden] {
+  display: none;
+}
+
+.deck-edit-row-label {
+  flex: 0 0 84px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.deck-edit-row-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.deck-edit-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--editor-bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.deck-edit-swatch {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ---- narrow windows and phones: one column, the strip on top -------------- */
+
+@media (max-width: 860px) {
+  .deck-edit {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .deck-edit-strip {
+    flex: none;
+    flex-direction: row;
+    padding: 8px;
+    overflow: auto hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .deck-edit-thumb {
+    flex: 0 0 132px;
+  }
+
+  .deck-edit-main {
+    flex: none;
+  }
+
+  .deck-edit-stage {
+    flex: none;
+    /* No definite height to letterbox against: the width decides. */
+    container-type: inline-size;
+    margin: 12px;
+  }
+
+  .deck-edit-frame {
+    width: 100cqw;
+  }
+
+  .deck-edit-inspector {
+    flex: none;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}

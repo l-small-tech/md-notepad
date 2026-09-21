@@ -55,11 +55,13 @@ describe('the deck family', () => {
     expect(docFamilyForTab({ kind: 'terminal', deck: true })).toBe('terminal');
   });
 
-  it('offers Raw, Split and Present (the read mode) but never Edit', () => {
-    expect(allowedModesFor('deck')).toEqual(['raw', 'split', 'read']);
-    expect(isModeAllowed('deck', 'wysiwyg')).toBe(false);
+  it('offers Raw, Split, Edit (the deck editor) and Present (the read mode)', () => {
+    expect(allowedModesFor('deck')).toEqual(['raw', 'split', 'wysiwyg', 'read']);
+    expect(isModeAllowed('deck', 'wysiwyg')).toBe(true);
     expect(isModeAllowed('deck', 'read')).toBe(true);
-    expect(defaultModeFor('deck', 'wysiwyg')).toBe('split');
+    expect(isModeAllowed('deck', 'draw')).toBe(false);
+    expect(defaultModeFor('deck', 'wysiwyg')).toBe('wysiwyg');
+    expect(defaultModeFor('deck', 'draw')).toBe('split');
     expect(defaultModeFor('deck', 'read')).toBe('read');
   });
 });

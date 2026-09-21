@@ -10,6 +10,15 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Edit mode for slide decks.** A Marp deck now has an **Edit** button
+  (Ctrl+3): a filmstrip of the slides, the real rendered slide in the middle,
+  and a properties panel. Drag slides to reorder them, add, duplicate or
+  delete; click any heading, paragraph, list item or code block on the slide
+  to change its text and watch it re-render as you type; set a slide's layout,
+  colours, page number, header, footer and background image, or the whole
+  deck's theme and size, from the panel; write speaker notes under the slide.
+  Made for polishing a deck an AI wrote: every tweak changes only the lines
+  it is about, so the rest of the file stays exactly as it was written.
 - **Browse your workspace while distraction-free.** Going distraction-free
   still leaves only the document, but the Workspaces pane is now one gesture
   away: push the pointer against the left edge for a pull tab (or use the new

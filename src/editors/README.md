@@ -412,6 +412,54 @@ build instead of self-healing the session away.
     there, restyles the selection AND sets the tool default (`route` in the
     store and `ToolSettings`).
 
+## deck-editor.ts + edit-switch.ts — Edit mode on a Marp deck
+
+Edit (`wysiwyg`) on a deck is NOT Milkdown: a WYSIWYG round trip would
+mangle directive comments (`<!-- _class: lead -->`) and `![bg]` alt syntax.
+The intended workflow is "an agent writes the deck, a person tweaks it", so
+the file must stay the agent's markdown.
+
+- **`edit-switch.ts`** is the one adapter mode-sync holds for the `wysiwyg`
+  kind on a markdown tab. It chooses Milkdown or the deck editor from the
+  CONTENT (`core/deck isMarpDocument`) at attach time — mode-sync caches one
+  adapter per kind, so the choice cannot live in its factory — and swaps them
+  in place (detach flushes, then attach) when `marp: true` arrives or leaves
+  while Edit is showing. Both inner factories stay lazy (I8). Swaps are
+  serialized on a promise chain; a `detach()` mid-swap leaves nothing
+  attached (`__tests__/edit-switch.test.ts`).
+- **`deck-editor.ts`** is filmstrip + stage + inspector + notes, plain DOM
+  under the `.deck-edit` host class (`styles/deck-edit.css`). It holds NO
+  document of its own: every gesture is one of the pure, line-precise edits
+  in `core/deck-edit.ts` (move/duplicate/delete/insert slide, spot directive,
+  `![bg]` line, notes comment, frontmatter key, replace a block's lines),
+  pushed at once with source `'deck-edit'` inside the reentrancy flag. With
+  nothing to serialise there is nothing to normalise, so "mount → look →
+  leave is byte-identical" holds by construction and no write-back guard is
+  needed; `detach()` still flushes the debounced field writers and the open
+  block popover synchronously, per the contract.
+- **Click-to-edit** rides on `renderDeck(…, { stampLines: true })`
+  (`preview/marp.ts`): every rendered block carries `data-line` /
+  `data-line-end`. The innermost stamped element under the pointer is the
+  block; `core/deck-edit blockRange` trims the trailing blank line
+  markdown-it's `map` swallows; a popover textarea edits exactly those lines
+  and pushes as you type (one undo entry per popover). Esc restores the
+  document as it was when the block was opened. Filmstrip thumbnails mount the
+  same render with the stamps STRIPPED, so a line added above a slide does
+  not remount its thumbnail.
+- **The engine is injected** (`DeckEngine`): Marp lives in `preview/`, which
+  editors never import (I9). `ui/components/EditorHost.tsx` hands over
+  `renderDeck` / `mountSlide` / `inlineDeckImages` / …, plus the image picker
+  and "Source" (Split at this slide) — the same shape as the whiteboard's
+  injected camera.
+- **Undo** is the adapter's own snapshot stack (the CM6 history is not
+  attached in this mode): one entry per gesture, typing coalesced per field
+  visit; an external change to the model clears it. Inside a text field the
+  browser's native undo applies instead.
+- The inspector writes SPOT directives only (`_class`, `_backgroundColor`…):
+  what it shows and clears is this slide's own value, never one inherited
+  from an earlier slide or the frontmatter. Deck-wide settings are frontmatter
+  keys.
+
 ## Testing expectations
 
 Adapters are thin DOM glue by design — logic that can be tested (guard

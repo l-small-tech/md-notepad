@@ -31,7 +31,8 @@
  */
 
 /** Who produced a text change. Adapters use this for policy, not filtering. */
-export type TextSource = 'cm6' | 'milkdown' | 'file-load' | 'restore' | 'programmatic';
+export type TextSource =
+  'cm6' | 'milkdown' | 'deck-edit' | 'file-load' | 'restore' | 'programmatic';
 
 export interface DocChange {
   text: string;

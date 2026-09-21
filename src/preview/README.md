@@ -353,6 +353,14 @@ also drives the status bar's `Slide 4 / 12` and the show's start slide).
   `marp.ts`. The shadow root's `contain: content` keeps an inline style
   inside its slide, and the app CSS out. This is the one rendering path in
   `preview/` that bypasses the pipeline, and it must stay the only one.
+- `renderDeck(…, { stampLines: true })` stamps every rendered block with its
+  1-based inclusive source line range (`data-line` / `data-line-end`, a
+  markdown-it core rule gated by a flag that is up only for that synchronous
+  render). Only the deck EDITOR asks (`editors/deck-editor.ts`, which gets
+  this module injected by `ui` — editors never import preview): a stamped
+  slide's markup changes whenever a line is added above it, which would
+  remount the read-only surfaces. `stripLineStamps` gives the plain markup
+  back for the editor's thumbnails.
 - The full-screen **show** (`ui/components/DeckShow`) is the `'screen'`
   stage on a deck tab: one slide letterboxed on a dark stage, rendered
   through the same `renderDeck` + `mountSlide`, keyboard driven.

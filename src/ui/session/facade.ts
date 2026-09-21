@@ -397,6 +397,7 @@ let createScanImageDispatch: (
   base64: string,
 ) => Promise<string | null> = async () => null;
 let pickPhotoDispatch: () => Promise<ScanPhotoRef | null> = async () => null;
+let pickImagePathDispatch: () => Promise<string | null> = async () => null;
 let renameEntryDispatch: (
   path: string,
   newName: string,
@@ -467,6 +468,9 @@ export function setCreateScanImageDispatch(
 }
 export function setPickPhotoDispatch(fn: () => Promise<ScanPhotoRef | null>): void {
   pickPhotoDispatch = fn;
+}
+export function setPickImagePathDispatch(fn: () => Promise<string | null>): void {
+  pickImagePathDispatch = fn;
 }
 export function setRenameEntryDispatch(
   fn: (path: string, newName: string, isDir: boolean) => Promise<void>,
@@ -744,6 +748,10 @@ export interface ScanPhotoRef {
  */
 export function pickPhotoForScan(): Promise<ScanPhotoRef | null> {
   return pickPhotoDispatch();
+}
+/** The deck editor's Browse…: the native image picker, as an absolute path. */
+export function pickImagePath(): Promise<string | null> {
+  return pickImagePathDispatch();
 }
 /** FileExplorer context menu → controller: rename a file or folder on disk
  *  (extension preserved for files; open tabs are retargeted). */
