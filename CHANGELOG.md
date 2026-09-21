@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-09-20
+
 - **Edit mode for slide decks.** A Marp deck now has an **Edit** button
   (Ctrl+3): a filmstrip of the slides, the real rendered slide in the middle,
   and a properties panel. Drag slides to reorder them, add, duplicate or
@@ -79,9 +81,6 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 - **Empty notes explain themselves.** A brand-new note shows ghost text — how
   notes save, what Ctrl+S does, and a one-glance markdown cheat sheet — that
   disappears at the first keystroke.
-
-## [0.9.0] — 2026-09-16
-
 - **Diagram editor.** Whiteboards are for drawing diagrams now, not just
   sketching on. Five new shapes — diamond, triangle, parallelogram, hexagon and
   cylinder — join rectangles, rounded rectangles, ellipses, lines and arrows in
