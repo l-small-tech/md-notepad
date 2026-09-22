@@ -14,6 +14,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   existing folder…** adds a folder you already have, and **Create new
   workspace…** makes a new folder and lands in the Initialize workspace
   dialog, so a fresh project is set up for AI agents in one go.
+- **Full screen no longer glitches on Windows.** Maximizing or dragging the
+  window while full screen (double-clicking the tab bar, the maximize
+  button, Win+Up) used to leave a black strip where the taskbar was and a
+  half-restored window on the way out; those actions are now inert or undone,
+  and closing the app while full screen no longer saves the monitor size as
+  the window's size for the next launch.
 
 ## [0.9.1] — 2026-09-20
 

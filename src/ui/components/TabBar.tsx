@@ -912,6 +912,13 @@ export function TabBar() {
   // The picker's open flag lives in uiStore because mod+Shift+N opens it too
   // (global shortcuts dispatch store actions); the anchor is local geometry.
   const newTabMenuOpen = useUiStore((s) => s.newTabMenuOpen);
+  // A fullscreen window must not be dragged or double-click-maximized from
+  // the bar: tao would move the borderless window off its monitor, or
+  // maximize it and have Windows clamp it to the work area — the black strip
+  // along the taskbar edge (see ../fullscreen). `"false"` tells Tauri's
+  // drag-region script to ignore the element outright.
+  const osFullscreen = useUiStore((s) => s.osFullscreen);
+  const dragRegion = osFullscreen ? 'false' : '';
   // The picker anchors to the whole floating +/⌄ group, so it opens in the
   // same spot whichever button (or shortcut) asked for it.
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -1397,7 +1404,7 @@ export function TabBar() {
       ref={barRef}
       className={IS_MAC ? 'tabbar tabbar-mac' : 'tabbar'}
       role="tablist"
-      data-tauri-drag-region=""
+      data-tauri-drag-region={dragRegion}
       onContextMenu={(e) => {
         // Free space has no menu of its own (the "+ ⌄" picker carries the app
         // menu) — just suppress the webview's default. A tab or button opens
@@ -1416,7 +1423,7 @@ export function TabBar() {
         className="tabbar-scroller"
         ref={scrollerRef}
         onScroll={onStripScroll}
-        data-tauri-drag-region=""
+        data-tauri-drag-region={dragRegion}
       >
         {items.map((item) => (
           <Tab
@@ -1526,7 +1533,7 @@ export function TabBar() {
           </svg>
         </button>
       </div>
-      <div className="tabbar-spacer" data-tauri-drag-region="" />
+      <div className="tabbar-spacer" data-tauri-drag-region={dragRegion} />
       {!IS_MAC && !isAndroid() && <WindowControls />}
       {ghost && ghostTab && <DragGhost tab={ghostTab} ghost={ghost} innerRef={ghostRef} />}
       {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}

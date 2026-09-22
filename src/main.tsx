@@ -95,7 +95,7 @@ import { closeWorkspaceInit, workspaceInitStore } from './ui/workspace-init';
 import { isAndroid } from './ui/platform';
 import { globalCoordsTrusted } from './ui/global-coords';
 import { renderOsGhostPage } from './ui/tab-drag-ghost';
-import { escapeFullscreen } from './ui/fullscreen';
+import { escapeFullscreen, leaveOsFullscreenForClose } from './ui/fullscreen';
 import { isDark, subscribeDark } from './ui/theme';
 import { setBeforeRestart, startAutoUpdateChecks } from './ui/update';
 import { whisperSetupStore } from './ui/stores/whisper-setup';
@@ -1271,6 +1271,10 @@ async function boot(): Promise<void> {
     .onCloseRequested(async (event) => {
       event.preventDefault();
       try {
+        // Leave OS fullscreen first so the persisted window geometry is the
+        // real placement, not the monitor rect (see ui/fullscreen). Bounded:
+        // a stuck transition must not hold the close hostage.
+        await Promise.race([leaveOsFullscreenForClose(), delay(1500)]);
         if (IS_MAIN_WINDOW) {
           // Main keeps its manifest (session.json), so its tabs — and any
           // still-open secondaries, via theirs — return at next launch.

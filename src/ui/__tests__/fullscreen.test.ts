@@ -16,9 +16,19 @@ vi.mock('../platform', async (importOriginal) => ({
 // `enter` awaits first, so a test can provoke the enter/exit race the
 // serialization fixes.
 const os = vi.hoisted(() => ({
-  calls: [] as (boolean | 'unmaximize' | 'maximize')[],
+  calls: [] as (boolean | 'unmaximize' | 'maximize' | 'save-state')[],
   enterDelayMs: 0,
+  /** Live maximize state: `maximize`/`unmaximize` flip it like the OS would. */
   maximized: false,
+  /** The window's resize listeners, so a test can play the shell's resize. */
+  resizeListeners: [] as (() => void)[],
+}));
+
+vi.mock('@tauri-apps/plugin-window-state', () => ({
+  StateFlags: { SIZE: 1, POSITION: 2, MAXIMIZED: 4 },
+  saveWindowState: async () => {
+    os.calls.push('save-state');
+  },
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -40,10 +50,18 @@ vi.mock('@tauri-apps/api/window', () => ({
     setPosition: async () => {},
     setSize: async () => {},
     maximize: async () => {
+      os.maximized = true;
       os.calls.push('maximize');
     },
     unmaximize: async () => {
+      os.maximized = false;
       os.calls.push('unmaximize');
+    },
+    onResized: async (fn: () => void) => {
+      os.resizeListeners.push(fn);
+      return () => {
+        os.resizeListeners = os.resizeListeners.filter((f) => f !== fn);
+      };
     },
   }),
 }));
@@ -51,6 +69,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 import { uiStore } from '../stores/ui';
 import {
   escapeFullscreen,
+  leaveOsFullscreenForClose,
   setDistractionFree,
   setOsFullscreen,
   toggleDistractionFree,
@@ -75,9 +94,17 @@ beforeEach(async () => {
   // next test's `os.calls`.
   await drainOsTransitions();
   platform.android = false;
+  // Leave fullscreen THROUGH the module, not by poking the store: the resize
+  // watcher and the maximize snapshot are module state that only the exit
+  // transition clears.
+  if (uiStore.getState().osFullscreen) {
+    setOsFullscreen(false);
+    await drainOsTransitions();
+  }
   os.calls.length = 0;
   os.enterDelayMs = 0;
   os.maximized = false;
+  os.resizeListeners = [];
   uiStore.getState().setDistractionFree(false);
   uiStore.getState().setOsFullscreen(false);
 });
@@ -155,6 +182,75 @@ describe('a maximized window is restored before going fullscreen (Windows taskba
     setOsFullscreen(true);
     await drainOsTransitions();
     expect(os.calls).toEqual([true]);
+  });
+});
+
+describe('a maximize that lands on the fullscreen window is undone (Windows work-area clamp)', () => {
+  test('the resize watcher restores the window and keeps it fullscreen', async () => {
+    setOsFullscreen(true);
+    await drainOsTransitions();
+    expect(os.resizeListeners).toHaveLength(1);
+
+    // Win+Up on the fullscreen window: the shell maximizes it and a resize fires.
+    os.maximized = true;
+    os.resizeListeners.forEach((fn) => fn());
+    await drainOsTransitions();
+
+    expect(os.calls).toEqual([true, 'unmaximize']);
+    expect(os.maximized).toBe(false);
+    expect(osFullscreen()).toBe(true);
+  });
+
+  test('exit restores a maximized fullscreen window BEFORE leaving fullscreen', async () => {
+    setOsFullscreen(true);
+    await drainOsTransitions();
+    // The maximize got in without a resize event reaching the watcher.
+    os.maximized = true;
+
+    setOsFullscreen(false);
+    await drainOsTransitions();
+
+    expect(os.calls).toEqual([true, 'unmaximize', false]);
+    // The watcher is gone with the fullscreen window it watched.
+    expect(os.resizeListeners).toHaveLength(0);
+  });
+
+  test('the watcher stands down once an exit is requested', async () => {
+    setOsFullscreen(true);
+    await drainOsTransitions();
+    setOsFullscreen(false);
+    // A resize from the exit itself must not trigger a repair on the way out.
+    os.maximized = true;
+    os.resizeListeners.forEach((fn) => fn());
+    await drainOsTransitions();
+
+    expect(os.calls.filter((c) => c === 'unmaximize')).toHaveLength(1);
+    expect(os.calls.at(-1)).toBe(false);
+  });
+});
+
+describe('the close path leaves fullscreen and re-saves the window state', () => {
+  test('fullscreen: exit runs, then the state is saved, before the promise resolves', async () => {
+    os.maximized = true;
+    setOsFullscreen(true);
+    await drainOsTransitions();
+
+    await leaveOsFullscreenForClose();
+
+    expect(osFullscreen()).toBe(false);
+    expect(os.calls).toEqual(['unmaximize', true, false, 'maximize', 'save-state']);
+  });
+
+  test('not fullscreen: nothing happens', async () => {
+    await leaveOsFullscreenForClose();
+    expect(os.calls).toEqual([]);
+  });
+
+  test('Android: nothing happens', async () => {
+    platform.android = true;
+    uiStore.getState().setOsFullscreen(true);
+    await leaveOsFullscreenForClose();
+    expect(os.calls).toEqual([]);
   });
 });
 
