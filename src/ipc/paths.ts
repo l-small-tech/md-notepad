@@ -11,7 +11,7 @@
  *   src/core/README.md, two-tier data placement).
  */
 
-import { appDataDir, join, resolveResource } from '@tauri-apps/api/path';
+import { appDataDir, documentDir, join, resolveResource } from '@tauri-apps/api/path';
 import type { Settings } from '../core/types';
 import { ipc } from './commands';
 import { detectRuntime, type Runtime } from '../ui/platform';
@@ -89,6 +89,18 @@ export async function resolveShellIntegrationDir(): Promise<string> {
  */
 export async function resolveAgentModulesDir(): Promise<string> {
   return await join(await appDataDir(), 'agent-modules');
+}
+
+/** The app's data folder and the user's Documents folder, null where unavailable. */
+export async function resolveAppAndDocumentsDirs(): Promise<{
+  appDataDir: string | null;
+  documentsDir: string | null;
+}> {
+  const [app, docs] = await Promise.all([
+    appDataDir().catch(() => null),
+    documentDir().catch(() => null),
+  ]);
+  return { appDataDir: app, documentsDir: docs };
 }
 
 /**

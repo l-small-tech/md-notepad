@@ -1080,9 +1080,9 @@ export function FileExplorer() {
 
 /**
  * The "+" menu in the drawer header: **Open existing folder…** is the plain
- * add-workspace picker; **Create new workspace…** picks (or creates, via the
- * OS dialog's New folder) a folder and lands in the Initialize workspace
- * dialog pointed at it. Dismissed like every other popover — a press outside,
+ * add-workspace picker; **Create new workspace…** opens the Initialize
+ * workspace dialog asking for a name (and location), and Create makes the
+ * folder. Dismissed like every other popover — a press outside,
  * Escape, the window moving.
  */
 function AddWorkspaceMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
