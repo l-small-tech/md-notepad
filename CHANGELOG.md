@@ -10,6 +10,13 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Full screen no longer glitches on Windows.** Maximizing or dragging the
+  window while full screen (double-clicking the tab bar, the maximize
+  button, Win+Up) used to leave a black strip where the taskbar was and a
+  half-restored window on the way out; those actions are now inert or undone,
+  and closing the app while full screen no longer saves the monitor size as
+  the window's size for the next launch.
+
 ## [0.9.1] — 2026-09-20
 
 - **Edit mode for slide decks.** A Marp deck now has an **Edit** button
