@@ -10,6 +10,10 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Two ways to add a workspace.** The sidebar's **+** now asks: **Open
+  existing folder…** adds a folder you already have, and **Create new
+  workspace…** makes a new folder and lands in the Initialize workspace
+  dialog, so a fresh project is set up for AI agents in one go.
 - **Full screen no longer glitches on Windows.** Maximizing or dragging the
   window while full screen (double-clicking the tab bar, the maximize
   button, Win+Up) used to leave a black strip where the taskbar was and a

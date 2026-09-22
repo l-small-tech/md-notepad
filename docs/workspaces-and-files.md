@@ -101,8 +101,9 @@ Right-click gets you everywhere:
 ## Setting a workspace up for AI agents
 
 AI coding agents (Claude Code, Codex, Gemini CLI…) read a file called
-`AGENTS.md` in the folder they work in. **Initialize workspace…** (command
-palette, `Ctrl+Shift+P`) writes one for you:
+`AGENTS.md` in the folder they work in. **Create new workspace…** (the **+**
+in the sidebar header, or the command palette, `Ctrl+Shift+P`) writes one for
+you; **Initialize workspace…** does the same for a folder you pick later:
 
 1. **Choose or create a folder.** It becomes a workspace in the sidebar.
 2. **Tick the directives** the agent should follow:

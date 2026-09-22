@@ -4052,3 +4052,23 @@ button.prompt-chip {
   padding: 10px 16px;
   border-top: 1px solid var(--border);
 }
+
+/* ---- Explorer "+" menu -------------------------------------------------- */
+
+/* The add-workspace choice under the drawer's "+": two rows, each a title
+   over a one-line hint, so "open existing" and "create new" read at a glance. */
+.add-workspace-menu {
+  min-width: 200px;
+}
+
+.add-workspace-menu .tab-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+}
+
+.add-workspace-menu-desc {
+  font-size: 11px;
+  color: var(--fg-muted);
+}

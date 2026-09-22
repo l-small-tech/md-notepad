@@ -29,7 +29,7 @@ import { toggleDistractionFree, toggleFullscreen } from './fullscreen';
 import { searchStore } from './stores/search';
 import { openOverview } from './notes-overview';
 import { promptStatus } from './prompt-status';
-import { openWorkspaceInit } from './workspace-init';
+import { createWorkspace, openWorkspaceInit } from './workspace-init';
 import { settingsStore } from './stores/settings';
 import { isAndroid } from './platform';
 import { tabsStore } from './stores/tabs';
@@ -454,6 +454,13 @@ export function buildCommands(): AppCommand[] {
       title: 'Add workspace…',
       keywords: ['folder', 'directory', 'notes'],
       run: () => addWorkspace(),
+    },
+    {
+      id: 'create-workspace',
+      title: 'Create new workspace…',
+      keywords: ['folder', 'directory', 'new', 'agents', 'AGENTS.md', 'init'],
+      enabled: () => !isAndroid(),
+      run: () => void createWorkspace(),
     },
     {
       id: 'init-workspace',
