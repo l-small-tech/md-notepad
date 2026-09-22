@@ -115,16 +115,34 @@ async function adoptRoot(root: string): Promise<void> {
   });
 }
 
-export async function openWorkspaceInit(root?: string): Promise<void> {
-  set({ ...initial, open: true, rerun: root !== undefined });
+/** Show the dialog on `root` (null = no folder yet); `rerun` fixes the folder. */
+async function showInit(root: string | null, rerun: boolean): Promise<void> {
+  set({ ...initial, open: true, rerun, root });
   const { modules, dir } = await loadModules();
   set({
     modules,
     modulesDir: dir,
     selected: modules.filter((m) => m.recommended).map((m) => m.id),
   });
-  if (root !== undefined) {
+  if (root !== null) {
     await adoptRoot(root);
+  }
+}
+
+export async function openWorkspaceInit(root?: string): Promise<void> {
+  await showInit(root ?? null, root !== undefined);
+}
+
+/**
+ * "Create new workspace" (the explorer's + menu): the OS picker first — its
+ * "New folder" button is how the folder gets made — then the init dialog
+ * already pointed at it, so the next click is Create. Cancelling the picker
+ * opens nothing; the folder can still be changed from the dialog.
+ */
+export async function createWorkspace(): Promise<void> {
+  const picked = await pickDirectory(null, 'Create or choose the new workspace folder');
+  if (picked) {
+    await showInit(picked, false);
   }
 }
 
