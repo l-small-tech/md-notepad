@@ -24,6 +24,16 @@
  * thing that can visibly change there — and the Tauri fullscreen/geometry
  * path is never touched on mobile.
  *
+ * OS fullscreen on Windows is fragile in one specific way: a MAXIMIZE applied
+ * to the fullscreen window (tao keeps the borderless window plain, and Windows
+ * clamps a maximized window to the work area) leaves a black strip where the
+ * taskbar was and a half-restored window on the way out. So nothing in the
+ * app may maximize or drag the window while fullscreen — the tabbar's drag
+ * region and maximize button are inert then (TabBar / WindowControls) — and a
+ * resize watcher undoes a maximize the shell applies anyway (Win+Up, snap).
+ * The close path (`leaveOsFullscreenForClose`) leaves fullscreen before the
+ * window-state plugin can persist the monitor rect as the window's size.
+ *
  * This module is the single writer of the ui-store `distractionFree` and
  * `osFullscreen` values, keeping the store side-effect free: every path
  * (ribbon button, floating exit cluster, app menu, F11, Escape) funnels
@@ -38,6 +48,7 @@
  */
 
 import { currentMonitor, getCurrentWindow, type Window } from '@tauri-apps/api/window';
+import { saveWindowState, StateFlags } from '@tauri-apps/plugin-window-state';
 import { uiStore } from './stores/ui';
 import { isAndroid } from './platform';
 
@@ -94,6 +105,73 @@ async function settleFullscreenBounds(win: Window): Promise<void> {
   }
 }
 
+/**
+ * Undo a maximize that landed on the FULLSCREEN window. Nothing in the app
+ * asks for one (the tabbar's drag region and maximize button are inert while
+ * fullscreen — see components/TabBar and components/WindowControls), but the
+ * shell still can: Win+Up, Win+Shift+Up, a snap gesture. tao then
+ * `SW_MAXIMIZE`s the borderless window and Windows clamps it to the WORK AREA,
+ * which is the black strip along the taskbar edge — and the WS_MAXIMIZE style
+ * it leaves behind makes the later exit's placement restore fight the
+ * re-maximize. Restoring puts the window back on tao's saved "normal" rect
+ * (the monitor bounds), which the settle loop then re-asserts.
+ */
+async function unmaximizeIfFullscreenGotMaximized(win: Window): Promise<boolean> {
+  if (!(await win.isMaximized())) {
+    return false;
+  }
+  await win.unmaximize();
+  return true;
+}
+
+/**
+ * Stop function for the resize watcher installed while OS fullscreen (null
+ * while not). The watcher catches a maximize the shell applied to the
+ * fullscreen window and repairs it in place; see
+ * `unmaximizeIfFullscreenGotMaximized`.
+ */
+let stopFullscreenWatch: (() => void) | null = null;
+
+/** Whether a watcher-triggered repair is already running (they must not stack). */
+let repairing = false;
+
+async function watchFullscreenWindow(win: Window): Promise<void> {
+  if (stopFullscreenWatch) {
+    return;
+  }
+  let stopped = false;
+  stopFullscreenWatch = () => {
+    stopped = true;
+  };
+  const unlisten = await win.onResized(() => {
+    // A pending exit will restore the placement itself; repairing on top of it
+    // would re-assert the monitor rect on a window that is about to leave.
+    if (stopped || repairing || !uiStore.getState().osFullscreen) {
+      return;
+    }
+    repairing = true;
+    void (async () => {
+      try {
+        if (await unmaximizeIfFullscreenGotMaximized(win)) {
+          await settleFullscreenBounds(win);
+        }
+      } catch {
+        // Not in a Tauri webview — nothing to repair.
+      } finally {
+        repairing = false;
+      }
+    })();
+  });
+  if (stopped) {
+    unlisten();
+  } else {
+    stopFullscreenWatch = () => {
+      stopped = true;
+      unlisten();
+    };
+  }
+}
+
 /** Enter OS fullscreen, remembering whether the window was maximized first. */
 async function enterOsFullscreen(): Promise<void> {
   const win = getCurrentWindow();
@@ -114,6 +192,7 @@ async function enterOsFullscreen(): Promise<void> {
     }
     await win.setFullscreen(true);
     await settleFullscreenBounds(win);
+    await watchFullscreenWindow(win);
   } catch {
     // No-op outside a Tauri webview (plain `vite`): the flag still flips, so
     // the feature degrades gracefully instead of throwing.
@@ -125,7 +204,15 @@ async function exitOsFullscreen(): Promise<void> {
   const win = getCurrentWindow();
   const saved = preFullscreen;
   preFullscreen = null;
+  stopFullscreenWatch?.();
+  stopFullscreenWatch = null;
   try {
+    // A maximize that landed while fullscreen (see the watcher) must be undone
+    // BEFORE tao restores its saved placement: tao's own MAXIMIZED flag is set
+    // by then, and `SetWindowPlacement` under a WS_MAXIMIZE style leaves the
+    // window half-restored — the frame at the normal rect, the style and the
+    // shell's idea of it still "maximized".
+    await unmaximizeIfFullscreenGotMaximized(win);
     await win.setFullscreen(false);
     // We unmaximized on the way in, so this is the one thing tao's placement
     // restore cannot know to undo.
@@ -189,6 +276,36 @@ export function setOsFullscreen(on: boolean): void {
   // Save the geometry on the way into fullscreen and restore it on the way
   // out so Windows can't strand the window on the wrong monitor/side.
   scheduleOsTransition(on);
+}
+
+/**
+ * Close path: leave OS fullscreen before the window goes, and re-save the
+ * window state once it has settled.
+ *
+ * The window-state plugin snapshots geometry at close-requested — while
+ * fullscreen that is the MONITOR rect, and the plugin does not know fullscreen
+ * from a big window. Saved as-is, the next launch opens a monitor-sized,
+ * un-maximized window at the monitor origin: its bottom under the taskbar,
+ * its edges past the screen, and the next F11 round trip "restores" to the
+ * same rect. Exiting first lets tao restore the real placement; the explicit
+ * save then records it (and the re-applied maximize, which the plugin's own
+ * resize listener skips over) in place of the fullscreen snapshot.
+ *
+ * Resolves once the exit transition — and everything queued before it — has
+ * run, so the caller can await it before destroying the window. Nothing to do
+ * when the window is not fullscreen (Android included).
+ */
+export async function leaveOsFullscreenForClose(): Promise<void> {
+  if (isAndroid() || !uiStore.getState().osFullscreen) {
+    return;
+  }
+  setOsFullscreen(false);
+  await opChain;
+  try {
+    await saveWindowState(StateFlags.SIZE | StateFlags.POSITION | StateFlags.MAXIMIZED);
+  } catch {
+    // Outside a Tauri webview, or the plugin is absent — the close proceeds.
+  }
 }
 
 /** F11: toggle OS full screen (distraction-free on Android). */
