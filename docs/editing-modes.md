@@ -86,9 +86,13 @@ marp: true
 ```
 
 is a [Marp](https://marp.app) slide deck, and the app treats it as one
-without any extra step. Slides are separated by `---` lines; a Marp theme
-(`theme: gaia` in that same header, or `theme: ./brand.css` for a stylesheet
-kept next to the file) decides how they look. A deck offers three modes:
+without any extra step. The quickest start is **New › Marp presentation**
+(right-click a folder in the sidebar, the **+** button's picker, or the
+command palette): it writes a short example deck whose slides explain the
+syntax, ready to be overwritten. Slides are separated by `---` lines; a Marp
+theme (`theme: gaia` in that same header, or `theme: ./brand.css` for a
+stylesheet kept next to the file) decides how they look. A deck offers these
+modes:
 
 - **Raw** — the text, as for any markdown file.
 - **Split** — the text on the left and the slides on the right. The slide
@@ -109,8 +113,13 @@ kept next to the file) decides how they look. A deck offers three modes:
   projector. The two stay on the same slide, and the arrow keys work in
   whichever window has focus. **A−** / **A+** resize the notes.
 
-There is no Edit mode for a deck: the word-processor view would rewrite the
-comments and image syntax Marp relies on. The status bar shows `Slide 4 / 12`
+- **Edit** — not the word-processor view (it would rewrite the comments and
+  image syntax Marp relies on) but a filmstrip beside the rendered slide:
+  click a block to edit its text, drag slides to reorder, and set a slide's
+  class, background and notes in the inspector. Each change touches only its
+  own lines.
+
+The status bar shows `Slide 4 / 12`
 and a rough talk length instead of the line and word counts, and **Export…**
 writes the deck as a standalone HTML file you can open and present in any
 browser.

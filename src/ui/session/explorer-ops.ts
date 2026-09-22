@@ -15,6 +15,7 @@ import {
 } from '../../core/explorer-clipboard';
 import { withErrorDetail } from '../../core/error-text';
 import { blankWhiteboardSource } from '../../core/whiteboard/serialize';
+import { DECK_TEMPLATE_BASENAME, EXAMPLE_DECK } from '../../core/deck-template';
 import { dropTrailingExtension, sanitizeFileBaseName } from '../../core/title';
 import { explorerStore } from '../stores/explorer';
 import { settingsStore } from '../stores/settings';
@@ -86,6 +87,39 @@ export function createExplorerOps(
     const path = tab?.filePath ?? tab?.notePath ?? null;
     const dir = path ? dirName(path) : '';
     return createNewWhiteboard(dir || ctx.notesDir);
+  }
+
+  /**
+   * "New › Marp presentation": write the example deck (`core/deck-template`)
+   * into `dir` as `presentation.md` and open it. Its frontmatter says
+   * `marp: true`, so the tab is a deck from its first render — the file IS the
+   * instructions, and the user overwrites its slides with their own. No inline
+   * rename, for the same reason as a drawing: the point is to see slides at
+   * once; the row renames the usual way.
+   */
+  async function createNewDeck(dir: string): Promise<string | null> {
+    if (ctx.refuseReadOnly(dir)) {
+      return null;
+    }
+    try {
+      const target = await ctx.uniquePathIn(dir, DECK_TEMPLATE_BASENAME, '.md');
+      await ctx.ipc.atomicWriteText(target, EXAMPLE_DECK);
+      uiStore.getState().refreshExplorer();
+      await openPaths([target]);
+      return target;
+    } catch (error) {
+      uiStore.getState().showNotice('Could not create a presentation there.');
+      ctx.deps.onError?.(error);
+      return null;
+    }
+  }
+
+  /** The new-tab menu's "Marp presentation": beside the tab in front, else the notes dir. */
+  function createNewDeckHere(): Promise<string | null> {
+    const tab = tabsStore.getState().activeTab();
+    const path = tab?.filePath ?? tab?.notePath ?? null;
+    const dir = path ? dirName(path) : '';
+    return createNewDeck(dir || ctx.notesDir);
   }
 
   /**
@@ -613,6 +647,8 @@ export function createExplorerOps(
 
   return {
     createNewFile,
+    createNewDeck,
+    createNewDeckHere,
     createNewWhiteboard,
     createNewWhiteboardHere,
     createScanImage,

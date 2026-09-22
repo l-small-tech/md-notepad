@@ -69,8 +69,8 @@ program, a zip — won't open; you'll get a notice saying so.
 Right-click gets you everywhere:
 
 - **Right-click a workspace or folder** → **New** → **Markdown File** or
-  **Folder** (the same page also makes a vector drawing, a terminal, or an AI
-  session in that folder). A new file opens immediately with its name ready to
+  **Folder** (the same page also makes a vector drawing, a Marp presentation,
+  a terminal, or an AI session in that folder). A new file opens immediately with its name ready to
   type.
 - **Right-click a file** → **Rename**, **Reveal in explorer** (shows the
   file in your system's file manager), or **Delete** (delete asks first —
@@ -116,6 +116,9 @@ you; **Initialize workspace…** does the same for a folder you pick later:
      from one session to the next.
    - **Git worktree workflow** — for code projects where several agents work
      at once.
+   - **Marp presentations** — how to write slide decks this app can show,
+     edit and present (see [Editing modes](editing-modes.md)); it also drops
+     in `decks/example-deck.md` as the reference.
    - **Your own** — any `.md` file you put in *your directives folder* (the
      link in the dialog opens it) appears in the list.
 3. **Create.** Besides `AGENTS.md` you get a one-line `CLAUDE.md` and

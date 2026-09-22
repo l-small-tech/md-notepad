@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Marp presentations, from the start.** **New › Marp presentation** (a
+  folder's right-click menu, the **+** picker, or the command palette) writes
+  a short example deck whose slides explain the syntax and the app's Split,
+  Edit, Present and presenter views. The Initialize workspace dialog gains a
+  **Marp presentations** directive that tells agents how to write decks this
+  app shows well, with that example deck as the reference.
 - **Two ways to add a workspace.** The sidebar's **+** now asks: **Open
   existing folder…** adds a folder you already have, and **Create new
   workspace…** makes a new folder and lands in the Initialize workspace

@@ -70,6 +70,26 @@ describe('userModuleFrom', () => {
   });
 });
 
+describe('BUILTIN_MODULES', () => {
+  it('has unique ids and a directive heading each', () => {
+    const ids = BUILTIN_MODULES.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const m of BUILTIN_MODULES) {
+      expect(m.directive).toMatch(/^## \S/);
+    }
+  });
+
+  it('marp-decks: off by default, seeds the example deck its directive points at', () => {
+    const marp = BUILTIN_MODULES.find((m) => m.id === 'marp-decks')!;
+    expect(marp.recommended).toBe(false);
+    const seed = marp.files.find((f) => f.path === 'decks/example-deck.md')!;
+    expect(seed.refresh).toBeUndefined(); // the user's edits to it survive a re-run
+    expect(seed.text.startsWith('---\nmarp: true\n')).toBe(true);
+    expect(marp.directive).toContain('decks/example-deck.md');
+    expect(marp.directive).toContain('marp: true');
+  });
+});
+
 describe('planWorkspaceInit', () => {
   it('writes everything into an empty folder', () => {
     const writes = planWorkspaceInit({
