@@ -3948,6 +3948,27 @@ button.prompt-chip {
   background: var(--bg-alt);
 }
 
+.init-ws-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.init-ws-field-label {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.init-ws-name {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.init-ws-new-path {
+  word-break: break-all;
+}
+
 .init-ws-path {
   flex: 1 1 auto;
   min-width: 0;

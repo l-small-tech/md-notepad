@@ -1,7 +1,7 @@
 /**
  * InitWorkspaceDialog — "Initialize workspace…" / "Workspace directives…".
  *
- * Pick (or create) a folder, tick the directives its AGENTS.md should carry,
+ * Name a new folder (or pick an existing one), tick the directives its AGENTS.md should carry,
  * choose which harness entry files point at it, Create. Re-run on an
  * existing workspace it starts from what AGENTS.md already has; unticking a
  * directive removes its section, and files agents have filled in are never
@@ -12,8 +12,11 @@ import { HARNESS_STUBS } from '../../core/workspace-modules';
 import {
   applyWorkspaceInit,
   closeWorkspaceInit,
+  newWorkspacePath,
   openModulesFolder,
   pickInitFolder,
+  pickNewWorkspaceParent,
+  setNewWorkspaceName,
   toggleInitModule,
   toggleInitStub,
   useWorkspaceInit,
@@ -23,6 +26,10 @@ export function InitWorkspaceDialog() {
   const open = useWorkspaceInit((s) => s.open);
   const root = useWorkspaceInit((s) => s.root);
   const rerun = useWorkspaceInit((s) => s.rerun);
+  const creating = useWorkspaceInit((s) => s.creating);
+  const newName = useWorkspaceInit((s) => s.newName);
+  const newParent = useWorkspaceInit((s) => s.newParent);
+  const newPath = useWorkspaceInit(newWorkspacePath);
   const modules = useWorkspaceInit((s) => s.modules);
   const selected = useWorkspaceInit((s) => s.selected);
   const installed = useWorkspaceInit((s) => s.installed);
@@ -50,11 +57,15 @@ export function InitWorkspaceDialog() {
         className="settings-dialog init-ws-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Initialize workspace"
+        aria-label={creating ? 'Create new workspace' : 'Initialize workspace'}
       >
         <header className="settings-header">
           <h2 className="settings-title">
-            {rerun ? 'Workspace directives' : 'Initialize workspace'}
+            {rerun
+              ? 'Workspace directives'
+              : creating
+                ? 'Create new workspace'
+                : 'Initialize workspace'}
           </h2>
           <button className="settings-close" aria-label="Close" onClick={closeWorkspaceInit}>
             ×
@@ -67,16 +78,60 @@ export function InitWorkspaceDialog() {
             directives you tick. Agents you run in your own terminal read it on their own.
           </p>
 
-          <div className="init-ws-folder">
-            <span className="init-ws-path" title={root ?? undefined}>
-              {root ?? 'No folder chosen'}
-            </span>
-            {!rerun && (
-              <button className="settings-button" onClick={() => void pickInitFolder()}>
-                {root ? 'Change…' : 'Choose or create folder…'}
-              </button>
-            )}
-          </div>
+          {creating ? (
+            <>
+              <label className="init-ws-field">
+                <span className="init-ws-field-label">Name</span>
+                <input
+                  className="settings-control init-ws-name"
+                  type="text"
+                  value={newName}
+                  spellCheck={false}
+                  autoFocus
+                  placeholder="My workspace"
+                  onChange={(e) => setNewWorkspaceName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void applyWorkspaceInit();
+                    }
+                  }}
+                />
+              </label>
+              <div className="init-ws-field">
+                <span className="init-ws-field-label">Location</span>
+                <div className="init-ws-folder">
+                  <span className="init-ws-path" title={newParent ?? undefined}>
+                    {newParent ?? 'No location chosen'}
+                  </span>
+                  <button className="settings-button" onClick={() => void pickNewWorkspaceParent()}>
+                    {newParent ? 'Change…' : 'Choose…'}
+                  </button>
+                </div>
+              </div>
+              <p className="init-ws-hint">
+                {newPath ? (
+                  <>
+                    Creates <code className="init-ws-new-path">{newPath}</code>.{' '}
+                  </>
+                ) : null}
+                <button className="init-ws-link" onClick={() => void pickInitFolder()}>
+                  Use an existing folder instead…
+                </button>
+              </p>
+            </>
+          ) : (
+            <div className="init-ws-folder">
+              <span className="init-ws-path" title={root ?? undefined}>
+                {root ?? 'No folder chosen'}
+              </span>
+              {!rerun && (
+                <button className="settings-button" onClick={() => void pickInitFolder()}>
+                  {root ? 'Change…' : 'Choose or create folder…'}
+                </button>
+              )}
+            </div>
+          )}
 
           <h3 className="init-ws-heading">Directives</h3>
           <ul className="init-ws-list">
@@ -147,7 +202,7 @@ export function InitWorkspaceDialog() {
           </button>
           <button
             className="settings-button settings-button-primary"
-            disabled={!root || busy}
+            disabled={(creating ? !newPath : !root) || busy}
             onClick={() => void applyWorkspaceInit()}
           >
             {busy ? 'Writing…' : installed.length > 0 ? 'Update' : 'Create'}
