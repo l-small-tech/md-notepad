@@ -17,6 +17,22 @@ describe('defaultNewTabChoice', () => {
     expect(defaultNewTabChoice({ kind: 'file', filePath: 'C:\\me\\Board.SVG' })).toBe('drawing');
   });
 
+  test('a deck makes a deck; the same markdown file without the flag makes a note', () => {
+    expect(defaultNewTabChoice({ kind: 'file', filePath: '/notes/talk.md', deck: true })).toBe(
+      'deck',
+    );
+    expect(defaultNewTabChoice({ kind: 'note', notePath: '/notes/talk.md', deck: true })).toBe(
+      'deck',
+    );
+    expect(defaultNewTabChoice({ kind: 'file', filePath: '/notes/talk.md', deck: false })).toBe(
+      'note',
+    );
+    // The flag is a markdown thing: it cannot make a drawing a deck.
+    expect(defaultNewTabChoice({ kind: 'file', filePath: '/notes/board.svg', deck: true })).toBe(
+      'drawing',
+    );
+  });
+
   test('every document kind makes a note', () => {
     expect(defaultNewTabChoice({ kind: 'note', notePath: '/notes/todo.md' })).toBe('note');
     expect(defaultNewTabChoice({ kind: 'file', filePath: '/notes/report.md' })).toBe('note');

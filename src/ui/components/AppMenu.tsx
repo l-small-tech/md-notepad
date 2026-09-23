@@ -319,6 +319,12 @@ export function NewTabRows({ onClose }: { onClose: () => void }) {
         onPick={() => runNewTabChoice('drawing')}
         onClose={onClose}
       />
+      <AppMenuItem
+        glyph="▭"
+        label="Marp presentation (.md)"
+        onPick={() => runNewTabChoice('deck')}
+        onClose={onClose}
+      />
     </>
   );
 }

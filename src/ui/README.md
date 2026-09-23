@@ -226,7 +226,8 @@ drag drop-indicator is scroller-relative and must add `scroller.scrollLeft`.
 The two live in one floating pill after the last tab (Windows Terminal
 style). A plain click on + makes **another one of whatever is in front** —
 `defaultNewTabChoice` in `core/new-tab.ts` (pure, tested): terminal → terminal,
-`.svg` → drawing, everything else → note. The ⌄ button — or alt-click,
+`.svg` → drawing, a `marp: true` markdown tab → deck (the example
+presentation, `core/deck-template.ts`), everything else → note. The ⌄ button — or alt-click,
 right-click, long-press or mod+Shift+N — opens the type picker instead, which
 lists every type explicitly — note, one row per terminal profile (shell icon,
 no heading of its own: a shell is one more thing "+" makes), then the drawing —
@@ -632,7 +633,7 @@ elsewhere (`navigator.platform`-based helper).
 | --- | --- | --- |
 | mod+N | new OS window with one empty note (`session/windows.ts` `openEmptyWindow`) | M8 |
 | + button / palette "New tab" | new tab, of the type in front (`core/new-tab.ts`) | M1/M9 |
-| mod+Shift+N | new-tab type picker (note / drawing / terminal) | M9 |
+| mod+Shift+N | new-tab type picker (note / drawing / Marp presentation / terminal) | M9 |
 | mod+W | close tab (confirm per semantics) | M1/M2 |
 | mod+Tab / mod+Shift+Tab | next / previous tab | M1 |
 | F2 | rename tab | M1 |

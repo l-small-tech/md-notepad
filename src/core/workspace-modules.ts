@@ -32,10 +32,12 @@ import {
   LESSONS_SEED,
   MANIFEST_DIRECTIVE,
   MANIFEST_SEED,
+  MARP_DECKS_DIRECTIVE,
   PROMPT_STATUS_DIRECTIVE,
   STATUS_SCRIPT,
   WORKTREES_DIRECTIVE,
 } from './workspace-module-texts';
+import { EXAMPLE_DECK, EXAMPLE_DECK_PATH } from './deck-template';
 import { STATUS_FILE, serializeStatuses } from './prompt-status';
 
 export interface SeedFile {
@@ -111,6 +113,16 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'For code projects with parallel agents: one git worktree and branch per task.',
     directive: WORKTREES_DIRECTIVE,
     files: [{ path: '.gitignore', text: 'worktrees/\n', ensureLines: true }],
+    recommended: false,
+    source: 'builtin',
+  },
+  {
+    id: 'marp-decks',
+    title: 'Marp presentations',
+    description:
+      'Agents write slide decks as Marp markdown this app can show, edit and present (decks/example-deck.md).',
+    directive: MARP_DECKS_DIRECTIVE,
+    files: [{ path: EXAMPLE_DECK_PATH, text: EXAMPLE_DECK }],
     recommended: false,
     source: 'builtin',
   },
