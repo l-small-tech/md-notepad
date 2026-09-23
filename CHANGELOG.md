@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-09-22
+
 - **Marp presentations, from the start.** **New › Marp presentation** (a
   folder's right-click menu, the **+** picker, or the command palette) writes
   a short example deck whose slides explain the syntax and the app's Split,
@@ -27,8 +29,6 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   half-restored window on the way out; those actions are now inert or undone,
   and closing the app while full screen no longer saves the monitor size as
   the window's size for the next launch.
-
-## [0.9.1] — 2026-09-20
 
 - **Edit mode for slide decks.** A Marp deck now has an **Edit** button
   (Ctrl+3): a filmstrip of the slides, the real rendered slide in the middle,
