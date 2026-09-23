@@ -6,10 +6,17 @@
  *
  * Close goes through `window.close()`, which fires onCloseRequested — the
  * flush-then-destroy path in main.tsx — so live edits are never lost.
+ *
+ * While the window is OS-fullscreen the middle button reads "Restore" and
+ * leaves fullscreen instead of toggling maximize: maximizing a fullscreen
+ * window is what Windows clamps to the work area, leaving a black strip where
+ * the taskbar was (see ../fullscreen).
  */
 
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useUiStore } from '../stores/ui';
+import { setOsFullscreen } from '../fullscreen';
 
 /** Null outside a Tauri webview (plain `vite` dev), so render degrades safely. */
 function tauriWindow(): ReturnType<typeof getCurrentWindow> | null {
@@ -22,6 +29,8 @@ function tauriWindow(): ReturnType<typeof getCurrentWindow> | null {
 
 export function WindowControls() {
   const [maximized, setMaximized] = useState(false);
+  const osFullscreen = useUiStore((s) => s.osFullscreen);
+  const showRestore = maximized || osFullscreen;
 
   useEffect(() => {
     const win = tauriWindow();
@@ -72,15 +81,19 @@ export function WindowControls() {
       </button>
       <button
         className="wc-btn"
-        aria-label={maximized ? 'Restore' : 'Maximize'}
+        aria-label={showRestore ? 'Restore' : 'Maximize'}
         tabIndex={-1}
-        onClick={() =>
+        onClick={() => {
+          if (osFullscreen) {
+            setOsFullscreen(false);
+            return;
+          }
           void tauriWindow()
             ?.toggleMaximize()
-            .catch(() => {})
-        }
+            .catch(() => {});
+        }}
       >
-        {maximized ? (
+        {showRestore ? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M2.5 2.5v-2h7v7h-2" stroke="currentColor" strokeWidth="1" fill="none" />
             <rect

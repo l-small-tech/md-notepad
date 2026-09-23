@@ -69,8 +69,8 @@ program, a zip — won't open; you'll get a notice saying so.
 Right-click gets you everywhere:
 
 - **Right-click a workspace or folder** → **New** → **Markdown File** or
-  **Folder** (the same page also makes a vector drawing, a terminal, or an AI
-  session in that folder). A new file opens immediately with its name ready to
+  **Folder** (the same page also makes a vector drawing, a Marp presentation,
+  a terminal, or an AI session in that folder). A new file opens immediately with its name ready to
   type.
 - **Right-click a file** → **Rename**, **Reveal in explorer** (shows the
   file in your system's file manager), or **Delete** (delete asks first —
@@ -101,8 +101,9 @@ Right-click gets you everywhere:
 ## Setting a workspace up for AI agents
 
 AI coding agents (Claude Code, Codex, Gemini CLI…) read a file called
-`AGENTS.md` in the folder they work in. **Initialize workspace…** (command
-palette, `Ctrl+Shift+P`) writes one for you:
+`AGENTS.md` in the folder they work in. **Create new workspace…** (the **+**
+in the sidebar header, or the command palette, `Ctrl+Shift+P`) writes one for
+you; **Initialize workspace…** does the same for a folder you pick later:
 
 1. **Choose or create a folder.** It becomes a workspace in the sidebar.
 2. **Tick the directives** the agent should follow:
@@ -115,6 +116,9 @@ palette, `Ctrl+Shift+P`) writes one for you:
      from one session to the next.
    - **Git worktree workflow** — for code projects where several agents work
      at once.
+   - **Marp presentations** — how to write slide decks this app can show,
+     edit and present (see [Editing modes](editing-modes.md)); it also drops
+     in `decks/example-deck.md` as the reference.
    - **Your own** — any `.md` file you put in *your directives folder* (the
      link in the dialog opens it) appears in the list.
 3. **Create.** Besides `AGENTS.md` you get a one-line `CLAUDE.md` and

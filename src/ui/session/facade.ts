@@ -391,6 +391,8 @@ let createNewFileDispatch: (dir: string) => Promise<string | null> = async () =>
 let createNewFolderDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createWhiteboardDispatch: (dir: string) => Promise<string | null> = async () => null;
 let createWhiteboardHereDispatch: () => Promise<string | null> = async () => null;
+let createDeckDispatch: (dir: string) => Promise<string | null> = async () => null;
+let createDeckHereDispatch: () => Promise<string | null> = async () => null;
 let createScanImageDispatch: (
   dir: string,
   ext: string,
@@ -460,6 +462,12 @@ export function setCreateWhiteboardDispatch(fn: (dir: string) => Promise<string 
 }
 export function setCreateWhiteboardHereDispatch(fn: () => Promise<string | null>): void {
   createWhiteboardHereDispatch = fn;
+}
+export function setCreateDeckDispatch(fn: (dir: string) => Promise<string | null>): void {
+  createDeckDispatch = fn;
+}
+export function setCreateDeckHereDispatch(fn: () => Promise<string | null>): void {
+  createDeckHereDispatch = fn;
 }
 export function setCreateScanImageDispatch(
   fn: (dir: string, ext: string, base64: string) => Promise<string | null>,
@@ -721,6 +729,16 @@ export function createWhiteboardIn(dir: string): Promise<string | null> {
  *  the notes dir), opened in Draw mode. The no-argument entry point. */
 export function createWhiteboard(): Promise<string | null> {
   return createWhiteboardHereDispatch();
+}
+/** FileExplorer context menu → controller: write the example Marp deck
+ *  (`core/deck-template`) into `dir` and open it. Resolves with its path. */
+export function createDeckIn(dir: string): Promise<string | null> {
+  return createDeckDispatch(dir);
+}
+/** New-tab menu → controller: the example deck beside the tab in front (or
+ *  in the notes dir). The no-argument entry point. */
+export function createDeck(): Promise<string | null> {
+  return createDeckHereDispatch();
 }
 /** Scan-to-image flow → controller: write a finished scan's bytes as a
  *  uniquely named image file in `dir` and open it. `ext` includes the dot.

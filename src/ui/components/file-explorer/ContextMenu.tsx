@@ -26,6 +26,7 @@ import { harnessInstalled, useHarnessAvailability } from '../../stores/harness-a
 import {
   deleteExplorerEntry,
   deleteExplorerFolder,
+  createDeckIn,
   createWhiteboardIn,
   importDocumentInto,
   openExportPreviewForFile,
@@ -393,6 +394,22 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
             }}
           >
             Vector drawing
+          </button>
+        )}
+        {/* The example deck (core/deck-template): a `marp: true` markdown file
+            whose slides explain themselves, opened at once so the first thing
+            the user sees is slides, not a blank note. */}
+        {!readOnly && (
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              onSelectDir(dir);
+              void createDeckIn(dir);
+            }}
+          >
+            Marp presentation
           </button>
         )}
         {/* Sessions start HERE — the dir that was right-clicked — not in the

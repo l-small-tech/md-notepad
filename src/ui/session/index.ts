@@ -46,6 +46,8 @@ import {
   setChangeNotesDirDispatch,
   setWorkspaceRootForDispatch,
   setCloseAllTabsDispatch,
+  setCreateDeckDispatch,
+  setCreateDeckHereDispatch,
   setCreateNewFileDispatch,
   setCreateNewFolderDispatch,
   setCreateScanImageDispatch,
@@ -109,6 +111,8 @@ export {
   checkImportStatus,
   closeAllTabs,
   closeTab,
+  createDeck,
+  createDeckIn,
   createNewFileIn,
   createNewFolderIn,
   createScanImageIn,
@@ -391,6 +395,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setCreateNewFolderDispatch(explorerOps.createNewFolder);
   setCreateWhiteboardDispatch(explorerOps.createNewWhiteboard);
   setCreateWhiteboardHereDispatch(explorerOps.createNewWhiteboardHere);
+  setCreateDeckDispatch(explorerOps.createNewDeck);
+  setCreateDeckHereDispatch(explorerOps.createNewDeckHere);
   setCreateScanImageDispatch(explorerOps.createScanImage);
   // Whiteboard scan (desktop): the native picker plus a base64 read, turned
   // into the self-contained data: URL the scan screen decodes.

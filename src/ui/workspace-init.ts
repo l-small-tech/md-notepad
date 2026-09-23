@@ -7,7 +7,9 @@
  * inputs — the folder, the user's modules folder, the files already there —
  * and performs the writes it plans. Opened with a `root` it is the
  * "Workspace directives…" re-run on an existing workspace: the ticks start
- * from the modules AGENTS.md already carries.
+ * from the modules AGENTS.md already carries. Opened by "Create new
+ * workspace" it asks for a name and a location instead of a folder, and
+ * makes the folder on Create.
  */
 
 import { openPath } from '@tauri-apps/plugin-opener';
@@ -15,6 +17,7 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { errorDetail } from '../core/error-text';
 import { baseName, joinPath } from '../core/session/plan-flush';
+import { defaultWorkspaceParent, folderNameError } from '../core/new-workspace';
 import { pickUnusedColor } from '../core/settings';
 import { pathKey } from '../core/tab-workspaces';
 import {
@@ -26,9 +29,9 @@ import {
   userModuleFrom,
   type WorkspaceModule,
 } from '../core/workspace-modules';
-import { ipc } from '../ipc/commands';
+import { IpcError, ipc } from '../ipc/commands';
 import { pickDirectory } from '../ipc/dialog';
-import { resolveAgentModulesDir } from '../ipc/paths';
+import { resolveAgentModulesDir, resolveAppAndDocumentsDirs } from '../ipc/paths';
 import { promptStatus } from './prompt-status';
 import { getDefaultWorkspacePath, openNotePath } from './session';
 import { settingsStore } from './stores/settings';
@@ -40,6 +43,13 @@ export interface WorkspaceInitState {
   root: string | null;
   /** True when opened on an existing workspace (the folder is fixed). */
   rerun: boolean;
+  /**
+   * True while the folder is still to be made: the dialog asks for `newName`
+   * in `newParent`, and Create makes `newParent/newName` before writing.
+   */
+  creating: boolean;
+  newName: string;
+  newParent: string | null;
   modules: WorkspaceModule[];
   selected: string[];
   /** Module ids AGENTS.md in `root` already carries. */
@@ -54,6 +64,9 @@ const initial: WorkspaceInitState = {
   open: false,
   root: null,
   rerun: false,
+  creating: false,
+  newName: '',
+  newParent: null,
   modules: [...BUILTIN_MODULES],
   selected: [],
   installed: [],
@@ -115,28 +128,94 @@ async function adoptRoot(root: string): Promise<void> {
   });
 }
 
-export async function openWorkspaceInit(root?: string): Promise<void> {
-  set({ ...initial, open: true, rerun: root !== undefined });
+/** Show the dialog on `root` (null = no folder yet); `rerun` fixes the folder. */
+async function showInit(root: string | null, rerun: boolean): Promise<void> {
+  set({ ...initial, open: true, rerun, root });
   const { modules, dir } = await loadModules();
   set({
     modules,
     modulesDir: dir,
     selected: modules.filter((m) => m.recommended).map((m) => m.id),
   });
-  if (root !== undefined) {
+  if (root !== null) {
     await adoptRoot(root);
   }
+}
+
+export async function openWorkspaceInit(root?: string): Promise<void> {
+  await showInit(root ?? null, root !== undefined);
+}
+
+/**
+ * "Create new workspace" (the explorer's + menu): the dialog asks for a name,
+ * with the location defaulting to beside the most recently added workspace —
+ * no folder picker, since a new workspace almost always means a new folder.
+ * "Use an existing folder" in the dialog is the way back to picking one.
+ */
+export async function createWorkspace(): Promise<void> {
+  const { settings } = settingsStore.getState();
+  const newParent = defaultWorkspaceParent({
+    workspacePaths: settings.workspaces.map((w) => w.path),
+    defaultWorkspacePath: getDefaultWorkspacePath(),
+    ...(await resolveAppAndDocumentsDirs()),
+  });
+  await showInit(null, false);
+  set({ creating: true, newParent });
+}
+
+export function setNewWorkspaceName(newName: string): void {
+  set({ newName, error: null });
+}
+
+export async function pickNewWorkspaceParent(): Promise<void> {
+  const { newParent } = workspaceInitStore.getState();
+  const picked = await pickDirectory(newParent, 'Where should the new workspace folder go?');
+  if (picked) {
+    set({ newParent: picked, error: null });
+  }
+}
+
+/** The folder Create will make, or null when the name or location is missing. */
+export function newWorkspacePath(state: WorkspaceInitState): string | null {
+  const name = state.newName.trim();
+  return state.newParent && name ? joinPath(state.newParent, name) : null;
 }
 
 export function closeWorkspaceInit(): void {
   set({ open: false });
 }
 
+/** Pick an existing folder — also "Use an existing folder" out of create mode. */
 export async function pickInitFolder(): Promise<void> {
   const picked = await pickDirectory(null, 'Choose or create the workspace folder');
   if (picked) {
+    set({ creating: false, error: null });
     await adoptRoot(picked);
   }
+}
+
+/** Make the new workspace's folder; its path, or null with `error` set. */
+async function makeNewFolder(state: WorkspaceInitState): Promise<string | null> {
+  const nameError = folderNameError(state.newName.trim());
+  const path = newWorkspacePath(state);
+  if (nameError || !path) {
+    set({ error: nameError ?? 'Choose where the workspace folder goes.' });
+    return null;
+  }
+  try {
+    await ipc.createDir(path);
+  } catch (error) {
+    set({
+      error:
+        error instanceof IpcError && error.code === 'EXISTS'
+          ? `A folder named "${state.newName.trim()}" is already there — pick another name, or use it as an existing folder.`
+          : errorDetail(error) || 'Could not create the folder.',
+    });
+    return null;
+  }
+  // From here the folder exists: a failed write below retries on it as-is.
+  set({ creating: false, root: path });
+  return path;
 }
 
 /** Show the user's directives folder in the OS file manager. */
@@ -181,8 +260,11 @@ function registerWorkspace(root: string): void {
 
 export async function applyWorkspaceInit(): Promise<void> {
   const state = workspaceInitStore.getState();
-  const root = state.root;
-  if (!root || state.busy) {
+  if (state.busy) {
+    return;
+  }
+  const root = state.creating ? await makeNewFolder(state) : state.root;
+  if (!root) {
     return;
   }
   set({ busy: true, error: null });

@@ -69,6 +69,7 @@ describe('buildCommands', () => {
       'toggle-explorer',
       'open-docs',
       'add-workspace',
+      'create-workspace',
     ]) {
       expect(ids).toContain(expected);
     }

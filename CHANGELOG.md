@@ -10,7 +10,25 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
-## [0.9.1] — 2026-09-20
+## [0.9.2] — 2026-09-22
+
+- **Marp presentations, from the start.** **New › Marp presentation** (a
+  folder's right-click menu, the **+** picker, or the command palette) writes
+  a short example deck whose slides explain the syntax and the app's Split,
+  Edit, Present and presenter views. The Initialize workspace dialog gains a
+  **Marp presentations** directive that tells agents how to write decks this
+  app shows well, with that example deck as the reference.
+- **Two ways to add a workspace.** The sidebar's **+** now asks: **Open
+  existing folder…** adds a folder you already have, and **Create new
+  workspace…** just asks for a name — the folder is made for you, beside
+  your other workspaces (or wherever you choose) — and sets it up for AI
+  agents in one go.
+- **Full screen no longer glitches on Windows.** Maximizing or dragging the
+  window while full screen (double-clicking the tab bar, the maximize
+  button, Win+Up) used to leave a black strip where the taskbar was and a
+  half-restored window on the way out; those actions are now inert or undone,
+  and closing the app while full screen no longer saves the monitor size as
+  the window's size for the next launch.
 
 - **Edit mode for slide decks.** A Marp deck now has an **Edit** button
   (Ctrl+3): a filmstrip of the slides, the real rendered slide in the middle,

@@ -5,7 +5,7 @@
  */
 
 import { defaultNewTabChoice, type NewTabChoice } from '../core/new-tab';
-import { createWhiteboard } from './session';
+import { createDeck, createWhiteboard } from './session';
 import { tabsStore } from './stores/tabs';
 import { isAndroid } from './platform';
 import { openTerminal } from './terminal-open';
@@ -27,6 +27,9 @@ export function runNewTabChoice(choice: NewTabChoice): void {
       return;
     case 'drawing':
       void createWhiteboard();
+      return;
+    case 'deck':
+      void createDeck();
       return;
     case 'note':
       tabsStore.getState().newTab();

@@ -3,7 +3,8 @@
  * shortcut and the command palette cannot drift apart.
  *
  * The rule is "another one of what I am looking at": a terminal makes a
- * terminal, a drawing makes a drawing, anything else makes a note. That keeps
+ * terminal, a drawing makes a drawing, a deck makes a deck, anything else
+ * makes a note. That keeps
  * the promise the button has always made ("New tab", not "New note") while
  * making it useful on the two tab kinds a plain note is wrong for. Every type
  * stays explicitly reachable through the picker menu, so the inference is
@@ -13,13 +14,15 @@
 import { docFamilyForTab } from './doc-family';
 import type { TabKind } from './types';
 
-export type NewTabChoice = 'note' | 'drawing' | 'terminal';
+export type NewTabChoice = 'note' | 'drawing' | 'deck' | 'terminal';
 
 /** The subset of a tab this decision reads. */
 export interface NewTabContext {
   kind: TabKind;
   filePath?: string | null;
   notePath?: string | null;
+  /** The tabs store's live `marp: true` flag (`docFamilyForTab` → 'deck'). */
+  deck?: boolean;
 }
 
 /**
@@ -41,6 +44,10 @@ export function defaultNewTabChoice(
       return terminalsAvailable ? 'terminal' : 'note';
     case 'svg':
       return 'drawing';
+    case 'deck':
+      // A deck in front makes another deck: the example presentation, whose
+      // frontmatter already says `marp: true`, beside it.
+      return 'deck';
     default:
       // Notes, markdown files, images and import cards all make a note: an
       // image viewer is not a document type you can author a new one of.

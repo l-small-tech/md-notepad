@@ -106,6 +106,7 @@ import {
 } from './file-explorer/helpers';
 import { RenameInput } from './file-explorer/RenameInput';
 import { useFileDrag } from './file-explorer/useFileDrag';
+import { createWorkspace } from '../workspace-init';
 
 interface WorkspaceView {
   path: string;
@@ -177,6 +178,8 @@ export function FileExplorer() {
   };
   /** Entry whose context menu is open (workspace root, subfolder, or file), or null. */
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** Where the header's "+" menu is anchored while open (the button's rect), or null. */
+  const [addMenuAnchor, setAddMenuAnchor] = useState<DOMRect | null>(null);
   /** Entry being renamed inline (its row shows an input instead), or null. */
   // Path of the row being inline-renamed. Matched against rows by key, never by
   // raw string: `createNewFileIn` builds its path with core's joinPath (`/`)
@@ -848,12 +851,30 @@ export function FileExplorer() {
                 </svg>
               </button>
             )}
+            {/* Desktop: "+" opens a two-item menu — add an existing folder, or
+                create a new one and initialize it. Android has no init flow,
+                so the button goes straight to the folder picker. */}
             {currentProvider().capabilities.canPickDir && (
               <button
                 className="file-explorer-action"
                 aria-label="Add workspace"
-                title="Add workspace (pick a folder)"
-                onClick={() => addWorkspace()}
+                title={isAndroid() ? 'Add workspace (pick a folder)' : 'Add workspace'}
+                aria-haspopup={isAndroid() ? undefined : 'menu'}
+                aria-expanded={isAndroid() ? undefined : addMenuAnchor !== null}
+                onPointerDown={(e) => {
+                  // The menu closes on any window pointerdown; keep the
+                  // opening press from closing it in the same tick.
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  if (isAndroid()) {
+                    addWorkspace();
+                  } else {
+                    setAddMenuAnchor(
+                      addMenuAnchor ? null : e.currentTarget.getBoundingClientRect(),
+                    );
+                  }
+                }}
               >
                 <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
                   <path
@@ -865,6 +886,9 @@ export function FileExplorer() {
                   />
                 </svg>
               </button>
+            )}
+            {addMenuAnchor && (
+              <AddWorkspaceMenu anchor={addMenuAnchor} onClose={() => setAddMenuAnchor(null)} />
             )}
             {/* One button for the whole tree: a stacked DOUBLE CHEVRON — both
                 pointing up while something is open (press to fold everything
@@ -1051,5 +1075,68 @@ export function FileExplorer() {
         onPointerDown={startResizeDrag}
       />
     </>
+  );
+}
+
+/**
+ * The "+" menu in the drawer header: **Open existing folder…** is the plain
+ * add-workspace picker; **Create new workspace…** opens the Initialize
+ * workspace dialog asking for a name (and location), and Create makes the
+ * folder. Dismissed like every other popover — a press outside,
+ * Escape, the window moving.
+ */
+function AddWorkspaceMenu({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="tab-menu add-workspace-menu"
+      role="menu"
+      aria-label="Add workspace"
+      // Right edge under the button's right edge; the drawer sits at the left
+      // of the window, so a menu wider than the header spills rightwards.
+      style={{ left: Math.max(4, anchor.right - 200), top: anchor.bottom + 4 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => {
+          onClose();
+          addWorkspace();
+        }}
+      >
+        <span className="add-workspace-menu-title">Open existing folder…</span>
+        <span className="add-workspace-menu-desc">Add a folder you already have</span>
+      </button>
+      <button
+        className="tab-menu-item"
+        role="menuitem"
+        onClick={() => {
+          onClose();
+          void createWorkspace();
+        }}
+      >
+        <span className="add-workspace-menu-title">Create new workspace…</span>
+        <span className="add-workspace-menu-desc">New folder, set up for AI agents</span>
+      </button>
+    </div>
   );
 }
