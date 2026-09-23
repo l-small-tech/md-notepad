@@ -196,6 +196,18 @@ Several agents may work here at once, so never change files on the main checkout
 5. When the user ends the task: leave the worktree directory in every shell, then \`git worktree remove worktrees/<slug>\` and \`git branch -d feat/<slug>\`. If removal fails on uncommitted changes, ask before forcing.
 `;
 
+export const MARP_DECKS_DIRECTIVE = `## Marp presentations
+
+A slide deck in this workspace is one markdown file whose YAML frontmatter starts with \`marp: true\` (Marp syntax: https://marpit.marp.app/markdown). The user's editor renders, edits, presents and exports such a file in place, so write decks it can show well. \`decks/example-deck.md\` demonstrates every convention below — start new decks from it.
+
+- **One \`.md\` per deck.** Frontmatter: \`marp: true\`, \`theme: default\` (or \`gaia\` / \`uncommon\`, or \`./name.css\` for a stylesheet beside the file), \`paginate: true\`. A line with only \`---\` separates slides.
+- **Images live next to the deck** and are referenced by relative path (\`![](diagram.svg)\`, \`![bg right:40%](photo.jpg)\`, \`![w:400](chart.png)\`). Never inline base64 and never link to remote images — the editor shows local files only. Prefer \`.svg\` for diagrams.
+- **Per-slide settings** are HTML comments at the top of the slide (\`<!-- _class: lead -->\`, \`<!-- _backgroundColor: #123 -->\`); the same key without the underscore applies from that slide onwards. Any other HTML comment in a slide is its speaker notes — write them, the presenter window shows them.
+- **Plain HTML only.** \`<div>\`, \`<span>\`, \`<img>\` and inline \`style\` render; \`<script>\`, \`<iframe>\` and event handlers are stripped. Math (\`$…$\`), fenced code and \`:shortcode:\` emoji render offline.
+- **Keep slides short**: one idea per slide, a heading and at most six lines or one image; split long content across slides rather than shrinking it.
+- **Edit only the lines you were asked to change.** The user tweaks decks by hand in the editor's Edit mode, which touches single lines; do not reformat, re-wrap or re-serialise the rest of the file, and leave directive comments and \`![bg]\` syntax exactly as written.
+`;
+
 export const EXAMPLE_PROMPT = `# Example prompt
 
 This note is a prompt. The loop:

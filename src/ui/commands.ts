@@ -248,6 +248,12 @@ export function buildCommands(): AppCommand[] {
       keywords: ['svg', 'whiteboard', 'board', 'sketch', 'diagram'],
       run: () => runNewTabChoice('drawing'),
     },
+    {
+      id: 'new-deck',
+      title: 'New Marp presentation',
+      keywords: ['slides', 'deck', 'slideshow', 'present', 'marp', 'powerpoint'],
+      run: () => runNewTabChoice('deck'),
+    },
     fromAction(
       'close-tab',
       'Close tab',
