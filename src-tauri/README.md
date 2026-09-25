@@ -147,16 +147,19 @@ shares `INVALID_DATA` / `IO`, and adds its own codes — the sheet's
 | `DownloadCancelled` | `WHISPER_DOWNLOAD_CANCELLED` | `whisper_model_cancel` landed; the `.part` stays |
 | `DownloadBusy` | `WHISPER_DOWNLOAD_BUSY` | one download at a time |
 
-`GitError` (`src/commands/git.rs`) serializes the same shape with four codes of
-its own; `isGitUnavailable` in `src/ipc/commands.ts` treats the first two as
-"hide the baseline picker", not as failures:
+`GitError` (`src/commands/git/mod.rs`) serializes the same shape with seven
+codes of its own; `isGitUnavailable` in `src/ipc/commands.ts` treats the first
+two as "hide the feature", not as failures:
 
 | Rust `GitError` | wire `code` | TS meaning |
 | --- | --- | --- |
 | `NoGit` | `GIT_NOT_FOUND` | no `git` binary on `PATH` |
 | `NotARepo(path)` | `GIT_NOT_A_REPO` | the path is outside any repository |
-| `Timeout` | `GIT_TIMEOUT` | git was killed at 3 s (a hung mount) |
+| `Timeout` | `GIT_TIMEOUT` | git was killed at its mode's limit (3 s read, 30 s mutate, 120 s network) |
 | `Failed { stderr }` | `GIT_FAILED` | git ran and failed; message is its stderr |
+| `Cancelled` | `GIT_CANCELLED` | `git_op_cancel` landed on a fetch / pull / push |
+| `Busy` | `GIT_BUSY` | one network op per repository at a time |
+| `InvalidArg(what)` | `GIT_INVALID_ARG` | caller bug: a user string the runner refuses to pass (empty, leading `-`, control chars) |
 
 Adding a variant = adding it to `IpcErrorCode` in `src/ipc/commands.ts` and
 to this table, same commit.

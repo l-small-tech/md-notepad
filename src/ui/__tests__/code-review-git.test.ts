@@ -14,6 +14,7 @@ import {
 
 const worktreeInfo: GitRepoInfo = {
   root: 'C:/repo/worktrees/explorer',
+  mainRoot: 'C:/repo',
   rel: 'src/core/text-files.ts',
   branch: 'feat/explorer',
   head: 'abc1234abc',

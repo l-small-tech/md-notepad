@@ -36,6 +36,9 @@ const MODE_HINTS: Record<EditorMode, string> = {
   // Never rendered: the status bar is hidden entirely on a terminal tab, and
   // 'term' is the only mode its family allows so there is nothing to pick.
   term: 'Shell',
+  // Likewise never rendered: a tool tab's family allows only this mode, so the
+  // segment strip has nothing to offer and is not drawn.
+  tool: 'Git',
 };
 const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
 const PRESENT_HINT = 'Present — the slides with their notes; F11 for the show (Ctrl/Cmd+4)';

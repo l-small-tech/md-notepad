@@ -144,3 +144,24 @@ describe('the terminal family', () => {
     expect(defaultModeFor('svg', 'term')).toBe('draw');
   });
 });
+
+describe('the tool family (the git tab)', () => {
+  it('is what a git tab is, whatever else the tab carries', () => {
+    expect(docFamilyForTab({ kind: 'git' })).toBe('tool');
+    expect(docFamilyForTab({ kind: 'git', filePath: '/repo/a.md', deck: true })).toBe('tool');
+    // A terminal is still its own family — the two differ in chrome.
+    expect(docFamilyForTab({ kind: 'terminal' })).toBe('terminal');
+  });
+
+  it('offers exactly one mode, labelled Git, and self-heals every other mode to it', () => {
+    expect(allowedModesFor('tool')).toEqual(['tool']);
+    expect(defaultModeFor('tool', 'raw')).toBe('tool');
+    expect(defaultModeFor('tool', 'term')).toBe('tool');
+    expect(isModeAllowed('tool', 'read')).toBe(false);
+    expect(isModeAllowed('tool', 'tool')).toBe(true);
+    expect(modeLabel('tool', 'tool')).toBe('Git');
+    // And no other family ever offers it.
+    expect(isModeAllowed('markdown', 'tool')).toBe(false);
+    expect(isModeAllowed('terminal', 'tool')).toBe(false);
+  });
+});

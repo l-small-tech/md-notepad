@@ -37,6 +37,7 @@ export function planOutlineJump(
       return { kind: 'heading', index: headingIndex };
     case 'draw':
     case 'term':
+    case 'tool':
       return { kind: 'none' };
   }
 }
