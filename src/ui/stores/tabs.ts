@@ -107,6 +107,18 @@ export interface TabEntry extends TabState {
    * terminal snapshot are the durable record.
    */
   terminalCwd: string | null;
+  /**
+   * kind='git' only: the repository's MAIN root — the tab's identity (one git
+   * tab per repository per window, deduped by `pathKey`). Null on every other
+   * kind.
+   */
+  gitRoot: string | null;
+  /**
+   * kind='git' only: the checkout the panel shows — the main root or one of
+   * its linked worktrees. Persisted with the root so a restart reopens the
+   * same worktree; the workspace colour cue follows it (`workspaceCueFor`).
+   */
+  gitCheckout: string | null;
 }
 
 /** Everything needed to rebuild one tab at restore time (content already read). */
@@ -137,6 +149,8 @@ export interface RestoredTabInit {
   terminalCwd?: string | null;
   /** kind='terminal' only: a line typed into the new shell once it is ready (never persisted). */
   terminalInitialInput?: string | null;
+  /** kind='git' only: the repository (main root) and the checkout last shown. */
+  git?: { root: string; checkout?: string } | null;
 }
 
 /** What the session controller applies back after a flush completes. */
@@ -245,6 +259,15 @@ export interface TabsState {
      */
     initialInput?: string | null;
   }) => string;
+  /**
+   * Open the git tab for a repository, or activate the one already open for
+   * it (one per repository per window, deduped by `pathKey(root)`). `root` is
+   * the repository's MAIN root; `checkout` preselects a worktree. Returns the
+   * tab's id. Desktop only — callers gate on `isAndroid()`.
+   */
+  openGitTab: (input: { root: string; checkout?: string | null }) => string;
+  /** The git tab switched checkouts (main ⇄ a worktree); persisted with the tab. */
+  setGitCheckout: (tabId: string, checkout: string) => void;
   /** Mirror the focused pane's shell title onto the tab label. */
   setTerminalTitle: (tabId: string, title: string | null) => void;
   /**
@@ -343,11 +366,16 @@ export function tabDisplayTitle(tab: {
   title: string;
   charCount: number;
   terminalTitle?: string | null;
+  gitRoot?: string | null;
 }): string {
   if (tab.kind === 'terminal') {
     // A shell's own OSC title wins; a user rename beats even that. `title`
     // holds the profile name, set when the tab was opened.
     return tab.customTitle ?? tab.terminalTitle ?? tab.title;
+  }
+  if (tab.kind === 'git') {
+    // Named after the repository's main folder, whichever worktree is shown.
+    return tab.customTitle ?? `Git: ${baseName(tab.gitRoot ?? '') || tab.gitRoot || 'repository'}`;
   }
   if ((tab.kind === 'file' || tab.kind === 'image' || tab.kind === 'import') && tab.filePath) {
     return stripExtension(baseName(tab.filePath));
@@ -416,7 +444,15 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       readOnly: init?.readOnly ?? false,
       terminalTitle: null,
       terminalCwd: null,
+      gitRoot: init?.git?.root ?? null,
+      gitCheckout: init?.git?.checkout ?? init?.git?.root ?? null,
     };
+
+    // A git tab's label is the repository's folder; the title subscription
+    // below never fires for it (its model stays empty), so it is set once.
+    if (entry.kind === 'git') {
+      entry.title = customTitle ?? tabDisplayTitle(entry);
+    }
 
     // A terminal tab's "content" is its pane layout, so it is created here —
     // the one place every tab (new, restored, reordered) is built — rather
@@ -920,6 +956,50 @@ export const tabsStore = createStore<TabsState>()((set, get) => {
       addTab(tab, false);
       requestFlush();
       return tab.id;
+    },
+
+    openGitTab({ root, checkout = null }) {
+      const key = pathKey(root);
+      const existing = get().tabs.find((t) => t.kind === 'git' && pathKey(t.gitRoot ?? '') === key);
+      if (existing) {
+        // One tab per repository: a second open activates it (and switches
+        // it to the requested checkout when the caller named one).
+        if (checkout && pathKey(existing.gitCheckout ?? '') !== pathKey(checkout)) {
+          get().setGitCheckout(existing.id, checkout);
+        }
+        get().activateTab(existing.id);
+        return existing.id;
+      }
+      const tab = makeTab({
+        id: nanoid(),
+        kind: 'git',
+        notePath: null,
+        filePath: null,
+        customTitle: null,
+        mode: 'tool',
+        savedMtimeMs: null,
+        text: '',
+        git: { root, ...(checkout ? { checkout } : {}) },
+      });
+      addTab(tab, false);
+      requestFlush();
+      return tab.id;
+    },
+
+    setGitCheckout(tabId, checkout) {
+      const s = get();
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.kind !== 'git' || tab.gitCheckout === checkout) {
+        return;
+      }
+      // Re-arranged like a terminal's cwd change: the colour cue follows the
+      // checkout, so with grouping on the tab belongs in that workspace's run.
+      set({
+        tabs: arrangeByWorkspace(
+          s.tabs.map((t) => (t.id === tabId ? { ...t, gitCheckout: checkout } : t)),
+        ),
+      });
+      requestFlush();
     },
 
     setTerminalTitle(tabId, title) {

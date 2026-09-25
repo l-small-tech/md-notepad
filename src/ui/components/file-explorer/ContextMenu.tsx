@@ -21,6 +21,7 @@ import { isMarkdownPath } from '../../../core/text-files';
 import { HARNESS_PROFILE_ID, WORKSPACE_COLORS, type WorkspaceColor } from '../../../core/types';
 import { isAndroid } from '../../platform';
 import { openTerminal } from '../../terminal-open';
+import { openGitTab } from '../../git-open';
 import { useSettingsStore } from '../../stores/settings';
 import { harnessInstalled, useHarnessAvailability } from '../../stores/harness-availability';
 import {
@@ -553,6 +554,21 @@ export function ExplorerContextMenu(props: ExplorerContextMenuProps) {
           }}
         >
           Workspace directives…
+        </button>
+      )}
+      {/* The git tab for the repository this workspace is in (or a notice when
+          it is not in one). Same gate as the directives row: desktop, local. */}
+      {wsColor !== undefined && !isAndroid() && !dir.startsWith('saf://') && (
+        <button
+          className="context-menu-item"
+          role="menuitem"
+          title="Source control: status, commits, branches and worktrees for this repository"
+          onClick={() => {
+            onClose();
+            void openGitTab(dir);
+          }}
+        >
+          Git
         </button>
       )}
       {/* Live Edit: a shared Drive/OneDrive folder. Files opened from it save

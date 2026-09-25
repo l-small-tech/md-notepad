@@ -231,6 +231,22 @@ describe('keyEventToAction — non-interception', () => {
   test('mod+Shift+P (not in the table) is ignored', () => {
     expect(keyEventToAction(key({ key: 'p', ctrlKey: true, shiftKey: true }), 'other')).toBeNull();
   });
+
+  test('mod+Shift+G opens the git tab; plain mod+G stays free for the editor', () => {
+    expect(keyEventToAction(key({ key: 'g', ctrlKey: true, shiftKey: true }), 'other')).toEqual({
+      type: 'open-git',
+    });
+    expect(keyEventToAction(key({ key: 'G', metaKey: true, shiftKey: true }), 'mac')).toEqual({
+      type: 'open-git',
+    });
+    expect(keyEventToAction(key({ key: 'g', ctrlKey: true }), 'other')).toBeNull();
+  });
+
+  test('mod+Shift+G reaches through a focused terminal too', () => {
+    expect(
+      keyEventToAction(key({ key: 'g', ctrlKey: true, shiftKey: true }), 'other', 'terminal'),
+    ).toEqual({ type: 'open-git' });
+  });
 });
 
 describe('keyEventToAction — terminal context', () => {

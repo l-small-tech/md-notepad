@@ -43,6 +43,10 @@ describe('defaultNewTabChoice', () => {
     expect(defaultNewTabChoice({ kind: 'file', filePath: '/notes/board.svg.md' })).toBe('note');
   });
 
+  test('a git tab in front makes a note — there is no "another git tab"', () => {
+    expect(defaultNewTabChoice({ kind: 'git', filePath: null, notePath: null })).toBe('note');
+  });
+
   test('a new empty note tab (no path yet) makes a note', () => {
     expect(defaultNewTabChoice({ kind: 'note', filePath: null, notePath: null })).toBe('note');
   });

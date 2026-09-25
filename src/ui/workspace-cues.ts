@@ -39,12 +39,22 @@ export interface CueableTab {
    * the workspace it is standing in and changes color when it `cd`s.
    */
   terminalCwd?: string | null;
+  /** kind='git': the repository's main root and the checkout shown (the cue). */
+  gitRoot?: string | null;
+  gitCheckout?: string | null;
 }
 
-/** The path a tab is placed by: its file, or for a terminal the folder its shell is in. */
+/**
+ * The path a tab is placed by: its file; for a terminal the folder its shell
+ * is in; for a git tab the checkout it shows (a worktree opened as a
+ * workspace colours the tab while it is selected there).
+ */
 export function cuePathFor(tab: CueableTab): string | null {
   if (tab.kind === 'terminal') {
     return tab.terminalCwd ?? null;
+  }
+  if (tab.kind === 'git') {
+    return tab.gitCheckout ?? tab.gitRoot ?? null;
   }
   return tab.filePath ?? tab.notePath;
 }

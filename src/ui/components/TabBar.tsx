@@ -195,10 +195,15 @@ function StatusBadge({ cue }: { cue: AgentStatusCue }) {
  * whatever its extension says (the drawing editor owns `.svg`), so the split
  * lives here rather than as a new field on TabEntry.
  */
-type TabIconKind = 'markdown' | 'drawing' | 'image' | 'import' | 'terminal';
+type TabIconKind = 'markdown' | 'drawing' | 'image' | 'import' | 'terminal' | 'git';
 
 function tabIconKind(tab: TabEntry): TabIconKind {
-  if (tab.kind === 'terminal' || tab.kind === 'image' || tab.kind === 'import') {
+  if (
+    tab.kind === 'terminal' ||
+    tab.kind === 'image' ||
+    tab.kind === 'import' ||
+    tab.kind === 'git'
+  ) {
     return tab.kind;
   }
   if (tab.kind === 'file' && tab.filePath?.toLowerCase().endsWith('.svg')) {
@@ -239,6 +244,15 @@ const TAB_ICON_PATHS: Record<TabIconKind, React.ReactNode> = {
     <>
       <path d="M8 2.5v6m0 0L5.5 6.2M8 8.5l2.5-2.3" />
       <path d="M2.5 10v2A1.5 1.5 0 004 13.5h8a1.5 1.5 0 001.5-1.5v-2" />
+    </>
+  ),
+  // A branch: two commits on a line, one forking off.
+  git: (
+    <>
+      <circle cx="5" cy="3.5" r="1.6" />
+      <circle cx="5" cy="12.5" r="1.6" />
+      <circle cx="11.5" cy="5.5" r="1.6" />
+      <path d="M5 5.1v5.8M11.5 7.1c0 2.4-2.5 3-4.6 3.4" />
     </>
   ),
 };
@@ -356,7 +370,7 @@ function Tab({
       className={className}
       role="tab"
       aria-selected={active}
-      title={tab.filePath ?? tab.terminalCwd ?? label}
+      title={tab.filePath ?? tab.terminalCwd ?? tab.gitRoot ?? label}
       data-strip-tab={tab.id}
       data-strip-workspace={workspaceKey ?? undefined}
       data-color={color ?? undefined}
@@ -519,8 +533,11 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
     tab !== undefined &&
     tab.kind !== 'image' &&
     tab.kind !== 'import' &&
+    tab.kind !== 'git' &&
     // A deck is a markdown document too (its export is the slide HTML).
     (docFamilyForTab(tab) === 'markdown' || docFamilyForTab(tab) === 'deck');
+  // A git tab has no document path: no Copy path / Save / Duplicate rows
+  // (`tabPath` is null for it, and the file-only rows key on kind === 'file').
   const hasPath = tabPath(menu.tabId) !== null;
   // The move rows live on a drill-in page (same pattern as the explorer
   // menu's Import — one panel that behaves identically under finger and
@@ -642,7 +659,7 @@ function TabContextMenu({ menu, onClose }: { menu: TabMenu; onClose: () => void 
           className="tab-menu-item"
           role="menuitem"
           onClick={() => {
-            saveTab(menu.tabId);
+            void saveTab(menu.tabId);
             onClose();
           }}
         >
@@ -780,7 +797,7 @@ function OverflowMenu({
           <button
             className="tab-menu-item tab-overflow-item"
             role="menuitem"
-            title={tab.filePath ?? tab.terminalCwd ?? undefined}
+            title={tab.filePath ?? tab.terminalCwd ?? tab.gitRoot ?? undefined}
             onClick={() => {
               tabsStore.getState().activateTab(tab.id);
               onClose();
