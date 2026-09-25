@@ -15,6 +15,7 @@ import {
   LOG_PAGE,
   OP_LINE_CAP,
   REFRESH_THROTTLE_MS,
+  WORKTREE_REMOVE_RETRY_MS,
   repoKey,
   type GitIpc,
   type GitStoreDeps,
@@ -847,6 +848,29 @@ describe('worktrees', () => {
       'gitWorktreeRemove',
     ]);
     expect(h.r().selectedCheckout).toBe(MAIN);
+  });
+
+  test('removeWorktree: a directory still held by a closing shell gets one delayed retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      await h.open();
+      h.ipc.gitWorktreeRemove
+        .mockRejectedValueOnce(
+          new IpcError(
+            'GIT_FAILED',
+            "fatal: failed to delete 'C:/repo/worktrees/a': The process cannot access the file because it is being used by another process.",
+          ),
+        )
+        .mockResolvedValueOnce(undefined);
+      const done = h.s().removeWorktree(MAIN, WT);
+      await vi.advanceTimersByTimeAsync(WORKTREE_REMOVE_RETRY_MS + 1);
+      await done;
+      expect(h.ipc.gitWorktreeRemove).toHaveBeenCalledTimes(2);
+      expect(h.notices().at(-1)).toBe('Removed worktrees/a');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('removeWorktree: declined confirm does nothing; the main checkout is refused', async () => {

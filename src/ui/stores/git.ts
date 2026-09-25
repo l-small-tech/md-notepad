@@ -386,6 +386,9 @@ export const REFRESH_THROTTLE_MS = 1000;
 /** Commits per `git log` page. */
 export const LOG_PAGE = 50;
 /** Streamed output lines kept per network op (the drawer shows the tail). */
+/** The pause before the second `git worktree remove` when a just-closed shell still holds the directory. */
+export const WORKTREE_REMOVE_RETRY_MS = 400;
+
 export const OP_LINE_CAP = 500;
 
 const ALL_PARTS: readonly RefreshPart[] = ['worktrees', 'status', 'branches', 'log'];
@@ -465,6 +468,31 @@ export function createGitStore(getDeps: () => GitStoreDeps) {
     };
 
     const now = () => getDeps().now?.() ?? Date.now();
+
+    /**
+     * `git worktree remove`, tried twice. The terminals inside the directory
+     * were closed a moment ago, but a pty's kill is fire-and-forget from the
+     * pane's unmount, so on Windows the shell can still hold the directory
+     * when git first tries; git says so ("being used by another process",
+     * "Permission denied", "Directory not empty") and a second try a beat
+     * later succeeds. Any other failure is reported at once.
+     */
+    const removeWorktreeDir = async (mainRoot: string, path: string, force: boolean) => {
+      try {
+        await getDeps().ipc.gitWorktreeRemove(mainRoot, path, force);
+      } catch (err) {
+        const text = err instanceof Error ? err.message.toLowerCase() : '';
+        const held =
+          text.includes('being used by another process') ||
+          text.includes('permission denied') ||
+          text.includes('directory not empty');
+        if (!held) {
+          throw err;
+        }
+        await new Promise((resolve) => setTimeout(resolve, WORKTREE_REMOVE_RETRY_MS));
+        await getDeps().ipc.gitWorktreeRemove(mainRoot, path, force);
+      }
+    };
 
     const patch = (mainRoot: string, update: (repo: RepoState) => Partial<RepoState>) => {
       const key = repoKey(mainRoot);
@@ -1064,7 +1092,7 @@ export function createGitStore(getDeps: () => GitStoreDeps) {
             it(mainRoot).explicitCheckout = true;
             patch(mainRoot, () => ({ selectedCheckout: f.mainRoot, ...clearedForCheckout() }));
           }
-          await deps.ipc.gitWorktreeRemove(f.mainRoot, f.worktree, false);
+          await removeWorktreeDir(f.mainRoot, f.worktree, false);
           return { type: 'step-done' };
         }
         case 'delete-branch':
@@ -1648,7 +1676,7 @@ export function createGitStore(getDeps: () => GitStoreDeps) {
             state.explicitCheckout = true;
             patch(mainRoot, () => ({ selectedCheckout: mainRoot, ...clearedForCheckout() }));
           }
-          await deps.ipc.gitWorktreeRemove(mainRoot, path, force);
+          await removeWorktreeDir(mainRoot, path, force);
           deps.notice(`Removed ${rel}`);
         } catch (err) {
           fail(mainRoot, err);
