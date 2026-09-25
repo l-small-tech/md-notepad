@@ -23,8 +23,13 @@ import type { ScanPreset, ScanSmoothing } from './whiteboard/scan/types';
  * allows. It exists so a terminal tab's `mode` is a real value every switch
  * can see rather than a lie ('raw') every consumer has to special-case; the
  * mode picker and mod+1..4 filter it out for free via `isModeAllowed`.
+ *
+ * 'tool' is the same idea for a TOOL tab (the git tab): a tab that is neither
+ * a document nor a shell. Its own sentinel rather than 'term' so nothing that
+ * switches on the mode (the status bar's label, scroll-position stamps)
+ * mistakes it for a terminal.
  */
-export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw' | 'term';
+export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw' | 'term' | 'tool';
 
 /**
  * 'note'  — an ephemeral Notepad-style tab, backed by a .md file in the
@@ -42,8 +47,15 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw' | 'term';
  *           never session-buffered, and the manifest records only the pane
  *           layout needed to respawn it. Desktop only — there is no pty on
  *           Android, so the new-tab menu never offers it there.
+ * 'git'   — the source-control panel for ONE repository (its main checkout
+ *           and every linked worktree). Holds no text and owns no process:
+ *           the manifest records only `{ root, checkout }` (the repository's
+ *           main root and the checkout last shown), and restore drops the
+ *           tab when that root is no longer a repository. One tab per
+ *           repository per window, keyed by the main root. Desktop only —
+ *           the git commands are not registered on Android.
  */
-export type TabKind = 'note' | 'file' | 'image' | 'import' | 'terminal';
+export type TabKind = 'note' | 'file' | 'image' | 'import' | 'terminal' | 'git';
 
 export interface CursorPos {
   anchor: number;

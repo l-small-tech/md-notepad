@@ -39,6 +39,7 @@ export function scrollSurfaceFor(mode: EditorMode): ScrollSurface | null {
     // neither has a source line to carry.
     case 'draw':
     case 'term':
+    case 'tool':
       return null;
   }
 }

@@ -788,7 +788,11 @@ export function createCm6Adapter(options: Cm6Options = {}): Cm6Adapter {
           ...(isMarkdown ? markdownKeymap : []),
           ...defaultKeymap,
           ...historyKeymap,
-          ...searchKeymap,
+          // Mod-g / Shift-Mod-g (find next / previous) are dropped: the app
+          // binds mod+Shift+G to the git tab (ui/keymap.ts), and CM6 would
+          // otherwise preventDefault the chord inside a focused editor. F3 /
+          // Shift+F3 and the search panel's Enter keep next / previous.
+          ...searchKeymap.filter((b) => b.key !== 'Mod-g'),
         ]),
         languageExtension,
         search({ top: true }),

@@ -264,6 +264,8 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .manage(commands::watch::WatchState::default())
+        // The git tab's running fetch / pull / push ops (one per repository).
+        .manage(commands::git::net::GitOps::default())
         .manage(commands::pty::PtyRegistry::default())
         // Whisper voice notes: the loaded model and the one download at a time.
         .manage(commands::whisper::engine::EngineState::default())
@@ -318,6 +320,54 @@ pub fn run() {
             commands::git::git_show_file,
             #[cfg(desktop)]
             commands::git::git_file_changes,
+            // The git tab (status, refs, staging, commits, merges, worktrees,
+            // network), desktop only.
+            #[cfg(desktop)]
+            commands::git::git_status,
+            #[cfg(desktop)]
+            commands::git::git_branches,
+            #[cfg(desktop)]
+            commands::git::git_log,
+            #[cfg(desktop)]
+            commands::git::git_commit_files,
+            #[cfg(desktop)]
+            commands::git::git_diff_names,
+            #[cfg(desktop)]
+            commands::git::git_ahead_behind,
+            #[cfg(desktop)]
+            commands::git::git_worktrees,
+            #[cfg(desktop)]
+            commands::git::git_check_ignore,
+            #[cfg(desktop)]
+            commands::git::git_stage,
+            #[cfg(desktop)]
+            commands::git::git_unstage,
+            #[cfg(desktop)]
+            commands::git::git_discard,
+            #[cfg(desktop)]
+            commands::git::git_commit,
+            #[cfg(desktop)]
+            commands::git::git_switch,
+            #[cfg(desktop)]
+            commands::git::git_create_branch,
+            #[cfg(desktop)]
+            commands::git::git_delete_branch,
+            #[cfg(desktop)]
+            commands::git::git_merge,
+            #[cfg(desktop)]
+            commands::git::git_merge_abort,
+            #[cfg(desktop)]
+            commands::git::git_worktree_add,
+            #[cfg(desktop)]
+            commands::git::git_worktree_remove,
+            #[cfg(desktop)]
+            commands::git::git_fetch,
+            #[cfg(desktop)]
+            commands::git::git_pull,
+            #[cfg(desktop)]
+            commands::git::git_push,
+            #[cfg(desktop)]
+            commands::git::git_op_cancel,
             #[cfg(desktop)]
             commands::pty::pty_spawn,
             #[cfg(desktop)]
