@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-25
+
 - **Prompt files.** The prompt status strip now appears only on notes named
   `*.prompts.md` (one file, one or more prompts), and `STATUSES.md` moves into
   the `prompts/` folder. Initialize workspace no longer ticks any directive by
