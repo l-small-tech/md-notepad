@@ -23,23 +23,80 @@ session concepts in Rust, stop and move it to `src/core`.
   `list_notes`, `list_dir`, `list_session_manifests`, `read_file_base64`,
   `write_file_base64`, `copy_path`, `create_dir`, `rename_path`,
   `delete_path`, `stat_path`.
-- `src/commands/git.rs` — git facts for Review mode's "What changed"
-  (**desktop only**, `#[cfg(not(target_os = "android"))]` on the module).
-  Shells out to the `git` binary — no `git2`/libgit2, because the feature only
-  runs where a developer already has git and a large native build buys three
-  `rev-parse` calls nothing. `git_repo_info` (root, `rel`, branch, HEAD,
-  `is_worktree`, the baseline branch + its merge-base, and every worktree from
-  `git worktree list --porcelain`), `git_show_file` (`git show <rev>:<rel>`;
-  `None` — not an error — when the path did not exist at that revision), and
-  `git_file_changes` (per branch, does its blob for one path differ from the
-  baseline's? the worktree radar, one `rev-parse` per branch, no checkouts).
-  Every invocation runs on the blocking pool with a hard 3 s timeout (killed
-  after it), `stdin` null so nothing can prompt, both pipes drained by their
-  own thread so a full pipe can't deadlock the wait, and `CREATE_NO_WINDOW` on
-  Windows. The baseline branch is auto-detected — `development`, then `main`,
-  then `master` — and overridden by the frontend's `reviewBaseBranch` setting.
-  Policy-free (rule I5): which revision is "the baseline" and what a badge
-  means are `src/core/code/changes.ts`'s.
+- `src/commands/git/` — everything git (**desktop only**,
+  `#[cfg(not(target_os = "android"))]` on the module). Shells out to the `git`
+  binary — no `git2`/libgit2, because the feature only runs where a developer
+  already has git and a large native build buys a process spawn nothing.
+  - `mod.rs` — `GitError`, the path helpers, `parse_worktrees`, and Review
+    mode's three facts: `git_repo_info` (root, `main_root` = the first
+    `worktree list` record and the git tab's identity, `rel`, branch, HEAD,
+    `is_worktree`, the baseline branch + its merge-base, every worktree),
+    `git_show_file` (`git show <rev>:<rel>`; `None` — not an error — when the
+    path did not exist at that revision), `git_file_changes` (per branch, does
+    its blob for one path differ from the baseline's? one `rev-parse` per
+    branch, no checkouts). The baseline branch is auto-detected —
+    `development`, then `main`, then `master` — and overridden by the
+    frontend's `reviewBaseBranch` setting. `pub use`s every command fn (and
+    the two helper macros `#[tauri::command]` emits per fn) so `lib.rs` keeps
+    `commands::git::<name>`.
+  - `run.rs` — the ONE runner. `GitMode { Read, Mutate, Network }` picks the
+    flag and the limit: Read = `--no-optional-locks`, 3 s; Mutate = 30 s;
+    Network = 120 s, streamed over a `tauri::ipc::Channel<GitOutputEvent>`
+    (`{kind:"line", stream:"out"|"err", text}` per line — split on `\n` AND
+    `\r`, git's progress redraws with a bare CR — then one `{kind:"done"}`
+    last, on every path out) and cancellable (an `AtomicBool` polled every
+    20 ms; set → `child.kill()` → `GIT_CANCELLED`). Every invocation is
+    `git -c color.ui=never -c core.quotepath=false [--no-optional-locks]
+    [-C root] <args>` with `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, `LANG=C`,
+    `stdin` null (nothing can prompt), both pipes drained by their own thread
+    (a full pipe can't deadlock the wait), `CREATE_NO_WINDOW` on Windows, and
+    killed at its mode's limit (`GIT_TIMEOUT` names the seconds). `safe_arg`
+    (refuses empty, leading `-`, control chars) and `safe_rel` (also absolute
+    paths and `..` segments) gate EVERY user-supplied string → `GIT_INVALID_ARG`;
+    path lists always sit behind `--`. **There is no generic "run these args"
+    command**: every command below is named and builds its own argv.
+    `message_file` carries a commit message to `commit -F` as a temp file —
+    never `-m`.
+  - `status.rs` — `git_status`: `status --porcelain=v2 -z --branch
+    --untracked-files=normal` (never `-uall`), record types `1`/`2`/`u`/`?`,
+    plus `state` (merging / rebasing / cherry-picking / reverting / bisecting)
+    from the marker files under `rev-parse --git-path` and `merge_head`.
+  - `refs.rs` — `git_branches` (`for-each-ref` with a `%1f`/`%1e`-separated
+    format over `refs/heads` + `refs/remotes`, `%(upstream:track)` parsed into
+    ahead/behind/gone, `refs/remotes/*/HEAD` dropped), `git_log` (paged; `[]`
+    on an unborn HEAD), `git_commit_files` (a merge commit against its first
+    parent), `git_diff_names` (`from...to`), `git_ahead_behind`.
+  - `worktrees.rs` — `git_worktrees` (the dashboard: per checkout, capped at
+    20, dirty counts from a status + ahead/behind the base from `rev-list`;
+    a vanished directory is `missing: true`, not an error), `git_check_ignore`,
+    `git_worktree_add`, `git_worktree_remove` (+ `worktree prune`).
+  - `ops.rs` — `git_stage` / `git_unstage` (`rm --cached` on an unborn branch)
+    / `git_discard` (`restore --worktree --source=HEAD` + `clean -f [-d]`),
+    `git_commit` (`--cleanup=strip -F <tmp>` | `--no-edit`; returns the new
+    sha), `git_switch`, `git_create_branch` (`check-ref-format` first),
+    `git_delete_branch`, `git_merge` (a conflict is the OUTCOME `conflicts`
+    with the unmerged paths — never an error; a refusal is `GIT_FAILED`),
+    `git_merge_abort`.
+  - `net.rs` — `GitOps` managed state (op id → cancel flag; one op per
+    `path_key(root)` at a time → `GIT_BUSY`; a cancel that arrives before its
+    op begins is remembered), `git_fetch` / `git_pull` / `git_push` /
+    `git_op_cancel`. A push git rejected or a fetch that could not reach its
+    remote is a RESULT (`ok:false`, `exitCode`, `stderr`), never a rejection;
+    a pull's merge half is reported as a `GitMergeOutcome` (conflicts keep
+    `ok:true` — the pull ran).
+  Every command runs on the blocking pool. Policy-free (rule I5): which
+  revision is "the baseline", what a badge means, which group a status letter
+  lands in and what a merge outcome enables are `src/core/code/changes.ts`'s,
+  `src/core/git/*`'s and the stores'.
+- `src/commands/watch.rs` — the workspace watcher (**desktop only**): one
+  `notify` debouncer (800 ms) over every workspace root, emitting `fs-changed`
+  (roots whose non-dot paths changed — the explorer re-lists) and, from the
+  SAME batch, `git-changed` (roots whose `.git` state moved: `index`, `HEAD`,
+  `ORIG_HEAD`, `MERGE_HEAD`, `MERGE_MSG`, `FETCH_HEAD`, `packed-refs`,
+  `refs/**`, `logs/HEAD`, and the same under `worktrees/<name>/`; anything
+  `.lock` excluded — the git tab refreshes). A linked worktree's `.git` is a
+  file pointing into the main checkout's `.git/worktrees/<name>`, so watching
+  the main root covers every worktree.
 - `src/pty.rs` — the pty engine behind terminal tabs (**desktop only**):
   spawn a child on a pseudo-terminal, four threads per session
   (reader → bounded channel → emitter, a waiter, and a writer fed by a
