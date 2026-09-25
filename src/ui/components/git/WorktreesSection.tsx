@@ -139,12 +139,14 @@ function WorktreeRow({
               icon="merge-in"
               title={`Merge ${base} into ${checkout.branch} (here)`}
               disabled={s?.missing === true}
-              onClick={() => void actions.merge(root, base, { root: checkout.path })}
+              onClick={() =>
+                void actions.merge(root, base, { root: checkout.path, into: checkout.branch ?? '' })
+              }
             />
             <IconButton
               icon="merge-out"
               title={`Merge ${checkout.branch} into ${base} (in the main checkout)`}
-              onClick={() => void actions.merge(root, checkout.branch ?? '', { root })}
+              onClick={() => void actions.merge(root, checkout.branch ?? '', { root, into: base })}
             />
           </>
         )}

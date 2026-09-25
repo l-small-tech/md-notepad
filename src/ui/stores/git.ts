@@ -284,8 +284,17 @@ export interface GitState {
     switchTo: boolean,
   ) => Promise<void>;
   deleteBranch: (mainRoot: string, name: string, opts?: { force?: boolean }) => Promise<void>;
-  /** Merge `target` into the checkout at `root` (default: the selected one). */
-  merge: (mainRoot: string, target: string, opts?: { root?: string }) => Promise<void>;
+  /**
+   * Merge `target` into the checkout at `root` (default: the selected one).
+   * `into` names the branch the caller EXPECTS that checkout to be on ("merge
+   * into development" from a worktree row); when the checkout is on another
+   * branch the merge is refused with a notice instead of landing there.
+   */
+  merge: (
+    mainRoot: string,
+    target: string,
+    opts?: { root?: string; into?: string },
+  ) => Promise<void>;
 
   /* conflicts (of the checkout the tracker names, else the selected one) */
   abortMerge: (mainRoot: string) => Promise<void>;
@@ -1377,6 +1386,17 @@ export function createGitStore(getDeps: () => GitStoreDeps) {
           return;
         }
         const root = opts.root ?? r.selectedCheckout;
+        if (opts.into !== undefined) {
+          const actual = checkoutBranch(r, root);
+          if (actual !== opts.into) {
+            getDeps().notice(
+              actual === null
+                ? `Cannot merge into ${opts.into}: that checkout has a detached HEAD`
+                : `Cannot merge into ${opts.into}: that checkout is on ${actual} — switch it first`,
+            );
+            return;
+          }
+        }
         await mutate(mainRoot, ALL_PARTS, async () => {
           const outcome = await getDeps().ipc.gitMerge(root, target, false);
           if (outcome.outcome === 'conflicts') {

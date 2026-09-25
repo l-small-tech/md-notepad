@@ -606,6 +606,21 @@ describe('network ops', () => {
   });
 });
 
+describe('merge into an expected branch', () => {
+  test('refuses when the checkout is on another branch, and merges when it matches', async () => {
+    const h = harness();
+    await h.open();
+    // MAIN is on development; a worktree row asking to merge "into main" is wrong.
+    await h.s().merge(MAIN, 'feat/a', { root: MAIN, into: 'main' });
+    expect(h.ipc.gitMerge).not.toHaveBeenCalled();
+    expect(h.notices().at(-1)).toBe(
+      'Cannot merge into main: that checkout is on development — switch it first',
+    );
+    await h.s().merge(MAIN, 'feat/a', { root: MAIN, into: 'development' });
+    expect(h.ipc.gitMerge).toHaveBeenCalledWith(MAIN, 'feat/a', false);
+  });
+});
+
 describe('conflicts', () => {
   async function merging(h: ReturnType<typeof harness>) {
     await h.open();
