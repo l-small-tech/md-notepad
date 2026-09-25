@@ -19,6 +19,7 @@ import {
 } from '../../core/session/plan-flush';
 import { nanoid } from 'nanoid';
 import { isCommentsPath } from '../../core/comments';
+import { ipc as nativeIpc } from '../../ipc/commands';
 import { setFlushRequester } from '../stores/flush-signal';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, type RestoredTabInit } from '../stores/tabs';
@@ -146,6 +147,11 @@ export function createFlushRestore(ctx: SessionCtx) {
         cursor: cursorByTab.get(t.id) ?? null,
         // Terminal tabs contribute no text and no buffer — only their layout.
         terminal: t.kind === 'terminal' ? terminalsStore.getState().snapshot(t.id) : null,
+        // A git tab likewise: the repository it shows and the checkout picked.
+        git:
+          t.kind === 'git' && t.gitRoot
+            ? { root: t.gitRoot, ...(t.gitCheckout ? { checkout: t.gitCheckout } : {}) }
+            : null,
       })),
       existingNoteFiles: ctx.existingNoteFiles,
       closedNotePaths,
@@ -243,6 +249,26 @@ export function createFlushRestore(ctx: SessionCtx) {
         // terminal tabs there.
         if (!isAndroid()) {
           restored.push(persistedToInit(pt, ''));
+        }
+        continue;
+      }
+      if (pt.kind === 'git') {
+        // A git tab holds no text either; what has to still be true is that
+        // its root is a repository. Ask git (the same call the tab makes on
+        // open; the native ipc, not the storage provider — git is a desktop
+        // command, never a SAF one): a deleted or moved repo drops the tab
+        // with the "missing" notice rather than restoring an empty panel.
+        // Android has no git commands at all, so a desktop manifest loses
+        // its git tabs there.
+        const root = pt.git?.root;
+        if (isAndroid() || !root) {
+          continue;
+        }
+        try {
+          await nativeIpc.gitRepoInfo(root);
+          restored.push(persistedToInit(pt, ''));
+        } catch {
+          missing.push(`Git: ${baseName(root)}`);
         }
         continue;
       }

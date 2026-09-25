@@ -22,7 +22,7 @@ const NOTE = '# Plan\n\n## Build it\ndo things\n';
 
 describe('prompt status store', () => {
   it('tracks only workspaces that have a STATUSES.md', async () => {
-    const { api } = setup({ 'C:/ws/STATUSES.md': '| a.md | done | t | s |' });
+    const { api } = setup({ 'C:/ws/prompts/STATUSES.md': '| a.md | done | t | s |' });
     await api.refresh();
     expect(Object.keys(api.store.getState().byRoot)).toEqual(['c:/ws']);
     expect(api.locate(['C:', 'ws', 'prompts', 'a.md'].join(String.fromCharCode(92)))?.rel).toBe(
@@ -32,13 +32,13 @@ describe('prompt status store', () => {
   });
 
   it('copies a section and queues it, keeping rows written meanwhile', async () => {
-    const { api, files, clip } = setup({ 'C:/ws/STATUSES.md': '' });
+    const { api, files, clip } = setup({ 'C:/ws/prompts/STATUSES.md': '' });
     await api.refresh();
-    files['C:/ws/STATUSES.md'] = '| other.md | running | t | agent wrote this |';
+    files['C:/ws/prompts/STATUSES.md'] = '| other.md | running | t | agent wrote this |';
     const section = promptSections(NOTE)[1]!;
     expect(await api.copyAsPrompt('C:/ws/prompts/plan.md', NOTE, section)).toBe(true);
     expect(clip()).toBe('## Build it\ndo things\n\nPrompt-id: prompts/plan.md#build-it\n');
-    expect(parseStatuses(files['C:/ws/STATUSES.md']!)).toEqual([
+    expect(parseStatuses(files['C:/ws/prompts/STATUSES.md']!)).toEqual([
       { key: 'other.md', status: 'running', updated: 't', summary: 'agent wrote this' },
       {
         key: 'prompts/plan.md#build-it',
@@ -51,11 +51,13 @@ describe('prompt status store', () => {
   });
 
   it('does not re-queue a prompt an agent is working on', async () => {
-    const { api, files } = setup({ 'C:/ws/STATUSES.md': '| plan.md | running | t | busy |' });
+    const { api, files } = setup({
+      'C:/ws/prompts/STATUSES.md': '| plan.md | running | t | busy |',
+    });
     await api.refresh();
-    const before = files['C:/ws/STATUSES.md'];
+    const before = files['C:/ws/prompts/STATUSES.md'];
     await api.copyAsPrompt('C:/ws/plan.md', NOTE, null);
-    expect(files['C:/ws/STATUSES.md']).toBe(before);
+    expect(files['C:/ws/prompts/STATUSES.md']).toBe(before);
   });
 
   it('refuses outside a tracked workspace', async () => {

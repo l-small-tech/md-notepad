@@ -14,13 +14,13 @@
  * to write an equivalent of their own.
  */
 export const STATUS_SCRIPT = `#!/usr/bin/env python3
-"""Record prompt progress in STATUSES.md (read by the md-notepad editor).
+"""Record prompt progress in prompts/STATUSES.md (read by the md-notepad editor).
 
   python .notepad/status.py set <prompt-id> <status> [summary]
   python .notepad/status.py find <heading text>
   python .notepad/status.py list
 
-<prompt-id> is "path/to/note.md" or "path/to/note.md#heading-slug", relative
+<prompt-id> is "path/to/note.prompts.md" or "path/to/note.prompts.md#heading-slug", relative
 to the workspace root. <status> is one of:
   queued  running  needs-input  done  failed
 
@@ -32,7 +32,7 @@ import sys
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FILE = os.path.join(ROOT, "STATUSES.md")
+FILE = os.path.join(ROOT, "prompts", "STATUSES.md")
 STATUSES = ("queued", "running", "needs-input", "done", "failed")
 HEADER = [
     "# Statuses",
@@ -79,6 +79,7 @@ def read_rows():
 
 def write_rows(rows):
     lines = HEADER + ["| " + " | ".join(cell(c) for c in row) + " |" for row in rows.values()]
+    os.makedirs(os.path.dirname(FILE), exist_ok=True)
     tmp = FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\\n") as handle:
         handle.write("\\n".join(lines) + "\\n")
@@ -109,7 +110,7 @@ def find(title):
     for folder, dirs, files in os.walk(ROOT):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for name in files:
-            if name.lower().endswith((".md", ".markdown")) and name != "STATUSES.md":
+            if name.lower().endswith(".prompts.md"):
                 path = os.path.join(folder, name)
                 for base, anchor in headings(path):
                     if base == want:
@@ -139,16 +140,16 @@ if __name__ == "__main__":
 
 export const PROMPT_STATUS_DIRECTIVE = `## Prompt status
 
-Prompts in this workspace are markdown notes (or one heading section of a note). The user's editor shows each prompt's progress, which it reads from \`STATUSES.md\` in the workspace root. Keep that file current — it is how the user knows what you are doing.
+Prompts in this workspace are markdown notes named \`*.prompts.md\` (one file holds one or more prompts, one per heading section; \`prompts/example.prompts.md\` is one). The user's editor shows each prompt's progress, which it reads from \`prompts/STATUSES.md\`. Keep that file current — it is how the user knows what you are doing.
 
-- **Identify the prompt.** A prompt pasted from the editor ends with \`Prompt-id: path/to/note.md#heading-slug\`. Without that line, find it: \`python .notepad/status.py find "<the prompt's heading>"\`. If nothing matches, skip status reporting.
+- **Identify the prompt.** A prompt pasted from the editor ends with \`Prompt-id: path/to/note.prompts.md#heading-slug\`. Without that line, find it: \`python .notepad/status.py find "<the prompt's heading>"\`. If nothing matches, skip status reporting.
 - **Report** with \`python .notepad/status.py set <prompt-id> <status> "<one-line summary>"\`:
   - \`running\` as soon as you start;
   - \`needs-input\` when you stop to ask the user something (summary = the question);
   - \`done\` when finished and verified (summary = what changed);
   - \`failed\` if you give up (summary = why).
 - \`queued\` is set by the user's editor, never by you.
-- Do not hand-edit \`STATUSES.md\` — the script is cheaper and keeps the table parseable. No Python? Write an equivalent in any language available (see the script's docstring for the format): one table row per prompt id, \`| id | status | YYYY-MM-DD HH:MM | summary |\`, replacing the row if it exists.
+- Do not hand-edit \`prompts/STATUSES.md\` — the script is cheaper and keeps the table parseable. No Python? Write an equivalent in any language available (see the script's docstring for the format): one table row per prompt id, \`| id | status | YYYY-MM-DD HH:MM | summary |\`, replacing the row if it exists.
 `;
 
 export const MANIFEST_DIRECTIVE = `## File manifest
@@ -210,7 +211,7 @@ A slide deck in this workspace is one markdown file whose YAML frontmatter start
 
 export const EXAMPLE_PROMPT = `# Example prompt
 
-This note is a prompt. The loop:
+This note is a prompt file — any note named \`*.prompts.md\`; each heading in it is one prompt. The loop:
 
 1. Write what you want done under a heading, like the one below.
 2. Put the caret in that section and press **Copy as prompt** in the strip above the note. It shows as *Queued*.

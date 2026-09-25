@@ -292,7 +292,7 @@ export async function applyWorkspaceInit(): Promise<void> {
     registerWorkspace(root);
     await promptStatus().refresh();
     uiStore.getState().refreshExplorer();
-    const example = writes.find((w) => w.path.startsWith('prompts/'));
+    const example = writes.find((w) => w.path.endsWith('.prompts.md'));
     if (example) {
       openNotePath(joinPath(root, example.path));
     }

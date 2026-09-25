@@ -36,6 +36,9 @@ const MODE_HINTS: Record<EditorMode, string> = {
   // Never rendered: the status bar is hidden entirely on a terminal tab, and
   // 'term' is the only mode its family allows so there is nothing to pick.
   term: 'Shell',
+  // Likewise never rendered: a tool tab's family allows only this mode, so the
+  // segment strip has nothing to offer and is not drawn.
+  tool: 'Git',
 };
 const REVIEW_HINT = 'Review — the structure of the code, read-only (Ctrl/Cmd+4)';
 const PRESENT_HINT = 'Present — the slides with their notes; F11 for the show (Ctrl/Cmd+4)';
@@ -158,6 +161,10 @@ export function StatusBar() {
   const words = active.wordCount;
   const chars = active.charCount;
   const family = docFamilyForTab(active);
+  // A family with ONE mode (a tool tab — the git tab; a terminal never gets
+  // here) has nothing to pick and no text to count: the bar keeps only its
+  // notice area and the chips.
+  const singleMode = allowedModesFor(family).length === 1;
   // A deck reads in slides, not lines: the caret becomes `Slide 4 / 12` and
   // the word count a talk length (core/deck). The split is cheap — it is a
   // line scan of a document that is, by nature, short.
@@ -170,7 +177,7 @@ export function StatusBar() {
 
   return (
     <div className="statusbar" onContextMenu={swallowContextMenu}>
-      {active.readOnly ? (
+      {singleMode ? null : active.readOnly ? (
         <span className="statusbar-readonly" title="This document can be read but not edited">
           Read-only
         </span>
@@ -187,26 +194,28 @@ export function StatusBar() {
       </div>
       <LiveChip tabId={active.id} />
       <UpdateChip />
-      <div className="statusbar-meta">
-        <span className="statusbar-caret">{caret}</span>
-        {slides ? (
-          <span
-            className="statusbar-words"
-            title="Slides, and a talk length at about 130 words a minute"
-          >
-            {deckSummary(slides.length, words)}
-          </span>
-        ) : (
-          <>
-            <span className="statusbar-words">
-              {words} {words === 1 ? 'word' : 'words'}
+      {singleMode ? null : (
+        <div className="statusbar-meta">
+          <span className="statusbar-caret">{caret}</span>
+          {slides ? (
+            <span
+              className="statusbar-words"
+              title="Slides, and a talk length at about 130 words a minute"
+            >
+              {deckSummary(slides.length, words)}
             </span>
-            <span className="statusbar-chars">
-              {chars} {chars === 1 ? 'char' : 'chars'}
-            </span>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <span className="statusbar-words">
+                {words} {words === 1 ? 'word' : 'words'}
+              </span>
+              <span className="statusbar-chars">
+                {chars} {chars === 1 ? 'char' : 'chars'}
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

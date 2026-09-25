@@ -38,6 +38,7 @@ import {
   WORKTREES_DIRECTIVE,
 } from './workspace-module-texts';
 import { EXAMPLE_DECK, EXAMPLE_DECK_PATH } from './deck-template';
+import { appendMissingLines } from './git/worktree-plan';
 import { STATUS_FILE, serializeStatuses } from './prompt-status';
 
 export interface SeedFile {
@@ -58,7 +59,7 @@ export interface WorkspaceModule {
   /** The markdown written between the markers. */
   directive: string;
   files: SeedFile[];
-  /** Ticked by default in a fresh dialog. */
+  /** Ticked by default in a fresh dialog (currently none: the user opts in). */
   recommended: boolean;
   source: 'builtin' | 'user';
 }
@@ -70,14 +71,14 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     id: PROMPT_STATUS_MODULE_ID,
     title: 'Prompt status',
     description:
-      'Notes become prompts: copy one to your agent and watch its progress here (STATUSES.md).',
+      'Notes named *.prompts.md become prompts: copy one to your agent and watch its progress here (prompts/STATUSES.md).',
     directive: PROMPT_STATUS_DIRECTIVE,
     files: [
       { path: '.notepad/status.py', text: STATUS_SCRIPT, refresh: true },
       { path: STATUS_FILE, text: serializeStatuses([]) },
-      { path: 'prompts/example-prompt.md', text: EXAMPLE_PROMPT },
+      { path: 'prompts/example.prompts.md', text: EXAMPLE_PROMPT },
     ],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -86,7 +87,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'Agents keep MANIFEST.md — what every file is for — and read it before exploring.',
     directive: MANIFEST_DIRECTIVE,
     files: [{ path: 'MANIFEST.md', text: MANIFEST_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -95,7 +96,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'Agents add a line to CHANGELOG.md for every change you would notice.',
     directive: CHANGELOG_DIRECTIVE,
     files: [{ path: 'CHANGELOG.md', text: CHANGELOG_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -104,7 +105,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'LESSONS.md carries what agents learn from one session to the next.',
     directive: LESSONS_DIRECTIVE,
     files: [{ path: 'LESSONS.md', text: LESSONS_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -277,10 +278,9 @@ export function planWorkspaceInit(input: InitPlanInput): InitWrite[] {
     if (current === undefined || file.refresh) {
       put(file.path, file.text);
     } else if (file.ensureLines) {
-      const have = new Set(current.split(/\r?\n/).map((l) => l.trim()));
-      const missing = file.text.split('\n').filter((l) => l.trim() !== '' && !have.has(l.trim()));
-      if (missing.length > 0) {
-        put(file.path, `${current.replace(/\n*$/, '\n')}${missing.join('\n')}\n`);
+      const appended = appendMissingLines(current, file.text.split('\n'));
+      if (appended !== null) {
+        put(file.path, appended);
       }
     }
   }

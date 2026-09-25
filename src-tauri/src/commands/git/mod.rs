@@ -1,32 +1,80 @@
-//! Git facts for Review mode's "What changed" — desktop only.
+//! Git, by shelling out to the `git` binary — desktop only.
 //!
-//! Three questions, answered by shelling out to the `git` binary: where am I
-//! (`git_repo_info`), what did this file look like at a revision
-//! (`git_show_file`), and does this file differ on the other worktrees'
-//! branches (`git_file_changes`). No `git2`/libgit2: this feature only runs
-//! where a developer already has git installed, and a large native build is a
-//! poor trade for three `rev-parse` calls.
+//! Two consumers share this module. Review mode's "What changed" asks three
+//! questions: where am I (`git_repo_info`), what did this file look like at a
+//! revision (`git_show_file`), and does this file differ on the other
+//! worktrees' branches (`git_file_changes`). The git tab drives the repository:
+//! status, branches, log, staging, commits, merges, worktrees and the three
+//! network operations — each a named command in a child module (`status`,
+//! `refs`, `worktrees`, `ops`, `net`) that builds its own argv over the one
+//! runner in `run`. No `git2`/libgit2: this feature only runs where a
+//! developer already has git installed, and a large native build is a poor
+//! trade for a process spawn.
 //!
 //! Policy stays in TypeScript (rule I5): which revision is "the baseline",
-//! when to refresh, and what a badge means are `src/core/code/changes.ts` and
-//! the pane's concerns. This module only reports.
+//! when to refresh, what a badge means, and which button a merge outcome
+//! enables are `src/core/code/changes.ts`, `src/core/git/*` and the stores'
+//! concerns. This module only reports and executes explicit argv — there is
+//! deliberately no "run these args" command.
 //!
 //! Every command runs on the blocking pool (spawning a process and waiting for
-//! it is blocking work) with a hard 3 s timeout — a git call that hangs on a
-//! network mount must never freeze the review pane, which renders first and
-//! takes badges when they arrive. Android compiles none of this: the module is
+//! it is blocking work) under a hard timeout chosen by its mode (`run::GitMode`:
+//! 3 s read, 30 s mutate, 120 s network) — a git call that hangs on a network
+//! mount must never freeze the pane, which renders first and takes facts when
+//! they arrive. Android compiles none of this: the module is
 //! `#[cfg(not(target_os = "android"))]` in `commands/mod.rs` and the handler
-//! entries are `#[cfg(desktop)]`, so "What changed" simply hides there.
+//! entries are `#[cfg(desktop)]`, so the features simply hide there.
 
+pub mod net;
+pub mod ops;
+pub mod refs;
+pub mod run;
+pub mod status;
+#[cfg(test)]
+pub(crate) mod testutil;
+pub mod worktrees;
+
+pub use net::{git_fetch, git_op_cancel, git_pull, git_push};
+pub use ops::{
+    git_commit, git_create_branch, git_delete_branch, git_discard, git_merge, git_merge_abort,
+    git_stage, git_switch, git_unstage,
+};
+pub use refs::{git_ahead_behind, git_branches, git_commit_files, git_diff_names, git_log};
+pub use status::git_status;
+pub use worktrees::{git_check_ignore, git_worktree_add, git_worktree_remove, git_worktrees};
+// `generate_handler!` reaches each command's two `#[macro_export]`ed helper
+// macros through this module's path (`commands::git::__cmd__<name>!`), so
+// the fn re-exports above need these beside them (relative paths: an
+// absolute `crate::` path to a macro-expanded export is a future-incompat
+// lint).
+#[doc(hidden)]
+pub use {
+    net::__cmd__git_fetch, net::__cmd__git_op_cancel, net::__cmd__git_pull, net::__cmd__git_push,
+    net::__tauri_command_name_git_fetch, net::__tauri_command_name_git_op_cancel,
+    net::__tauri_command_name_git_pull, net::__tauri_command_name_git_push, ops::__cmd__git_commit,
+    ops::__cmd__git_create_branch, ops::__cmd__git_delete_branch, ops::__cmd__git_discard,
+    ops::__cmd__git_merge, ops::__cmd__git_merge_abort, ops::__cmd__git_stage,
+    ops::__cmd__git_switch, ops::__cmd__git_unstage, ops::__tauri_command_name_git_commit,
+    ops::__tauri_command_name_git_create_branch, ops::__tauri_command_name_git_delete_branch,
+    ops::__tauri_command_name_git_discard, ops::__tauri_command_name_git_merge,
+    ops::__tauri_command_name_git_merge_abort, ops::__tauri_command_name_git_stage,
+    ops::__tauri_command_name_git_switch, ops::__tauri_command_name_git_unstage,
+    refs::__cmd__git_ahead_behind, refs::__cmd__git_branches, refs::__cmd__git_commit_files,
+    refs::__cmd__git_diff_names, refs::__cmd__git_log, refs::__tauri_command_name_git_ahead_behind,
+    refs::__tauri_command_name_git_branches, refs::__tauri_command_name_git_commit_files,
+    refs::__tauri_command_name_git_diff_names, refs::__tauri_command_name_git_log,
+    status::__cmd__git_status, status::__tauri_command_name_git_status,
+    worktrees::__cmd__git_check_ignore, worktrees::__cmd__git_worktree_add,
+    worktrees::__cmd__git_worktree_remove, worktrees::__cmd__git_worktrees,
+    worktrees::__tauri_command_name_git_check_ignore,
+    worktrees::__tauri_command_name_git_worktree_add,
+    worktrees::__tauri_command_name_git_worktree_remove,
+    worktrees::__tauri_command_name_git_worktrees,
+};
+
+use run::{run_git_with, GitMode, GitOutput};
 use serde::Serialize;
-use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
-
-/// How long any single git invocation may take before it is killed. Local git
-/// answers these in tens of milliseconds; anything near this is a hung mount.
-const GIT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Branches tried, in order, when the caller names no baseline branch. Matches
 /// this repo's own convention (`development` is where work lands) and then the
@@ -42,10 +90,20 @@ pub enum GitError {
     NoGit,
     #[error("not a git repository: {0}")]
     NotARepo(String),
-    #[error("git timed out after {}s", GIT_TIMEOUT.as_secs())]
-    Timeout,
+    /// Killed at its mode's limit; the payload is that limit in seconds.
+    #[error("git timed out after {0}s")]
+    Timeout(u64),
     #[error("git failed: {stderr}")]
     Failed { stderr: String },
+    /// `git_op_cancel` landed on a running fetch / pull / push.
+    #[error("git operation cancelled")]
+    Cancelled,
+    /// A network operation is already running for that repository.
+    #[error("a git network operation is already running for this repository")]
+    Busy,
+    /// A caller bug: a user string the runner refuses to hand to git.
+    #[error("invalid argument: {0}")]
+    InvalidArg(String),
 }
 
 impl GitError {
@@ -53,12 +111,15 @@ impl GitError {
         match self {
             GitError::NoGit => "GIT_NOT_FOUND",
             GitError::NotARepo(_) => "GIT_NOT_A_REPO",
-            GitError::Timeout => "GIT_TIMEOUT",
+            GitError::Timeout(_) => "GIT_TIMEOUT",
             GitError::Failed { .. } => "GIT_FAILED",
+            GitError::Cancelled => "GIT_CANCELLED",
+            GitError::Busy => "GIT_BUSY",
+            GitError::InvalidArg(_) => "GIT_INVALID_ARG",
         }
     }
 
-    fn failed(stderr: impl Into<String>) -> Self {
+    pub(crate) fn failed(stderr: impl Into<String>) -> Self {
         GitError::Failed {
             stderr: stderr.into(),
         }
@@ -78,13 +139,16 @@ impl Serialize for GitError {
 pub type GitResult<T> = Result<T, GitError>;
 
 /// One entry of `git worktree list --porcelain`. `branch` is the short name
-/// (`feat/x`), `None` for a detached HEAD.
+/// (`feat/x`), `None` for a detached HEAD. `locked` / `prunable` mirror the
+/// porcelain's optional lines (a lock reason is not reported).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitWorktree {
     pub path: String,
     pub branch: Option<String>,
     pub head: String,
+    pub locked: bool,
+    pub prunable: bool,
 }
 
 /// Everything the review pane needs to describe "where am I" for one file.
@@ -93,6 +157,10 @@ pub struct GitWorktree {
 pub struct GitRepoInfo {
     /// Absolute repository root, forward slashes (git's own spelling).
     pub root: String,
+    /// The repository's MAIN checkout (the first `worktree list` record) —
+    /// equals `root` unless `root` is a linked worktree. The git tab's
+    /// identity: one tab per `main_root`.
+    pub main_root: String,
     /// The asked-about path relative to `root`, forward slashes, no leading `/`.
     pub rel: String,
     /// Short branch name, or `None` on a detached HEAD.
@@ -121,89 +189,11 @@ pub struct GitFileChange {
 
 /* ------------------------------- running git ------------------------------ */
 
-struct GitOutput {
-    ok: bool,
-    stdout: String,
-    stderr: String,
-}
-
-/// Read one of the child's pipes on its own thread. Both pipes need one: git
-/// writes stdout and stderr independently, and waiting on the child while a
-/// full pipe blocks it would deadlock.
-fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut buf);
-        }
-        buf
-    })
-}
-
-/// Run `git [-C root] <args>` to completion, or kill it at `GIT_TIMEOUT`.
-///
-/// `stdin` is null so nothing can ever prompt (a credential
-/// helper on a misconfigured remote would otherwise wait forever), and on
-/// Windows `CREATE_NO_WINDOW` keeps a console from flashing over the app.
-///
-/// A non-zero exit is NOT an error here — `rev-parse --verify` and `show` use
-/// it to mean "no", so the caller decides.
+/// Read-mode `git [-C root] <args>`: `--no-optional-locks`, 3 s. A non-zero
+/// exit is NOT an error here — `rev-parse --verify` and `show` use it to mean
+/// "no", so the caller decides. See `run` for the modes.
 fn run_git(root: Option<&Path>, args: &[&str]) -> GitResult<GitOutput> {
-    let mut cmd = Command::new("git");
-    // Never take the index lock: this is a read-only observer, and it may run
-    // while the user's own git command holds it.
-    cmd.arg("--no-optional-locks");
-    if let Some(root) = root {
-        cmd.arg("-C").arg(root);
-    }
-    cmd.args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        /// `CREATE_NO_WINDOW` — no console window for the child.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            GitError::NoGit
-        } else {
-            GitError::failed(e.to_string())
-        }
-    })?;
-
-    let out_reader = drain(child.stdout.take());
-    let err_reader = drain(child.stderr.take());
-
-    let deadline = Instant::now() + GIT_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {}
-            Err(e) => return Err(GitError::failed(e.to_string())),
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    };
-
-    let stdout = out_reader.join().unwrap_or_default();
-    let stderr = err_reader.join().unwrap_or_default();
-    let Some(status) = status else {
-        return Err(GitError::Timeout);
-    };
-    Ok(GitOutput {
-        ok: status.success(),
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
-    })
+    run_git_with(root, GitMode::Read, args)
 }
 
 /// `run_git` for the common "one line of output, failure is an error" case.
@@ -245,6 +235,23 @@ fn classify(stderr: &str, path: &Path) -> GitError {
 
 fn display(path: &Path) -> String {
     to_slashes(&path.to_string_lossy())
+}
+
+/// HEAD's sha, or `None` on an unborn branch (a repo with no commits yet).
+fn head_sha(root: &Path) -> GitResult<Option<String>> {
+    git_line_opt(root, &["rev-parse", "--verify", "--quiet", "HEAD"])
+}
+
+/// Run a closure on the blocking pool and flatten the join error into
+/// `GitError` — every command's body.
+async fn blocking<T, F>(f: F) -> GitResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> GitResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| GitError::failed(e.to_string()))?
 }
 
 /* ----------------------------- pure path logic ---------------------------- */
@@ -295,45 +302,57 @@ fn relative_path(root: &str, path: &str) -> Option<String> {
 
 /// Parse `git worktree list --porcelain`. Records are separated by blank
 /// lines; each opens with `worktree <path>` and carries `HEAD <sha>` plus
-/// either `branch refs/heads/<name>` or `detached`. Bare records (no HEAD)
-/// are dropped — there is no blob to compare against in one.
+/// either `branch refs/heads/<name>` or `detached`, and optionally `locked`
+/// / `prunable` (each with an optional reason). Bare records (no HEAD) are
+/// dropped — there is no blob to compare against in one.
 fn parse_worktrees(out: &str) -> Vec<GitWorktree> {
+    #[derive(Default)]
+    struct Partial {
+        path: Option<String>,
+        head: Option<String>,
+        branch: Option<String>,
+        locked: bool,
+        prunable: bool,
+    }
     let mut found = Vec::new();
-    let mut path: Option<String> = None;
-    let mut head: Option<String> = None;
-    let mut branch: Option<String> = None;
+    let mut cur = Partial::default();
     // A record is only reported once it has both a path and a HEAD; a bare or
     // malformed one is dropped, fields and all.
-    let mut flush =
-        |path: &mut Option<String>, head: &mut Option<String>, branch: &mut Option<String>| {
-            let (p, h, b) = (path.take(), head.take(), branch.take());
-            if let (Some(p), Some(h)) = (p, h) {
-                found.push(GitWorktree {
-                    path: to_slashes(&p),
-                    branch: b,
-                    head: h,
-                });
-            }
-        };
+    let mut flush = |cur: &mut Partial| {
+        let done = std::mem::take(cur);
+        if let (Some(p), Some(h)) = (done.path, done.head) {
+            found.push(GitWorktree {
+                path: to_slashes(&p),
+                branch: done.branch,
+                head: h,
+                locked: done.locked,
+                prunable: done.prunable,
+            });
+        }
+    };
     for line in out.lines() {
         let line = line.trim_end();
         if line.is_empty() {
-            flush(&mut path, &mut head, &mut branch);
+            flush(&mut cur);
             continue;
         }
         if let Some(rest) = line.strip_prefix("worktree ") {
-            flush(&mut path, &mut head, &mut branch);
-            path = Some(rest.to_string());
+            flush(&mut cur);
+            cur.path = Some(rest.to_string());
         } else if let Some(rest) = line.strip_prefix("HEAD ") {
-            head = Some(rest.to_string());
+            cur.head = Some(rest.to_string());
         } else if let Some(rest) = line.strip_prefix("branch ") {
-            branch = Some(short_branch(rest));
+            cur.branch = Some(short_branch(rest));
         } else if line == "detached" {
-            branch = None;
+            cur.branch = None;
+        } else if line == "locked" || line.starts_with("locked ") {
+            cur.locked = true;
+        } else if line == "prunable" || line.starts_with("prunable ") {
+            cur.prunable = true;
         }
-        // `bare`, `locked …`, `prunable …` carry nothing we report.
+        // `bare` carries nothing we report.
     }
-    flush(&mut path, &mut head, &mut branch);
+    flush(&mut cur);
     found
 }
 
@@ -342,6 +361,15 @@ fn short_branch(refname: &str) -> String {
         .strip_prefix("refs/heads/")
         .unwrap_or(refname)
         .to_string()
+}
+
+/// The main checkout's path: the first record of `worktree list`, which git
+/// always prints first. Falls back to `root` for a list with no usable record.
+fn main_root_of(worktrees: &[GitWorktree], root: &str) -> String {
+    worktrees
+        .first()
+        .map(|w| w.path.clone())
+        .unwrap_or_else(|| root.to_string())
 }
 
 /* -------------------------------- the work -------------------------------- */
@@ -385,8 +413,7 @@ fn repo_info(path: &str, base_branch: Option<&str>) -> GitResult<GitRepoInfo> {
     let branch = git_line_opt(dir, &["symbolic-ref", "--quiet", "--short", "HEAD"])?;
     // An unborn HEAD (a repo with no commits) is not an error — the pane just
     // has nothing to compare against.
-    let head =
-        git_line_opt(dir, &["rev-parse", "--verify", "--quiet", "HEAD"])?.unwrap_or_default();
+    let head = head_sha(dir)?.unwrap_or_default();
 
     // `--git-dir` is THIS checkout's git dir, `--git-common-dir` the main
     // one's. They are the same directory in the main checkout and differ in a
@@ -409,10 +436,12 @@ fn repo_info(path: &str, base_branch: Option<&str>) -> GitResult<GitRepoInfo> {
         _ => None,
     };
 
-    let worktrees = parse_worktrees(&git_line(root_path, &["worktree", "list", "--porcelain"])?);
+    let worktrees = list_worktrees(root_path)?;
+    let main_root = main_root_of(&worktrees, &root);
 
     Ok(GitRepoInfo {
         root,
+        main_root,
         rel,
         branch,
         head,
@@ -421,6 +450,14 @@ fn repo_info(path: &str, base_branch: Option<&str>) -> GitResult<GitRepoInfo> {
         base_ref,
         worktrees,
     })
+}
+
+/// Every checkout of the repository `root` belongs to, main one first.
+fn list_worktrees(root: &Path) -> GitResult<Vec<GitWorktree>> {
+    Ok(parse_worktrees(&git_line(
+        root,
+        &["worktree", "list", "--porcelain"],
+    )?))
 }
 
 /// The caller's choice when it names a local branch, else the first of
@@ -507,17 +544,13 @@ fn file_changes(
 /// `reviewBaseBranch` setting (empty = auto-detect).
 #[tauri::command]
 pub async fn git_repo_info(path: String, base_branch: Option<String>) -> GitResult<GitRepoInfo> {
-    tauri::async_runtime::spawn_blocking(move || repo_info(&path, base_branch.as_deref()))
-        .await
-        .map_err(|e| GitError::failed(e.to_string()))?
+    blocking(move || repo_info(&path, base_branch.as_deref())).await
 }
 
 /// One file's contents at a revision, or `None` when it did not exist there.
 #[tauri::command]
 pub async fn git_show_file(root: String, rev: String, rel: String) -> GitResult<Option<String>> {
-    tauri::async_runtime::spawn_blocking(move || show_file(&root, &rev, &rel))
-        .await
-        .map_err(|e| GitError::failed(e.to_string()))?
+    blocking(move || show_file(&root, &rev, &rel)).await
 }
 
 /// Per branch: does its blob for `rel` differ from `base_ref`'s? One
@@ -529,13 +562,12 @@ pub async fn git_file_changes(
     base_ref: String,
     branches: Vec<String>,
 ) -> GitResult<Vec<GitFileChange>> {
-    tauri::async_runtime::spawn_blocking(move || file_changes(&root, &rel, &base_ref, branches))
-        .await
-        .map_err(|e| GitError::failed(e.to_string()))?
+    blocking(move || file_changes(&root, &rel, &base_ref, branches)).await
 }
 
 #[cfg(test)]
 mod tests {
+    use super::testutil::{git_ok, have_git, temp_repo};
     use super::*;
 
     #[test]
@@ -582,6 +614,7 @@ mod tests {
             "worktree C:/Users/x/repo/worktrees/cr-git\n",
             "HEAD 2222222222222222222222222222222222222222\n",
             "branch refs/heads/feat/cr-git\n",
+            "prunable gitdir file points to non-existent location\n",
             "\n",
             "worktree C:/Users/x/repo/worktrees/spike\n",
             "HEAD 3333333333333333333333333333333333333333\n",
@@ -597,19 +630,27 @@ mod tests {
                     path: "C:/Users/x/repo".into(),
                     branch: Some("development".into()),
                     head: "1111111111111111111111111111111111111111".into(),
+                    locked: false,
+                    prunable: false,
                 },
                 GitWorktree {
                     path: "C:/Users/x/repo/worktrees/cr-git".into(),
                     branch: Some("feat/cr-git".into()),
                     head: "2222222222222222222222222222222222222222".into(),
+                    locked: false,
+                    prunable: true,
                 },
                 GitWorktree {
                     path: "C:/Users/x/repo/worktrees/spike".into(),
                     branch: None,
                     head: "3333333333333333333333333333333333333333".into(),
+                    locked: true,
+                    prunable: false,
                 },
             ],
         );
+        assert_eq!(main_root_of(&found, "/fallback"), "C:/Users/x/repo");
+        assert_eq!(main_root_of(&[], "/fallback"), "/fallback");
     }
 
     #[test]
@@ -645,8 +686,11 @@ mod tests {
         let cases = [
             (GitError::NoGit, "GIT_NOT_FOUND"),
             (GitError::NotARepo("/x".into()), "GIT_NOT_A_REPO"),
-            (GitError::Timeout, "GIT_TIMEOUT"),
+            (GitError::Timeout(3), "GIT_TIMEOUT"),
             (GitError::failed("boom"), "GIT_FAILED"),
+            (GitError::Cancelled, "GIT_CANCELLED"),
+            (GitError::Busy, "GIT_BUSY"),
+            (GitError::InvalidArg("x".into()), "GIT_INVALID_ARG"),
         ];
         for (err, code) in cases {
             assert_eq!(err.code(), code);
@@ -654,6 +698,8 @@ mod tests {
             assert_eq!(json["code"], code);
             assert!(json["message"].is_string());
         }
+        // The timeout names its mode's limit — the UI text quotes it.
+        assert!(GitError::Timeout(120).to_string().contains("120s"));
     }
 
     #[test]
@@ -671,32 +717,6 @@ mod tests {
     }
 
     /* ---------------------- against a real git binary ---------------------- */
-
-    /// Whether this machine has git at all; without it the integration tests
-    /// below skip rather than fail (CI images have git, a minimal one may not).
-    fn have_git() -> bool {
-        !matches!(run_git(None, &["--version"]), Err(GitError::NoGit))
-    }
-
-    fn git_ok(dir: &Path, args: &[&str]) {
-        let out = run_git(Some(dir), args).expect("git ran");
-        assert!(out.ok, "git {args:?} failed: {}", out.stderr);
-    }
-
-    /// A throwaway repo with one commit, deterministic identity and no reliance
-    /// on the machine's `init.defaultBranch`.
-    fn temp_repo() -> (tempfile::TempDir, std::path::PathBuf) {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let root = dir.path().to_path_buf();
-        git_ok(&root, &["init", "--initial-branch=main"]);
-        git_ok(&root, &["config", "user.email", "t@example.com"]);
-        git_ok(&root, &["config", "user.name", "Test"]);
-        git_ok(&root, &["config", "commit.gpgsign", "false"]);
-        std::fs::write(root.join("a.ts"), "export const a = 1;\n").unwrap();
-        git_ok(&root, &["add", "a.ts"]);
-        git_ok(&root, &["commit", "-m", "first"]);
-        (dir, root)
-    }
 
     #[test]
     fn repo_info_and_show_file_round_trip_in_a_real_repo() {
@@ -722,6 +742,7 @@ mod tests {
             path_key(&info.root),
             "the single worktree is the root itself",
         );
+        assert_eq!(path_key(&info.main_root), path_key(&info.root));
 
         // The committed text comes back; an uncommitted edit does not change it.
         std::fs::write(&file, "export const a = 2;\n").unwrap();
@@ -795,10 +816,18 @@ mod tests {
             .worktrees
             .iter()
             .any(|w| w.branch.as_deref() == Some("feat/x")));
+        // The tab's identity is the MAIN checkout, not the worktree asked about.
+        assert_ne!(path_key(&info.main_root), path_key(&info.root));
+        assert_eq!(
+            path_key(&info.main_root),
+            path_key(&root.to_string_lossy()),
+            "main_root is the first worktree record — the main checkout",
+        );
 
         // The main checkout, asked the same question, says it is not a worktree.
         let main = repo_info(&root.join("a.ts").to_string_lossy(), None).expect("repo info");
         assert!(!main.is_worktree);
+        assert_eq!(path_key(&main.main_root), path_key(&main.root));
     }
 
     #[test]

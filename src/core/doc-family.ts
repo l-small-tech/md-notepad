@@ -20,7 +20,7 @@ import { extName } from './session/plan-flush';
 import { isEditableTextPath } from './text-files';
 import type { EditorMode, TabKind } from './types';
 
-export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal' | 'deck';
+export type DocFamily = 'markdown' | 'svg' | 'code' | 'terminal' | 'deck' | 'tool';
 
 /**
  * Order matters: this is the order the mode segments are drawn in. Every
@@ -54,6 +54,12 @@ const CODE_MODES: readonly EditorMode[] = ['raw', 'read'];
  * `isModeAllowed` check everything else uses, instead of a special case each.
  */
 const TERMINAL_MODES: readonly EditorMode[] = ['term'];
+/**
+ * A tool tab (the git tab) likewise offers exactly one mode. Kept apart from
+ * the terminal family so the two can differ in chrome: a terminal hides the
+ * whole document chrome, a tool tab keeps the explorer and the status bar.
+ */
+const TOOL_MODES: readonly EditorMode[] = ['tool'];
 /**
  * A Marp slide deck: a markdown file whose frontmatter says `marp: true`
  * (`core/deck.ts isMarpDocument`). Detection is CONTENT-keyed — the one
@@ -107,6 +113,9 @@ export function docFamilyForTab(tab: {
   if (tab.kind === 'terminal') {
     return 'terminal';
   }
+  if (tab.kind === 'git') {
+    return 'tool';
+  }
   const family = docFamilyFor(tab.filePath ?? tab.notePath);
   return family === 'markdown' && tab.deck === true ? 'deck' : family;
 }
@@ -119,6 +128,8 @@ export function allowedModesFor(family: DocFamily): readonly EditorMode[] {
       return CODE_MODES;
     case 'terminal':
       return TERMINAL_MODES;
+    case 'tool':
+      return TOOL_MODES;
     case 'deck':
       return DECK_MODES;
     default:
@@ -137,6 +148,7 @@ const MODE_LABELS: Record<EditorMode, string> = {
   read: 'Review',
   draw: 'Draw',
   term: 'Terminal',
+  tool: 'Git',
 };
 
 /**
@@ -161,6 +173,7 @@ const FAMILY_DEFAULTS: Record<DocFamily, EditorMode> = {
   svg: 'draw',
   code: 'raw',
   terminal: 'term',
+  tool: 'tool',
   // Source beside slides: where a deck being written (usually by an agent)
   // is watched. Edit is one segment away once it is time to tweak.
   deck: 'split',

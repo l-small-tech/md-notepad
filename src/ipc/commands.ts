@@ -31,11 +31,17 @@ export type IpcErrorCode =
   | 'WHISPER_DOWNLOAD_CORRUPT'
   | 'WHISPER_DOWNLOAD_CANCELLED'
   | 'WHISPER_DOWNLOAD_BUSY'
-  /* Git facts for Review mode (src-tauri commands/git.rs), desktop only. */
+  /* Git (src-tauri commands/git/), desktop only. */
   | 'GIT_NOT_FOUND'
   | 'GIT_NOT_A_REPO'
   | 'GIT_TIMEOUT'
-  | 'GIT_FAILED';
+  | 'GIT_FAILED'
+  /** The user cancelled a fetch / pull / push (`gitOpCancel`). */
+  | 'GIT_CANCELLED'
+  /** One network operation per repository at a time. */
+  | 'GIT_BUSY'
+  /** A caller bug: a branch name, path or message Rust refused to pass to git. */
+  | 'GIT_INVALID_ARG';
 
 const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'NOT_FOUND',
@@ -57,13 +63,23 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'GIT_NOT_A_REPO',
   'GIT_TIMEOUT',
   'GIT_FAILED',
+  'GIT_CANCELLED',
+  'GIT_BUSY',
+  'GIT_INVALID_ARG',
 ];
 
 /**
  * The subset of `IpcErrorCode` the git commands reject with (mirrors
- * `GitError` in src-tauri/src/commands/git.rs).
+ * `GitError` in src-tauri/src/commands/git/mod.rs).
  */
-export type GitErrorCode = 'GIT_NOT_FOUND' | 'GIT_NOT_A_REPO' | 'GIT_TIMEOUT' | 'GIT_FAILED';
+export type GitErrorCode =
+  | 'GIT_NOT_FOUND'
+  | 'GIT_NOT_A_REPO'
+  | 'GIT_TIMEOUT'
+  | 'GIT_FAILED'
+  | 'GIT_CANCELLED'
+  | 'GIT_BUSY'
+  | 'GIT_INVALID_ARG';
 
 export class IpcError extends Error {
   readonly code: IpcErrorCode;
@@ -201,10 +217,16 @@ export interface GitWorktree {
   head: string;
 }
 
-/** Where a file sits in git (mirrors `GitRepoInfo` in commands/git.rs). */
+/** Where a file sits in git (mirrors `GitRepoInfo` in commands/git/mod.rs). */
 export interface GitRepoInfo {
-  /** Absolute repository root, forward slashes. */
+  /** Absolute root of the checkout the path is in, forward slashes. */
   root: string;
+  /**
+   * Absolute root of the repository's MAIN checkout (the first entry of
+   * `git worktree list`), forward slashes. Equals `root` unless `root` is a
+   * linked worktree. The git tab's identity: one tab per `mainRoot`.
+   */
+  mainRoot: string;
   /** The asked-about path relative to `root`, forward slashes. */
   rel: string;
   /** Short branch name, null on a detached HEAD. */
@@ -230,6 +252,123 @@ export interface GitFileChange {
   branch: string;
   differs: boolean;
 }
+
+/* The git TAB's wire shapes (src-tauri commands/git/). `src/core/git/types.ts`
+   re-declares the ones core computes over, field for field. */
+
+export type GitStatusEntryKind = 'ordinary' | 'renamed' | 'unmerged' | 'untracked';
+
+/** One record of `git status --porcelain=v2 -z`. */
+export interface GitStatusEntry {
+  /** Relative to the checkout root, forward slashes. */
+  path: string;
+  /** A rename/copy's source path; null otherwise. */
+  origPath: string | null;
+  /** Index status letter (`.` = unchanged). */
+  index: string;
+  /** Working-tree status letter (`.` = unchanged). */
+  worktree: string;
+  kind: GitStatusEntryKind;
+}
+
+export type GitRepoState =
+  'clean' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting' | 'bisecting';
+
+export interface GitStatus {
+  /** HEAD's sha; `''` in a repo with no commits yet. */
+  head: string;
+  /** Short branch name; null on a detached HEAD. */
+  branch: string | null;
+  /** `origin/main`-style; null when nothing is tracked. */
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+  unborn: boolean;
+  state: GitRepoState;
+  /** `MERGE_HEAD` while merging. */
+  mergeHead: string | null;
+  entries: GitStatusEntry[];
+}
+
+export interface GitBranch {
+  /** `feat/x` (local) or `origin/feat/x` (remote). */
+  name: string;
+  kind: 'local' | 'remote';
+  head: string;
+  current: boolean;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+  /** Upstream configured but gone from the remote. */
+  gone: boolean;
+  /** Committer date, ISO 8601. */
+  committedAt: string;
+}
+
+export interface GitCommit {
+  sha: string;
+  short: string;
+  parents: string[];
+  author: string;
+  /** Author date, ISO 8601. */
+  at: string;
+  subject: string;
+  body: string;
+}
+
+/** One `--name-status` row: `status` is git's letter (A M D R C T U). */
+export interface GitFileDelta {
+  path: string;
+  origPath: string | null;
+  status: string;
+}
+
+export interface GitAheadBehind {
+  ahead: number;
+  behind: number;
+}
+
+export interface GitWorktreeSummary {
+  path: string;
+  branch: string | null;
+  head: string;
+  isMain: boolean;
+  locked: boolean;
+  /** The directory no longer exists; counts are zero. */
+  missing: boolean;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  conflicted: number;
+  state: GitRepoState;
+  /** Against the base branch; null with no base / no merge base. */
+  ahead: number | null;
+  behind: number | null;
+}
+
+export type GitMergeResult = 'merged' | 'fast-forward' | 'up-to-date' | 'conflicts';
+
+export interface GitMergeOutcome {
+  outcome: GitMergeResult;
+  head: string;
+  conflicted: string[];
+}
+
+export interface GitNetResult {
+  ok: boolean;
+  exitCode: number | null;
+  stderr: string;
+  /** `gitPull` only. */
+  merge: GitMergeOutcome | null;
+}
+
+/**
+ * What a fetch / pull / push streams over its channel. Rust: an enum tagged
+ * `kind` with camelCase variants — `{kind:'line', stream, text}` per output
+ * line (stderr carries git's progress) and one `{kind:'done'}` last.
+ */
+export type GitOutputEvent =
+  { kind: 'line'; stream: 'out' | 'err'; text: string } | { kind: 'done' };
 
 /**
  * Is this rejection git's absence rather than a real failure? True for
@@ -531,6 +670,115 @@ export const ipc = {
   gitFileChanges: (root: string, rel: string, baseRef: string, branches: string[]) =>
     call<GitFileChange[]>('git_file_changes', { root, rel, baseRef, branches }),
 
+  /* ------------------------------ git tab ------------------------------- */
+  /* Desktop only (src-tauri commands/git/). `root` is always the CHECKOUT to
+     act in (the main root or a linked worktree's path). Reads are killed at
+     3 s, mutations at 30 s; fetch/pull/push stream for up to 120 s and can be
+     cancelled. Every user-supplied string (branch, path, message) is passed
+     as one argv element and validated in Rust (`GIT_INVALID_ARG` is a caller
+     bug — validate first with core/git/refs.ts). Nothing here ever prompts:
+     `GIT_TERMINAL_PROMPT=0`, stdin closed. */
+
+  /** `git status --porcelain=v2` plus the in-progress-operation state. */
+  gitStatus: (root: string) => call<GitStatus>('git_status', { root }),
+  /** Local and remote branches with tracking info. */
+  gitBranches: (root: string) => call<GitBranch[]>('git_branches', { root }),
+  /** `max` commits reachable from `rev` (HEAD when null), skipping `skip`. `[]` on an unborn HEAD. */
+  gitLog: (root: string, rev: string | null, max: number, skip: number) =>
+    call<GitCommit[]>('git_log', { root, rev, max, skip }),
+  /** The files one commit touched (renames detected). */
+  gitCommitFiles: (root: string, sha: string) =>
+    call<GitFileDelta[]>('git_commit_files', { root, sha }),
+  /** The files differing between `from`'s merge base with `to` and `to` (`from...to`). */
+  gitDiffNames: (root: string, from: string, to: string) =>
+    call<GitFileDelta[]>('git_diff_names', { root, from, to }),
+  /** `rev-list --left-right --count a...b`. */
+  gitAheadBehind: (root: string, a: string, b: string) =>
+    call<GitAheadBehind>('git_ahead_behind', { root, a, b }),
+  /**
+   * Every checkout with its dashboard facts (dirty counts, ahead/behind the
+   * base branch). `baseBranch` as for `gitRepoInfo`; pass only when non-empty.
+   */
+  gitWorktrees: (root: string, baseBranch?: string) =>
+    call<GitWorktreeSummary[]>('git_worktrees', { root, baseBranch: baseBranch ?? null }),
+  /** Is `rel` ignored (`check-ignore`)? */
+  gitCheckIgnore: (root: string, rel: string) => call<boolean>('git_check_ignore', { root, rel }),
+
+  /** `add -A -- <rels>`: stages modifications, additions and deletions alike. */
+  gitStage: (root: string, rels: string[]) => call<void>('git_stage', { root, rels }),
+  gitUnstage: (root: string, rels: string[]) => call<void>('git_unstage', { root, rels }),
+  /**
+   * Throw away working-tree changes: `tracked` paths are restored from HEAD,
+   * `untracked` paths (files, or `dir/` entries as status lists them) are
+   * deleted. Irreversible — the caller confirms first.
+   */
+  gitDiscard: (root: string, tracked: string[], untracked: string[]) =>
+    call<void>('git_discard', { root, tracked, untracked }),
+  /**
+   * Commit the index; resolves with the new sha. `message` null means
+   * `--no-edit`: finishing a merge with git's prepared message, or an amend
+   * that keeps the old one. An empty string is `GIT_INVALID_ARG`.
+   */
+  gitCommit: (root: string, message: string | null, amend: boolean) =>
+    call<string>('git_commit', { root, message, amend }),
+  /**
+   * `switch <name>`, or with `trackRemote` (`origin`) create a local branch
+   * tracking `<trackRemote>/<name>` and switch to it. A dirty tree that would
+   * be overwritten rejects `GIT_FAILED` with git's own message.
+   */
+  gitSwitch: (root: string, name: string, trackRemote: string | null) =>
+    call<void>('git_switch', { root, name, trackRemote }),
+  gitCreateBranch: (root: string, name: string, startPoint: string | null, switchTo: boolean) =>
+    call<void>('git_create_branch', { root, name, startPoint, switchTo }),
+  /** `branch -d` (or `-D` with `force`). Refuses a branch checked out in a worktree. */
+  gitDeleteBranch: (root: string, name: string, force: boolean) =>
+    call<void>('git_delete_branch', { root, name, force }),
+  /**
+   * `merge --no-edit <target>` into the checkout's current branch. A conflict
+   * is an OUTCOME (`conflicts` with the paths), not an error; a refusal (dirty
+   * tree, unrelated histories) is `GIT_FAILED`.
+   */
+  gitMerge: (root: string, target: string, noFf: boolean) =>
+    call<GitMergeOutcome>('git_merge', { root, target, noFf }),
+  gitMergeAbort: (root: string) => call<void>('git_merge_abort', { root }),
+  /**
+   * `worktree add`: with `createBranch`, `-b <branch> <path> [<startPoint>]`;
+   * otherwise checks out the existing `branch` at `path`. `path` is absolute.
+   */
+  gitWorktreeAdd: (
+    root: string,
+    path: string,
+    branch: string,
+    startPoint: string | null,
+    createBranch: boolean,
+  ) => call<void>('git_worktree_add', { root, path, branch, startPoint, createBranch }),
+  /** `worktree remove [--force] <path>` then `worktree prune`. Refuses a dirty worktree unless forced. */
+  gitWorktreeRemove: (root: string, path: string, force: boolean) =>
+    call<void>('git_worktree_remove', { root, path, force }),
+
+  /* Network: one op per repository at a time (`GIT_BUSY`); `opId` is the
+     caller's handle for `gitOpCancel`, allocated by src/ipc/git-ops.ts. A
+     failed push/fetch is a RESULT (`ok:false` + stderr), not a rejection. */
+  gitFetch: (
+    root: string,
+    remote: string | null,
+    prune: boolean,
+    opId: number,
+    onOutput: Channel<GitOutputEvent>,
+  ) => call<GitNetResult>('git_fetch', { root, remote, prune, opId, onOutput }),
+  /** `pull --no-rebase --no-edit`; `merge` on the result says how the merge half ended. */
+  gitPull: (root: string, opId: number, onOutput: Channel<GitOutputEvent>) =>
+    call<GitNetResult>('git_pull', { root, opId, onOutput }),
+  /** `push`, or `push -u <remote> HEAD` with `setUpstream` (publishing a branch). */
+  gitPush: (
+    root: string,
+    remote: string | null,
+    setUpstream: boolean,
+    opId: number,
+    onOutput: Channel<GitOutputEvent>,
+  ) => call<GitNetResult>('git_push', { root, remote, setUpstream, opId, onOutput }),
+  gitOpCancel: (opId: number) => call<void>('git_op_cancel', { opId }),
+
   /* ---------------------------- terminal pty ---------------------------- */
   /* Desktop only: these commands are not registered on Android (no pty).
      Everything above the IPC layer goes through src/ipc/pty.ts, never here. */
@@ -591,3 +839,6 @@ export const createIpcChannel: ChannelFactory = () => new Channel<PtyMessage>();
 /** The progress channel `whisperModelDownload` takes (mockable in store tests). */
 export const createWhisperChannel = (): Channel<WhisperDownloadEvent> =>
   new Channel<WhisperDownloadEvent>();
+
+/** The output channel `gitFetch` / `gitPull` / `gitPush` take (src/ipc/git-ops.ts injects a fake). */
+export const createGitOutputChannel = (): Channel<GitOutputEvent> => new Channel<GitOutputEvent>();

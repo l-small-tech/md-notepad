@@ -131,8 +131,9 @@ never overwritten.
 
 ### Notes as prompts
 
-With **Prompt status** ticked, every note in the workspace gets a strip above
-it:
+With **Prompt status** ticked, every note named `*.prompts.md` (one file can
+hold several prompts, one per heading — `prompts/example.prompts.md` is one)
+gets a strip above it:
 
 1. Write what you want under a heading.
 2. Put the caret in that section and press **Copy as prompt** (or pick the
@@ -143,7 +144,7 @@ it:
    its section; **All** (or **Workspace status** in the palette) lists every
    prompt in every workspace, with what needs you first.
 
-Statuses live in `STATUSES.md` at the top of the workspace — a plain table
+Statuses live in `prompts/STATUSES.md` — a plain table
 you can read or edit. Agents write it through the small `.notepad/status.py`
 script the app puts there (it needs Python; without it the agent is told to
 write the same table another way).

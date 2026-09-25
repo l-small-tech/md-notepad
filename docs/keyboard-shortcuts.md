@@ -135,6 +135,7 @@ menu (◧) and the right-click menu. The whole drawing toolkit is described in
 | Ctrl+, | Open Settings |
 | Ctrl+F | Find within the note (Raw and Split modes) |
 | Ctrl+Shift+F | Search across all workspaces — click a result to jump to it |
+| Ctrl+Shift+G | Git: source control — the git tab for the repository around the current tab (desktop only) |
 | Esc | Close Settings / the command palette / put away a side pane opened while distraction-free, leave distraction-free, then full screen |
 
 A few mouse tricks worth knowing: middle-click a tab to close it,

@@ -10,6 +10,24 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-25
+
+- **Prompt files.** The prompt status strip now appears only on notes named
+  `*.prompts.md` (one file, one or more prompts), and `STATUSES.md` moves into
+  the `prompts/` folder. Initialize workspace no longer ticks any directive by
+  default.
+- **Git tab.** Source control as an ordinary tab (right-click a workspace →
+  **Git**, *Git: source control* in the palette, or Ctrl+Shift+G): status with
+  stage / unstage / discard, commit and amend, branches, per-file diffs,
+  history, fetch / pull / push, and a worktree dashboard — every checkout
+  with its branch, dirty count and ahead/behind, **New worktree** in one
+  click, and a guided **Finish** flow that merges, removes the worktree and
+  deletes the branch. Merge conflicts are handed to your AI agent: **Copy
+  conflict prompt** puts an agent-ready brief on the clipboard, the panel
+  tracks the files as they come clean, and Continue / Abort finish the
+  merge. The app never types into a terminal — "Terminal here" and "Harness
+  here" only open one in the right folder. Desktop only.
+
 ## [0.9.2] — 2026-09-22
 
 - **Marp presentations, from the start.** **New › Marp presentation** (a

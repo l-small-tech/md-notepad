@@ -6,7 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog';
 import { nanoid } from 'nanoid';
 import { keepWindowLocalSettings, normalizeSettings } from './core/settings';
-import { extraLiveWatchDirs, isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
+import { isLiveEditTab, LIVE_EDIT_POLL_MS } from './core/live-edit';
 import { pickDropWindow, type DropWindowCandidate } from './core/window-drop';
 import type { DocSyncMessage } from './core/doc-sync';
 import { parseManifest, type PersistedTab, type SessionManifest } from './core/session/plan-flush';
@@ -63,7 +63,6 @@ import { harnessAvailabilityStore } from './ui/stores/harness-availability';
 import {
   appendImagesToMd,
   createSessionController,
-  getDefaultWorkspacePath,
   importFilesInto,
   type ConfirmDialog,
   type ConfirmRememberDialog,
@@ -88,6 +87,10 @@ import { importFilters } from './core/import/registry';
 import { themePluginsToCss } from './core/theme-plugins';
 import { detectPlatform, keyEventToAction } from './ui/keymap';
 import { runShortcutAction } from './ui/commands';
+import { installAppGitDeps } from './ui/git-deps';
+import { watchGitTabClosures } from './ui/git-open';
+import { gitStore } from './ui/stores/git';
+import { startWatchingDirs } from './ui/watch-dirs';
 import { searchStore } from './ui/stores/search';
 import { closeOverview, notesOverviewStore, workspaceRoots } from './ui/notes-overview';
 import { initPromptStatus, promptStatus } from './ui/prompt-status';
@@ -721,7 +724,7 @@ async function boot(): Promise<void> {
   // desktop stays on the plain local FS.
   initProviders();
 
-  // Prompt status (ui/prompt-status.ts): reads each workspace's STATUSES.md.
+  // Prompt status (ui/prompt-status.ts): reads each workspace's prompts/STATUSES.md.
   // Wired here so every consumer — the Escape handler included — finds it;
   // the first read waits for the session (below), which knows the roots.
   initPromptStatus({
@@ -800,6 +803,12 @@ async function boot(): Promise<void> {
     pickDirectory: pickDirectoryDialog,
     pickFile: pickFileDialog,
   });
+
+  // The git store's real dependencies (the session facade, the tabs store,
+  // the terminal opener), wired before anything can reach a git action; and
+  // the repository forget-on-last-tab-close subscription.
+  installAppGitDeps({ confirm: confirmDialog });
+  watchGitTabClosures();
 
   // Rebuild the tabs from disk BEFORE React mounts, so the first paint is the
   // restored session, never a flash of an empty Untitled tab.
@@ -907,43 +916,30 @@ async function boot(): Promise<void> {
   // explorer refreshes when other apps or sync tools touch a workspace — no
   // polling, no manual refresh needed. Synced (SAF) workspaces can't be
   // watched and keep the manual button; Android skips all of this (the watch
-  // command isn't registered there). Re-armed whenever the workspace set or
-  // the notes dir changes.
+  // command isn't registered there). Re-armed whenever the workspace set, the
+  // notes dir, the Live Edit tabs or the open repositories change
+  // (`ui/watch-dirs.ts`, which the git store also calls directly).
   if (!isAndroid()) {
-    let watchedSignature = '';
-    const syncWatchedDirs = (): void => {
-      const defaultPath = getDefaultWorkspacePath();
-      const { workspaces } = settingsStore.getState().settings;
-      const roots = [
-        ...(defaultPath === null ? [] : [defaultPath]),
-        ...workspaces.filter((w) => w.kind !== 'synced').map((w) => w.path),
-      ];
-      // Live Edit: a shared file opened from OUTSIDE every workspace (per-tab
-      // override) still needs its folder watched, or its merges would only
-      // happen on window focus.
-      roots.push(...extraLiveWatchDirs(tabsStore.getState().tabs, workspaces, roots));
-      const signature = JSON.stringify(roots);
-      if (signature === watchedSignature) {
-        return;
-      }
-      watchedSignature = signature;
-      void ipc.watchDirs(roots).catch(() => {});
-    };
-    syncWatchedDirs();
-    settingsStore.subscribe(syncWatchedDirs);
-    tabsStore.subscribe(syncWatchedDirs);
+    startWatchingDirs();
 
     // Trailing debounce on top of Rust's: a long burst (sync tool writing many
     // files) still collapses into few re-lists. refreshExplorer is idempotent
     // and cheap when the drawer is closed (the list effect early-returns).
     let fsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-    void listen('fs-changed', () => {
+    let fsChangedRoots: string[] = [];
+    void listen<string[]>('fs-changed', (event) => {
+      fsChangedRoots = [...fsChangedRoots, ...(event.payload ?? [])];
       if (fsRefreshTimer !== null) {
         clearTimeout(fsRefreshTimer);
       }
       fsRefreshTimer = setTimeout(() => {
         fsRefreshTimer = null;
+        const roots = fsChangedRoots;
+        fsChangedRoots = [];
         uiStore.getState().refreshExplorer();
+        // A change under a watched root may be a working-tree change of an
+        // open repository (the git tab's status); the store decides.
+        gitStore.getState().onRepoChanged(roots);
         // Agents report prompt progress by writing STATUSES.md.
         void promptStatus().refresh();
         // Live conflict detection: an external write inside a watched
@@ -954,6 +950,24 @@ async function boot(): Promise<void> {
         // probe waits out any in-flight flush so our own writes never flag.
         void controller.checkAllFileConflicts();
       }, 300);
+    }).catch(() => {});
+
+    // The watcher's git-specific event: something under a root's `.git`
+    // moved (index, HEAD, refs, MERGE_HEAD…). A trailing 500 ms debounce on
+    // top of Rust's, since one `git commit` touches several of those.
+    let gitChangedTimer: ReturnType<typeof setTimeout> | null = null;
+    let gitChangedRoots: string[] = [];
+    void listen<string[]>('git-changed', (event) => {
+      gitChangedRoots = [...gitChangedRoots, ...(event.payload ?? [])];
+      if (gitChangedTimer !== null) {
+        clearTimeout(gitChangedTimer);
+      }
+      gitChangedTimer = setTimeout(() => {
+        gitChangedTimer = null;
+        const roots = gitChangedRoots;
+        gitChangedRoots = [];
+        gitStore.getState().onRepoChanged(roots);
+      }, 500);
     }).catch(() => {});
 
     // Live Edit fallback: a cloud drive's virtual volume (Google Drive's G:)
@@ -1183,6 +1197,9 @@ async function boot(): Promise<void> {
         // listener above records it too, like everyone else's.
         void emit('window-focused', { label: WINDOW_LABEL }).catch(() => {});
         void controller.checkAllFileConflicts();
+        // The git tab re-asks git too — a commit made in an outside shell,
+        // an agent's `git add` clearing a conflict.
+        gitStore.getState().onFocus();
         // A warm-start "Open with"/"Share" intent refocuses the window.
         drainIncomingUris();
       } else {

@@ -1,6 +1,6 @@
 /**
  * prompt-status.ts — the store behind the prompt strip and the Workspace
- * status panel: every workspace's `STATUSES.md`, as parsed rows.
+ * status panel: every workspace's `prompts/STATUSES.md`, as parsed rows.
  *
  * The file is written by agents in the user's own terminal (see
  * `core/prompt-status.ts`), so the app's job is to READ it — `refresh()` runs
@@ -9,7 +9,7 @@
  * prompt `queued`; it re-reads the file first so an agent's row written a
  * moment ago is not lost.
  *
- * A workspace with no STATUSES.md is simply absent from `byRoot`, which is
+ * A workspace with no prompts/STATUSES.md is simply absent from `byRoot`, which is
  * also what hides the strip there: the feature exists only where Initialize
  * Workspace (or the user) put the file.
  */

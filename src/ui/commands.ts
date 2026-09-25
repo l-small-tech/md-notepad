@@ -39,6 +39,7 @@ import { runPaneAction } from './pane-actions';
 import { uiStore } from './stores/ui';
 import { openTerminal } from './terminal-open';
 import { newTabDefault, runNewTabChoice, terminalsAvailable } from './new-tab';
+import { openGitTabForActiveTab, openNewWorktreeForActiveTab } from './git-open';
 
 export interface AppCommand {
   /** Stable kebab-case identifier. */
@@ -131,6 +132,10 @@ export function runShortcutAction(action: ShortcutAction): void {
       // Toggle like the palette: the shortcut both opens and dismisses it.
       searchStore.getState().setOpen(!searchStore.getState().open);
       break;
+    case 'open-git':
+      // The git tab for the repository around whatever is in front.
+      void openGitTabForActiveTab();
+      break;
     case 'terminal-split':
       terminalsStore
         .getState()
@@ -192,11 +197,15 @@ function hasActiveTab(): boolean {
   return tabsStore.getState().activeTab() !== undefined;
 }
 
-/** An active tab that holds markdown text (not an image/import/terminal tab). */
+/** An active tab that holds markdown text (not an image/import/terminal/git tab). */
 function hasActiveTextTab(): boolean {
   const tab = tabsStore.getState().activeTab();
   return (
-    tab !== undefined && tab.kind !== 'image' && tab.kind !== 'import' && tab.kind !== 'terminal'
+    tab !== undefined &&
+    tab.kind !== 'image' &&
+    tab.kind !== 'import' &&
+    tab.kind !== 'terminal' &&
+    tab.kind !== 'git'
   );
 }
 
@@ -487,10 +496,29 @@ export function buildCommands(): AppCommand[] {
         }
       },
     },
+    // Git (desktop only): the source-control tab for the repository around
+    // the active tab, and the new-worktree dialog inside it.
+    fromAction(
+      'git-open',
+      'Git: source control',
+      { type: 'open-git' },
+      {
+        keywords: ['source', 'control', 'repository', 'worktree', 'branch', 'commit', 'scm'],
+        shortcut: modKey('G', { shift: true }),
+        enabled: () => !isAndroid(),
+      },
+    ),
+    {
+      id: 'git-new-worktree',
+      title: 'Git: new worktree…',
+      keywords: ['branch', 'agent', 'worktrees', 'checkout'],
+      enabled: () => !isAndroid(),
+      run: () => void openNewWorktreeForActiveTab(),
+    },
     {
       id: 'workspace-status',
       title: 'Workspace status (prompts)',
-      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md'],
+      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md', 'prompts.md'],
       run: () => promptStatus().setPanelOpen(true),
     },
     {

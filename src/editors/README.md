@@ -115,6 +115,11 @@ code, comments → quote), so themes need nothing new. Like `'xml'` and
   together); they are pinned by the lockfile — don't bump one alone.
 - `EditorView.updateListener` fires for selection-only updates too — gate
   on `u.docChanged` before pushing.
+- `searchKeymap` is registered MINUS its `Mod-g` entry (find next / previous,
+  which CM6 binds with `preventDefault`): the app's global `mod+Shift+G`
+  opens the git tab (`ui/keymap.ts`) and has to reach the window listener
+  from a focused editor. F3 / Shift+F3 and the search panel's Enter still
+  step through matches. Don't add `Mod-g` back without moving the chord.
 
 ---
 
