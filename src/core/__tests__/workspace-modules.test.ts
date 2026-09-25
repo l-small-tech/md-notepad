@@ -79,6 +79,17 @@ describe('BUILTIN_MODULES', () => {
     }
   });
 
+  it('nothing is ticked by default; prompt-status seeds the example under its extension', () => {
+    expect(BUILTIN_MODULES.every((m) => !m.recommended)).toBe(true);
+    const ps = BUILTIN_MODULES.find((m) => m.id === 'prompt-status')!;
+    expect(ps.files.map((f) => f.path)).toEqual([
+      '.notepad/status.py',
+      'prompts/STATUSES.md',
+      'prompts/example.prompts.md',
+    ]);
+    expect(ps.directive).toContain('*.prompts.md');
+  });
+
   it('marp-decks: off by default, seeds the example deck its directive points at', () => {
     const marp = BUILTIN_MODULES.find((m) => m.id === 'marp-decks')!;
     expect(marp.recommended).toBe(false);

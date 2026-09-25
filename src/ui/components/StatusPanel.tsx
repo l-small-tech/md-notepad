@@ -1,6 +1,6 @@
 /**
  * StatusPanel — "Workspace status": every prompt an agent has reported on,
- * across the workspaces that keep a `STATUSES.md`, grouped by status with
+ * across the workspaces that keep a `prompts/STATUSES.md`, grouped by status with
  * what needs the user first (`core/prompt-status.ts groupByStatus`). A row
  * opens its note. Same slide-in shell as the review-notes overview.
  *

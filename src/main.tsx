@@ -721,7 +721,7 @@ async function boot(): Promise<void> {
   // desktop stays on the plain local FS.
   initProviders();
 
-  // Prompt status (ui/prompt-status.ts): reads each workspace's STATUSES.md.
+  // Prompt status (ui/prompt-status.ts): reads each workspace's prompts/STATUSES.md.
   // Wired here so every consumer — the Escape handler included — finds it;
   // the first read waits for the session (below), which knows the roots.
   initPromptStatus({

@@ -490,7 +490,7 @@ export function buildCommands(): AppCommand[] {
     {
       id: 'workspace-status',
       title: 'Workspace status (prompts)',
-      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md'],
+      keywords: ['agents', 'prompt', 'queued', 'running', 'done', 'STATUSES.md', 'prompts.md'],
       run: () => promptStatus().setPanelOpen(true),
     },
     {

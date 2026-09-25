@@ -118,19 +118,19 @@ describe.skipIf(!python)('status.py speaks the same protocol', () => {
       mkdirSync(join(root, '.notepad'));
       mkdirSync(join(root, 'prompts'));
       writeFileSync(join(root, '.notepad', 'status.py'), STATUS_SCRIPT);
-      writeFileSync(join(root, 'prompts', 'plan.md'), NOTE);
+      writeFileSync(join(root, 'prompts', 'plan.prompts.md'), NOTE);
       const run = (...args: string[]) =>
         execFileSync(python!, [join(root, '.notepad', 'status.py'), ...args], { encoding: 'utf8' });
 
       expect(run('find', 'Feature: Init Workspace!').trim().split(/\r?\n/)).toEqual([
-        'prompts/plan.md#feature-init-workspace',
-        'prompts/plan.md#feature-init-workspace-1',
+        'prompts/plan.prompts.md#feature-init-workspace',
+        'prompts/plan.prompts.md#feature-init-workspace-1',
       ]);
 
       run('set', 'prompts/plan.md#detail', 'running', 'pipes | too');
       run('set', 'prompts/plan.md', 'queued');
       run('set', 'prompts/plan.md#detail', 'done', 'all', 'good');
-      const text = readFileSync(join(root, 'STATUSES.md'), 'utf8');
+      const text = readFileSync(join(root, 'prompts', 'STATUSES.md'), 'utf8');
       const parsed = parseStatuses(text);
       expect(parsed.map((r) => [r.key, r.status, r.summary])).toEqual([
         ['prompts/plan.md#detail', 'done', 'all good'],

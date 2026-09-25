@@ -26,7 +26,19 @@
 
 import { extractOutline } from './outline';
 
-export const STATUS_FILE = 'STATUSES.md';
+/** Workspace-relative; lives in the prompts folder, not the root. */
+export const STATUS_FILE = 'prompts/STATUSES.md';
+
+/**
+ * A prompt file is any markdown file named `*.prompts.md` (plural: one file
+ * holds one or more prompts, one per heading). Only these get the prompt
+ * strip; the extension is the whole signal, wherever the file sits.
+ */
+export const PROMPTS_EXT = '.prompts.md';
+
+export function isPromptsPath(path: string | null | undefined): boolean {
+  return !!path && path.toLowerCase().endsWith(PROMPTS_EXT);
+}
 
 export const PROMPT_STATUSES = ['queued', 'running', 'needs-input', 'done', 'failed'] as const;
 export type PromptStatus = (typeof PROMPT_STATUSES)[number];
