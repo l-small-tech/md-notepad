@@ -173,6 +173,8 @@ export interface ConflictTracker {
   files: string[];
   /** Per tracked path: the last marker scan found no conflict markers. */
   markerFree: Record<string, boolean>;
+  /** Per tracked path: conflict blocks the last scan counted (for the row badge). */
+  markerCounts?: Record<string, number>;
 }
 
 /* ------------------------------ finish flow ------------------------------ */
@@ -225,4 +227,10 @@ export interface FinishState {
   aborted: boolean;
   /** Paths left unmerged by the current merge step, while it waits. */
   conflicts: string[] | null;
+  /**
+   * Preflight failures. Present (and non-empty) only on a flow that could
+   * not start: `finished` is true, no step ran, and the stepper shows the
+   * list with its fix hints instead.
+   */
+  blockers?: FinishBlocker[];
 }

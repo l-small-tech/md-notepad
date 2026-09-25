@@ -38,6 +38,7 @@ import {
   WORKTREES_DIRECTIVE,
 } from './workspace-module-texts';
 import { EXAMPLE_DECK, EXAMPLE_DECK_PATH } from './deck-template';
+import { appendMissingLines } from './git/worktree-plan';
 import { STATUS_FILE, serializeStatuses } from './prompt-status';
 
 export interface SeedFile {
@@ -277,10 +278,9 @@ export function planWorkspaceInit(input: InitPlanInput): InitWrite[] {
     if (current === undefined || file.refresh) {
       put(file.path, file.text);
     } else if (file.ensureLines) {
-      const have = new Set(current.split(/\r?\n/).map((l) => l.trim()));
-      const missing = file.text.split('\n').filter((l) => l.trim() !== '' && !have.has(l.trim()));
-      if (missing.length > 0) {
-        put(file.path, `${current.replace(/\n*$/, '\n')}${missing.join('\n')}\n`);
+      const appended = appendMissingLines(current, file.text.split('\n'));
+      if (appended !== null) {
+        put(file.path, appended);
       }
     }
   }
