@@ -30,7 +30,7 @@ import { isReadOnlyPath, pathKey } from './facade';
 export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Promise<boolean>) {
   async function saveActive(): Promise<void> {
     const tab = tabsStore.getState().activeTab();
-    if (!tab || tab.kind === 'image' || tab.kind === 'terminal') {
+    if (!tab || tab.kind === 'image' || tab.kind === 'terminal' || tab.kind === 'git') {
       return; // no text document behind this tab
     }
     if (tab.readOnly) {
@@ -47,7 +47,7 @@ export function createOpenSave(ctx: SessionCtx, saveFileTab: (id: string) => Pro
 
   async function saveAsActive(): Promise<void> {
     const tab = tabsStore.getState().activeTab();
-    if (!tab || tab.kind === 'image' || tab.kind === 'terminal') {
+    if (!tab || tab.kind === 'image' || tab.kind === 'terminal' || tab.kind === 'git') {
       return; // an image viewer or terminal has no text to save
     }
     if (tab.readOnly) {

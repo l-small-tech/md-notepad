@@ -15,6 +15,7 @@ import {
   type PersistedTab,
   type SessionManifest,
 } from '../../core/session/plan-flush';
+import { gitStore, repoKey } from '../stores/git';
 import { settingsStore } from '../stores/settings';
 import { tabsStore, type RestoredTabInit, type TabEntry } from '../stores/tabs';
 import { terminalsStore } from '../stores/terminals';
@@ -53,6 +54,28 @@ export function createWindows(
         }
         if (choice === 'never') {
           settingsStore.getState().update({ terminalConfirmCloseRunning: false });
+        }
+      }
+      tabsStore.getState().closeTab(id);
+      return;
+    }
+    if (tab.kind === 'git') {
+      // Nothing to save either — but a fetch / push streaming in, or a
+      // finish-worktree flow mid-step, is state this window alone holds
+      // (the git store is per window and never persisted). Closing the tab
+      // forgets the repository, so ask first.
+      const repo = tab.gitRoot ? gitStore.getState().repos[repoKey(tab.gitRoot)] : undefined;
+      const busy = repo?.op?.running ? 'an operation running' : null;
+      const finishing =
+        repo?.finish && !repo.finish.finished ? 'a finish-worktree flow in progress' : null;
+      const what = busy ?? finishing;
+      if (what) {
+        const ok = await ctx.confirm(
+          `Close "${tab.title}"? It has ${what}; its progress will no longer be shown.`,
+          'Close git tab',
+        );
+        if (!ok) {
+          return;
         }
       }
       tabsStore.getState().closeTab(id);
@@ -127,6 +150,11 @@ export function createWindows(
       ...(tab.kind === 'terminal'
         ? { terminal: terminalsStore.getState().snapshot(tab.id, opts) }
         : {}),
+      // A git tab travels as its repository; the receiving window asks git
+      // afresh (its finish-flow state, if any, stays behind by design).
+      ...(tab.kind === 'git' && tab.gitRoot
+        ? { git: { root: tab.gitRoot, ...(tab.gitCheckout ? { checkout: tab.gitCheckout } : {}) } }
+        : {}),
     };
   }
 
@@ -141,6 +169,17 @@ export function createWindows(
     const fresh = persisted.filter((pt) => {
       if (pt.kind === 'file') {
         return true;
+      }
+      if (pt.kind === 'git') {
+        // One git tab per repository per window: a second one for a root this
+        // window already shows is dropped (the sender's tab is simply gone).
+        const root = pt.git?.root;
+        return (
+          root !== undefined &&
+          !tabsStore
+            .getState()
+            .tabs.some((t) => t.kind === 'git' && pathKey(t.gitRoot ?? '') === pathKey(root))
+        );
       }
       const path = pt.filePath ?? pt.notePath;
       return path === null || !ctx.tabOwning(pathKey(path));

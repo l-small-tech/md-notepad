@@ -343,7 +343,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
   setRunExportFromPreviewDispatch(exporter.runExportFromPreview);
   setBuildExportPreviewHtmlDispatch(exporter.buildPreviewHtml);
   setSaveDispatch(() => void openSave.saveActive());
-  setSaveTabDispatch((id) => void flushRestore.saveFileTab(id));
+  setSaveTabDispatch((id) => flushRestore.saveFileTab(id));
   setSaveAsDispatch(() => void openSave.saveAsActive());
   setReloadDispatch((id) => void openSave.reloadFromDisk(id));
   setKeepMineDispatch((id) => void openSave.keepMine(id));

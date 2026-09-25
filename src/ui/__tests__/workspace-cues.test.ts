@@ -42,6 +42,13 @@ describe('cuePathFor', () => {
     expect(cuePathFor({ kind: 'file', notePath: null, filePath: '/f.md' })).toBe('/f.md');
     expect(cuePathFor({ kind: 'note', notePath: '/n.md', filePath: null })).toBe('/n.md');
   });
+
+  test('a git tab is placed by the checkout it shows, falling back to its root', () => {
+    const base = { kind: 'git', notePath: null, filePath: null, gitRoot: '/r' };
+    expect(cuePathFor({ ...base, gitCheckout: '/r/worktrees/a' })).toBe('/r/worktrees/a');
+    expect(cuePathFor(base)).toBe('/r');
+    expect(cuePathFor({ ...base, gitRoot: null })).toBeNull();
+  });
 });
 
 describe('workspaceCueFor', () => {

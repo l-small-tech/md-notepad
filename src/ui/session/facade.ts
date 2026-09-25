@@ -290,7 +290,7 @@ export function newWindow(): void {
  */
 let openFileDispatch: () => void = () => {};
 let saveDispatch: () => void = () => {};
-let saveTabDispatch: (id: string) => void = () => {};
+let saveTabDispatch: (id: string) => Promise<boolean> = () => Promise.resolve(false);
 let saveAsDispatch: () => void = () => {};
 let reloadDispatch: (id: string) => void = () => {};
 let keepMineDispatch: (id: string) => void = () => {};
@@ -330,7 +330,7 @@ export function setBuildExportPreviewHtmlDispatch(
 export function setSaveDispatch(fn: () => void): void {
   saveDispatch = fn;
 }
-export function setSaveTabDispatch(fn: (id: string) => void): void {
+export function setSaveTabDispatch(fn: (id: string) => Promise<boolean>): void {
   saveTabDispatch = fn;
 }
 export function setSaveAsDispatch(fn: () => void): void {
@@ -597,9 +597,10 @@ export function saveActiveTab(): void {
   saveDispatch();
 }
 /** TabContextMenu → controller: save a FILE tab by id (right-clicking a tab
- *  does not activate it, so the menu names the tab explicitly). */
-export function saveTab(id: string): void {
-  saveTabDispatch(id);
+ *  does not activate it, so the menu names the tab explicitly). Resolves with
+ *  whether the tab ended up clean — the git store awaits it before `git add`. */
+export function saveTab(id: string): Promise<boolean> {
+  return saveTabDispatch(id);
 }
 export function saveActiveTabAs(): void {
   saveAsDispatch();
@@ -998,5 +999,6 @@ export function persistedToInit(tab: PersistedTab, text: string, dirty = false):
     // Recomputed (not persisted): settings are loaded before restore runs.
     readOnly: isReadOnlyPath(tab.filePath),
     ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
+    ...(tab.kind === 'git' && tab.git ? { git: tab.git } : {}),
   };
 }

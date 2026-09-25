@@ -54,6 +54,8 @@ export type ShortcutAction =
   | { type: 'open-palette' }
   | { type: 'toggle-outline' }
   | { type: 'global-search' }
+  /** The git tab for the repository around the active tab (mod+Shift+G). */
+  | { type: 'open-git' }
   /* Terminal-only. Never returned in the 'document' context. */
   | { type: 'terminal-copy' }
   | { type: 'terminal-paste' }
@@ -84,6 +86,8 @@ const TERMINAL_PASSTHROUGH: readonly ShortcutAction['type'][] = [
   'font-inc',
   'font-dec',
   'font-reset',
+  // The git tab for the shell's repository — a chord no shell binds.
+  'open-git',
 ];
 
 /** The subset of KeyboardEvent this function reads (so tests need no DOM). */
@@ -172,6 +176,16 @@ export function keyEventToAction(
   // wrongMod guard, and holds no Shift, so there is no collision.
   if (e.key.toLowerCase() === 'f' && e.shiftKey) {
     return { type: 'global-search' };
+  }
+
+  // mod+Shift+G opens the git tab (VS Code's Source Control chord). CM6's
+  // search keymap binds Mod-g / Shift-Mod-g (find next / previous) with
+  // preventDefault, so `editors/cm6.ts` filters that one entry out of
+  // `searchKeymap` — F3 / Shift+F3 keep next / previous — and the chord
+  // reaches this listener from a focused editor. A focused whiteboard still
+  // owns it (ungroup) and prevents the default first.
+  if (e.key.toLowerCase() === 'g' && e.shiftKey) {
+    return { type: 'open-git' };
   }
 
   // Font size (mod += / - / 0). "mod+=" often arrives as '+' (Shift held on a

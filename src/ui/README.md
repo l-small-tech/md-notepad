@@ -21,6 +21,18 @@ Keep this directory small; anything smart belongs in a store or in core.
 | `TerminalTab` | M9 | one terminal tab page: hosts its split tree — see I10 below |
 | `TerminalPane` | M9 | one pty + engine + canvas + input; the only place src/term and src/renderer meet the app |
 | `PaneTree` | M9 | places a tab's panes as keyed, absolutely-positioned SIBLINGS (nesting them would remount — and kill — a pty on every split) |
+| `git/GitTab` | git | the source-control panel behind a `kind: 'git'` tab: header + side column + detail column, hidden with `display: none` when inactive (I7) — see "Git tab (tool tab)" below |
+| `git/GitHeader` | git | checkout picker (main first, then `worktrees/<slug> · <branch>`), branch / upstream / ahead-behind, state chip, Fetch / Pull / Push ("Publish branch" when there is no upstream), refresh |
+| `git/GitStates` | git | whole-panel states: git missing, no longer a repository (+ Close tab), first-load skeleton |
+| `git/ConflictsSection` | git | unmerged files, the live tracker line, **Copy conflict prompt** / Terminal here / Harness here / Abort / Continue (gated), per-file Mark resolved; `ConflictActions` is shared with the finish flow |
+| `git/ChangesSection` | git | Staged / Changes / Untracked groups (from `repo.groups`) with hover actions and Stage all / Unstage all; the commit box (mod+Enter on the textarea commits, Amend) |
+| `git/WorktreesSection` | git | the worktree dashboard rows and their actions (open as workspace, terminal / harness here, diff vs base, merge either way, Finish…, Remove); **New worktree** |
+| `git/BranchesSection` | git | fuzzy-filtered local + remote branches; Switch / Merge into current / Delete; inline New branch |
+| `git/HistorySection` | git | the log with relative times; Load more |
+| `git/GitDetail` | git | the right column: `DiffView` over `repo.diff` (+ EOL / binary hint bar), a commit with its files, a worktree's files vs base, or `FinishFlow` |
+| `git/OutputDrawer` | git | streamed fetch / pull / push output at the foot of the detail column; the failure hint is text in a `<code>`, never a button; Cancel / Dismiss |
+| `git/FinishFlow` | git | the finish-worktree stepper: verify pause (terminal here + Continue / Skip), conflicts pause (the agent-first actions + tracker), failed (Retry / Skip / Abort), cleanup confirm text |
+| `git/NewWorktreeDialog` | git | `.settings-dialog` chrome: slug, prefix, base branch, "then open" none / shell / harness, a live preview line, Create |
 
 ## EditorHost — the never-remount rule (I7)
 
@@ -391,6 +403,71 @@ state a terminal has none of), while the `TabBar` stays — it is the window
 titlebar. The explorer/outline open-closed flags in `uiStore` are left
 untouched, so switching back to a document restores exactly what was there.
 
+## Git tab (tool tab)
+
+`kind: 'git'` is the second document-less tab kind after the terminal, and the
+first TOOL tab (`DocFamily 'tool'`, the single mode `'tool'`). One per
+repository per window, keyed by the repository's MAIN root
+(`TabEntry.gitRoot`, deduped by `pathKey` in `tabsStore.openGitTab`), whichever
+worktree or file it was opened from; `gitCheckout` is the checkout the panel
+shows and rides the manifest with the root (`PersistedTab.git`). Restore
+re-asks `gitRepoInfo(root)` and drops the tab — with the "missing" notice —
+when the root is no longer a repository; Android drops it outright.
+
+- **I7 holds the same way as for images**: every `GitTab` stays mounted and
+  the inactive ones are `display: none`. There is no editor behind it, but the
+  panel's scroll positions, collapsed sections and the divider ratio (module
+  scope, like EditorHost's Split) are worth keeping.
+- **Chrome policy**: a tool tab keeps the `TabBar`, the `FileExplorer` and the
+  `StatusBar` (its notice area is where "Conflict prompt copied" lands) and
+  drops the `Ribbon` and the `OutlinePanel`. The status bar hides its mode
+  segments and word counts for any family with exactly one mode
+  (`allowedModesFor(family).length === 1`), which is what tells it apart from
+  a terminal (where the whole bar is gone).
+- **Everything shown is `useGitStore` state, every click a store action.**
+  Components read narrow slices through `useRepoSlice(root, pick)` (pick must
+  return something the store already holds — never a fresh object) and call
+  `gitStore.getState().<action>(root, …)`. There is no component logic
+  beyond that, and no component tests (policy); the store and `core/git` own
+  the decisions and the suites. The store's real dependencies are wired once
+  at bootstrap by `ui/git-deps.ts` (`installAppGitDeps`), since
+  `stores/git.ts` cannot import the session facade or the tabs store itself.
+- **Finish-flow and network-op state is per window and never persisted.**
+  Closing the tab, or tearing it off, while an op streams or a finish flow is
+  mid-step asks first (`closeTabInteractive`); a torn-off git tab arrives in
+  its new window as a fresh repository read.
+- **The app never types into a terminal.** The feature's only terminal call
+  is `ui/git-open.ts`'s `openTerminalAt(cwd, harness)` →
+  `openTerminal(harness ? HARNESS_PROFILE_ID : undefined, cwd)`, two
+  arguments, no `initialInput`; `__tests__/git-open.test.ts` pins that and
+  scans the module sources for the token. "Terminal here" / "Harness here"
+  only start a shell or the harness IN a checkout. A failed fetch / pull /
+  push shows git's stderr and a one-line reading of it as TEXT in the output
+  drawer — there is no "run in terminal" button anywhere.
+- **Conflicts are the agent's job.** The Conflicts section's primary action
+  is **Copy conflict prompt** (`copyConflictPrompt`, the `copyPrompt` voice:
+  "Conflict prompt copied — paste it into your AI agent"), beside Terminal /
+  Harness here, **Abort merge** and **Continue merge** — disabled with its
+  reason until the store's tracker says no unmerged entries remain and every
+  tracked file is marker-free. Clicking a conflicted file opens it as plain
+  text; **Mark resolved** saves it if open and stages it. No CodeMirror
+  conflict widgets.
+- **Watcher additions** (`ui/watch-dirs.ts`, extracted from main.tsx):
+  `refreshWatchedDirs()` re-arms the OS watcher from workspace roots + Live
+  Edit folders + the checkouts of open repositories that no root covers, and
+  is what the store awaits before `git worktree remove` (Windows refuses to
+  delete a watched directory). main.tsx listens to the watcher's `git-changed`
+  (roots under whose `.git` something moved; 500 ms trailing debounce) and
+  also passes `fs-changed` roots to `gitStore.onRepoChanged`; window focus
+  calls `gitStore.onFocus()` beside `checkAllFileConflicts`.
+- **Entry points**: the explorer's workspace-root menu row **Git** (same gate
+  as "Workspace directives…": desktop, local folder), the palette's *Git:
+  source control* / *Git: new worktree…*, and `mod+Shift+G`
+  (`ShortcutAction 'open-git'`, also in `TERMINAL_PASSTHROUGH`). The chord
+  reaches the window listener from a focused editor because `editors/cm6.ts`
+  drops `Mod-g` from CM6's `searchKeymap` (F3 / Shift+F3 keep find next /
+  previous).
+
 ## Multi-window (M8 tab tear-off)
 
 On Windows/macOS (`globalCoordsTrusted()` — the platforms with real global
@@ -643,6 +720,7 @@ elsewhere (`navigator.platform`-based helper).
 | mod+S / mod+Shift+S | save / save as | M3 |
 | mod+, | settings | M6 |
 | mod+= / mod+- / mod+0 | font size up / down / reset | M6 |
+| mod+Shift+G | Git: source control — the git tab for the repository around the active tab (`ui/git-open.ts`; also passes through a focused terminal) | git |
 
 Don't intercept keys CM6 needs while the editor is focused unless the
 shortcut is in this table (the listener checks `defaultPrevented` and

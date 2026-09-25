@@ -16,6 +16,7 @@ import { EditorHost } from './components/EditorHost';
 import { ImageView } from './components/ImageView';
 import { ImportView } from './components/ImportView';
 import { TerminalTab } from './components/TerminalTab';
+import { GitTab } from './components/git/GitTab';
 import { StatusBar } from './components/StatusBar';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ExportPreviewDialog } from './components/ExportPreviewDialog';
@@ -81,6 +82,10 @@ export function App() {
   // are untouched, so switching back to a document restores exactly what was
   // there. The TabBar stays — it is the window titlebar.
   const terminalActive = activeKind === 'terminal';
+  // A TOOL tab (the git tab) is not a document either, but it lives beside
+  // the workspace it acts on: the explorer and the status bar (notices) stay,
+  // and only the document chrome — ribbon and outline — goes.
+  const toolActive = activeKind === 'git';
 
   return (
     <div
@@ -88,7 +93,7 @@ export function App() {
       data-tab-kind={activeKind ?? 'note'}
     >
       <TabBar />
-      {!terminalActive && <Ribbon />}
+      {!terminalActive && !toolActive && <Ribbon />}
       <div className="editor-area">
         {!terminalActive && <FileExplorer />}
         <div className="editor-stack">
@@ -101,12 +106,14 @@ export function App() {
               <ImportView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : tab.kind === 'terminal' ? (
               <TerminalTab key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ) : tab.kind === 'git' ? (
+              <GitTab key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : (
               <EditorHost key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ),
           )}
         </div>
-        {!terminalActive && <OutlinePanel />}
+        {!terminalActive && !toolActive && <OutlinePanel />}
       </div>
       {!terminalActive && <StatusBar />}
       {/* Full screen on a deck is the show: one slide on a dark stage, keys
