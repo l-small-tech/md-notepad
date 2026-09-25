@@ -59,7 +59,7 @@ export interface WorkspaceModule {
   /** The markdown written between the markers. */
   directive: string;
   files: SeedFile[];
-  /** Ticked by default in a fresh dialog. */
+  /** Ticked by default in a fresh dialog (currently none: the user opts in). */
   recommended: boolean;
   source: 'builtin' | 'user';
 }
@@ -71,14 +71,14 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     id: PROMPT_STATUS_MODULE_ID,
     title: 'Prompt status',
     description:
-      'Notes become prompts: copy one to your agent and watch its progress here (STATUSES.md).',
+      'Notes named *.prompts.md become prompts: copy one to your agent and watch its progress here (prompts/STATUSES.md).',
     directive: PROMPT_STATUS_DIRECTIVE,
     files: [
       { path: '.notepad/status.py', text: STATUS_SCRIPT, refresh: true },
       { path: STATUS_FILE, text: serializeStatuses([]) },
-      { path: 'prompts/example-prompt.md', text: EXAMPLE_PROMPT },
+      { path: 'prompts/example.prompts.md', text: EXAMPLE_PROMPT },
     ],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -87,7 +87,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'Agents keep MANIFEST.md — what every file is for — and read it before exploring.',
     directive: MANIFEST_DIRECTIVE,
     files: [{ path: 'MANIFEST.md', text: MANIFEST_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -96,7 +96,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'Agents add a line to CHANGELOG.md for every change you would notice.',
     directive: CHANGELOG_DIRECTIVE,
     files: [{ path: 'CHANGELOG.md', text: CHANGELOG_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {
@@ -105,7 +105,7 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'LESSONS.md carries what agents learn from one session to the next.',
     directive: LESSONS_DIRECTIVE,
     files: [{ path: 'LESSONS.md', text: LESSONS_SEED }],
-    recommended: true,
+    recommended: false,
     source: 'builtin',
   },
   {

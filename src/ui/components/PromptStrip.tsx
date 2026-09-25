@@ -1,8 +1,8 @@
 /**
  * PromptStrip — a note's prompt status, above the editor.
  *
- * Shown only for a file inside a workspace that has a `STATUSES.md` (see
- * `ui/prompt-status.ts`). It carries the two halves of the loop:
+ * Shown only for a `*.prompts.md` file (`core/prompt-status isPromptsPath`)
+ * inside a workspace that has a `prompts/STATUSES.md` (see `ui/prompt-status.ts`). It carries the two halves of the loop:
  *
  * - **Copy as prompt** — the picked section (or the whole note) goes to the
  *   clipboard with its `Prompt-id:` line and is marked Queued. The picker
@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   STATUS_LABELS,
+  isPromptsPath,
   promptSections,
   sectionAtLine,
   statusesForNote,
@@ -33,8 +34,11 @@ export function PromptStrip({ tabId }: { tabId: string }) {
   // Subscribed so the strip appears/disappears and re-reads rows as any STATUSES.md changes.
   const byRoot = usePromptStatus((s) => s.byRoot);
   void byRoot;
+  if (!isPromptsPath(filePath)) {
+    return null;
+  }
   const at = promptStatus().locate(filePath);
-  if (!at || !filePath || !model || /(^|\/)STATUSES\.md$/i.test(at.rel)) {
+  if (!at || !filePath || !model) {
     return null;
   }
   // Keyed by file: a Save As starts over rather than carrying a stale pick.
