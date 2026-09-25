@@ -61,6 +61,18 @@ export interface SessionTabView {
   cursor: CursorPos | null;
   /** kind='terminal' only: the pane layout to persist (terminalsStore.snapshot). */
   terminal?: TerminalSnapshot | null;
+  /** kind='git' only: the repository shown (see `PersistedGitTab`). */
+  git?: PersistedGitTab | null;
+}
+
+/**
+ * What a git tab persists: the repository's MAIN root (its identity) and the
+ * checkout — the main root or a linked worktree — the panel last showed.
+ * Nothing else: the panel re-asks git for everything on restore.
+ */
+export interface PersistedGitTab {
+  root: string;
+  checkout?: string;
 }
 
 export interface AppSessionView {
@@ -113,6 +125,12 @@ export interface PersistedTab {
    * kind, and never carries scrollback — see `TerminalSnapshot`.
    */
   terminal?: TerminalSnapshot | null;
+  /**
+   * kind='git' only: the repository root (+ the checkout shown). Absent on
+   * every other kind. Restore drops the tab when the root is no longer a
+   * repository.
+   */
+  git?: PersistedGitTab | null;
 }
 
 export interface SessionManifest {
@@ -121,7 +139,7 @@ export interface SessionManifest {
   tabs: PersistedTab[];
 }
 
-const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import', 'terminal'];
+const KNOWN_TAB_KINDS: readonly TabKind[] = ['note', 'file', 'image', 'import', 'terminal', 'git'];
 
 function isKnownTabKind(value: unknown): value is TabKind {
   return (KNOWN_TAB_KINDS as readonly unknown[]).includes(value);
@@ -406,6 +424,8 @@ export function planFlush(view: AppSessionView): FlushPlan {
       ...(tab.liveEdit !== null ? { liveEdit: tab.liveEdit } : {}),
       // Terminal tabs contribute NO writes and NO buffer — only this.
       ...(tab.kind === 'terminal' && tab.terminal ? { terminal: tab.terminal } : {}),
+      // Likewise a git tab: the repository it shows, nothing written.
+      ...(tab.kind === 'git' && tab.git ? { git: tab.git } : {}),
     })),
   };
   return {

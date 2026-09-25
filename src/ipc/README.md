@@ -35,32 +35,63 @@ there. The checklist for adding a command is in `src-tauri/README.md`.
 
 `provider.ts` (the storage router's local/SAF providers), `paths.ts`
 (notes/session dirs per platform), `pty.ts` (the terminal's channel plumbing),
+`git-ops.ts` (the git tab's fetch/pull/push channel plumbing),
 `settings-store.ts`, `clipboard.ts`, `dialog.ts`, `theme-loader.ts`,
 `theme-seed-images.ts`.
 
-## Git facts (desktop only) — Review mode's "What changed"
+## Git (desktop only)
 
-`gitRepoInfo`, `gitShowFile` and `gitFileChanges` wrap
-`src-tauri/src/commands/git.rs`, which shells out to the `git` binary (3 s
-timeout per call, on Rust's blocking pool). They are NOT registered on Android.
+The `git*` wrappers front `src-tauri/src/commands/git/`, which shells out to
+the `git` binary on Rust's blocking pool — no libgit2. None of them is
+registered on Android. Every call takes `root`, the CHECKOUT to run in (the
+main root or a linked worktree's path). Reads are killed at 3 s, mutations at
+30 s; the three network commands stream for up to 120 s and can be cancelled.
+Nothing ever prompts (`GIT_TERMINAL_PROMPT=0`, stdin closed), and nothing here
+types into a terminal: a user string (branch, path, message) travels as one
+argv element and Rust refuses anything it will not pass (`GIT_INVALID_ARG`),
+so callers validate first with `core/git/refs.ts`.
+
+**Review mode's facts** (`gitRepoInfo`, `gitShowFile`, `gitFileChanges`):
 
 | Wrapper | Answers |
 | --- | --- |
-| `gitRepoInfo(path, baseBranch?)` | root, `rel`, branch, HEAD, `isWorktree`, the baseline branch and its `merge-base` (`baseRef`), and every worktree |
-| `gitShowFile(root, rev, rel)` | the file's text at `rev`, or `null` when it did not exist there (a new file) |
+| `gitRepoInfo(path, baseBranch?)` | `root`, `mainRoot` (the repository's main checkout — the git tab's identity), `rel`, branch, HEAD, `isWorktree`, the baseline branch and its `merge-base` (`baseRef`), and every worktree |
+| `gitShowFile(root, rev, rel)` | the file's text at `rev` (`:0` = index, `HEAD`, a sha), or `null` when it did not exist there |
 | `gitFileChanges(root, rel, baseRef, branches)` | per branch, whether its blob for `rel` differs from `baseRef`'s (the worktree radar) |
 
 `baseBranch` is the `reviewBaseBranch` setting; pass it only when non-empty.
 A branch the checkout does not have falls back to auto-detection
 (`development`, then `main`, then `master`).
 
+**The git tab** (`src/ui/stores/git.ts` is the only caller):
+
+| Wrapper | Does |
+| --- | --- |
+| `gitStatus(root)` | `status --porcelain=v2` → `GitStatus` (entries, upstream, ahead/behind, `state`, `mergeHead`) |
+| `gitBranches(root)` | local + remote branches with tracking |
+| `gitLog(root, rev, max, skip)` | a page of commits (`[]` on an unborn HEAD) |
+| `gitCommitFiles(root, sha)` / `gitDiffNames(root, from, to)` | `--name-status` rows of a commit / of `from...to` |
+| `gitAheadBehind(root, a, b)` | `rev-list --left-right --count` |
+| `gitWorktrees(root, baseBranch?)` | every checkout with dirty counts and ahead/behind the base (the dashboard) |
+| `gitCheckIgnore(root, rel)` | is `rel` ignored |
+| `gitStage` / `gitUnstage` / `gitDiscard` | file-level `add -A` / `restore --staged` / restore + `clean` |
+| `gitCommit(root, message, amend)` | `commit -F <tmp>`; `message` null = `--no-edit` |
+| `gitSwitch` / `gitCreateBranch` / `gitDeleteBranch` | branch ops; refusals come back as `GIT_FAILED` with git's text |
+| `gitMerge(root, target, noFf)` | → `GitMergeOutcome`; a conflict is the outcome `conflicts`, never an error |
+| `gitMergeAbort(root)` | `merge --abort` |
+| `gitWorktreeAdd` / `gitWorktreeRemove` | `worktree add [-b]` / `worktree remove [--force]` + `prune` |
+| `gitFetch` / `gitPull` / `gitPush` (+ `opId`, channel) | streamed; resolve with `GitNetResult` (`ok:false` + stderr is a result) |
+| `gitOpCancel(opId)` | kill that op |
+
 | `code` | Meaning |
 | --- | --- |
 | `GIT_NOT_FOUND` | no `git` on `PATH` |
 | `GIT_NOT_A_REPO` | the path is outside any repository |
-| `GIT_TIMEOUT` | git was killed at 3 s (a hung network mount) |
+| `GIT_TIMEOUT` | git was killed at its mode's limit (a hung network mount, a slow hook) |
 | `GIT_FAILED` | git ran and failed; `message` carries its stderr |
+| `GIT_CANCELLED` | the user cancelled a fetch / pull / push |
+| `GIT_BUSY` | a network op is already running for that repository |
+| `GIT_INVALID_ARG` | caller bug: a string Rust would not pass to git (empty, leading `-`, control chars) |
 
 `isGitUnavailable(err)` is true for the first two: both mean "hide the
-baseline picker behind a one-line hint and render every other view", while a
-timeout or failure is worth surfacing.
+feature behind a one-line hint", while everything else is worth surfacing.

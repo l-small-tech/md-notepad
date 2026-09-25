@@ -18,7 +18,8 @@ import { parseCode } from '../core/code/parse';
 import type { ReviewBaseline } from '../core/code/review-state';
 import type { ReviewContext } from '../core/comments';
 import { diffLines } from '../core/diff';
-import { ipc, IpcError, isGitUnavailable, type GitRepoInfo } from '../ipc/commands';
+import { gitHint } from '../core/git/hints';
+import { ipc, isGitUnavailable, type GitRepoInfo } from '../ipc/commands';
 import type { RadarEntry, ReviewGitInfo } from '../preview/code-review';
 
 /** Git info is re-asked on focus at most this often. */
@@ -83,22 +84,8 @@ export function reviewContextFor(
   return Object.keys(context).length > 0 ? context : undefined;
 }
 
-/** The header hint for a git failure. */
-export function gitHint(err: unknown): string {
-  if (err instanceof IpcError) {
-    switch (err.code) {
-      case 'GIT_NOT_FOUND':
-        return 'Git not found';
-      case 'GIT_NOT_A_REPO':
-        return 'Not a git repository';
-      case 'GIT_TIMEOUT':
-        return 'Git timed out';
-      default:
-        break;
-    }
-  }
-  return 'Git unavailable';
-}
+/** The header hint for a git failure — lives in `core/git/hints.ts` now; re-exported for callers. */
+export { gitHint };
 
 /** The IPC surface `createReviewGit` uses — injectable for tests. */
 export type ReviewGitIpc = Pick<typeof ipc, 'gitRepoInfo' | 'gitShowFile' | 'gitFileChanges'>;

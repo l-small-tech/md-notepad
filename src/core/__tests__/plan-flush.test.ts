@@ -429,6 +429,48 @@ describe('planFlush — terminal tabs', () => {
   });
 });
 
+describe('planFlush — git tabs', () => {
+  const git = { root: 'C:/code/proj', checkout: 'C:/code/proj/worktrees/feat-x' };
+
+  test('a git tab writes nothing — only its repository rides the manifest', () => {
+    const plan = planFlush(
+      view({
+        tabs: [
+          tab({
+            id: 'g1',
+            kind: 'git',
+            mode: 'tool',
+            title: 'Git: proj',
+            sessionDirty: true,
+            fileDirty: true,
+            git,
+          }),
+        ],
+      }),
+    );
+    expect(plan.writes).toEqual([]);
+    expect(plan.noteRenames).toEqual([]);
+    expect(plan.deletes).toEqual([]);
+    expect(plan.assignedNotePaths).toEqual({});
+    expect(plan.manifest.tabs[0]).toMatchObject({
+      kind: 'git',
+      hasBuffer: false,
+      notePath: null,
+      filePath: null,
+      git,
+    });
+    const parsed = parseManifest(JSON.stringify(plan.manifest));
+    expect(parsed!.tabs[0]?.git).toEqual(git);
+  });
+
+  test('a git tab with no repository recorded leaves no `git` key', () => {
+    const plan = planFlush(
+      view({ tabs: [tab({ id: 'g1', kind: 'git', mode: 'tool', git: null })] }),
+    );
+    expect(plan.manifest.tabs[0] && 'git' in plan.manifest.tabs[0]).toBe(false);
+  });
+});
+
 describe('parseManifest', () => {
   test('round-trips a planned manifest', () => {
     const plan = planFlush(

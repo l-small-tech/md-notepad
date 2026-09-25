@@ -785,6 +785,79 @@ describe('lastFileMode (mobile reads first)', () => {
   });
 });
 
+describe('git tabs', () => {
+  test('opens one per repository, named after the main root, in the tool mode', () => {
+    const id = state().openGitTab({ root: 'C:/code/proj' });
+    const tab = state().tabs.find((t) => t.id === id)!;
+    expect(tab.kind).toBe('git');
+    expect(tab.mode).toBe('tool');
+    expect(tab.gitRoot).toBe('C:/code/proj');
+    // No checkout named: the main root is shown.
+    expect(tab.gitCheckout).toBe('C:/code/proj');
+    expect(mod.tabDisplayTitle(tab)).toBe('Git: proj');
+    expect(state().activeTabId).toBe(id);
+  });
+
+  test('a second open for the same root (any case / separator) activates the existing tab', () => {
+    const id = state().openGitTab({ root: 'C:/code/proj' });
+    state().newTab();
+    expect(state().activeTabId).not.toBe(id);
+    const again = state().openGitTab({ root: 'c:\\Code\\Proj' });
+    expect(again).toBe(id);
+    expect(state().activeTabId).toBe(id);
+    expect(state().tabs.filter((t) => t.kind === 'git')).toHaveLength(1);
+  });
+
+  test('a checkout named on open preselects it, and on re-open switches to it', () => {
+    const id = state().openGitTab({ root: '/r', checkout: '/r/worktrees/a' });
+    expect(state().tabs.find((t) => t.id === id)!.gitCheckout).toBe('/r/worktrees/a');
+    state().openGitTab({ root: '/r', checkout: '/r/worktrees/b' });
+    expect(state().tabs.find((t) => t.id === id)!.gitCheckout).toBe('/r/worktrees/b');
+  });
+
+  test('setGitCheckout only touches git tabs and is a no-op on the same value', () => {
+    const id = state().openGitTab({ root: '/r' });
+    const before = state().tabs;
+    state().setGitCheckout(id, '/r');
+    expect(state().tabs).toBe(before);
+    state().setGitCheckout(id, '/r/worktrees/x');
+    expect(state().tabs.find((t) => t.id === id)!.gitCheckout).toBe('/r/worktrees/x');
+    const note = tabAt(0).id;
+    state().setGitCheckout(note, '/elsewhere');
+    expect(tabAt(0).gitCheckout).toBeNull();
+  });
+
+  test('a user rename wins over the derived label', () => {
+    const id = state().openGitTab({ root: '/r/proj' });
+    state().renameTab(id, 'SCM');
+    expect(mod.tabDisplayTitle(state().tabs.find((t) => t.id === id)!)).toBe('SCM');
+  });
+
+  test('restores from the manifest with its checkout', () => {
+    state().restoreSession({
+      tabs: [
+        {
+          id: 'g1',
+          kind: 'git',
+          notePath: null,
+          filePath: null,
+          customTitle: null,
+          mode: 'raw',
+          savedMtimeMs: null,
+          text: '',
+          git: { root: '/r', checkout: '/r/worktrees/z' },
+        },
+      ],
+      activeTabId: 'g1',
+    });
+    const tab = state().tabs.find((t) => t.id === 'g1')!;
+    expect(tab.gitRoot).toBe('/r');
+    expect(tab.gitCheckout).toBe('/r/worktrees/z');
+    // A stale mode self-heals to the family's only one.
+    expect(tab.mode).toBe('tool');
+  });
+});
+
 describe('terminal tabs', () => {
   test('opening one creates its pane session and labels it from the profile', async () => {
     const terminals = await import('../terminals');
