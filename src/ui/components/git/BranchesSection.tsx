@@ -8,33 +8,14 @@
 
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { rankCandidates } from '../../../core/fuzzy';
+import { validateBranchName } from '../../../core/git/refs';
 import type { GitBranch } from '../../../core/git/types';
 import { gitStore } from '../../stores/git';
 import { Icon } from './icons';
 import { aheadBehind, checkoutLabel, Empty, IconButton, Section, useRepoSlice } from './shared';
 
-/**
- * A quick local check for a new branch name. (Slice B's `core/git/refs.ts
- * validateBranchName` — the full check-ref-format rules — replaces this; the
- * Rust side rejects anything git would anyway.)
- */
-function branchNameError(name: string): string | null {
-  const n = name.trim();
-  if (n === '') {
-    return 'Name a branch';
-  }
-  if (/\s/.test(n)) {
-    return 'No spaces';
-  }
-  if (n.includes('..') || n.startsWith('-') || n.startsWith('/') || n.endsWith('/')) {
-    return 'Not a valid branch name';
-  }
-  const hasControl = [...n].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127);
-  if (/[~^:?*[\\]/.test(n) || hasControl || n.endsWith('.lock') || n.endsWith('.')) {
-    return 'Not a valid branch name';
-  }
-  return null;
-}
+/** The live check under the New-branch input — the same rules the store applies. */
+const branchNameError = (name: string): string | null => validateBranchName(name.trim());
 
 function BranchRow({
   root,

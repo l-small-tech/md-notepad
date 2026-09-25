@@ -17,6 +17,7 @@
  * not a path git can be run in — both get a notice instead of a tab.
  */
 
+import { gitFailureText } from '../core/git/hints';
 import { baseName } from '../core/session/plan-flush';
 import { pathKey } from '../core/tab-workspaces';
 import { HARNESS_PROFILE_ID } from '../core/types';
@@ -40,9 +41,9 @@ export function openTerminalAt(cwd: string, harness: boolean): void {
 }
 
 /**
- * The notice for a `gitRepoInfo` failure at open time. (Slice B's
- * `core/git/hints.ts gitFailureText` is the intended home for this text; the
- * table is inlined here until it lands.)
+ * The notice for a `gitRepoInfo` failure at open time: the two "unavailable"
+ * cases get a sentence that names the path, everything else the shared
+ * `gitFailureText` reading.
  */
 function openFailureText(err: unknown, path: string): string {
   if (err instanceof IpcError) {
@@ -51,10 +52,8 @@ function openFailureText(err: unknown, path: string): string {
         return 'Git was not found — install git and make sure it is on your PATH.';
       case 'GIT_NOT_A_REPO':
         return `${baseName(path) || path} is not inside a git repository.`;
-      case 'GIT_TIMEOUT':
-        return 'Git took too long to answer — try again.';
       default:
-        return `Git failed: ${err.message}`;
+        return gitFailureText(err);
     }
   }
   return 'Git is unavailable.';

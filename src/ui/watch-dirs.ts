@@ -15,45 +15,14 @@
  * `git-changed` fire for it. Desktop only — Android has no watch command.
  */
 
+import { extraGitWatchDirs } from '../core/git/checkouts';
 import { extraLiveWatchDirs } from '../core/live-edit';
-import { pathKey } from '../core/tab-workspaces';
 import { ipc } from '../ipc/commands';
 import { isAndroid } from './platform';
 import { getDefaultWorkspacePath } from './session';
 import { gitStore } from './stores/git';
 import { settingsStore } from './stores/settings';
 import { tabsStore } from './stores/tabs';
-
-/** Is `dir` equal to or below one of `roots` (case-folded, either separator)? */
-function coveredBy(dir: string, roots: readonly string[]): boolean {
-  const key = pathKey(dir);
-  return roots.some((root) => {
-    const rootKey = pathKey(root);
-    return key === rootKey || key.startsWith(`${rootKey}/`);
-  });
-}
-
-/**
- * The checkouts of open repositories that fall outside `watched`. (Slice B's
- * `core/git/checkouts.ts extraGitWatchDirs` is the intended home of this
- * rule; inlined here until it lands.)
- */
-export function extraGitWatchDirs(
-  repos: readonly { mainRoot: string; checkoutPaths: readonly string[] }[],
-  watched: readonly string[],
-): string[] {
-  const extra: string[] = [];
-  const all = [...watched];
-  for (const repo of repos) {
-    for (const dir of [repo.mainRoot, ...repo.checkoutPaths]) {
-      if (!coveredBy(dir, all)) {
-        extra.push(dir);
-        all.push(dir);
-      }
-    }
-  }
-  return extra;
-}
 
 let watchedSignature = '';
 

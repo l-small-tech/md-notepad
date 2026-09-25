@@ -7,24 +7,19 @@
  * checkout has no Remove or Finish. "New worktree" opens the dialog.
  */
 
+import { terminalsInside as terminalsIn } from '../../../core/git/checkouts';
 import type { GitCheckout } from '../../../core/git/types';
-import { pathKey } from '../../../core/tab-workspaces';
 import { gitStore } from '../../stores/git';
 import { tabDisplayTitle, useTabsStore, type TabEntry } from '../../stores/tabs';
 import { Icon } from './icons';
 import { aheadBehind, checkoutLabel, Empty, IconButton, Section, useRepoSlice } from './shared';
 
-/** Titles of the terminal tabs whose shell is inside `path`. */
+/** Titles of the terminal tabs whose shell is inside `path` (core's containment rule). */
 function terminalsInside(tabs: readonly TabEntry[], path: string): string[] {
-  const key = pathKey(path);
-  return tabs
-    .filter(
-      (t) =>
-        t.kind === 'terminal' &&
-        t.terminalCwd !== null &&
-        (pathKey(t.terminalCwd) === key || pathKey(t.terminalCwd).startsWith(`${key}/`)),
-    )
-    .map(tabDisplayTitle);
+  const shells = tabs
+    .filter((t) => t.kind === 'terminal')
+    .map((t) => ({ id: t.id, title: tabDisplayTitle(t), cwd: t.terminalCwd }));
+  return terminalsIn(shells, path).map((s) => s.title);
 }
 
 function WorktreeRow({

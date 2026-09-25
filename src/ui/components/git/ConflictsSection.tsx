@@ -8,6 +8,7 @@
  * resolved stages it.
  */
 
+import { continueGate, trackerProgress } from '../../../core/git/conflicts';
 import { joinPath } from '../../../core/session/plan-flush';
 import { openNotePath } from '../../session';
 import { gitStore } from '../../stores/git';
@@ -67,14 +68,8 @@ export function ConflictsSection({ root }: { root: string }) {
   const inFinish = finish !== null && !finish.finished && finish.conflicts !== null;
 
   const markerFree = (path: string) => tracker?.markerFree[path] === true;
-  const cleanCount = tracker ? tracker.files.filter(markerFree).length : 0;
-  const markersLeft = tracker ? tracker.files.length - cleanCount : 0;
-  const reason =
-    conflicted.length > 0
-      ? `${conflicted.length} file${conflicted.length === 1 ? '' : 's'} still unmerged`
-      : markersLeft > 0
-        ? `Conflict markers remain in ${markersLeft} file${markersLeft === 1 ? '' : 's'}`
-        : null;
+  const cleanCount = tracker ? trackerProgress(tracker).clean : 0;
+  const { reason } = continueGate(conflicted.length, tracker);
 
   return (
     <Section

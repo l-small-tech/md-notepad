@@ -6,27 +6,14 @@
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { validateSlug } from '../../../core/git/refs';
 import { gitStore } from '../../stores/git';
 import { useRepoSlice } from './shared';
 
 const PREFIXES = ['feat/', 'fix/', 'chore/'] as const;
 
-/**
- * A quick local slug check — kebab-case, 64 characters at most. (Slice B's
- * `core/git/refs.ts validateSlug` is the real one.)
- */
-function slugError(slug: string): string | null {
-  if (slug === '') {
-    return 'Name the worktree';
-  }
-  if (slug.length > 64) {
-    return 'At most 64 characters';
-  }
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
-    return 'Lowercase letters, digits and single hyphens (my-feature)';
-  }
-  return null;
-}
+/** The live check under the slug field — the same rule the store applies on Create. */
+const slugError = validateSlug;
 
 export function NewWorktreeDialog({ root }: { root: string }) {
   const draft = useRepoSlice(root, (r) => r.newWorktree);

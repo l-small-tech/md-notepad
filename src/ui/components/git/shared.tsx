@@ -70,22 +70,8 @@ export function checkoutLabel(path: string, mainRoot: string): string {
   return baseName(path) || path;
 }
 
-/** `abc1234` — the first seven characters. (core/git/refs.ts `shortSha` once it lands.) */
-export function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
-
-/** `↑2 ↓1`, or '' when both are zero or unknown. (core/git/refs.ts `formatAheadBehind`.) */
-export function aheadBehind(ahead: number | null, behind: number | null): string {
-  const parts: string[] = [];
-  if (ahead) {
-    parts.push(`↑${ahead}`);
-  }
-  if (behind) {
-    parts.push(`↓${behind}`);
-  }
-  return parts.join(' ');
-}
+/** `abc1234` and `↑2 ↓1` — the core formatters, under the names the components use. */
+export { formatAheadBehind as aheadBehind, shortSha } from '../../../core/git/refs';
 
 /** A collapsible group with a count and optional header actions. */
 export function Section({

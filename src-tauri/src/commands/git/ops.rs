@@ -93,12 +93,14 @@ pub(super) fn discard(root: &Path, tracked: &[String], untracked: &[String]) -> 
 
 /* -------------------------------- committing ------------------------------ */
 
-/// `commit --cleanup=strip [--amend] (-F <tmp> | --no-edit)` → the new HEAD.
+/// `commit --cleanup=whitespace [--amend] (-F <tmp> | --no-edit)` → the new HEAD.
 /// The message always travels as a file (see `run::message_file`); `None`
 /// means "keep what git has" — a merge's prepared message, or an amend that
 /// changes only the content.
 pub(super) fn commit(root: &Path, message: Option<&str>, amend: bool) -> GitResult<String> {
-    let mut args = vec!["commit", "--cleanup=strip"];
+    // `whitespace`, not `strip`: a commit message in a markdown-first app may
+    // well begin a line with `#`, and strip would silently drop it.
+    let mut args = vec!["commit", "--cleanup=whitespace"];
     if amend {
         args.push("--amend");
     }

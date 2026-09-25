@@ -8,6 +8,8 @@
  * with Retry / Abort. State is the store's, per window, never persisted.
  */
 
+import { terminalsInside as terminalsIn } from '../../../core/git/checkouts';
+import { continueGate, trackerProgress } from '../../../core/git/conflicts';
 import type { FinishStep, FinishStepId, FinishStepStatus } from '../../../core/git/types';
 import { pathKey } from '../../../core/tab-workspaces';
 import { gitStore } from '../../stores/git';
@@ -88,19 +90,18 @@ export function FinishFlow({ root }: { root: string }) {
   const current = finish.steps[finish.current];
   const label = checkoutLabel(finish.worktree, root);
   const wtKey = pathKey(finish.worktree);
-  const terminalsInside = tabs
-    .filter(
-      (t) =>
-        t.kind === 'terminal' &&
-        t.terminalCwd !== null &&
-        (pathKey(t.terminalCwd) === wtKey || pathKey(t.terminalCwd).startsWith(`${wtKey}/`)),
-    )
-    .map(tabDisplayTitle);
+  const terminalsInside = terminalsIn(
+    tabs
+      .filter((t) => t.kind === 'terminal')
+      .map((t) => ({ id: t.id, title: tabDisplayTitle(t), cwd: t.terminalCwd })),
+    finish.worktree,
+  ).map((s) => s.title);
   const workspaceEntry = workspaces.find((w) => pathKey(w.path) === wtKey) ?? null;
 
-  const cleanCount = tracker ? tracker.files.filter((f) => tracker.markerFree[f]).length : 0;
-  const trackerClean =
-    conflicted.length === 0 && (tracker === null || cleanCount === tracker.files.length);
+  const cleanCount = tracker ? trackerProgress(tracker).clean : 0;
+  const gate = continueGate(conflicted.length, tracker);
+  const trackerClean = gate.enabled;
+  const blockers = finish.blockers ?? [];
 
   return (
     <div className="git-detail-scroll git-finish">
@@ -112,13 +113,26 @@ export function FinishFlow({ root }: { root: string }) {
           </span>
         </div>
         <div className="git-commit-byline">
-          {finish.finished
-            ? finish.aborted
-              ? 'Aborted — nothing more will run.'
-              : 'Done.'
-            : 'Each step runs in turn; the flow pauses where you are needed.'}
+          {blockers.length > 0
+            ? 'Not started — settle the items below, then press Finish again.'
+            : finish.finished
+              ? finish.aborted
+                ? 'Aborted — nothing more will run.'
+                : 'Done.'
+              : 'Each step runs in turn; the flow pauses where you are needed.'}
         </div>
       </div>
+
+      {blockers.length > 0 && (
+        <ul className="git-blockers">
+          {blockers.map((b) => (
+            <li key={b.code} className="git-blocker">
+              <Icon name="flag" />
+              <span>{b.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <ol className="git-steps">
         {finish.steps.map((step, i) => (
@@ -256,7 +270,11 @@ export function FinishFlow({ root }: { root: string }) {
                 type="button"
                 className="git-btn git-btn-accent"
                 disabled={!trackerClean}
-                title={trackerClean ? 'Commit the merge and go on' : 'Files are still unmerged'}
+                title={
+                  trackerClean
+                    ? 'Commit the merge and go on'
+                    : (gate.reason ?? 'Files are still unmerged')
+                }
                 onClick={() => void actions.continueFinish(root)}
               >
                 Continue
