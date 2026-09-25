@@ -41,6 +41,7 @@ import type {
   GitOutputLine,
   GitStatus,
   SelectedItem,
+  StatusGroups,
 } from '../../core/git/types';
 import type { GitRepoInfo } from '../../ipc/commands';
 
@@ -172,6 +173,8 @@ export interface RepoState {
   /** Absolute path of the checkout shown; `mainRoot` until the user picks. */
   selectedCheckout: string;
   status: GitStatus | null;
+  /** `status.entries` grouped for the four change sections (core/git/status.ts `groupStatus`). */
+  groups: StatusGroups;
   branches: GitBranch[];
   log: GitCommit[];
   logExhausted: boolean;
@@ -302,6 +305,7 @@ export function emptyRepoState(mainRoot: string, checkout?: string | null): Repo
     checkouts: [],
     selectedCheckout: checkout ?? mainRoot,
     status: null,
+    groups: { staged: [], unstaged: [], untracked: [], conflicted: [] },
     branches: [],
     log: [],
     logExhausted: false,
