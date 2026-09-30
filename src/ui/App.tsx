@@ -47,6 +47,9 @@ export function App() {
   const activeDeck = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.deck);
   const distractionFree = useUiStore((s) => s.distractionFree);
   const osFullscreen = useUiStore((s) => s.osFullscreen);
+  // The deck show covers everything (see below). A presentation is not a
+  // knowledge base being browsed, so the workspace pane's ways in stay away.
+  const deckShowing = osFullscreen && !!activeDeck && !!activeTabId;
 
   // Tap-and-hold anywhere while chrome-less opens the escape-hatch menu.
   useFullscreenLongPress(distractionFree);
@@ -119,9 +122,7 @@ export function App() {
       {/* Full screen on a deck is the show: one slide on a dark stage, keys
           to move (ui/components/DeckShow). Escape leaves full screen as in
           every mode, which is the light table on the slide that was showing. */}
-      {osFullscreen && activeDeck && activeTabId && (
-        <DeckShow key={activeTabId} tabId={activeTabId} />
-      )}
+      {deckShowing && activeTabId && <DeckShow key={activeTabId} tabId={activeTabId} />}
       <SettingsDialog />
       <ExportPreviewDialog />
       <DiagramViewer />
@@ -137,9 +138,12 @@ export function App() {
           tap-and-hold menu (which works on a board too, where the old
           double-tap-the-edge gesture never reached the window). */}
       {distractionFree && !isAndroid() && (
-        <FullscreenControls osFullscreen={osFullscreen} terminalActive={terminalActive} />
+        <FullscreenControls
+          osFullscreen={osFullscreen}
+          showExplorerToggle={!terminalActive && !deckShowing}
+        />
       )}
-      {distractionFree && !isAndroid() && !terminalActive && <WorkspacePull />}
+      {distractionFree && !isAndroid() && !terminalActive && !deckShowing && <WorkspacePull />}
       <FullscreenMenu />
       {/* Distraction-free hides all chrome and leaves the OS window in place, so
           there's no titlebar to grab. A strip over the top of the view doubles as
@@ -185,10 +189,10 @@ export function App() {
  */
 function FullscreenControls({
   osFullscreen,
-  terminalActive,
+  showExplorerToggle,
 }: {
   osFullscreen: boolean;
-  terminalActive: boolean;
+  showExplorerToggle: boolean;
 }) {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const canGoBack = usePreviewNav(
@@ -244,8 +248,9 @@ function FullscreenControls({
   const buttons = (
     <>
       {/* The workspace pane, so a knowledge base can be browsed without leaving
-          the view. The left-edge pull tab (WorkspacePull) opens it too. */}
-      {!terminalActive && (
+          the view. The left-edge pull tab (WorkspacePull) opens it too. Not
+          on a terminal, and not over a deck show. */}
+      {showExplorerToggle && (
         <button
           className="fullscreen-btn"
           aria-label="Toggle file explorer"

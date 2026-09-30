@@ -10,6 +10,9 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Cleaner slide shows.** Touching the screen during a full-screen Marp
+  presentation no longer pops up the Workspaces button or pull tab.
+
 ## [0.10.0] — 2026-09-25
 
 - **Prompt files.** The prompt status strip now appears only on notes named
