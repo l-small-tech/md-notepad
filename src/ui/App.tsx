@@ -8,11 +8,13 @@
  */
 
 import { useEffect, useState } from 'react';
+import { isAudioPath } from '../core/audio';
 import { TabBar } from './components/TabBar';
 import { Ribbon } from './components/Ribbon';
 import { FileExplorer } from './components/FileExplorer';
 import { OutlinePanel } from './components/OutlinePanel';
 import { EditorHost } from './components/EditorHost';
+import { AudioView } from './components/AudioView';
 import { ImageView } from './components/ImageView';
 import { ImportView } from './components/ImportView';
 import { TerminalTab } from './components/TerminalTab';
@@ -103,7 +105,9 @@ export function App() {
           {tabs.map((tab) =>
             // A tab's kind never changes, so each branch is stable per key and
             // never remounts an editor (I7 holds).
-            tab.kind === 'image' ? (
+            tab.kind === 'image' && tab.filePath && isAudioPath(tab.filePath) ? (
+              <AudioView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
+            ) : tab.kind === 'image' ? (
               <ImageView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />
             ) : tab.kind === 'import' ? (
               <ImportView key={tab.id} tabId={tab.id} active={tab.id === activeTabId} />

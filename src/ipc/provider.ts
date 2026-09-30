@@ -36,6 +36,7 @@ import {
   type PathStat,
 } from './commands';
 import { isAndroid } from '../ui/platform';
+import { isAudioPath } from '../core/audio';
 import { isImagePath } from '../core/images';
 import { isImportablePath } from '../core/import/registry';
 import { isEditableTextPath } from '../core/text-files';
@@ -187,7 +188,7 @@ function isMarkdown(name: string): boolean {
 }
 
 /**
- * Explorer-visible entry: a subfolder, a text note (.md/.txt), an image, or an
+ * Explorer-visible entry: a subfolder, a text note (.md/.txt), an image, audio, or an
  * importable document (PDF/DOCX — see the import registry); no dot-files. The
  * desktop (local FS) listing applies the equivalent filter in Rust `list_dir`.
  * `allFiles` (unsupported files shown) lists every non-hidden file.
@@ -197,7 +198,12 @@ function isListed(name: string, isDir: boolean, allFiles: boolean): boolean {
     return false;
   }
   return (
-    isDir || allFiles || isEditableTextPath(name) || isImagePath(name) || isImportablePath(name)
+    isDir ||
+    allFiles ||
+    isEditableTextPath(name) ||
+    isImagePath(name) ||
+    isAudioPath(name) ||
+    isImportablePath(name)
   );
 }
 
