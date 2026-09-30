@@ -186,6 +186,26 @@ export const LESSONS_SEED = `# Lessons learned
 Things agents found out the hard way. Newest first. (See AGENTS.md.)
 `;
 
+export const TODO_DIRECTIVE = `## TODO list
+
+\`TODO.md\` is the shared task list for this workspace — the user and agents both add to it. Read it at the start of every task. Items are GitHub task-list lines (\`- [ ] …\`), one task per line, most important first, under three headings: \`## Now\`, \`## Later\`, \`## Done\`.
+
+- When you start an item, move it to the top of \`## Now\`. When it is finished and verified, tick it (\`- [x]\`), move it to the top of \`## Done\` and append the date (\`— YYYY-MM-DD\`).
+- Found work you will not do now (a bug, a follow-up, a loose end)? Add it under \`## Later\` with one line of context instead of doing it unasked.
+- Edit only the lines you touch; never reword, reorder or delete the user's items, and ask before removing one.
+`;
+
+export const TODO_SEED = `# TODO
+
+Shared task list for people and agents (see AGENTS.md). Tick items off as they are done.
+
+## Now
+
+## Later
+
+## Done
+`;
+
 export const WORKTREES_DIRECTIVE = `## Git worktree workflow
 
 Several agents may work here at once, so never change files on the main checkout.

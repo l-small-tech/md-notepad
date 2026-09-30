@@ -16,6 +16,11 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   and loudness. **Transcribe to note** runs the recording through the offline
   Whisper model and opens the text as a new note.
 
+- **TODO list directive.** Initialize workspace can now add a shared `TODO.md`
+  checklist that agents read, tick off and add follow-ups to.
+- **Cleaner slide shows.** Touching the screen during a full-screen Marp
+  presentation no longer pops up the Workspaces button or pull tab.
+
 ## [0.10.0] — 2026-09-25
 
 - **Prompt files.** The prompt status strip now appears only on notes named
