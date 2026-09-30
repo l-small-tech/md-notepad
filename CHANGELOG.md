@@ -10,6 +10,9 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **TODO list directive.** Initialize workspace can now add a shared `TODO.md`
+  checklist that agents read, tick off and add follow-ups to.
+
 ## [0.10.0] — 2026-09-25
 
 - **Prompt files.** The prompt status strip now appears only on notes named

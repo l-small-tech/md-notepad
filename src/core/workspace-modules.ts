@@ -35,6 +35,8 @@ import {
   MARP_DECKS_DIRECTIVE,
   PROMPT_STATUS_DIRECTIVE,
   STATUS_SCRIPT,
+  TODO_DIRECTIVE,
+  TODO_SEED,
   WORKTREES_DIRECTIVE,
 } from './workspace-module-texts';
 import { EXAMPLE_DECK, EXAMPLE_DECK_PATH } from './deck-template';
@@ -96,6 +98,16 @@ export const BUILTIN_MODULES: readonly WorkspaceModule[] = [
     description: 'Agents add a line to CHANGELOG.md for every change you would notice.',
     directive: CHANGELOG_DIRECTIVE,
     files: [{ path: 'CHANGELOG.md', text: CHANGELOG_SEED }],
+    recommended: false,
+    source: 'builtin',
+  },
+  {
+    id: 'todo',
+    title: 'TODO list',
+    description:
+      'TODO.md is a checklist you and your agents share: they read it, tick items off and log follow-ups.',
+    directive: TODO_DIRECTIVE,
+    files: [{ path: 'TODO.md', text: TODO_SEED }],
     recommended: false,
     source: 'builtin',
   },
