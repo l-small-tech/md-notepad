@@ -36,8 +36,12 @@ export type EditorMode = 'raw' | 'split' | 'wysiwyg' | 'read' | 'draw' | 'term' 
  *           notes dir that the session flusher owns entirely.
  * 'file'  — a user-opened file anywhere on disk; explicit save semantics,
  *           unsaved edits are session-buffered (see core/session).
- * 'image' — a read-only image viewer over `filePath`. Never written, never
- *           buffered; the flusher only records it in the manifest.
+ * 'image' — a read-only media viewer over `filePath`: an image, or — for an
+ *           audio extension (core/audio.ts `isAudioPath`) — the audio player.
+ *           Audio reuses this kind rather than adding one so an older build
+ *           restoring the manifest degrades to "could not load" instead of
+ *           rejecting the whole session. Never written, never buffered; the
+ *           flusher only records it in the manifest.
  * 'import' — a foreign document (PDF/DOCX) shown as an inline import card over
  *           `filePath`: offers a one-click "Import as Markdown" (no dialog), or
  *           a link to the already-imported note. Like 'image', it holds no text

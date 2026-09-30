@@ -92,6 +92,12 @@ pub struct DirEntryMeta {
 /// mirror in `src/core/images.ts` (both sides filter; Rust is the gatekeeper).
 const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 
+/// Audio the explorer lists and the audio tab plays. Mirrors `AUDIO_MIME` in
+/// `src/core/audio.ts`.
+const AUDIO_EXTENSIONS: [&str; 9] = [
+    "mp3", "wav", "m4a", "aac", "ogg", "oga", "opus", "flac", "weba",
+];
+
 // Foreign documents the app can offer to import as markdown. Mirrors the TS
 // import registry (src/core/import/registry.ts) — the SAF (Android) listing
 // filters with that registry; this desktop `list_dir` path keeps its own copy.
@@ -111,6 +117,10 @@ fn is_image_path(path: &Path) -> bool {
     IMAGE_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
+fn is_audio_path(path: &Path) -> bool {
+    AUDIO_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
+}
+
 fn is_importable_path(path: &Path) -> bool {
     IMPORT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
@@ -120,9 +130,10 @@ pub(crate) fn is_text_path(path: &Path) -> bool {
     TEXT_EXTENSIONS.iter().any(|ext| has_extension(path, ext))
 }
 
-/// A file the explorer lists by default: text note, image, or importable doc.
+/// A file the explorer lists by default: text note, image, audio, or
+/// importable doc.
 fn is_listed_file(path: &Path) -> bool {
-    is_text_path(path) || is_image_path(path) || is_importable_path(path)
+    is_text_path(path) || is_image_path(path) || is_audio_path(path) || is_importable_path(path)
 }
 
 fn mtime_ms(meta: &fs::Metadata) -> u64 {
@@ -1207,6 +1218,8 @@ mod tests {
         // Importable documents (any case) are listed so the user can import them.
         fs::write(dir.path().join("report.pdf"), "5").unwrap();
         fs::write(dir.path().join("Memo.DOCX"), "6").unwrap();
+        // Audio plays in the audio tab.
+        fs::write(dir.path().join("memo.M4A"), "7").unwrap();
 
         let entries = block_on(list_dir(dir.path().to_path_buf(), None)).unwrap();
         let names: Vec<_> = entries
@@ -1229,6 +1242,7 @@ mod tests {
             file_names,
             vec![
                 "Memo.DOCX",
+                "memo.M4A",
                 "note.md",
                 "photo.PNG",
                 "plain.txt",

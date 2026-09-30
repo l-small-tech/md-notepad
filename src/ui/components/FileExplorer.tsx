@@ -63,6 +63,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { isAudioPath } from '../../core/audio';
 import { bytesToBase64, isImagePath } from '../../core/images';
 import { baseName, dirName } from '../../core/session/plan-flush';
 import { isImportablePath } from '../../core/import/registry';
@@ -391,7 +392,11 @@ export function FileExplorer() {
       }
     }
     const usable = files.filter(
-      (f) => f.type in MIME_EXT || isImagePath(f.name) || isEditableTextPath(f.name),
+      (f) =>
+        f.type in MIME_EXT ||
+        isImagePath(f.name) ||
+        isAudioPath(f.name) ||
+        isEditableTextPath(f.name),
     );
     if (usable.length === 0) {
       return;

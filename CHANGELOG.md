@@ -10,6 +10,12 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Audio player.** MP3, WAV, M4A, AAC, OGG, Opus and FLAC files show in the
+  explorer and open in their own tab. The tab has a waveform you click or drag
+  to seek, playback speed, looping, and the file's format, length, sample rate
+  and loudness. **Transcribe to note** runs the recording through the offline
+  Whisper model and opens the text as a new note.
+
 ## [0.10.0] — 2026-09-25
 
 - **Prompt files.** The prompt status strip now appears only on notes named
