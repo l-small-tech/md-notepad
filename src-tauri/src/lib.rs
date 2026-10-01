@@ -320,6 +320,8 @@ pub fn run() {
             commands::git::git_show_file,
             #[cfg(desktop)]
             commands::git::git_file_changes,
+            #[cfg(desktop)]
+            commands::git::git_trust_directory,
             // The git tab (status, refs, staging, commits, merges, worktrees,
             // network), desktop only.
             #[cfg(desktop)]
