@@ -34,6 +34,8 @@ export type IpcErrorCode =
   /* Git (src-tauri commands/git/), desktop only. */
   | 'GIT_NOT_FOUND'
   | 'GIT_NOT_A_REPO'
+  /** git's `safe.directory` check refused the repository (owned by another account). */
+  | 'GIT_UNTRUSTED'
   | 'GIT_TIMEOUT'
   | 'GIT_FAILED'
   /** The user cancelled a fetch / pull / push (`gitOpCancel`). */
@@ -61,6 +63,7 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
   'WHISPER_DOWNLOAD_BUSY',
   'GIT_NOT_FOUND',
   'GIT_NOT_A_REPO',
+  'GIT_UNTRUSTED',
   'GIT_TIMEOUT',
   'GIT_FAILED',
   'GIT_CANCELLED',
@@ -75,6 +78,7 @@ const IPC_ERROR_CODES: readonly IpcErrorCode[] = [
 export type GitErrorCode =
   | 'GIT_NOT_FOUND'
   | 'GIT_NOT_A_REPO'
+  | 'GIT_UNTRUSTED'
   | 'GIT_TIMEOUT'
   | 'GIT_FAILED'
   | 'GIT_CANCELLED'
@@ -372,12 +376,16 @@ export type GitOutputEvent =
 
 /**
  * Is this rejection git's absence rather than a real failure? True for
- * `GIT_NOT_FOUND` (no git binary) and `GIT_NOT_A_REPO` (the file lives
- * outside a repository) — both mean "hide the baseline picker with a hint",
- * while `GIT_TIMEOUT` / `GIT_FAILED` are worth reporting.
+ * `GIT_NOT_FOUND` (no git binary), `GIT_NOT_A_REPO` (the file lives
+ * outside a repository) and `GIT_UNTRUSTED` (git's `safe.directory` check
+ * refused it) — all mean "hide the baseline picker with a hint", while
+ * `GIT_TIMEOUT` / `GIT_FAILED` are worth reporting.
  */
 export function isGitUnavailable(err: unknown): boolean {
-  return err instanceof IpcError && (err.code === 'GIT_NOT_FOUND' || err.code === 'GIT_NOT_A_REPO');
+  return (
+    err instanceof IpcError &&
+    (err.code === 'GIT_NOT_FOUND' || err.code === 'GIT_NOT_A_REPO' || err.code === 'GIT_UNTRUSTED')
+  );
 }
 
 /** One raw entry from a synced-folder listing (name only, not a full id). */
@@ -669,6 +677,12 @@ export const ipc = {
    */
   gitFileChanges: (root: string, rel: string, baseRef: string, branches: string[]) =>
     call<GitFileChange[]>('git_file_changes', { root, rel, baseRef, branches }),
+  /**
+   * Answer a `GIT_UNTRUSTED` refusal: add the repository holding `path` to the
+   * user's global `safe.directory` list (the path git itself names). Call only
+   * after the user confirmed; a repository git already trusts is a no-op.
+   */
+  gitTrustDirectory: (path: string) => call<void>('git_trust_directory', { path }),
 
   /* ------------------------------ git tab ------------------------------- */
   /* Desktop only (src-tauri commands/git/). `root` is always the CHECKOUT to

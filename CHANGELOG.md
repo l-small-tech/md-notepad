@@ -18,6 +18,9 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 - **TODO list directive.** Initialize workspace can now add a shared `TODO.md`
   checklist that agents read, tick off and add follow-ups to.
+- **Git tab in folders git won't trust.** Opening Git on a repository owned
+  by another account (an admin-created folder, an exFAT or network drive) no
+  longer just fails with "dubious ownership" — it offers to trust the folder.
 - **Cleaner slide shows.** Touching the screen during a full-screen Marp
   presentation no longer pops up the Workspaces button or pull tab.
 

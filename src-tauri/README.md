@@ -34,7 +34,10 @@ session concepts in Rust, stop and move it to `src/core`.
     `git_show_file` (`git show <rev>:<rel>`; `None` — not an error — when the
     path did not exist at that revision), `git_file_changes` (per branch, does
     its blob for one path differ from the baseline's? one `rev-parse` per
-    branch, no checkouts). The baseline branch is auto-detected —
+    branch, no checkouts). Plus `git_trust_directory`: git's "dubious
+    ownership" refusal (`safe.directory`) classifies as `GIT_UNTRUSTED`, and
+    on the user's confirmation this adds the path GIT names (never the
+    caller's string) to the global `safe.directory` list. The baseline branch is auto-detected —
     `development`, then `main`, then `master` — and overridden by the
     frontend's `reviewBaseBranch` setting. `pub use`s every command fn (and
     the two helper macros `#[tauri::command]` emits per fn) so `lib.rs` keeps
@@ -204,14 +207,15 @@ shares `INVALID_DATA` / `IO`, and adds its own codes — the sheet's
 | `DownloadCancelled` | `WHISPER_DOWNLOAD_CANCELLED` | `whisper_model_cancel` landed; the `.part` stays |
 | `DownloadBusy` | `WHISPER_DOWNLOAD_BUSY` | one download at a time |
 
-`GitError` (`src/commands/git/mod.rs`) serializes the same shape with seven
+`GitError` (`src/commands/git/mod.rs`) serializes the same shape with eight
 codes of its own; `isGitUnavailable` in `src/ipc/commands.ts` treats the first
-two as "hide the feature", not as failures:
+three as "hide the feature", not as failures:
 
 | Rust `GitError` | wire `code` | TS meaning |
 | --- | --- | --- |
 | `NoGit` | `GIT_NOT_FOUND` | no `git` binary on `PATH` |
 | `NotARepo(path)` | `GIT_NOT_A_REPO` | the path is outside any repository |
+| `Untrusted(path)` | `GIT_UNTRUSTED` | git's `safe.directory` check refused the repo (owned by another account); `git_trust_directory` fixes it |
 | `Timeout` | `GIT_TIMEOUT` | git was killed at its mode's limit (3 s read, 30 s mutate, 120 s network) |
 | `Failed { stderr }` | `GIT_FAILED` | git ran and failed; message is its stderr |
 | `Cancelled` | `GIT_CANCELLED` | `git_op_cancel` landed on a fetch / pull / push |

@@ -144,6 +144,7 @@ function fakeIpc(): FakeIpc {
     gitMergeAbort: vi.fn(() => Promise.resolve()),
     gitWorktreeAdd: vi.fn(() => Promise.resolve()),
     gitWorktreeRemove: vi.fn(() => Promise.resolve()),
+    gitTrustDirectory: vi.fn(() => Promise.resolve()),
     readTextFile: vi.fn(() => Promise.resolve({ text: '', mtimeMs: 0 })),
     atomicWriteText: vi.fn(() => Promise.resolve()),
   };
@@ -347,6 +348,37 @@ describe('refresh', () => {
     await h.s().refresh(MAIN, { force: true });
     expect(h.r().error).toEqual({ code: 'GIT_FAILED', message: 'Git: broken' });
     expect(h.notices()).toEqual(['Git: broken']);
+  });
+
+  test('an untrusted repository is a state; trusting it confirms, trusts and reloads', async () => {
+    const h = harness();
+    h.ipc.gitRepoInfo.mockRejectedValue(new IpcError('GIT_UNTRUSTED', 'owned by another user'));
+    await h.open();
+    expect(h.r().unavailable).toBe('untrusted');
+    expect(h.notices()).toEqual([]);
+
+    // Declined: nothing is written to the git config.
+    (h.deps.confirm as Mock).mockResolvedValueOnce(false);
+    expect(await h.s().trustFolder(MAIN)).toBe(false);
+    expect(h.ipc.gitTrustDirectory).not.toHaveBeenCalled();
+    expect(h.r().unavailable).toBe('untrusted');
+
+    // Confirmed: trusted, and the tab comes back to life.
+    h.ipc.gitRepoInfo.mockResolvedValue(info);
+    expect(await h.s().trustFolder(MAIN)).toBe(true);
+    expect(h.ipc.gitTrustDirectory).toHaveBeenCalledWith(MAIN);
+    await flush();
+    expect(h.r().unavailable).toBeNull();
+    expect(h.ipc.gitStatus).toHaveBeenCalled();
+  });
+
+  test('a failed trust is a notice and reports false', async () => {
+    const h = harness();
+    h.ipc.gitTrustDirectory.mockRejectedValue(
+      new IpcError('GIT_FAILED', 'error: could not lock config file'),
+    );
+    expect(await h.s().trustFolder('D:/proj')).toBe(false);
+    expect(h.notices()).toEqual(['Git: could not lock config file']);
   });
 
   test('forget drops the repository', async () => {
