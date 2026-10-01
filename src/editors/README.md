@@ -123,6 +123,27 @@ code, comments → quote), so themes need nothing new. Like `'xml'` and
 
 ---
 
+## Heading marks (both text editors)
+
+Right-click an ATX heading → Mark running / Mark complete / Clear mark. The
+mark is a trailing glyph in the heading text (`core/heading-mark.ts`), so the
+editors only (a) decide a line IS a heading, (b) rewrite its tail, and (c)
+tint it with `.heading-mark .heading-mark-<mark>` (app.css).
+
+- `heading-marks-cm6.ts` (markdown language only): a `ViewPlugin` of line
+  decorations over the visible ranges, and a `contextmenu` handler that
+  checks the syntax tree (`ATXHeading*`, so fenced `#` lines never qualify)
+  and replaces just that line as a `input.heading-mark` user edit.
+- `heading-marks-milkdown.ts` (lazy chunk only — imported by `milkdown.ts`
+  through `crepe.editor.use`): a ProseMirror plugin with node decorations
+  and the same menu; it replaces only the glyph tail with an unmarked text
+  node and is NOT tagged programmatic, so the guard writes it back.
+- `heading-mark-menu.ts` is the shared menu, built on
+  `whiteboard-menu.ts`'s `openContextMenu`. Only heading right-clicks are
+  taken; everywhere else the native copy/paste menu stays.
+
+---
+
 ## milkdown.ts — Crepe/Milkdown WYSIWYG (M5)
 
 Loaded ONLY via dynamic import from the wysiwyg `AdapterFactory` (I8):
