@@ -10,6 +10,15 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+- **Mark headings running or complete.** Right-click a heading in Raw,
+  Split or Edit mode to mark it running (⏳, amber bar) or complete (✅,
+  green bar). The mark is saved in the heading text, so it travels with the
+  file.
+- **Prompt status removed.** The *Prompt status* workspace directive, the
+  strip above `*.prompts.md` notes and the Workspace status panel are gone.
+  Re-running **Workspace directives…** on a workspace removes the old
+  section from its `AGENTS.md`; `.notepad/status.py` and
+  `prompts/STATUSES.md` are left for you to delete.
 - **Audio player.** MP3, WAV, M4A, AAC, OGG, Opus and FLAC files show in the
   explorer and open in their own tab. The tab has a waveform you click or drag
   to seek, playback speed, looping, and the file's format, length, sample rate
