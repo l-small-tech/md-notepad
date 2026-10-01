@@ -10,6 +10,8 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-10-01
+
 - **Mark headings running or complete.** Right-click a heading in Raw,
   Split or Edit mode to mark it running (⏳, amber bar) or complete (✅,
   green bar). The mark is saved in the heading text, so it travels with the
@@ -24,7 +26,6 @@ Keep an `## [Unreleased]` section at the top while working; rename it to
   to seek, playback speed, looping, and the file's format, length, sample rate
   and loudness. **Transcribe to note** runs the recording through the offline
   Whisper model and opens the text as a new note.
-
 - **TODO list directive.** Initialize workspace can now add a shared `TODO.md`
   checklist that agents read, tick off and add follow-ups to.
 - **Git tab in folders git won't trust.** Opening Git on a repository owned
